@@ -270,6 +270,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
                              field_json["optional"], field_json[fields::index], field_json[fields::locale],
                              field_json[fields::sort], field_json[fields::infix]);
+        fallback_field.track_missing_values = field_json[fields::track_missing_values];
 
         if(fallback_field.has_valid_type()) {
             fallback_field_type = fallback_field.type;

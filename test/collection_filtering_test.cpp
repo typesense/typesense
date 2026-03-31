@@ -4770,6 +4770,37 @@ TEST_F(CollectionFilteringTest, MissingFilterRegexDynamicFields) {
     collectionManager.drop_collection("products");
 }
 
+TEST_F(CollectionFilteringTest, MissingFilterFallbackField) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": ".*", "type": "string*", "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "color": "red"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "size": "L"})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("products");
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaAlter) {
     auto schema = R"({
         "name": "products",
