@@ -4726,6 +4726,50 @@ TEST_F(CollectionFilteringTest, MissingFilterOnArrayFields) {
     collectionManager.drop_collection("products");
 }
 
+TEST_F(CollectionFilteringTest, MissingFilterRegexDynamicFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "extra_.*", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    // Index docs before and after concrete regex-matched fields are materialized.
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "extra_size": "L", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "extra_color": "green", "points": 30})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "extra_color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    results = coll->search("*", {}, "extra_color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "extra_size: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    results = coll->search("*", {}, "extra_size: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaAlter) {
     auto schema = R"({
         "name": "products",
