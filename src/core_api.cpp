@@ -1296,7 +1296,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         auto conversation_history = conversation_history_op.get();
 
         std::vector<std::string> exclude_fields;
-        StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
+        StringUtils::split(orig_req_params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
         auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
