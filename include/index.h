@@ -458,7 +458,7 @@ private:
     id_list_t* seq_ids;
     mutable std::shared_mutex seq_ids_mutex;
 
-    // optional field existence index (only for fields with optional_index=true)
+    // tracks which docs are missing a field
     spp::sparse_hash_map<std::string, id_list_t*> field_missing_index;
 
     std::vector<char> symbols_to_index;

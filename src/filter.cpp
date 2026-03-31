@@ -518,30 +518,33 @@ Option<bool> toFilter(const std::string& expression,
     std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
     StringUtils::trim(raw_value);
 
-    // Handle existence filter: field: _exists  or  field: !_exists
-    if(raw_value.find("_exists") != std::string::npos && raw_value[0] != '=') {
-        std::string trimmed = raw_value;
-        StringUtils::trim(trimmed);
+    // Handle missing filter: field: _missing  or  field: !_missing
+    std::string trimmed = raw_value;
+    StringUtils::trim(trimmed);
+    if(!trimmed.empty() && trimmed[0] != '=') {
+        std::string missing_token = trimmed;
 
         bool is_negated = false;
-        if (!trimmed.empty() && trimmed[0] == '!') {
+        if(!missing_token.empty() && missing_token[0] == '!') {
             is_negated = true;
-            trimmed = trimmed.substr(1);
-            StringUtils::trim(trimmed);
+            missing_token = missing_token.substr(1);
+            StringUtils::trim(missing_token);
         }
 
-        if (trimmed != "_exists") {
-            return Option<bool>(400, "Invalid syntax for existence filter.");
+        if(missing_token == "_missing") {
+            if(!_field.optional || !_field.track_missing_values) {
+                return Option<bool>(400, "Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.");
+            }
+
+            filter_exp = {field_name, {}, {MISSING}};
+            filter_exp.apply_not_equals = is_negated;
+
+            return Option<bool>(true);
         }
 
-        if (!_field.optional || !_field.optional_index) {
-            return Option<bool>(400, "Existence filter can only be applied to optional fields with `optional_index` enabled in the schema.");
+        if(StringUtils::begins_with(missing_token, "_missing")) {
+            return Option<bool>(400, "Invalid syntax for missing filter.");
         }
-
-        filter_exp = {field_name, {}, {EXISTS}};
-        filter_exp.apply_not_equals = is_negated;
-
-        return Option<bool>(true);
     }
 
     // skip past optional `:=` operator, which has no meaning for non-string fields

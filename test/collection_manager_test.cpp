@@ -153,7 +153,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"title",
               "nested":false,
               "optional":false,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -170,7 +170,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"starring",
               "nested":false,
               "optional":false,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -187,7 +187,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"cast",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string[]",
@@ -204,7 +204,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":".*_year",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int32",
@@ -221,7 +221,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"location",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"geopoint",
@@ -238,7 +238,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"not_stored",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -255,7 +255,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"points",
               "nested":false,
               "optional":false,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int32",
@@ -273,7 +273,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":true,
               "nested_array":2,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"object",
@@ -292,7 +292,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "num_dim":128,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"float[]",
@@ -312,7 +312,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"product_id",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -330,7 +330,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"product_id_sequence_id",
               "nested":false,
               "optional":true,
-              "optional_index":false,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int64",
@@ -1736,7 +1736,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
-                    "optional_index":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -1754,7 +1754,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
-                    "optional_index":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -1771,7 +1771,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
-                    "optional_index":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -1788,7 +1788,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
-                    "optional_index":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2119,4 +2119,17 @@ TEST_F(CollectionManagerTest, CloneCollectionWithDocuments) {
     collectionManager.drop_collection("source_collection");
     collectionManager.drop_collection("cloned_collection_no_docs");
     collectionManager.drop_collection("cloned_collection_with_docs");
+}
+
+TEST_F(CollectionManagerTest, FieldFromJsonPreservesTrackMissingValues) {
+    auto field_json = R"({
+        "name": "color",
+        "type": "string",
+        "optional": true,
+        "track_missing_values": true
+    })"_json;
+
+    auto parsed_field = field::field_from_json(field_json);
+    ASSERT_TRUE(parsed_field.optional);
+    ASSERT_TRUE(parsed_field.track_missing_values);
 }

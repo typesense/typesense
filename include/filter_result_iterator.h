@@ -329,14 +329,23 @@ private:
 
     bool delete_filter_node = false;
 
-    bool is_existence_filter = false;
-    id_list_t* existence_list_ptr = nullptr;
+    bool is_missing_filter = false;
+    id_list_t* missing_list_ptr = nullptr;
 
     /// Resets the iterator state from the given id list.
     void reset_from_id_list(id_list_t* source);
 
     /// Computes the full result from the given id list.
     void compute_result_from_id_list(id_list_t* source);
+
+    /// Resets the iterator state for missing filters.
+    void reset_missing_iterator();
+
+    /// Advances the iterator state for missing filters.
+    void advance_missing_iterator();
+
+    /// Computes the full result for missing filters.
+    void compute_missing_result();
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 

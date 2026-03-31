@@ -122,8 +122,8 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             field_obj[fields::cascade_delete] = true;
         }
 
-        if(field_obj.count(fields::optional_index) == 0) {
-            field_obj[fields::optional_index] = false;
+        if(field_obj.count(fields::track_missing_values) == 0) {
+            field_obj[fields::track_missing_values] = false;
         }
 
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
@@ -162,7 +162,7 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
                 field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
                 field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators],
                 field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len],
-                field_obj[fields::optional_index]);
+                field_obj[fields::track_missing_values]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
