@@ -2522,26 +2522,32 @@ Option<bool> Index::run_search(search_args* search_params) {
     }
 #endif
 
+    size_t first_pass_found_count = 0;
+    size_t first_pass_found_docs = 0;
+    const bool is_vector_group_query = search_params->group_limit && !search_params->vector_query.field_name.empty();
+
     if (search_params->group_limit) {
         if (!search_params->diversity.similarity_equation.empty()) {
             return Option<bool>(400, "Diversity is not supported along with group_by.");
         }
+        grouped_search_pass_state_t first_pass;
+
         auto res = search(search_params->field_query_tokens,
                           search_params->search_fields,
                           search_params->match_type,
                           filter_result_iterator, filter_result_iterator_no_groups,
-                          search_params->facets, search_params->facet_query,
+                          first_pass.facets, search_params->facet_query,
                           search_params->max_facet_values,
                           search_params->included_ids, search_params->excluded_ids,
                           search_params->sort_fields_std, search_params->num_typos,
-                          search_params->topster, search_params->curated_topster,
+                          first_pass.topster, first_pass.curated_topster,
                           search_params->fetch_size,
                           search_params->per_page, search_params->offset, search_params->token_order,
                           search_params->prefixes, search_params->drop_tokens_threshold,
-                          search_params->all_result_ids_len, search_params->groups_processed,
-                          search_params->searched_query_tokens,
-                          search_params->qtoken_set,
-                          search_params->raw_result_kvs, search_params->curation_result_kvs,
+                          first_pass.all_result_ids_len, first_pass.groups_processed,
+                          first_pass.searched_query_tokens,
+                          first_pass.qtoken_set,
+                          first_pass.raw_result_kvs, first_pass.curation_result_kvs,
                           search_params->typo_tokens_threshold,
                           search_params->group_limit,
                           search_params->group_by_fields,
@@ -2583,6 +2589,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->synonym_sets,
                           search_params->union_result_seq_ids,
                           search_params->diversity, search_params->group_max_candidates);
+        first_pass.take_ownership();
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
         filter_iterator_guard.release();
@@ -2591,8 +2598,12 @@ Option<bool> Index::run_search(search_args* search_params) {
         if (!res.ok()) {
             return res;
         }
-        if (search_params->raw_result_kvs.empty() && search_params->curation_result_kvs.empty()) {
+        if (first_pass.empty()) {
             return Option<bool>(true);
+        }
+        if (!is_vector_group_query) {
+            first_pass_found_count = first_pass.groups_count();
+            first_pass_found_docs = first_pass.all_result_ids_len;
         }
 
         std::shared_lock lock(mutex);
@@ -2612,7 +2623,7 @@ Option<bool> Index::run_search(search_args* search_params) {
         }
 
         std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
-        get_group_by_values(search_params->raw_result_kvs, search_params->curation_result_kvs, group_by_fields,
+        get_group_by_values(first_pass.raw_result_kvs, first_pass.curation_result_kvs, group_by_fields,
                             group_by_values_list);
 
         std::string filter_by;
@@ -2701,20 +2712,7 @@ Option<bool> Index::run_search(search_args* search_params) {
             filter_iterator_guard.reset(filter_result_iterator);
         }
 
-        // for grouping found_count reflects how many groups were found for the query.
-        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
-        search_params->found_docs = search_params->all_result_ids_len;
-
         filter_result_iterator_no_groups->reset();
-
-        delete search_params->topster;
-        delete search_params->curated_topster;
-
-        search_params->topster = nullptr;
-        search_params->curated_topster = nullptr;
-
-        search_params->groups_processed.clear();
-        search_params->all_result_ids_len = 0;
         group_by_missing_value_ids.clear();
     }
 
@@ -2784,15 +2782,20 @@ Option<bool> Index::run_search(search_args* search_params) {
     filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
+        search_params->found_docs = is_vector_group_query ? search_params->all_result_ids_len : first_pass_found_docs;
+
         if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
             // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
             // processed, no need to rely on approximate count.
             search_params->found_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
         } else {
-            // Doing std::max since in case of group_by, loglog_counter returns an approximate count of the number of distinct
-            // group_by values in the first pass and sometimes the count can be less than the size of returned result.
-            search_params->found_count = std::max(search_params->found_count,
-                                                  search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+            const auto grouped_result_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
+            const auto approx_group_count = is_vector_group_query
+                ? (search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount())
+                : first_pass_found_count;
+            // For vector-grouped queries, use only final-pass counts because first-pass counts are not final-qualified.
+            // For non-vector grouping, preserve the historical first-pass approximate count semantics.
+            search_params->found_count = std::max(approx_group_count, grouped_result_count);
         }
     } else {
         search_params->found_count = search_params->all_result_ids_len;
@@ -3682,7 +3685,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             goto process_search_results;
         }
 
-        if (!vector_query.field_name.empty() && !is_group_by_first_pass) {
+        if (!vector_query.field_name.empty()) {
             auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
 
             VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
@@ -4079,7 +4082,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         filter_result_iterator->reset();
         search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
-        if(!vector_query.field_name.empty() && !is_group_by_first_pass) {
+        if(!vector_query.field_name.empty()) {
             // check at least one of sort fields is text match
             bool has_text_match = false;
             for(auto& sort_field : sort_fields_std) {

@@ -10933,6 +10933,106 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_id", "type": "string"},
+                {"name": "product_group", "type": "string", "facet": true},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+            "product_id": "product_a",
+            "product_group": "group_a",
+            "vec": [0.1, 0.2, 0.3]
+        })"_json,
+            R"({
+            "product_id": "product_b",
+            "product_group": "group_b",
+            "vec": [0.6, 0.7, 0.8]
+        })"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Customers",
+            "fields": [
+                {"name": "customer_id", "type": "string"},
+                {"name": "customer_name", "type": "string", "facet": true},
+                {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+            ]
+        })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({
+            "customer_id": "customer_a",
+            "customer_name": "Joe",
+            "product_id": "product_a"
+        })"_json,
+            R"({
+            "customer_id": "customer_a",
+            "customer_name": "Joe",
+            "product_id": "product_b"
+        })"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"facet_by", "$Customers(customer_name)"},
+            {"vector_query", "vec:([0.3,0.4,0.5], distance_threshold:0.0)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["hits"].size());
+    ASSERT_EQ(1, res_obj["facet_counts"].size());
+    ASSERT_EQ("$Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(0, res_obj["facet_counts"][0]["counts"].size());
+
+    req_params["group_by"] = "product_group";
+    req_params["group_limit"] = "1";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"]);
+    ASSERT_EQ(0, res_obj["found_docs"]);
+    ASSERT_EQ(0, res_obj["grouped_hits"].size());
+    ASSERT_EQ(1, res_obj["facet_counts"].size());
+    ASSERT_EQ("$Customers(customer_name)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(0, res_obj["facet_counts"][0]["counts"].size());
+}
+
 TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     auto schema_json =
             R"({

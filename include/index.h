@@ -406,6 +406,35 @@ struct group_by_field_it_t {
 
 class Index {
 private:
+    struct grouped_search_pass_state_t {
+        // The first grouped pass only discovers candidate groups, so it does not need facet state.
+        std::vector<facet> facets;
+        spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
+        std::vector<std::vector<std::string>> searched_query_tokens;
+        tsl::htrie_map<char, token_leaf> qtoken_set;
+        Topster<KV>* topster = nullptr;
+        Topster<KV>* curated_topster = nullptr;
+        std::unique_ptr<Topster<KV>> topster_guard;
+        std::unique_ptr<Topster<KV>> curated_topster_guard;
+        std::vector<std::vector<KV*>> raw_result_kvs;
+        std::vector<std::vector<KV*>> curation_result_kvs;
+        size_t all_result_ids_len = 0;
+
+        void take_ownership() {
+            topster_guard.reset(topster);
+            curated_topster_guard.reset(curated_topster);
+        }
+
+        bool empty() const {
+            return raw_result_kvs.empty() && curation_result_kvs.empty();
+        }
+
+        size_t groups_count() const {
+            return (topster != nullptr ? topster->getGroupsCount() : 0) +
+                   (curated_topster != nullptr ? curated_topster->getGroupsCount() : 0);
+        }
+    };
+
     mutable std::shared_mutex mutex;
 
     std::string name;
