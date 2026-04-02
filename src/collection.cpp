@@ -7821,10 +7821,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         }
 
         for (auto& ref_facet: ref_facets) {
-            ref_facet.reference_collection_name = ref_collection_name;
-            ref_facet.reference_collection_alias_name = ref_alias_collection_name;
-            ref_facet.orig_index = facets.size();
-            facets.emplace_back(std::move(ref_facet));
+            facet wrapper_facet(ref_facet.field_name, facets.size(), ref_facet.is_top_k, ref_facet.facet_range_map,
+                               ref_facet.is_range_query, ref_facet.is_sort_by_alpha, ref_facet.sort_order,
+                               ref_facet.sort_field, ref_collection_name, ref_alias_collection_name);
+            wrapper_facet.nested_join_facets.emplace_back(std::move(ref_facet));
+            facets.emplace_back(std::move(wrapper_facet));
         }
 
         return Option<bool>(true);
@@ -9267,6 +9268,47 @@ std::string Collection::get_facet_str_val_with_lock(const std::string& field_nam
     return get_facet_str_val(field_name, facet_id);
 }
 
+static void get_nested_facet_collection_chain(const facet& a_facet,
+                                              std::vector<std::pair<std::string, std::string>>& collection_chain) {
+    if (!a_facet.reference_collection_name.empty()) {
+        collection_chain.emplace_back(a_facet.reference_collection_name, a_facet.reference_collection_alias_name);
+    }
+
+    if (!a_facet.nested_join_facets.empty()) {
+        get_nested_facet_collection_chain(a_facet.nested_join_facets[0], collection_chain);
+    }
+}
+
+static std::string get_nested_facet_field_name(const facet& a_facet) {
+    std::vector<std::pair<std::string, std::string>> collection_chain;
+    get_nested_facet_collection_chain(a_facet, collection_chain);
+
+    std::string field_name = a_facet.field_name;
+    for (size_t i = collection_chain.size(); i > 0; i--) {
+        const auto& collection_name = collection_chain[i - 1].second.empty() ?
+                                      collection_chain[i - 1].first :
+                                      collection_chain[i - 1].second;
+        field_name = "$" + collection_name + "(" + field_name + ")";
+    }
+
+    return field_name;
+}
+
+static std::string get_nested_facet_filter_value(const facet& a_facet, const std::string& filter_value) {
+    std::vector<std::pair<std::string, std::string>> collection_chain;
+    get_nested_facet_collection_chain(a_facet, collection_chain);
+
+    std::string field_name = a_facet.field_name + ": " + filter_value;
+    for (size_t i = collection_chain.size(); i > 0; i--) {
+        const auto& collection_name = collection_chain[i - 1].second.empty() ?
+                                      collection_chain[i - 1].first :
+                                      collection_chain[i - 1].second;
+        field_name = "$" + collection_name + "(" + field_name + ")";
+    }
+
+    return field_name;
+}
+
 union_global_params_t::union_global_params_t(const std::map<std::string, std::string> &req_params) {
     for (const auto& pair: param_pairs) {
         const auto& param = pair.first;
@@ -9345,10 +9387,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
         facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
-        if (!a_facet.reference_collection_alias_name.empty()) {
-            facet_result["field_name"] = "$" + a_facet.reference_collection_alias_name + "(" + a_facet.field_name + ")";
-        } else if(!a_facet.reference_collection_name.empty()) {
-            facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        if(!a_facet.reference_collection_name.empty()) {
+            facet_result["field_name"] = get_nested_facet_field_name(a_facet);
         }
 
         std::vector<facet_value_t> facet_values;
@@ -9379,7 +9419,9 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
             the_field = search_schema_snapshot.at(a_facet.field_name);
         } else {
             auto& cm = CollectionManager::get_instance();
-            ref_collection = cm.get_collection(a_facet.reference_collection_name);
+            std::vector<std::pair<std::string, std::string>> collection_chain;
+            get_nested_facet_collection_chain(a_facet, collection_chain);
+            ref_collection = cm.get_collection(collection_chain.back().first);
             if (ref_collection == nullptr) {
                 continue;
             }
@@ -9396,10 +9438,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                                                  facet_count.count, 0, nlohmann::json(), std::string()};
 
                     if(!a_facet.reference_collection_name.empty()) {
-                        const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
-                                                    a_facet.reference_collection_name :
-                                                    a_facet.reference_collection_alias_name;
-                        std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
+                        std::string facet_filter;
                         std::string lower_range, upper_range;
                         //lower range
                         if(the_field.is_float()){
@@ -9417,15 +9456,15 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                         if(facet_range_iter->second.lower_range == INT64_MIN) {
                             //format : range_label[ , val]
-                            facet_filter += "<=" + upper_range + ")";
+                            facet_filter = "<=" + upper_range;
                         } else if(facet_range_iter->first == INT64_MAX) {
                             //format : range_label[val, ]
-                            facet_filter += ">=" + lower_range + ")";
+                            facet_filter = ">=" + lower_range;
                         } else {
-                            facet_filter += "[" + lower_range + ".." + upper_range + "])";
+                            facet_filter = "[" + lower_range + ".." + upper_range + "]";
                         }
 
-                        facet_value.facet_filter = facet_filter;
+                        facet_value.facet_filter = get_nested_facet_filter_value(a_facet, facet_filter);
                     }
 
                     facet_values.emplace_back(facet_value);
@@ -9548,19 +9587,15 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                                              facet_count.sort_field_val, parent, std::string()};
 
                 if(!a_facet.reference_collection_name.empty()) {
-                    const auto& ref_coll_name = a_facet.reference_collection_alias_name.empty() ?
-                                                a_facet.reference_collection_name :
-                                                a_facet.reference_collection_alias_name;
-                    std::string facet_filter = "$" + ref_coll_name + "(" + a_facet.field_name + ": ";
+                    std::string facet_filter;
 
                     if(the_field.is_string()) {
-                        facet_filter += std::string("`") + value + std::string("`");
+                        facet_filter = std::string("`") + value + std::string("`");
                     } else {
-                        facet_filter += value;
+                        facet_filter = value;
                     }
 
-                    facet_filter += std::string(")");
-                    facet_value.facet_filter = facet_filter;
+                    facet_value.facet_filter = get_nested_facet_filter_value(a_facet, facet_filter);
                 }
 
                 facet_values.emplace_back(facet_value);

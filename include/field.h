@@ -822,6 +822,7 @@ struct facet {
 
     std::string reference_collection_name;
     std::string reference_collection_alias_name{};
+    std::vector<facet> nested_join_facets = {};
 
     reference_filter_result_t references{};
 
