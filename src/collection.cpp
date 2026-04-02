@@ -7823,8 +7823,12 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         for (auto& ref_facet: ref_facets) {
             facet wrapper_facet(ref_facet.field_name, facets.size(), ref_facet.is_top_k, ref_facet.facet_range_map,
                                ref_facet.is_range_query, ref_facet.is_sort_by_alpha, ref_facet.sort_order,
-                               ref_facet.sort_field, ref_collection_name, ref_alias_collection_name);
-            wrapper_facet.nested_join_facets.emplace_back(std::move(ref_facet));
+                               ref_facet.sort_field);
+            nested_facet nested_join_facet;
+            nested_join_facet.collection_name = ref_collection_name;
+            nested_join_facet.alias = ref_alias_collection_name;
+            nested_join_facet.facets.emplace_back(std::move(ref_facet));
+            wrapper_facet.nested_join_facets.emplace_back(std::move(nested_join_facet));
             facets.emplace_back(std::move(wrapper_facet));
         }
 
@@ -8159,7 +8163,7 @@ Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort
     return op;
 }
 
-Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+Option<bool> Collection::compute_facet_infos_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
                                                const uint32_t facet_query_num_typos,
                                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                                const std::vector<std::string>& group_by_fields,
@@ -9270,12 +9274,12 @@ std::string Collection::get_facet_str_val_with_lock(const std::string& field_nam
 
 static void get_nested_facet_collection_chain(const facet& a_facet,
                                               std::vector<std::pair<std::string, std::string>>& collection_chain) {
-    if (!a_facet.reference_collection_name.empty()) {
-        collection_chain.emplace_back(a_facet.reference_collection_name, a_facet.reference_collection_alias_name);
-    }
-
     if (!a_facet.nested_join_facets.empty()) {
-        get_nested_facet_collection_chain(a_facet.nested_join_facets[0], collection_chain);
+        const auto& nested_join_facet = a_facet.nested_join_facets[0];
+        collection_chain.emplace_back(nested_join_facet.collection_name, nested_join_facet.alias);
+        if (!nested_join_facet.facets.empty()) {
+            get_nested_facet_collection_chain(nested_join_facet.facets[0], collection_chain);
+        }
     }
 }
 
@@ -9387,7 +9391,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
         facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
-        if(!a_facet.reference_collection_name.empty()) {
+        if(!a_facet.nested_join_facets.empty()) {
             facet_result["field_name"] = get_nested_facet_field_name(a_facet);
         }
 
@@ -9415,7 +9419,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
         field the_field;
         std::shared_ptr<Collection> ref_collection;
-        if (a_facet.reference_collection_name.empty()) {
+        if (a_facet.nested_join_facets.empty()) {
             the_field = search_schema_snapshot.at(a_facet.field_name);
         } else {
             auto& cm = CollectionManager::get_instance();
@@ -9437,7 +9441,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                     facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(),
                                                  facet_count.count, 0, nlohmann::json(), std::string()};
 
-                    if(!a_facet.reference_collection_name.empty()) {
+                    if(!a_facet.nested_join_facets.empty()) {
                         std::string facet_filter;
                         std::string lower_range, upper_range;
                         //lower range
@@ -9586,7 +9590,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                 facet_value_t facet_value = {value, highlighted_text, facet_count.count,
                                              facet_count.sort_field_val, parent, std::string()};
 
-                if(!a_facet.reference_collection_name.empty()) {
+                if(!a_facet.nested_join_facets.empty()) {
                     std::string facet_filter;
 
                     if(the_field.is_string()) {

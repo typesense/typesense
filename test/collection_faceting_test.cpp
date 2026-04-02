@@ -1407,16 +1407,19 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
         coll1->parse_facet(facet_field, range_facets);
     }
     ASSERT_EQ(2, range_facets.size());
+    auto get_reference_collection_name = [](const facet& a_facet) -> std::string {
+        return a_facet.nested_join_facets.empty() ? "" : a_facet.nested_join_facets[0].collection_name;
+    };
 
     ASSERT_EQ("ref_score", range_facets[0].field_name);
     ASSERT_TRUE(range_facets[0].is_range_query);
     ASSERT_EQ(2, range_facets[0].facet_range_map.size());
-    ASSERT_EQ("ref_coll", range_facets[0].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(range_facets[0]));
 
     ASSERT_EQ("ref_grade", range_facets[1].field_name);
     ASSERT_TRUE(range_facets[1].is_range_query);
     ASSERT_EQ(3, range_facets[1].facet_range_map.size());
-    ASSERT_EQ("ref_coll", range_facets[1].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(range_facets[1]));
 
     normal_facet_fields = {
             "$ref_coll(ref_score, ref_grade)"
@@ -1428,9 +1431,9 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_EQ(2, normal_facets.size());
 
     ASSERT_EQ("ref_score", normal_facets[0].field_name);
-    ASSERT_EQ("ref_coll", normal_facets[0].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(normal_facets[0]));
     ASSERT_EQ("ref_grade", normal_facets[1].field_name);
-    ASSERT_EQ("ref_coll", normal_facets[1].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(normal_facets[1]));
 
     wildcard_facet_fields = {
             "$ref_coll(ref_ran*, ref_sc*)",
@@ -1445,7 +1448,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     expected = {"ref_range", "ref_rank", "ref_score"};
     for (size_t i = 0; i < wildcard_facets.size(); i++) {
         ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
-        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+        ASSERT_EQ("ref_coll", get_reference_collection_name(wildcard_facets[i]));
     }
 
     wildcard_facets.clear();
@@ -1461,7 +1464,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     for (size_t i = 0; i < wildcard_facets.size(); i++) {
         ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
-        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+        ASSERT_EQ("ref_coll", get_reference_collection_name(wildcard_facets[i]));
     }
 
     mixed_facet_fields = {
@@ -1484,17 +1487,17 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     });
 
     ASSERT_EQ("ref_score", mixed_facets_ptr[3]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[3]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[3]));
 
     ASSERT_EQ("ref_grade", mixed_facets_ptr[0]->field_name);
     ASSERT_TRUE(mixed_facets_ptr[0]->is_range_query);
     ASSERT_GT(mixed_facets_ptr[0]->facet_range_map.size(), 0);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[0]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[0]));
 
     ASSERT_EQ("ref_rank", mixed_facets_ptr[2]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[2]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[2]));
     ASSERT_EQ("ref_range", mixed_facets_ptr[1]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[1]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[1]));
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {

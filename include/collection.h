@@ -1152,7 +1152,7 @@ public:
 
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
 
-    Option<bool> compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+    Option<bool> compute_facet_infos_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
                                        const uint32_t facet_query_num_typos,
                                        uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                        const std::vector<std::string>& group_by_fields,
