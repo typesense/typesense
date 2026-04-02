@@ -11200,6 +11200,130 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, FacetByNestedReference) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "brand", "type": "string", "facet": true}
+            ]
+        })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({"id":"p-1","name":"Product 1","brand":"A"})"_json,
+            R"({"id":"p-2","name":"Product 2","brand":"A"})"_json,
+            R"({"id":"p-3","name":"Product 3","brand":"B"})"_json,
+            R"({"id":"p-4","name":"Product 4","brand":"C"})"_json
+    };
+    for (const auto& document: documents) {
+        auto add_op = collection_create_op.get()->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto symlink_op = collectionManager.upsert_symlink("ProductsAlias", "Products");
+    ASSERT_TRUE(symlink_op.ok());
+
+    schema_json =
+            R"({
+            "name": "Variants",
+            "fields": [
+                {"name": "product_id", "type": "string", "reference": "ProductsAlias.id", "async_reference": true, "facet": true},
+                {"name": "color", "type": "string", "facet": true}
+            ]
+        })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"id":"p-1-v-1","product_id":"p-1","color":"Red"})"_json,
+            R"({"id":"p-1-v-2","product_id":"p-1","color":"Green"})"_json,
+            R"({"id":"p-1-v-3","product_id":"p-1","color":"Blue"})"_json,
+            R"({"id":"p-2-v-1","product_id":"p-2","color":"Pink"})"_json,
+            R"({"id":"p-2-v-2","product_id":"p-2","color":"Red"})"_json,
+            R"({"id":"p-3-v-1","product_id":"p-3","color":"Red"})"_json,
+            R"({"id":"p-3-v-2","product_id":"p-3","color":"Blue"})"_json,
+            R"({"id":"p-4-v-1","product_id":"p-4","color":"Red"})"_json
+    };
+    for (const auto& document: documents) {
+        auto add_op = collection_create_op.get()->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    symlink_op = collectionManager.upsert_symlink("VariantsAlias", "Variants");
+    ASSERT_TRUE(symlink_op.ok());
+
+    schema_json =
+            R"({
+            "name": "Stock",
+            "fields": [
+                {"name": "variant_id", "type": "string", "reference": "VariantsAlias.id"},
+                {"name": "inStock", "type": "bool", "facet": true},
+                {"name": "warehouse", "type": "string", "facet": true}
+            ]
+        })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"id":"p-1-v-1-s-1","variant_id":"p-1-v-1","inStock":true,"warehouse":"A"})"_json,
+            R"({"id":"p-1-v-2-s-2","variant_id":"p-1-v-2","inStock":false,"warehouse":"B"})"_json,
+            R"({"id":"p-4-v-1-s-1","variant_id":"p-4-v-1","inStock":true,"warehouse":"A"})"_json
+    };
+    for (const auto& document: documents) {
+        auto add_op = collection_create_op.get()->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    symlink_op = collectionManager.upsert_symlink("StockAlias", "Stock");
+    ASSERT_TRUE(symlink_op.ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "ProductsAlias"},
+            {"q", "*"},
+            {"filter_by", "id:* || $VariantsAlias(id:*) || $VariantsAlias($StockAlias(id:*))"},
+            {"facet_by", "brand, $VariantsAlias(color, $StockAlias(inStock, warehouse))"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"]);
+    ASSERT_EQ(4, res_obj["facet_counts"].size());
+
+    ASSERT_EQ("brand", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ("$VariantsAlias(color)", res_obj["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ("$VariantsAlias($StockAlias(inStock))", res_obj["facet_counts"][2]["field_name"].get<std::string>());
+    ASSERT_EQ("$VariantsAlias($StockAlias(warehouse))", res_obj["facet_counts"][3]["field_name"].get<std::string>());
+
+    ASSERT_EQ(2, res_obj["facet_counts"][2]["counts"].size());
+    ASSERT_EQ("true", res_obj["facet_counts"][2]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(2, (int) res_obj["facet_counts"][2]["counts"][0]["count"]);
+    ASSERT_EQ("$VariantsAlias($StockAlias(inStock: true))",
+              res_obj["facet_counts"][2]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ("false", res_obj["facet_counts"][2]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][2]["counts"][1]["count"]);
+    ASSERT_EQ("$VariantsAlias($StockAlias(inStock: false))",
+              res_obj["facet_counts"][2]["counts"][1]["facet_filter"].get<std::string>());
+
+    ASSERT_EQ(2, res_obj["facet_counts"][3]["counts"].size());
+    ASSERT_EQ("A", res_obj["facet_counts"][3]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(2, (int) res_obj["facet_counts"][3]["counts"][0]["count"]);
+    ASSERT_EQ("$VariantsAlias($StockAlias(warehouse: `A`))",
+              res_obj["facet_counts"][3]["counts"][0]["facet_filter"].get<std::string>());
+    ASSERT_EQ("B", res_obj["facet_counts"][3]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) res_obj["facet_counts"][3]["counts"][1]["count"]);
+    ASSERT_EQ("$VariantsAlias($StockAlias(warehouse: `B`))",
+              res_obj["facet_counts"][3]["counts"][1]["facet_filter"].get<std::string>());
+}
+
 TEST_F(CollectionJoinTest, AlterReferenceField) {
     auto schema_json =
             R"({
