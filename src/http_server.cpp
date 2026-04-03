@@ -969,13 +969,18 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     if(state.is_req_early_exit) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed
         LOG(INFO) << "Premature termination of async request.";
+        bool is_http_v1 = (0x101 <= req->version && req->version < 0x200);
 
         if (req->_generator == nullptr) {
             h2o_start_response(req, state.generator);
         }
 
-        h2o_send(req, &state.res_buff, 1, H2O_SEND_STATE_FINAL);
-        h2o_dispose_request(req);
+        if(is_http_v1) {
+            h2o_send(req, &state.res_buff, 1, H2O_SEND_STATE_FINAL);
+            h2o_dispose_request(req);
+        } else {
+            h2o_send(req, &state.res_buff, 1, H2O_SEND_STATE_ERROR);
+        }
 
         return ;
     }
