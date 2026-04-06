@@ -2693,8 +2693,11 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
         if (all_seq_ids_iterator.valid()) {
             seq_id = all_seq_ids_iterator.id();
             approx_filter_ids_length = index->seq_ids->num_ids();
+            validity = valid;
+        } else {
+            validity = invalid;
         }
-
+        
         return;
     }
 
