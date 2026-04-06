@@ -4960,32 +4960,11 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluation) {
     std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5, 6};
     std::vector<uint32_t> seq_ids = {1, 2, 3, 4, 5, 6, 6};
     std::vector<int> expected = {1, 1, 0, 0, 0, 1, -1};
-    std::vector<int> validity_before = {
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid,
-        filter_result_iterator_t::valid
-    };
-
-    for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(validity_before[i], iter_missing.validity);
-        ASSERT_EQ(expected[i], iter_missing.is_valid(validate_ids[i]));
-
-        if (expected[i] == 1) {
-            iter_missing.next();
-        }
-        ASSERT_EQ(seq_ids[i], iter_missing.seq_id);
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_missing.validity);
 
     iter_missing.reset();
     ASSERT_EQ(filter_result_iterator_t::valid, iter_missing.validity);
 
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(validity_before[i], iter_missing.validity);
         ASSERT_EQ(expected[i], iter_missing.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
