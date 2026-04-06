@@ -1304,6 +1304,121 @@ TEST_F(UnionTest, CurationIncludesShouldNotCollapseInUnion) {
     ASSERT_EQ("1", json_res["hits"][1]["document"]["id"]);
 }
 
+TEST_F(UnionTest, RemoveDuplicatesShouldDeduplicateAcrossCuratedAndRawUnionHits) {
+    auto schema_json =
+            R"({
+                "name": "Events",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"0","title":"march madness winner"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"regular season recap"})").ok());
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    curation_manager.init_store(store);
+    auto upsert_set = nlohmann::json::array({
+        nlohmann::json{
+            {"id", "march-madness"},
+            {"rule", {{"query", "march madness"}, {"match", curation_t::MATCH_EXACT}}},
+            {"includes", nlohmann::json::array({
+                nlohmann::json{{"id", "0"}, {"position", 1}}
+            })}
+        }
+    });
+    ASSERT_TRUE(curation_manager.upsert_curation_set("events_curations", upsert_set).ok());
+    ASSERT_TRUE(coll->set_curation_sets({"events_curations"}).ok());
+
+    req_params = {{"remove_duplicates", "true"}};
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "Events",
+                        "q": "march madness",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "Events",
+                        "q": "winner",
+                        "query_by": "title"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    ASSERT_EQ(1, json_res["found"].get<size_t>());
+    ASSERT_EQ(1, json_res["hits"].size());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"]);
+}
+
+TEST_F(UnionTest, RemoveDuplicatesShouldNotLeakCuratedRawDuplicateToLaterPages) {
+    auto schema_json =
+            R"({
+                "name": "Events",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"0","title":"march madness winner"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"april recap"})").ok());
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    curation_manager.init_store(store);
+    auto upsert_set = nlohmann::json::array({
+        nlohmann::json{
+            {"id", "march-madness"},
+            {"rule", {{"query", "march madness"}, {"match", curation_t::MATCH_EXACT}}},
+            {"includes", nlohmann::json::array({
+                nlohmann::json{{"id", "0"}, {"position", 1}}
+            })}
+        }
+    });
+    ASSERT_TRUE(curation_manager.upsert_curation_set("events_curations", upsert_set).ok());
+    ASSERT_TRUE(coll->set_curation_sets({"events_curations"}).ok());
+
+    req_params = {
+        {"remove_duplicates", "true"},
+        {"per_page", "1"},
+        {"page", "1"}
+    };
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "Events",
+                        "q": "march madness",
+                        "query_by": "title"
+                    },
+                    {
+                        "collection": "Events",
+                        "q": "winner",
+                        "query_by": "title"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res["found"].get<size_t>());
+    ASSERT_EQ(1, json_res["hits"].size());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"]);
+
+    req_params["page"] = "2";
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res["found"].get<size_t>());
+    ASSERT_TRUE(json_res["hits"].empty());
+}
+
 TEST_F(UnionTest, HybridSearchHasVectorDistance) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1518,6 +1633,56 @@ TEST_F(UnionTest, GroupingWithUnions) {
     ASSERT_EQ(400, json_res["code"]);
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("Invalid group_by searches count. All searches with union search should be uniform.", json_res["error"]);
+}
+
+TEST_F(UnionTest, UnionRemoveDuplicatesFoundCountShouldBePageInvariant) {
+    auto schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    for(uint32_t i = 0; i < 300; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["name"] = "ghost monster item " + std::to_string(i);
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "coll1",
+                        "q": "ghost",
+                        "query_by": "name"
+                    },
+                    {
+                        "collection": "coll1",
+                        "q": "monster",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    req_params = {
+        {"remove_duplicates", "true"},
+        {"per_page", "10"},
+        {"page", "1"}
+    };
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(300, json_res["found"].get<size_t>());
+
+    req_params["page"] = "2";
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(300, json_res["found"].get<size_t>());
 }
 
 TEST_F(UnionTest, FacetingWithUnion) {

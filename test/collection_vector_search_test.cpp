@@ -6117,6 +6117,153 @@ TEST_F(CollectionVectorTest, DISABLED_TestImageEmbeddingMultilingual) {
     ASSERT_EQ(results4["hits"][0]["document"]["id"], "1");
 }
 
+TEST_F(CollectionVectorTest, HybridSearchWithGroupByNoKeywordMatches) {
+    nlohmann::json schema = R"({
+        "name": "hybrid_group_no_keyword_matches",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "tenant", "type": "string", "facet": true},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "0",
+        "title": "alpha",
+        "tenant": "A",
+        "group": "g1",
+        "vec": [1.0, 0.0]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "1",
+        "title": "beta",
+        "tenant": "A",
+        "group": "g2",
+        "vec": [0.99, 0.01]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "2",
+        "title": "gamma",
+        "tenant": "B",
+        "group": "g3",
+        "vec": [0.98, 0.02]
+    })"_json.dump()).ok());
+
+    auto search_res_op = coll->search("zzznomatch", {"title"}, "tenant:=A", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                      0,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                      "", 10, {}, {}, {"group"}, 1,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, off,
+                                      4, {off}, INT16_MAX, INT16_MAX, 2,
+                                      false, false, "vec:([1.0, 0.0], alpha:0.8, k:3)");
+
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+
+    ASSERT_EQ(2, search_res["found"].get<size_t>());
+    ASSERT_EQ(2, search_res["grouped_hits"].size());
+    for (const auto& group : search_res["grouped_hits"]) {
+        ASSERT_EQ(1, group["hits"].size());
+        ASSERT_EQ("A", group["hits"][0]["document"]["tenant"].get<std::string>());
+        ASSERT_EQ(group["group_key"][0].get<std::string>(),
+                  group["hits"][0]["document"]["group"].get<std::string>());
+    }
+}
+
+TEST_F(CollectionVectorTest, HybridSearchWithGroupByNoKeywordMatchesShouldUpdateFoundDocs) {
+    nlohmann::json schema = R"({
+        "name": "hybrid_group_found_docs",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "0",
+        "title": "alpha",
+        "group": "g1",
+        "vec": [1.0, 0.0]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "1",
+        "title": "beta",
+        "group": "g1",
+        "vec": [0.99, 0.01]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "2",
+        "title": "gamma",
+        "group": "g2",
+        "vec": [0.98, 0.02]
+    })"_json.dump()).ok());
+
+    auto res = coll->search("zzznomatch", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {"group"}, 2,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, off,
+                            4, {off}, INT16_MAX, INT16_MAX, 2,
+                            false, false, "vec:([1.0, 0.0], alpha:0.8, k:3)").get();
+
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+}
+
+TEST_F(CollectionVectorTest, HybridSearchWithGroupByNoKeywordMatchesShouldPreserveTotalGroupCount) {
+    nlohmann::json schema = R"({
+        "name": "hybrid_group_found_count",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    const size_t total_groups = Index::DEFAULT_TOPSTER_SIZE + 25;
+    for (size_t i = 0; i < total_groups; ++i) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "document-" + std::to_string(i);
+        doc["group"] = "g" + std::to_string(i);
+        doc["vec"] = {1.0, 0.0};
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string vector_query = "vec:([1.0, 0.0], alpha:0.8, k:" + std::to_string(total_groups) + ")";
+
+    auto res = coll->search("zzznomatch", {"title"}, "", {}, {}, {0}, 1, 1, FREQUENCY, {true}, 0,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {"group"}, 1,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, off,
+                            4, {off}, INT16_MAX, INT16_MAX, 2,
+                            false, false, vector_query).get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(total_groups, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, ConversationWithUnion) {
     auto schema_json = R"({
                             "name": "conversation_history",

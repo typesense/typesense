@@ -5,6 +5,7 @@ export class TypesenseTestRunner {
   private manager: TypesenseProcessManager;
   private static instance: TypesenseTestRunner;
   private exit_code: number = 0;
+  private readonly decoder = new TextDecoder();
 
   constructor() {
     this.manager = new TypesenseProcessManager();
@@ -86,15 +87,37 @@ export class TypesenseTestRunner {
     return cmd;
   }
 
+  private runPhaseTests(phase: Phases, pattern: string, testFile: string | null) {
+    const proc = Bun.spawnSync({
+      cmd: this.buildTestCommand(pattern, testFile),
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+
+    const stdout = proc.stdout ? this.decoder.decode(proc.stdout) : "";
+    const stderr = proc.stderr ? this.decoder.decode(proc.stderr) : "";
+
+    if (stdout) {
+      process.stdout.write(stdout);
+    }
+
+    if (stderr) {
+      process.stderr.write(stderr);
+    }
+
+    const noTestsMatched = testFile !== null && proc.exitCode !== 0 && `${stdout}\n${stderr}`.includes(`regex "${pattern}" matched 0 tests`);
+    if (noTestsMatched) {
+      console.log(`\n=== ⏭️ Skipping phase: ${phase} (no matching tests in ${testFile}) ===\n`);
+      return true;
+    }
+
+    return proc.exitCode === 0;
+  }
+
   async noPhase(filters: Filters[], testFile: string | null = null) {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
     const pattern = this.getTestNamePattern(Phases.NO_PHASE, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.NO_PHASE, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.NO_PHASE} failed ===\n`);
       this.exit_code = 1;
     }
@@ -104,12 +127,7 @@ export class TypesenseTestRunner {
     await this.manager.startSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_FRESH, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.SINGLE_FRESH, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_FRESH} failed ===\n`);
       this.exit_code = 1;
     }
@@ -119,12 +137,7 @@ export class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_RESTARTED, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.SINGLE_RESTARTED, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_RESTARTED} failed ===\n`);
       this.exit_code = 1;
     }
@@ -135,12 +148,7 @@ export class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_SNAPSHOT, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.SINGLE_SNAPSHOT, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_SNAPSHOT} failed ===\n`);
       this.exit_code = 1;
     }
@@ -150,12 +158,7 @@ export class TypesenseTestRunner {
     await this.manager.startMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_FRESH, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.MULTI_FRESH, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_FRESH} failed ===\n`);
       this.exit_code = 1;
     }
@@ -165,12 +168,7 @@ export class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_RESTARTED, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.MULTI_RESTARTED, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_RESTARTED} failed ===\n`);
       this.exit_code = 1;
     }
@@ -181,12 +179,7 @@ export class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_SNAPSHOT, filters);
-    const proc = Bun.spawnSync({
-      cmd: this.buildTestCommand(pattern, testFile),
-      stderr: "inherit",
-      stdout: "inherit",
-    });
-    if (proc.exitCode !== 0) {
+    if (!this.runPhaseTests(Phases.MULTI_SNAPSHOT, pattern, testFile)) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_SNAPSHOT} failed ===\n`);
       this.exit_code = 1;
     }

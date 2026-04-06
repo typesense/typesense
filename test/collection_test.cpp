@@ -602,6 +602,27 @@ TEST_F(CollectionTest, WildcardQuery) {
     ASSERT_EQ(0, results["found"]);
 }
 
+TEST_F(CollectionTest, WildcardSeqIdDescShouldRemainStableAcrossPages) {
+    std::vector<sort_by> seq_id_desc_sort = { sort_by(sort_field_const::seq_id, sort_field_const::desc) };
+
+    auto page1 = collection->search("*", {}, "", {}, seq_id_desc_sort, {0}, 5, 1, FREQUENCY, {false}).get();
+    auto page2 = collection->search("*", {}, "", {}, seq_id_desc_sort, {0}, 5, 2, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(25, page1["found"].get<uint32_t>());
+    ASSERT_EQ(25, page2["found"].get<uint32_t>());
+    ASSERT_EQ(5, page1["hits"].size());
+    ASSERT_EQ(5, page2["hits"].size());
+
+    std::set<std::string> page1_ids;
+    for(const auto& hit : page1["hits"]) {
+        page1_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+
+    for(const auto& hit : page2["hits"]) {
+        ASSERT_EQ(0, page1_ids.count(hit["document"]["id"].get<std::string>()));
+    }
+}
+
 TEST_F(CollectionTest, PrefixSearching) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ex", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();

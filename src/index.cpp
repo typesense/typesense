@@ -636,8 +636,7 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
                                  std::unordered_set<std::string>& found_fields,
-                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields,
-                                 const std::string& collection_name) {
+                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
     const size_t concurrency = Config::get_instance().get_max_indexing_concurrency();
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
@@ -689,7 +688,7 @@ size_t Index::batch_memory_index(Index *index,
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : indexable_schema.at(field_name);
             try {
-                index->index_field_in_memory(collection_name, f, iter_batch);
+                index->index_field_in_memory(f, iter_batch);
             } catch(std::exception& e) {
                 LOG(ERROR) << "Unhandled Typesense error: " << e.what();
                 for(auto& record: iter_batch) {
@@ -711,8 +710,7 @@ size_t Index::batch_memory_index(Index *index,
     return num_indexed;
 }
 
-void Index::index_field_in_memory(const std::string& collection_name, const field& afield,
-                                  std::vector<index_record>& iter_batch) {
+void Index::index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -1207,59 +1205,41 @@ void Index::index_field_in_memory(const std::string& collection_name, const fiel
     }
 }
 
-void Index::update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
-                                    const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins) {
-    for (auto& record: iter_batch) {
-        if (!record.indexed.ok() || record.is_update) {
+Option<bool> Index::update_async_references(const std::string& collection_name, const bool& return_doc, const bool& return_id,
+                                            const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins,
+                                            index_record& record, std::vector<std::string>& json_out) {
+    auto const& document = record.doc;
+    auto const& seq_id = record.seq_id;
+
+    for (const auto& pair: async_referenced_ins) {
+        if (!record.indexed.ok()) {
+            break;
+        }
+        const auto& referenced_field = pair.first;
+        if (document.count(referenced_field) != 1) {
             continue;
         }
-        auto const& document = record.doc;
-        auto const& is_update = record.is_update;
-        auto const& seq_id = record.seq_id;
+        for (const auto& ref_info: pair.second) {
+            auto const& referencing_collection_name = ref_info.collection;
+            auto const& referencing_field_name = ref_info.field;
 
-        for (const auto& pair: async_referenced_ins) {
-            const auto& referenced_field = pair.first;
-            if (document.count(referenced_field) != 1) {
+            auto& cm = CollectionManager::get_instance();
+            auto referencing_coll = cm.get_collection(referencing_collection_name);
+            if (referencing_coll == nullptr) {
+                // Since the collections get created and indexed in parallel on server restart, we might run into a
+                // scenario where the referencing collection hasn't yet been created. We can safely skip update of
+                // referencing collection as the references will be created normally.
                 continue;
             }
-            for (const auto& ref_info: pair.second) {
-                auto const& referencing_collection_name = ref_info.collection;
-                auto const& referencing_field_name = ref_info.field;
 
-                auto& cm = CollectionManager::get_instance();
-                auto referencing_coll = cm.get_collection(referencing_collection_name);
-                if (referencing_coll == nullptr) {
-                    // Since the collections get created and indexed in parallel on server restart, we might run into a
-                    // scenario where the referencing collection hasn't yet been created. We can safely skip update of
-                    // referencing collection as the references will be created normally.
-                    continue;
-                }
+            // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
+            // this document's seq_id as a reference where the value(s) match.
+            std::string ref_filter_value;
+            std::set<std::string> values;
+            if (document.at(referenced_field).is_array()) {
+                ref_filter_value = "[";
 
-                // After collecting the value(s) present in the field referenced by the other collection(ref_coll), we will add
-                // this document's seq_id as a reference where the value(s) match.
-                std::string ref_filter_value;
-                std::set<std::string> values;
-                if (document.at(referenced_field).is_array()) {
-                    ref_filter_value = "[";
-
-                    for (auto const& value: document[referenced_field]) {
-                        if (value.is_number_integer()) {
-                            auto const& v = std::to_string(value.get<int64_t>());
-                            ref_filter_value += v;
-                            values.insert(v);
-                        } else if (value.is_string()) {
-                            auto const& v = value.get<std::string>();
-                            ref_filter_value += v;
-                            values.insert(v);
-                        } else {
-                            record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
-                            continue;
-                        }
-                        ref_filter_value += ",";
-                    }
-                    ref_filter_value[ref_filter_value.size() - 1] = ']';
-                } else {
-                    auto const& value = document[referenced_field];
+                for (auto const& value: document[referenced_field]) {
                     if (value.is_number_integer()) {
                         auto const& v = std::to_string(value.get<int64_t>());
                         ref_filter_value += v;
@@ -1269,40 +1249,57 @@ void Index::update_async_references(const std::string& collection_name, std::vec
                         ref_filter_value += v;
                         values.insert(v);
                     } else {
-                        record.index_failure(400, "Field `" + referenced_field + "` must only have string/int32/int64 values.");
+                        LOG(ERROR) << "Field `" + referenced_field + "` must only have string/int32/int64 values.";
                         continue;
                     }
+                    ref_filter_value += ",";
                 }
-
-                if (values.empty()) {
+                ref_filter_value[ref_filter_value.size() - 1] = ']';
+            } else {
+                auto const& value = document[referenced_field];
+                if (value.is_number_integer()) {
+                    auto const& v = std::to_string(value.get<int64_t>());
+                    ref_filter_value += v;
+                    values.insert(v);
+                } else if (value.is_string()) {
+                    auto const& v = value.get<std::string>();
+                    ref_filter_value += v;
+                    values.insert(v);
+                } else {
+                    LOG(ERROR) << "Field `" + referenced_field + "` must only have string/int32/int64 values.";
                     continue;
                 }
+            }
 
-                // The value must be unique in this collection.
-                filter_result_t filter_result;
-                auto op = CollectionManager::get_filter_ids(collection_name, referenced_field + ":=" += ref_filter_value,
-                                                            filter_result);
-                if (!op.ok()) {
-                    continue;
-                } else if (filter_result.count > 1) {
-                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
-                                              "` of collection `" += referencing_collection_name + "`: The value `" +=
-                                              ref_filter_value + "` of the field `" += referenced_field +
-                                              "` is not unique in `" += collection_name + "` collection.");
-                    break;
-                }
+            if (values.empty()) {
+                continue;
+            }
 
-                auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
-                auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
-                                                                                     referencing_field_name);
-                if (!update_op.ok()) {
-                    record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
-                                              "` of collection `" += referencing_collection_name + "`: " += update_op.error());
-                    break;
-                }
+            // The value must be unique in this collection.
+            filter_result_t filter_result;
+            auto op = CollectionManager::get_filter_ids(collection_name, referenced_field + ":=" += ref_filter_value,
+                                                        filter_result);
+            if (!op.ok()) {
+                continue;
+            } else if (filter_result.count > 1) {
+                record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                          "` of collection `" += referencing_collection_name + "`: The value `" +=
+                                                                 ref_filter_value + "` of the field `" += referenced_field +
+                                                                                                          "` is not unique in `" += collection_name + "` collection.");
+                return Option<bool>(400, "");
+            }
+
+            auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+            auto update_op = referencing_coll->update_async_references_with_lock(collection_name, ref_filter, values, seq_id,
+                                                                                 referencing_field_name);
+            if (!update_op.ok()) {
+                record.index_failure(400, "Error while updating async reference field `" + referencing_field_name +
+                                          "` of collection `" += referencing_collection_name + "`: " += update_op.error());
+                return update_op;
             }
         }
     }
+    return Option<bool>(true);
 }
 
 void Index::tokenize_string(const std::string& text, const field& a_field,
@@ -2474,6 +2471,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params) {
     auto& filter_root = search_params->filter_tree_root_guard;
     std::set<uint32_t> group_by_missing_value_ids;
+    bool vector_only_group_by_second_pass = false;
 
     if(search_params->field_query_tokens.empty()) {
         // this can happen if missing query_by fields are configured to be ignored
@@ -2584,6 +2582,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           group_by_missing_value_ids,
                           search_params->collection,
                           search_params->synonym_sets,
+                          search_params->union_result_seq_ids,
                           search_params->diversity, search_params->group_max_candidates);
 
         // The filter iterator can be updated in places like `Index::do_phrase_search`.
@@ -2594,118 +2593,134 @@ Option<bool> Index::run_search(search_args* search_params) {
             return res;
         }
         if (search_params->raw_result_kvs.empty() && search_params->curation_result_kvs.empty()) {
-            return Option<bool>(true);
-        }
-
-        std::shared_lock lock(mutex);
-
-        std::vector<group_by_field_it_t> group_by_fields;
-        for (const auto& field_name: search_params->group_by_fields) {
-            auto field = search_schema.find(field_name);
-            if (field == search_schema.end() || !facet_index_v4->has_hash_index(field_name)) {
-                continue;
+            if (search_params->vector_query.field_name.empty()) {
+                return Option<bool>(true);
             }
-            group_by_fields.emplace_back(group_by_field_it_t{field_name,
-                                                             facet_index_v4->get_facet_hash_index(field_name)->new_iterator(),
-                                                             field->is_array(), field->is_string()});
-        }
-        if (group_by_fields.empty()) {
-            return Option<bool>(400, "`group_by` cannot be empty.");
+
+            // No keyword groups were found, so the grouped second pass should run against the original filter.
+            vector_only_group_by_second_pass = true;
         }
 
-        std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
-        get_group_by_values(search_params->raw_result_kvs, search_params->curation_result_kvs, group_by_fields,
-                            group_by_values_list);
+        auto prepare_grouped_second_pass = [&]() -> Option<bool> {
+            if (vector_only_group_by_second_pass) {
+                return Option<bool>(true);
+            }
 
-        std::string filter_by;
-        std::vector<std::string> clauses;
+            std::shared_lock lock(mutex);
 
-        for (size_t i = 0; i < group_by_fields.size(); i++) {
-            const auto& field_name = group_by_fields[i].field_name;
-            const auto& values = group_by_values_list[i];
+            std::vector<group_by_field_it_t> group_by_fields;
+            for (const auto& field_name: search_params->group_by_fields) {
+                auto field = search_schema.find(field_name);
+                if (field == search_schema.end() || !facet_index_v4->has_hash_index(field_name)) {
+                    continue;
+                }
+                group_by_fields.emplace_back(group_by_field_it_t{field_name,
+                                                                 facet_index_v4->get_facet_hash_index(field_name)->new_iterator(),
+                                                                 field->is_array(), field->is_string()});
+            }
+            if (group_by_fields.empty()) {
+                return Option<bool>(400, "`group_by` cannot be empty.");
+            }
 
-            std::vector<std::string> valid_values;
-            valid_values.reserve(values.size());
-            for (const auto& value : values) {
-                if (!value.empty()) {
-                    if (group_by_fields[i].is_string) {
-                        valid_values.push_back("`" + value + "`");
-                    } else {
-                        valid_values.push_back(value);
+            std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
+            get_group_by_values(search_params->raw_result_kvs, search_params->curation_result_kvs, group_by_fields,
+                                group_by_values_list);
+
+            std::string filter_by;
+            std::vector<std::string> clauses;
+
+            for (size_t i = 0; i < group_by_fields.size(); i++) {
+                const auto& field_name = group_by_fields[i].field_name;
+                const auto& values = group_by_values_list[i];
+
+                std::vector<std::string> valid_values;
+                valid_values.reserve(values.size());
+                for (const auto& value : values) {
+                    if (!value.empty()) {
+                        if (group_by_fields[i].is_string) {
+                            valid_values.push_back("`" + value + "`");
+                        } else {
+                            valid_values.push_back(value);
+                        }
                     }
                 }
-            }
-            if (valid_values.empty()) {
-                continue;
+                if (valid_values.empty()) {
+                    continue;
+                }
+
+                std::string clause = field_name + ": [";
+                for (size_t j = 0; j < valid_values.size(); j++) {
+                    clause += valid_values[j];
+                    if (j + 1 < valid_values.size()) {
+                        clause += ",";
+                    }
+                }
+                clause += "]";
+
+                clauses.push_back(std::move(clause));
             }
 
-            std::string clause = field_name + ": [";
-            for (size_t j = 0; j < valid_values.size(); j++) {
-                clause += valid_values[j];
-                if (j + 1 < valid_values.size()) {
-                    clause += ",";
+            for (size_t i = 0; i < clauses.size(); i++) {
+                filter_by += clauses[i];
+                if (i + 1 < clauses.size()) {
+                    filter_by += " && ";
                 }
             }
-            clause += "]";
 
-            clauses.push_back(std::move(clause));
-        }
-
-        for (size_t i = 0; i < clauses.size(); i++) {
-            filter_by += clauses[i];
-            if (i + 1 < clauses.size()) {
-                filter_by += " && ";
+            filter_node_t* new_filter_tree_root = nullptr;
+            Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
+                                                                search_params->validate_field_names);
+            if (!filter_op.ok()) {
+                delete new_filter_tree_root;
+                return filter_op;
             }
-        }
 
-        
-        filter_node_t* new_filter_tree_root = nullptr;
-        Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
+            auto new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
+                                                             search_params->enable_lazy_filter,
+                                                             search_params->max_filter_by_candidates,
+                                                             search_begin_us, search_stop_us,
+                                                             search_params->validate_field_names);
+
+            if (filter_root == nullptr) {
+                filter_root.reset(new_filter_tree_root);
+
+                filter_result_iterator = new_iterator;
+                filter_iterator_guard.reset(new_iterator);
+            } else {
+                filter_result_iterator = new filter_result_iterator_t(AND, filter_iterator_guard.release(), new_iterator,
+                                                                      filter_root, new_filter_tree_root);
+                filter_iterator_guard.reset(filter_result_iterator);
+            }
+
+            if (!group_by_missing_value_ids.empty()) {
+                filter filter_exp = {"id"};
+                for (const auto& id: group_by_missing_value_ids) {
+                    filter_exp.values.emplace_back(std::to_string(id));
+                }
+                filter_exp.comparators = std::vector<NUM_COMPARATOR>(group_by_missing_value_ids.size(), EQUALS);
+
+                new_filter_tree_root = new filter_node_t(filter_exp);
+
+                new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
+                                                            search_params->enable_lazy_filter,
+                                                            search_params->max_filter_by_candidates,
+                                                            search_begin_us, search_stop_us,
                                                             search_params->validate_field_names);
-        if (!filter_op.ok()) {
-            delete new_filter_tree_root;
-            return filter_op;
-        }
-
-        auto new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
-                                                         search_params->enable_lazy_filter,
-                                                         search_params->max_filter_by_candidates,
-                                                         search_begin_us, search_stop_us,
-                                                         search_params->validate_field_names);
-
-        if (filter_root == nullptr) {
-            filter_root.reset(new_filter_tree_root);
-
-            filter_result_iterator = new_iterator;
-            filter_iterator_guard.reset(new_iterator);
-        } else {
-            filter_result_iterator = new filter_result_iterator_t(AND, filter_iterator_guard.release(), new_iterator,
-                                                                  filter_root, new_filter_tree_root);
-            filter_iterator_guard.reset(filter_result_iterator);
-        }
-
-        if (!group_by_missing_value_ids.empty()) {
-            filter filter_exp = {"id"};
-            for (const auto& id: group_by_missing_value_ids) {
-                filter_exp.values.emplace_back(std::to_string(id));
+                filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
+                                                                      filter_root, new_filter_tree_root);
+                filter_iterator_guard.reset(filter_result_iterator);
             }
-            filter_exp.comparators = std::vector<NUM_COMPARATOR>(group_by_missing_value_ids.size(), EQUALS);
 
-            new_filter_tree_root = new filter_node_t(filter_exp);
+            // For grouping, found_count reflects how many groups were found for the text-side first pass.
+            search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
+            search_params->found_docs = search_params->all_result_ids_len;
+            return Option<bool>(true);
+        };
 
-            new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
-                                                        search_params->enable_lazy_filter,
-                                                        search_params->max_filter_by_candidates,
-                                                        search_begin_us, search_stop_us,
-                                                        search_params->validate_field_names);
-            filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
-                                                                  filter_root, new_filter_tree_root);
-            filter_iterator_guard.reset(filter_result_iterator);
+        auto prepare_op = prepare_grouped_second_pass();
+        if (!prepare_op.ok()) {
+            return prepare_op;
         }
-
-        // for grouping found_count reflects how many groups were found for the query.
-        search_params->found_count = search_params->topster->getGroupsCount() + search_params->curated_topster->getGroupsCount();
-        search_params->found_docs = search_params->all_result_ids_len;
 
         filter_result_iterator_no_groups->reset();
 
@@ -2776,6 +2791,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                   group_by_missing_value_ids,
                   search_params->collection,
                   search_params->synonym_sets,
+                  search_params->union_result_seq_ids,
                   search_params->diversity,
                   search_params->group_max_candidates
     );
@@ -2785,7 +2801,12 @@ Option<bool> Index::run_search(search_args* search_params) {
     filter_iterator_guard.reset(filter_result_iterator);
 
     if (search_params->group_limit) {
-        if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
+        if (vector_only_group_by_second_pass) {
+            // When the text-side first pass found no groups, the second pass is the source of truth.
+            search_params->found_docs = search_params->all_result_ids_len;
+            search_params->found_count = std::max(search_params->groups_processed.size(),
+                                                  search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
+        } else if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
             // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been
             // processed, no need to rely on approximate count.
             search_params->found_count = search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size();
@@ -3514,7 +3535,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_typos_for_alpha_numerical_tokens, const size_t& max_filter_by_candidates,
                    bool rerank_hybrid_matches, const bool& validate_field_names, bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids, Collection const *const collection,
-                   const std::vector<std::string>& synonym_sets,
+                   const std::vector<std::string>& synonym_sets, id_list_t* union_result_seq_ids,
                    const diversity_t& diversity, const size_t group_max_candidates) const {
     std::shared_lock lock(mutex);
 
@@ -3628,7 +3649,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             vector_query.field_name.empty() && sort_fields_std.size() == 1 &&
             sort_fields_std[0].name == sort_field_const::seq_id && sort_fields_std[0].order == sort_field_const::desc) {
             // optimize for this path specifically
-            std::vector<uint32_t> result_ids;
+            size_t result_ids_size = 0;
             auto it = seq_ids->new_rev_iterator();
 
             std::vector<group_by_field_it_t> group_by_field_it_vec;
@@ -3636,6 +3657,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields, true);
             }
 
+            const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
             while (it.valid()) {
                 uint32_t seq_id = it.id();
                 uint64_t distinct_id = seq_id;
@@ -3651,11 +3673,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
 
+                result_ids_size++;
+                if(union_result_seq_ids != nullptr) {
+                    union_result_seq_ids->upsert(seq_id);
+                }
+
+                if(union_result_seq_ids != nullptr && group_limit == 0 && result_ids_size > comp_size) {
+                    it.previous();
+                    continue;
+                }
+
                 int64_t scores[3] = {0};
                 scores[0] = seq_id;
                 int64_t match_score_index = -1;
-
-                result_ids.push_back(seq_id);
                 KV kv(searched_query_tokens.size(), seq_id, distinct_id, match_score_index, scores);
                 int ret = topster->add(&kv);
 
@@ -3663,8 +3693,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                const auto comp_size = diversity.similarity_equation.empty() ? fetch_size : topster->MAX_SIZE;
-                if (result_ids.size() == comp_size && group_limit == 0) {
+                if (union_result_seq_ids == nullptr && result_ids_size == comp_size && group_limit == 0) {
                     break;
                 }
 
@@ -4540,6 +4569,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                   facet_infos, group_limit, group_by_fields, group_missing_values, top_k_curated_result_ids.data(),
                   top_k_curated_result_ids.size(), max_facet_values, is_wildcard_no_filter_query,
                   facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, collection, &reference_facet_ids);
+    }
+
+    if(union_result_seq_ids != nullptr) {
+        if(all_result_ids != nullptr) {
+            for(size_t i = 0; i < all_result_ids_len; i++) {
+                union_result_seq_ids->upsert(all_result_ids[i]);
+            }
+        }
+
+        for(uint32_t t = 0; t < curated_topster->size; t++) {
+            union_result_seq_ids->upsert(curated_topster->getKV(t)->key);
+        }
     }
 
     all_result_ids_len += (is_group_by_first_pass ? 0 : curated_topster->size);
