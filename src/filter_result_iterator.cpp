@@ -2697,7 +2697,7 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
         } else {
             validity = invalid;
         }
-        
+
         return;
     }
 
