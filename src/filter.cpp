@@ -519,10 +519,8 @@ Option<bool> toFilter(const std::string& expression,
     StringUtils::trim(raw_value);
 
     // Handle missing filter: field: _missing  or  field: !_missing
-    std::string trimmed = raw_value;
-    StringUtils::trim(trimmed);
-    if(!trimmed.empty() && trimmed[0] != '=') {
-        std::string missing_token = trimmed;
+    if(!raw_value.empty() && raw_value[0] != '=') {
+        std::string missing_token = raw_value;
 
         bool is_negated = false;
         if(!missing_token.empty() && missing_token[0] == '!') {
@@ -531,7 +529,7 @@ Option<bool> toFilter(const std::string& expression,
             StringUtils::trim(missing_token);
         }
 
-        if(missing_token == "_missing") {
+        if(missing_token == filter::MISSING_FILTER_KEY) {
             if(!_field.optional || !_field.track_missing_values) {
                 return Option<bool>(400, "Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.");
             }
@@ -540,10 +538,6 @@ Option<bool> toFilter(const std::string& expression,
             filter_exp.apply_not_equals = is_negated;
 
             return Option<bool>(true);
-        }
-
-        if(StringUtils::begins_with(missing_token, "_missing")) {
-            return Option<bool>(400, "Invalid syntax for missing filter.");
         }
     }
 

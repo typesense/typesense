@@ -4399,14 +4399,43 @@ TEST_F(CollectionFilteringTest, MissingFilterDoesNotHijackStringValuesContaining
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
 
-    auto filter_op = filter::parse_filter_query("title: pre_missing_post", coll->get_schema(), store, doc_id_prefix,
+    auto filter_op = filter::parse_filter_query("title: _missing", coll->get_schema(), store, doc_id_prefix,
                                                 filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_EQ("Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.",
+              filter_op.error());
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("color: _missing", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_EQ(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    ASSERT_FALSE(filter_tree_root->filter_exp.apply_not_equals);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("title: pre_missing_post", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query(R"(title: `_missing`)", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("title:=_missing", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("title: _missing value", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
     ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
@@ -4894,16 +4923,38 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluation) {
     ASSERT_FALSE(iter_missing._get_is_filter_result_initialized());
 
     // !_missing (complement): docs with color = {0, 1, 5}
-    // is_valid sets seq_id = id+1 for the probed doc; next() advances the complement iterator on matches.
-    // is_valid(0)=1, next()→1; is_valid(1)=1, next()→5; is_valid(2)=0; is_valid(3)=0; is_valid(4)=0;
+    // is_valid sets seq_id = id+1 for the probed doc; next() keeps that value for complement iterators.
+    // is_valid(0)=1, next()→1; is_valid(1)=1, next()→2; is_valid(2)=0; is_valid(3)=0; is_valid(4)=0;
     // is_valid(5)=1, next()→invalid
     std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5, 6};
-    std::vector<uint32_t> seq_ids = {1, 5, 3, 4, 5, 6, 6};
+    std::vector<uint32_t> seq_ids = {1, 2, 3, 4, 5, 6, 6};
     std::vector<int> expected = {1, 1, 0, 0, 0, 1, -1};
+    std::vector<int> validity_before = {
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid,
+        filter_result_iterator_t::valid
+    };
 
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i] == -1 ? filter_result_iterator_t::invalid : filter_result_iterator_t::valid,
-                  iter_missing.validity);
+        ASSERT_EQ(validity_before[i], iter_missing.validity);
+        ASSERT_EQ(expected[i], iter_missing.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_missing.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_missing.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_missing.validity);
+
+    iter_missing.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_missing.validity);
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(validity_before[i], iter_missing.validity);
         ASSERT_EQ(expected[i], iter_missing.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
@@ -4952,7 +5003,7 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluation) {
     // is_valid(0)=0; is_valid(1)=0; is_valid(2)=1, next()→3; is_valid(3)=1, next()→4;
     // is_valid(4)=1, next()→invalid
     validate_ids = {0, 1, 2, 3, 4, 5, 6};
-    seq_ids = {1, 2, 3, 4, 5, 5, 5};
+    seq_ids = {2, 2, 3, 4, 4, 4, 4};
     expected = {0, 0, 1, 1, 1, -1, -1};
 
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
