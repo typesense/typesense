@@ -333,12 +333,6 @@ private:
     id_list_t* missing_list_ptr = nullptr;
     id_list_t::iterator_t missing_values_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
-    /// Resets the iterator state from the given id list.
-    void reset_from_id_list(id_list_t* source);
-
-    /// Computes the full result from the given id list.
-    void compute_result_from_id_list(id_list_t* source);
-
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
     /// Initializes the state of iterator node after it's creation.
