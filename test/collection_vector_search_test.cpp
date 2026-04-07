@@ -2524,6 +2524,78 @@ TEST_F(CollectionVectorTest, GroupByWithHybridSearchKeepsVectorOnlyGroups) {
     ASSERT_EQ(std::set<std::string>({"0", "1"}), grouped_ids);
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchDefaultKFindsDistinctGroups) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_default_k_group_discovery",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "0",
+        "group": "g1",
+        "vec": [1.0, 0.0]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "1",
+        "group": "g1",
+        "vec": [0.999, 0.001]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "2",
+        "group": "g2",
+        "vec": [0.98, 0.02]
+    })"_json.dump()).ok());
+
+    auto grouped_with_explicit_k = coll->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true},
+                                                Index::DROP_TOKENS_THRESHOLD,
+                                                spp::sparse_hash_set<std::string>(),
+                                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                                "", 10, {}, {}, {"group"}, 1,
+                                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                                6000 * 1000, 4, 7, fallback,
+                                                4, {off}, 32767, 32767, 2,
+                                                false, true, "vec:([1.0, 0.0], k:3)").get();
+
+    ASSERT_EQ(2, grouped_with_explicit_k["found"].get<size_t>());
+    ASSERT_EQ(3, grouped_with_explicit_k["found_docs"].get<size_t>());
+    ASSERT_EQ(2, grouped_with_explicit_k["grouped_hits"].size());
+
+    std::set<std::string> grouped_with_explicit_k_ids;
+    for (const auto& grouped_hit : grouped_with_explicit_k["grouped_hits"]) {
+        grouped_with_explicit_k_ids.insert(grouped_hit["hits"][0]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "2"}), grouped_with_explicit_k_ids);
+
+    auto grouped_with_default_k = coll->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true},
+                                               Index::DROP_TOKENS_THRESHOLD,
+                                               spp::sparse_hash_set<std::string>(),
+                                               spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                               "", 10, {}, {}, {"group"}, 1,
+                                               "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                               6000 * 1000, 4, 7, fallback,
+                                               4, {off}, 32767, 32767, 2,
+                                               false, true, "vec:([1.0, 0.0])").get();
+
+    ASSERT_EQ(2, grouped_with_default_k["found"].get<size_t>());
+    ASSERT_EQ(3, grouped_with_default_k["found_docs"].get<size_t>());
+    ASSERT_EQ(2, grouped_with_default_k["grouped_hits"].size());
+
+    std::set<std::string> grouped_with_default_k_ids;
+    for (const auto& grouped_hit : grouped_with_default_k["grouped_hits"]) {
+        grouped_with_default_k_ids.insert(grouped_hit["hits"][0]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "2"}), grouped_with_default_k_ids);
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({

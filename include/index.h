@@ -925,6 +925,19 @@ public:
                                  const bool& is_group_by_first_pass,
                                  std::set<uint32_t>& group_by_missing_value_ids) const;
 
+    void process_grouped_vector_results_hnsw(filter_result_iterator_t* filter_result_iterator_no_groups,
+                                             const vector_query_t& vector_query,
+                                             hnsw_index_t* field_vector_index,
+                                             VectorFilterFunctor& filter_functor,
+                                             size_t initial_k,
+                                             size_t fetch_size,
+                                             size_t group_limit,
+                                             const std::vector<std::string>& group_by_fields,
+                                             bool group_missing_values,
+                                             bool is_group_by_first_pass,
+                                             bool is_wildcard_non_phrase_query,
+                                             std::vector<std::pair<float, single_filter_result_t>>& dist_results) const;
+
     Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                               size_t max_extra_prefix, size_t max_extra_suffix) const;
 
