@@ -3524,7 +3524,27 @@ void Index::process_grouped_vector_results_hnsw(
         return;
     }
 
-    auto count_distinct_groups = [&](const std::vector<std::pair<float, single_filter_result_t>>& results) {
+    // Group discovery only needs enough distinct groups for the current page.
+    const size_t target_group_count = fetch_size;
+    struct group_discovery_stats_t {
+        size_t docs_seen = 0;
+        size_t groups_seen = 0;
+    };
+    std::unordered_map<uint32_t, uint64_t> distinct_id_cache;
+    distinct_id_cache.reserve(initial_k);
+    auto compute_distinct_id_for_seq_id = [&](uint32_t seq_id) {
+        std::set<uint32_t> missing_value_ids;
+        uint64_t distinct_id = 1;
+        auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
+        for (auto& kv : group_by_field_it_vec) {
+            get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id,
+                            is_group_by_first_pass, missing_value_ids);
+        }
+        distinct_id_cache.emplace(seq_id, distinct_id);
+        return distinct_id;
+    };
+
+    auto analyze_group_discovery = [&](const std::vector<std::pair<float, single_filter_result_t>>& results) {
         std::vector<uint32_t> candidate_seq_ids;
         candidate_seq_ids.reserve(results.size());
 
@@ -3545,30 +3565,27 @@ void Index::process_grouped_vector_results_hnsw(
         }
 
         if (candidate_seq_ids.empty()) {
-            return size_t(0);
+            return group_discovery_stats_t{};
         }
 
         std::sort(candidate_seq_ids.begin(), candidate_seq_ids.end());
         candidate_seq_ids.erase(std::unique(candidate_seq_ids.begin(), candidate_seq_ids.end()),
                                 candidate_seq_ids.end());
 
-        auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
-        std::set<uint64_t> distinct_groups;
-        std::set<uint32_t> missing_value_ids;
+        std::unordered_set<uint64_t> distinct_groups;
+        distinct_groups.reserve(candidate_seq_ids.size());
 
         for (const auto seq_id : candidate_seq_ids) {
-            uint64_t distinct_id = 1;
-            for (auto& kv : group_by_field_it_vec) {
-                get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id,
-                                is_group_by_first_pass, missing_value_ids);
+            auto distinct_id_it = distinct_id_cache.find(seq_id);
+            if (distinct_id_it != distinct_id_cache.end()) {
+                distinct_groups.insert(distinct_id_it->second);
+                continue;
             }
-            distinct_groups.insert(distinct_id);
-            if (distinct_groups.size() >= fetch_size) {
-                break;
-            }
+
+            distinct_groups.insert(compute_distinct_id_for_seq_id(seq_id));
         }
 
-        return distinct_groups.size();
+        return group_discovery_stats_t{candidate_seq_ids.size(), distinct_groups.size()};
     };
 
     size_t current_k = initial_k;
@@ -3578,13 +3595,23 @@ void Index::process_grouped_vector_results_hnsw(
 
     while (true) {
         run_hnsw(current_k);
+        auto group_discovery = analyze_group_discovery(dist_results);
 
-        if (count_distinct_groups(dist_results) >= fetch_size ||
+        if (group_discovery.docs_seen == 0 ||
+            group_discovery.groups_seen >= target_group_count ||
             dist_results.size() < current_k || current_k >= max_k) {
             return;
         }
 
-        current_k = std::min(max_k, std::max(current_k + 1, current_k * 2));
+        size_t next_k = std::max(current_k + 1, current_k * 2);
+        if (group_discovery.groups_seen > 0) {
+            const double duplication_ratio =
+                static_cast<double>(group_discovery.docs_seen) / static_cast<double>(group_discovery.groups_seen);
+            const auto estimated_k = static_cast<size_t>(std::ceil(duplication_ratio * target_group_count));
+            next_k = std::max(current_k + 1, estimated_k);
+        }
+
+        current_k = std::min(max_k, next_k);
     }
 }
 
