@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Phases } from "../src/constants";
 import { TypesenseProcessManager, type MultiNodeConfig } from "../src/manager";
@@ -34,6 +34,8 @@ const VEHICLE_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_VEHICLE_COUNT_P
 const NON_TARGET_FITMENTS_PER_PRODUCT = parsePositiveInt("JOIN_SNAPSHOT_NON_TARGET_FITMENTS_PER_PRODUCT", 4);
 const TARGET_PRODUCT_MATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TARGET_PRODUCT_MATCH_COUNT", 18_016);
 const QUERY_PAGE_SIZE = parsePositiveInt("JOIN_SNAPSHOT_QUERY_PAGE_SIZE", 5);
+const TAIL_FITMENT_BATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TAIL_FITMENT_BATCH_COUNT", 2);
+const TAIL_FITMENT_DOC_COUNT_PER_BATCH = parsePositiveInt("JOIN_SNAPSHOT_TAIL_FITMENT_DOC_COUNT_PER_BATCH", IMPORT_BATCH_SIZE);
 const TARGET_PRODUCT_INDEX = Math.min(
   PRODUCT_COUNT_PER_MARKET - 1,
   Math.max(0, Math.floor(PRODUCT_COUNT_PER_MARKET / 2)),
@@ -88,6 +90,22 @@ function getVehicleId(code: MarketCode, index: number): string {
 
 function getFitmentCountPerMarket(): number {
   return ((PRODUCT_COUNT_PER_MARKET - 1) * NON_TARGET_FITMENTS_PER_PRODUCT) + TARGET_PRODUCT_MATCH_COUNT;
+}
+
+function getTailFitmentCountPerMarket(): number {
+  return TAIL_FITMENT_BATCH_COUNT * TAIL_FITMENT_DOC_COUNT_PER_BATCH;
+}
+
+function getExpectedProductCountPerMarket(): number {
+  return PRODUCT_COUNT_PER_MARKET;
+}
+
+function getExpectedVehicleCountPerMarket(): number {
+  return VEHICLE_COUNT_PER_MARKET;
+}
+
+function getExpectedFitmentCountPerMarket(market: MarketConfig): number {
+  return market.fitmentCount + getTailFitmentCountPerMarket();
 }
 
 function buildMarketConfig(code: MarketCode, seed: number): MarketConfig {
@@ -146,7 +164,10 @@ const CLUSTER_NODES: MultiNodeConfig[] = [
 
 type StatusResponse = {
   state: string;
+  last_index: number;
   committed_index: number;
+  known_applied_index: number;
+  applying_index: number;
   queued_writes: number;
 };
 
@@ -217,6 +238,10 @@ function getNodeByName(name: string): MultiNodeConfig {
     throw new Error(`Unknown node ${name}`);
   }
   return node;
+}
+
+function getNodeDataDir(node: MultiNodeConfig): string {
+  return join(BASE_DIR, node.dataDir);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -334,10 +359,28 @@ async function waitForHealthy(node: MultiNodeConfig, timeoutMs: number): Promise
   return lastHealth;
 }
 
-async function waitForCommittedIndex(nodes: MultiNodeConfig[], timeoutMs: number): Promise<Array<{ name: string; status?: StatusResponse; error?: string }>> {
+function getAppliedIndex(status: StatusResponse): number {
+  return status.applying_index === 0 ? status.known_applied_index : status.applying_index;
+}
+
+function hasRaftIndexParity(statuses: StatusResponse[]): boolean {
+  const firstStatus = statuses[0];
+  if (!firstStatus) {
+    return false;
+  }
+
+  const firstCommittedIndex = firstStatus.committed_index;
+  return statuses.every((status) =>
+    status.last_index === status.committed_index &&
+    status.committed_index === getAppliedIndex(status) &&
+    status.committed_index === firstCommittedIndex
+  );
+}
+
+async function waitForRaftIndexParity(nodes: MultiNodeConfig[], timeoutMs: number): Promise<Array<{ name: string; status?: StatusResponse; error?: string }>> {
   let lastStatuses: Array<{ name: string; status?: StatusResponse; error?: string }> = [];
 
-  await waitForCondition("committed index to converge", async () => {
+  await waitForCondition("raft indexes to converge", async () => {
     lastStatuses = await Promise.all(nodes.map(async (node) => {
       try {
         return { name: node.name, status: await getStatus(node) };
@@ -354,20 +397,96 @@ async function waitForCommittedIndex(nodes: MultiNodeConfig[], timeoutMs: number
       return false;
     }
 
-    const firstStatus = statuses[0];
-    if (!firstStatus) {
-      return false;
-    }
-
-    const firstCommittedIndex = firstStatus.committed_index;
-    return statuses.every((status) =>
-      status.state !== "NOT_READY" &&
-      status.queued_writes === 0 &&
-      status.committed_index === firstCommittedIndex
-    );
+    return hasRaftIndexParity(statuses);
   }, timeoutMs);
 
   return lastStatuses;
+}
+
+async function waitForDrainedWrites(nodes: MultiNodeConfig[], timeoutMs: number): Promise<Array<{ name: string; status?: StatusResponse; error?: string }>> {
+  let lastStatuses: Array<{ name: string; status?: StatusResponse; error?: string }> = [];
+
+  await waitForCondition("batched writes to drain", async () => {
+    lastStatuses = await waitForRaftIndexParity(nodes, 10_000);
+    const statuses = lastStatuses
+      .map((entry) => entry.status)
+      .filter((entry): entry is StatusResponse => entry !== undefined);
+
+    if (statuses.length !== nodes.length) {
+      return false;
+    }
+
+    return statuses.every((status) => status.queued_writes === 0);
+  }, timeoutMs);
+
+  return lastStatuses;
+}
+
+async function waitForPositiveQueuedWrites(node: MultiNodeConfig, timeoutMs: number): Promise<StatusResponse> {
+  let lastStatus: StatusResponse | null = null;
+  await waitForCondition(`${node.name} queued writes to become positive`, async () => {
+    try {
+      lastStatus = await getStatus(node);
+      return lastStatus.queued_writes > 0;
+    } catch {
+      return false;
+    }
+  }, timeoutMs, 250);
+
+  if (!lastStatus) {
+    throw new Error(`Queued writes status missing for ${node.name}`);
+  }
+
+  return lastStatus;
+}
+
+function getTypesenseLogPath(node: MultiNodeConfig): string {
+  return join(BASE_DIR, "logs", node.logDir, "typesense.log");
+}
+
+function seedLocalSnapshotFromLeader(leaderNode: MultiNodeConfig, followerNode: MultiNodeConfig) {
+  const leaderStateDir = join(getNodeDataDir(leaderNode), "state");
+  const leaderSnapshotRoot = join(leaderStateDir, "snapshot");
+  const snapshotEntries = readdirSync(leaderSnapshotRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("snapshot_"));
+
+  if (snapshotEntries.length === 0) {
+    throw new Error(`No snapshot directory found for ${leaderNode.name}`);
+  }
+
+  const followerStateDir = join(getNodeDataDir(followerNode), "state");
+  mkdirSync(followerStateDir, { recursive: true });
+  cpSync(join(leaderStateDir, "snapshot"), join(followerStateDir, "snapshot"), { recursive: true });
+  cpSync(join(leaderStateDir, "meta"), join(followerStateDir, "meta"), { recursive: true });
+}
+
+function getMaxLoggedInFlightRequestCount(node: MultiNodeConfig, verb: "Serialized" | "Restored"): number | null {
+  try {
+    const logText = readFileSync(getTypesenseLogPath(node), "utf8");
+    const logMessage = verb === "Serialized" ? "for snapshot" : "from snapshot";
+    const matches = [...logText.matchAll(new RegExp(`${verb} (\\d+) in-flight requests ${logMessage}\\.`, "g"))];
+    if (matches.length === 0) {
+      return null;
+    }
+
+    return Math.max(...matches.map((match) => Number.parseInt(match[1] ?? "0", 10)));
+  } catch {
+    return null;
+  }
+}
+
+async function waitForPositiveInFlightSnapshotLog(node: MultiNodeConfig, verb: "Serialized" | "Restored", timeoutMs: number): Promise<number> {
+  let maxCount: number | null = null;
+  await waitForCondition(`${node.name} ${verb.toLowerCase()} in-flight snapshot requests`, async () => {
+    maxCount = getMaxLoggedInFlightRequestCount(node, verb);
+    return maxCount !== null && maxCount > 0;
+  }, timeoutMs, 1_000);
+
+  if (maxCount === null) {
+    throw new Error(`Missing ${verb.toLowerCase()} in-flight snapshot log for ${node.name}`);
+  }
+
+  return maxCount;
 }
 
 async function waitForLeader(nodes: MultiNodeConfig[], timeoutMs: number = 120_000): Promise<MultiNodeConfig> {
@@ -605,6 +724,39 @@ async function importMarketData(port: number, market: MarketConfig) {
   await importFitmentDocuments(port, market);
 }
 
+function getExistingNonTargetProductIndex(market: MarketConfig, ordinal: number): number {
+  const candidate = ordinal % (PRODUCT_COUNT_PER_MARKET - 1);
+  return candidate >= market.targetProductIndex ? candidate + 1 : candidate;
+}
+
+function buildTailFitmentDocument(market: MarketConfig, fitmentSequence: number): Record<string, unknown> {
+  const productIndex = getExistingNonTargetProductIndex(market, fitmentSequence + market.seed);
+  const vehicleIndex = ((fitmentSequence * 17) + market.seed) % VEHICLE_COUNT_PER_MARKET;
+  return {
+    id: `${market.code}_fitment_doc_${pad(market.fitmentCount + fitmentSequence)}`,
+    variant_pid: getVariantPid(market.code, productIndex),
+    vehicle_id: getVehicleId(market.code, vehicleIndex),
+  };
+}
+
+function startTailReferenceImports(port: number): Promise<void>[] {
+  const importPromises: Promise<void>[] = [];
+
+  for (const market of MARKETS) {
+    for (let batchIndex = 0; batchIndex < TAIL_FITMENT_BATCH_COUNT; batchIndex++) {
+      const batchStart = batchIndex * TAIL_FITMENT_DOC_COUNT_PER_BATCH;
+      const tailFitmentLines = Array.from({ length: TAIL_FITMENT_DOC_COUNT_PER_BATCH }, (_, index) =>
+        JSON.stringify(buildTailFitmentDocument(market, batchStart + index))
+      );
+      importPromises.push(
+        importJsonlBatch(port, market.collections.fitments, tailFitmentLines, `${market.collections.fitments} tail-${batchIndex}`)
+      );
+    }
+  }
+
+  return importPromises;
+}
+
 async function getCollectionSchema(port: number, collection: string): Promise<CollectionSchemaResponse> {
   const res = await fetchNode(port, `/collections/${collection}`, {}, 30_000);
   expect(res.ok).toBe(true);
@@ -737,9 +889,9 @@ async function waitForRestoredCollectionsToLoad(node: MultiNodeConfig, timeoutMs
       }
 
       if (
-        fitmentSchema.num_documents !== market.fitmentCount ||
-        productSchema.num_documents !== PRODUCT_COUNT_PER_MARKET ||
-        vehicleSchema.num_documents !== VEHICLE_COUNT_PER_MARKET ||
+        fitmentSchema.num_documents !== getExpectedFitmentCountPerMarket(market) ||
+        productSchema.num_documents !== getExpectedProductCountPerMarket() ||
+        vehicleSchema.num_documents !== getExpectedVehicleCountPerMarket() ||
         categorySchema.num_documents !== CATEGORY_COUNT_PER_MARKET
       ) {
         return false;
@@ -762,13 +914,13 @@ async function assertRestoredReferenceSchemas(node: MultiNodeConfig) {
   for (const market of MARKETS) {
     const restoredFitmentSchema = await getCollectionSchema(node.port, market.collections.fitments);
     expect(restoredFitmentSchema.name).toBe(market.collections.fitments);
-    expect(restoredFitmentSchema.num_documents).toBe(market.fitmentCount);
+    expect(restoredFitmentSchema.num_documents).toBe(getExpectedFitmentCountPerMarket(market));
     assertReferenceField(restoredFitmentSchema, "variant_pid", `${market.collections.products}.variant_pid`);
     assertReferenceField(restoredFitmentSchema, "vehicle_id", `${market.collections.vehicles}.vehicle_id`);
 
     const restoredProductSchema = await getCollectionSchema(node.port, market.collections.products);
     expect(restoredProductSchema.name).toBe(market.collections.products);
-    expect(restoredProductSchema.num_documents).toBe(PRODUCT_COUNT_PER_MARKET);
+    expect(restoredProductSchema.num_documents).toBe(getExpectedProductCountPerMarket());
     assertReferenceField(
       restoredProductSchema,
       "primary_level_3_category_id",
@@ -778,7 +930,7 @@ async function assertRestoredReferenceSchemas(node: MultiNodeConfig) {
 }
 
 describe(Phases.NO_PHASE, () => {
-  it("preserves scaled reverse nested joins on a follower restored from the documented snapshot recovery flow", async () => {
+  it("preserves scaled reverse nested joins on a follower restarted from a leader snapshot with in-flight batched writes", async () => {
     if (!manager) {
       throw new Error("Process manager was not initialized");
     }
@@ -793,7 +945,7 @@ describe(Phases.NO_PHASE, () => {
       await importMarketData(initialLeader.port, market);
     }
 
-    await waitForCommittedIndex(CLUSTER_NODES, CLUSTER_HEALTH_TIMEOUT_MS);
+    await waitForDrainedWrites(CLUSTER_NODES, CLUSTER_HEALTH_TIMEOUT_MS);
     await assertAllJoinQueriesSucceed(CLUSTER_NODES);
 
     const leaderBeforeRemoval = await waitForLeader(CLUSTER_NODES);
@@ -815,17 +967,26 @@ describe(Phases.NO_PHASE, () => {
     await pollClusterHealthAndStats(remainingNodes, "Cluster /health and /stats.json after 30s refresh wait");
 
     await Promise.all(remainingNodes.map((node) => waitForHealthy(node, CLUSTER_HEALTH_TIMEOUT_MS)));
-    await waitForCommittedIndex(remainingNodes, CLUSTER_HEALTH_TIMEOUT_MS);
+    await waitForRaftIndexParity(remainingNodes, CLUSTER_HEALTH_TIMEOUT_MS);
 
     const leaderAfterRemoval = await waitForLeader(remainingNodes);
+    const tailImportPromises = startTailReferenceImports(leaderAfterRemoval.port);
+    const leaderStatusWithQueuedWrites = await waitForPositiveQueuedWrites(leaderAfterRemoval, CLUSTER_HEALTH_TIMEOUT_MS);
+    expect(leaderStatusWithQueuedWrites.queued_writes).toBeGreaterThan(0);
+
     const snapshotRes = await fetchNode(leaderAfterRemoval.port, "/operations/snapshot", {
       method: "POST",
     }, SNAPSHOT_TIMEOUT_MS);
     expect(snapshotRes.status).toBe(201);
     expect(await snapshotRes.json()).toEqual({ success: true });
+    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", CLUSTER_HEALTH_TIMEOUT_MS)).toBeGreaterThan(0);
+1
+    await Promise.all(tailImportPromises);
+    await waitForDrainedWrites(remainingNodes, CLUSTER_HEALTH_TIMEOUT_MS);
 
     rmSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true, force: true });
     mkdirSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true });
+    seedLocalSnapshotFromLeader(leaderAfterRemoval, followerToRestore);
     processManager.writeNodesConfig(CLUSTER_NODES);
 
     const nodesConfigAfterRestore = readFileSync(processManager.nodesFile, "utf8");
@@ -837,9 +998,10 @@ describe(Phases.NO_PHASE, () => {
     const restoredHealth = await waitForHealthy(restoredNode, RESTARTED_NODE_TIMEOUT_MS);
     expect(restoredHealth.status).toBe(200);
     expect(restoredHealth.data.ok).toBe(true);
+    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", RESTARTED_NODE_TIMEOUT_MS)).toBeGreaterThan(0);
 
     await Promise.all(CLUSTER_NODES.map((node) => waitForHealthy(node, RESTARTED_NODE_TIMEOUT_MS)));
-    await waitForCommittedIndex(CLUSTER_NODES, RESTARTED_NODE_TIMEOUT_MS);
+    await waitForDrainedWrites(CLUSTER_NODES, RESTARTED_NODE_TIMEOUT_MS);
 
     await waitForRestoredCollectionsToLoad(restoredNode, RESTARTED_NODE_TIMEOUT_MS);
     await assertRestoredReferenceSchemas(restoredNode);

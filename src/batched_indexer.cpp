@@ -400,7 +400,7 @@ void BatchedIndexer::run() {
                     size_t max_loop = 0;
                     for(const auto& it : req_res_map) {
                         max_loop++;
-                        LOG(INFO) << "Stuck req_key: " << it.first;
+                        LOG(INFO) << "Stuck req_key: " << it.first << "\n" << "Stuck request: " << it.second.req->body;
                         if(max_loop == 5) {
                             break;
                         }
@@ -803,22 +803,26 @@ std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on(const uint6
         return {};
     }
 
-    const auto current_req_log_index = current_req_it->second.latest_chunk_log_index;
+    const auto current_req_last_log_index = current_req_it->second.latest_chunk_log_index;
     std::unordered_set<uint64_t> wait_on_request_ids;
-    for (const auto& [other_req_id, req_res] : req_res_map) {
+    for (const auto& [other_req_id, other_req_res] : req_res_map) {
         // We won't wait on requests whose last chunk has still not been received.
-        if (!req_res.is_complete) {
+        if (!other_req_res.is_complete) {
             continue;
         }
-        const auto& ref_req = req_res.req;
-        const bool has_log_order = current_req_log_index != 0 && req_res.latest_chunk_log_index != 0;
-        const bool is_earlier_request = has_log_order ? (req_res.latest_chunk_log_index < current_req_log_index)
-                                                      : (req_res.last_updated < current_req_it->second.last_updated);
+        const auto& other_req_last_log_index = other_req_res.latest_chunk_log_index;
+        const bool has_log_order = current_req_last_log_index != 0 && other_req_last_log_index != 0;
+        const auto& other_req_last_updated = other_req_res.last_updated;
+        const auto& current_req_last_updated = current_req_it->second.last_updated;
+        const bool is_earlier_request = has_log_order ? (other_req_last_log_index < current_req_last_log_index)
+                                                      : (other_req_last_updated < current_req_last_updated ||
+                                                         (other_req_last_updated == current_req_last_updated &&
+                                                            other_req_id < req_id));
         if (!is_earlier_request) {
             continue;
         }
 
-        const auto& ref_coll_name = get_collection_name(ref_req);
+        const auto& ref_coll_name = get_collection_name(other_req_res.req);
         if (wait_for_collections.count(ref_coll_name) == 0) {
             continue;
         }
