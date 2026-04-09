@@ -62,6 +62,8 @@ class NumericTrie {
 
         inline uint32_t get_ids_length();
 
+        void* get_seq_ids() const { return seq_ids; }
+
         void search_range(const int64_t& low, const int64_t& high, const char& max_level,
                           uint32_t*& ids, uint32_t& ids_length);
 
@@ -99,18 +101,15 @@ public:
 
     class iterator_t {
         struct match_state {
-            uint32_t* ids = nullptr;
-            uint32_t ids_length = 0;
-            uint32_t index = 0;
+            id_list_t* id_list;  // non-owning pointer, used to reconstruct iterator on reset()
+            id_list_t::iterator_t iter;
 
-            explicit match_state(uint32_t*& ids, uint32_t& ids_length) : ids(ids), ids_length(ids_length) {}
-
-            ~match_state() {
-                delete [] ids;
-            }
+            explicit match_state(id_list_t* list)
+                : id_list(list), iter(list->new_iterator()) {}
         };
 
         std::vector<match_state*> matches;
+        std::vector<id_list_t*> expanded_id_lists;  // owns id_list_t* converted from compact nodes
 
         void set_seq_id();
 
@@ -118,9 +117,20 @@ public:
 
         explicit iterator_t(std::vector<Node*>& matches);
 
+        iterator_t() { is_valid = false; }
+
+        iterator_t(iterator_t&& obj) noexcept
+            : matches(std::move(obj.matches)),
+              expanded_id_lists(std::move(obj.expanded_id_lists)),
+              seq_id(obj.seq_id),
+              is_valid(obj.is_valid) {}
+
         ~iterator_t() {
             for (auto& match: matches) {
                 delete match;
+            }
+            for (auto& list: expanded_id_lists) {
+                delete list;
             }
         }
 

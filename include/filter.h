@@ -14,6 +14,16 @@
 
 constexpr size_t DEFAULT_FILTER_BY_CANDIDATES = 4;
 
+/// Minimum ratio (large_side / small_side) required to trigger the asymmetric AND
+/// filter optimization, which probes the large side via sort_index instead of
+/// materializing it. Higher values are more conservative (fewer false triggers).
+constexpr uint32_t ASYMMETRIC_AND_RATIO_THRESHOLD = 10;
+
+/// Maximum number of documents on the small side for the asymmetric AND optimization.
+/// Beyond this, the per-document probe loop becomes too expensive relative to the
+/// standard sorted intersection.
+constexpr uint32_t ASYMMETRIC_AND_MAX_PROBE_COUNT = 500'000;
+
 enum NUM_COMPARATOR {
     LESS_THAN,
     LESS_THAN_EQUALS,

@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "num_tree.h"
+#include "numeric_range_trie.h"
 #include "option.h"
 #include "posting_list.h"
 #include "id_list.h"
@@ -328,6 +329,10 @@ private:
     std::unordered_set<uint32_t> string_prefix_filter_index;
 
     bool delete_filter_node = false;
+
+    /// Lazy trie iterator for range_index fields. When set, skip_to/next/is_valid
+    /// delegate to this iterator instead of using materialized filter_result arrays.
+    std::unique_ptr<NumericTrie::iterator_t> trie_iterator;
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
