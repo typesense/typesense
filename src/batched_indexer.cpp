@@ -400,7 +400,7 @@ void BatchedIndexer::run() {
                     size_t max_loop = 0;
                     for(const auto& it : req_res_map) {
                         max_loop++;
-                        LOG(INFO) << "Stuck req_key: " << it.first << "\n" << "Stuck request: " << it.second.req->body;
+                        LOG(INFO) << "Stuck req_key: " << it.first;
                         if(max_loop == 5) {
                             break;
                         }
