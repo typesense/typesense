@@ -931,6 +931,7 @@ public:
                                              VectorFilterFunctor& filter_functor,
                                              size_t initial_k,
                                              size_t fetch_size,
+                                             size_t group_max_candidates,
                                              size_t group_limit,
                                              const std::vector<std::string>& group_by_fields,
                                              bool group_missing_values,

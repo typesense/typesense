@@ -3506,6 +3506,7 @@ void Index::process_grouped_vector_results_hnsw(
     VectorFilterFunctor& filter_functor,
     size_t initial_k,
     size_t fetch_size,
+    size_t group_max_candidates,
     size_t group_limit,
     const std::vector<std::string>& group_by_fields,
     bool group_missing_values,
@@ -3524,8 +3525,11 @@ void Index::process_grouped_vector_results_hnsw(
         return;
     }
 
-    // Group discovery only needs enough distinct groups for the current page.
-    const size_t target_group_count = fetch_size;
+    // When the caller explicitly raises `group_max_candidates`, the first pass must discover
+    // that many groups so the later exact-count path remains valid for grouped vector queries.
+    const size_t target_group_count = group_max_candidates != DEFAULT_TOPSTER_SIZE
+                                      ? std::max(fetch_size, group_max_candidates)
+                                      : fetch_size;
     struct group_discovery_stats_t {
         size_t docs_seen = 0;
         size_t groups_seen = 0;
@@ -3839,7 +3843,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             } else if(!no_group_filter_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
-                                                    filterFunctor, k, fetch_size, group_limit, group_by_fields,
+                                                    filterFunctor, k, fetch_size, group_max_candidates, group_limit, group_by_fields,
                                                     group_missing_values, is_group_by_first_pass, true, dist_results);
             }
 
@@ -4247,7 +4251,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
 
                 process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
-                                                    filterFunctor, k, fetch_size, group_limit, group_by_fields,
+                                                    filterFunctor, k, fetch_size, group_max_candidates, group_limit, group_by_fields,
                                                     group_missing_values, is_group_by_first_pass, false, dist_results);
             }
 

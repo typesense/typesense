@@ -2596,6 +2596,50 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearchDefaultKFindsDistinctGroups)
     ASSERT_EQ(std::set<std::string>({"0", "2"}), grouped_with_default_k_ids);
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchExplicitGroupMaxCandidatesShouldCountAllGroups) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_exact_group_count",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    const size_t total_groups = 12;
+    for (size_t i = 0; i < total_groups; ++i) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["group"] = "g" + std::to_string(i);
+        doc["vec"] = {1.0, 0.0};
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "grouped_vector_exact_group_count"},
+            {"q", "*"},
+            {"group_by", "group"},
+            {"group_limit", "1"},
+            {"per_page", "2"},
+            {"group_max_candidates", "1000"},
+            {"vector_query", "vec:([1.0, 0.0])"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ(total_groups, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({
