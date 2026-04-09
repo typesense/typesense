@@ -321,7 +321,6 @@ async function pollClusterHealthAndStats(nodes: MultiNodeConfig[], label: string
     stats: await fetchEndpointSnapshot(node.port, "/stats.json"),
   })));
 
-  process.stderr.write(`\n=== ${label} ===\n${JSON.stringify(snapshots, null, 2)}\n\n`);
   return snapshots;
 }
 
