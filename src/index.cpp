@@ -3530,20 +3530,6 @@ void Index::process_grouped_vector_results_hnsw(
         size_t docs_seen = 0;
         size_t groups_seen = 0;
     };
-    std::unordered_map<uint32_t, uint64_t> distinct_id_cache;
-    distinct_id_cache.reserve(initial_k);
-    auto compute_distinct_id_for_seq_id = [&](uint32_t seq_id) {
-        std::set<uint32_t> missing_value_ids;
-        uint64_t distinct_id = 1;
-        auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
-        for (auto& kv : group_by_field_it_vec) {
-            get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id,
-                            is_group_by_first_pass, missing_value_ids);
-        }
-        distinct_id_cache.emplace(seq_id, distinct_id);
-        return distinct_id;
-    };
-
     auto analyze_group_discovery = [&](const std::vector<std::pair<float, single_filter_result_t>>& results) {
         std::vector<uint32_t> candidate_seq_ids;
         candidate_seq_ids.reserve(results.size());
@@ -3572,17 +3558,17 @@ void Index::process_grouped_vector_results_hnsw(
         candidate_seq_ids.erase(std::unique(candidate_seq_ids.begin(), candidate_seq_ids.end()),
                                 candidate_seq_ids.end());
 
-        std::unordered_set<uint64_t> distinct_groups;
-        distinct_groups.reserve(candidate_seq_ids.size());
+        std::set<uint64_t> distinct_groups;
+        auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
 
         for (const auto seq_id : candidate_seq_ids) {
-            auto distinct_id_it = distinct_id_cache.find(seq_id);
-            if (distinct_id_it != distinct_id_cache.end()) {
-                distinct_groups.insert(distinct_id_it->second);
-                continue;
+            std::set<uint32_t> missing_value_ids;
+            uint64_t distinct_id = 1;
+            for (auto& kv : group_by_field_it_vec) {
+                get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id,
+                                is_group_by_first_pass, missing_value_ids);
             }
-
-            distinct_groups.insert(compute_distinct_id_for_seq_id(seq_id));
+            distinct_groups.insert(distinct_id);
         }
 
         return group_discovery_stats_t{candidate_seq_ids.size(), distinct_groups.size()};
