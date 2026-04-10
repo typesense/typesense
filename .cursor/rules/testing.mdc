@@ -1,0 +1,100 @@
+---
+description: Core testing philosophy and principles
+globs:
+  - "**/*test*"
+  - "**/*spec*"
+---
+
+# Testing Philosophy
+
+## Core Principles
+
+### Mission-Oriented Testing
+- Each test focuses on **ONE specific behavior**
+- Multiple sequential steps/assertions OK if testing one cohesive flow
+- Test names must clearly describe expected behavior
+- Avoid unrelated functionality in single test
+
+### Comprehensive Path Coverage
+- **ALWAYS test both success AND failure paths**
+- Create **separate, dedicated tests** for each error condition
+- Verify **specific error codes and messages** for failures
+- Don't combine multiple error scenarios in one test
+
+### No Conditional Logic in Tests
+- **NEVER use if/try-catch for conditional testing**
+- Each code branch needs its own dedicated test
+- Tests must have **deterministic, linear execution**
+- No dynamic test generation or conditional assertions
+
+### Real Objects Over Mocks
+- **Strongly prefer real implementations** over mocks
+- Instantiate actual objects to test genuine behavior
+- Only mock what's truly necessary:
+  - External network services
+  - File systems (when expensive)
+  - Time-dependent operations
+- Keep mocks simple and behavior-focused
+
+## Required Test Coverage
+
+### Input Validation
+- **All invalid combinations**: wrong types, missing fields, empty values
+- **Boundary conditions**: min/max values, size limits, edge cases
+- **Malformed data**: unexpected formats, corrupt data
+- **Type mismatches**: string where number expected, etc.
+
+### Resource & State Management
+- **Cleanup verification**: resources properly released
+- **State transitions**: valid and invalid state changes
+- **Empty/missing scenarios**: empty collections, missing files
+- **Concurrent access**: race conditions, deadlocks
+- **Network failures**: timeouts, connection drops
+
+### Integration Points
+- **Full lifecycle**: create → modify → use → delete
+- **Persistence**: data survives restarts
+- **Cross-component**: interactions between modules
+- **System boundaries**: API contracts, external services
+
+## Test Organization
+
+### Directory Structure
+- **Mirror source structure**: test files parallel source files
+- **Fixture organization**: group related tests in same fixture/describe
+- **Clear naming**: describe what's being tested, not how
+
+### Test Data Management
+- **Fixture files**: Store in `resources/` directories
+- **Cleanup mandatory**: Remove temp files/dirs after tests
+- **Deterministic data**: Avoid random generation unless testing randomness
+- **Separate scenarios**: Different data files for different test cases
+- **Unique temp paths**: Prevent test interference
+
+### Performance & Load Testing
+- **Critical path benchmarks**: Measure key operations
+- **Load testing**: Behavior under stress
+- **Resource limits**: Memory, CPU, file handles
+- **Degradation testing**: Graceful failure modes
+- **Recovery testing**: System recovery after failures
+
+## Anti-Patterns to Avoid
+
+### Common Mistakes
+- Testing multiple behaviors in one test
+- Skipping error path testing
+- Using production data in tests
+- Not cleaning up resources
+- Conditional assertions based on environment
+- Testing implementation details vs behavior
+- Overly complex test setup
+
+### Test Smells
+- Tests that sometimes pass/fail (flaky)
+- Tests requiring specific order
+- Tests modifying shared state
+- Tests with no assertions
+- Tests testing the test framework
+- Copy-pasted test code without understanding
+- Tests that take too long to run
+- Tests coupled to implementation details
