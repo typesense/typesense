@@ -78,4 +78,16 @@ TEST_F(VectorQueryOpsTest, ParseVectorQueryString) {
     parsed = VectorQueryOps::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query, false, nullptr, false);
     ASSERT_FALSE(parsed.ok());
     ASSERT_EQ("Malformed vector query string: `:` is missing after the vector field name.", parsed.error());
+
+    // empty ID array is detected
+    vector_query._reset();
+    parsed = VectorQueryOps::parse_vector_query_str("vec:([], id: [])", vector_query, false, nullptr, false);
+    ASSERT_FALSE(parsed.ok());
+    ASSERT_EQ("Document id referenced in vector query is empty.", parsed.error());
+
+    // cannot pass both vector array and id array
+    vector_query._reset();
+    parsed = VectorQueryOps::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], id: [doc1, doc2])", vector_query, false, nullptr, false);
+    ASSERT_FALSE(parsed.ok());
+    ASSERT_EQ("Malformed vector query string: cannot pass both vector query and `id` parameter.", parsed.error());
 }
