@@ -607,11 +607,14 @@ TEST_F(CollectionAllFieldsTest, NormalFieldWithAutoType) {
     ASSERT_EQ(1, results["hits"].size());
 
     auto schema = coll1->get_fields();
-    ASSERT_EQ("city", schema[2].name);
-    ASSERT_EQ(field_types::STRING, schema[2].type);
+    ASSERT_EQ("city", schema[0].name);
+    ASSERT_EQ(field_types::STRING, schema[0].type);
 
-    ASSERT_EQ("publication_year", schema[3].name);
-    ASSERT_EQ(field_types::INT64, schema[3].type);
+    ASSERT_EQ("publication_year", schema[1].name);
+    ASSERT_EQ(field_types::INT64, schema[1].type);
+
+    ASSERT_EQ("title", schema[2].name);
+    ASSERT_EQ(field_types::STRING, schema[2].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1015,19 +1018,19 @@ TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
     ASSERT_TRUE(add_op.ok());
 
     schema = coll1->get_fields();
-    ASSERT_EQ(8, schema.size());
+    ASSERT_EQ(7, schema.size());
 
-    ASSERT_EQ("bar_one", schema[4].name);
-    ASSERT_EQ(field_types::STRING, schema[4].type);
+    ASSERT_EQ("bar_one", schema[3].name);
+    ASSERT_EQ(field_types::STRING, schema[3].type);
 
-    ASSERT_EQ("baz_one", schema[5].name);
-    ASSERT_EQ(field_types::BOOL, schema[5].type);
+    ASSERT_EQ("baz_one", schema[4].name);
+    ASSERT_EQ(field_types::BOOL, schema[4].type);
 
-    ASSERT_EQ("buzz", schema[6].name);
-    ASSERT_EQ(field_types::INT64, schema[6].type);
+    ASSERT_EQ("buzz", schema[5].name);
+    ASSERT_EQ(field_types::INT64, schema[5].type);
 
-    ASSERT_EQ("foo", schema[7].name);
-    ASSERT_EQ(field_types::STRING_ARRAY, schema[7].type);
+    ASSERT_EQ("foo", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1989,4 +1992,64 @@ TEST_F(CollectionAllFieldsTest, FieldNameEmpty) {
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("Field name cannot be empty.", create_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, AvoidDuplicateDynamicFields) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "product", "type": "auto"},
+            {"name": "title", "type": "auto"},
+            {"name": "description", "type": "string"},
+            {"name": "nested.price", "type": "auto", "facet": true},
+            {"name": ".*", "type": "auto"}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+
+    Collection* collection = create_op.get();
+    auto fields = collection->get_fields();
+    ASSERT_EQ(5, fields.size());
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["product"] = "Running Shoes";
+    doc["title"] = "Nike Shoes";
+    doc["description"] = "A nice pair of running shoes.";
+    doc["nested"] = R"({"price": 100})"_json;
+    
+    auto add_op = collection->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    fields = collection->get_fields();
+    // it's going to add the parent `nested` field as well
+    ASSERT_EQ(6, fields.size());
+    ASSERT_EQ(field_types::INT64, fields[5].type);
+    ASSERT_TRUE(fields[5].facet);
+
+    auto search_results = collection->search("*", {}, "nested.price: 100", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_results.ok());
+    auto results = search_results.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    
+    auto& document = results["hits"][0]["document"];
+    ASSERT_TRUE(document.contains("nested"));
+    ASSERT_TRUE(document["nested"].is_object());
+    ASSERT_TRUE(document["nested"].contains("price"));
+    ASSERT_EQ(100, document["nested"]["price"].get<int64_t>());
+
+    search_results = collection->search("*", {}, "", {"nested.price"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_results.ok());
+    results = search_results.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("nested.price", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_STREQ("100", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int)results["facet_counts"][0]["counts"][0]["count"]);
+
+    collectionManager.drop_collection("test");
 }

@@ -602,6 +602,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 if(search_schema.find(new_field.name) == search_schema.end()) {
                     found_new_field = true;
                     found_batch_new_field = true;
+                    // Remove existing auto field with same name if present
+                    auto it = std::remove_if(fields.begin(), fields.end(),
+                                                [&new_field](const field& f) { return f.name == new_field.name &&
+                                                                               f.is_auto(); });
+                    fields.erase(it, fields.end());
                     search_schema.emplace(new_field.name, new_field);
                     fields.emplace_back(new_field);
                     if(new_field.nested) {

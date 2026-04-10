@@ -231,14 +231,14 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     ASSERT_EQ("Field `id` cannot be altered.", alter_op.error());
 
     ASSERT_EQ(9, coll1->get_schema().size());
-    ASSERT_EQ(12, coll1->get_fields().size());
+    ASSERT_EQ(11, coll1->get_fields().size());
     ASSERT_EQ(5, coll1->_get_index()->_get_numerical_index().size());
 
     // fields should also be persisted properly on disk
     std::string collection_meta_json;
     store->get(Collection::get_meta_key("coll1"), collection_meta_json);
     nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
-    ASSERT_EQ(12, collection_meta["fields"].size());
+    ASSERT_EQ(11, collection_meta["fields"].size());
 
     // try restoring collection from disk: all fields should be preserved
     collectionManager.dispose();
@@ -250,7 +250,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     coll1 = collectionManager.get_collection("coll1").get();
 
     ASSERT_EQ(9, coll1->get_schema().size());
-    ASSERT_EQ(12, coll1->get_fields().size());
+    ASSERT_EQ(11, coll1->get_fields().size());
     ASSERT_EQ(5, coll1->_get_index()->_get_numerical_index().size());
 
     collectionManager.drop_collection("coll1");
