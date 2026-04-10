@@ -307,3 +307,20 @@ index 5288b27..a193021 100755
      "1.10.2",
      "1.10.1",
      "1.10.0",
+
+diff --git a/foreign_cc/private/cmake_script.bzl b/foreign_cc/private/cmake_script.bzl
+--- foreign_cc/private/cmake_script.bzl
++++ foreign_cc/private/cmake_script.bzl
+@@ -84,12 +84,5 @@
+     # CMAKE_BUILD_TYPE will not be passed to CMake
+     _wipe_empty_values(params.cache, keys_with_empty_values_in_user_cache)
+
+-    # However, if no CMAKE_RANLIB was passed, pass the empty value for it explicitly,
+-    # as it is legacy and autodetection of ranlib made by CMake automatically
+-    # breaks some cross compilation builds,
+-    # see https://github.com/envoyproxy/envoy/pull/6991
+-    if not params.cache.get("CMAKE_RANLIB"):
+-        params.cache.update({"CMAKE_RANLIB": ""})
+-
+     set_env_vars = [
+         "export {}=\"{}\"".format(key, _escape_dquote_bash(params.env[key]))
