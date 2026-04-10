@@ -121,7 +121,8 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
         if(!json_line.contains("word") || !json_line.contains("root")) {
             return Option<bool>(400, "dictionary lines should contain `word` and `root` values.");
         }
-        stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
+
+        stem_dictionaries[dictionary_name][json_line["word"]] = json_line["root"];
         dictionary_json["words"].push_back(json_line);
     }
 

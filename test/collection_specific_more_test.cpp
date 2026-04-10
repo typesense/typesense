@@ -3524,7 +3524,7 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
     ASSERT_EQ("quality", dictionary["words"][0]["root"]);
 
-    //add another line to same set and get
+    //upsert to same set
     json_lines.clear();
     json_line = "{\"word\": \"mangoes\", \"root\":\"mango\"}";
     json_lines.push_back(json_line);
@@ -3537,6 +3537,18 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     ASSERT_EQ("quality", dictionary["words"][0]["root"]);
     ASSERT_EQ("mangoes", dictionary["words"][1]["word"]);
     ASSERT_EQ("mango", dictionary["words"][1]["root"]);
+
+    json_lines.clear();
+    json_line = "{\"word\": \"mangoes\", \"root\":\"mangotree\"}";
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set2", json_lines).ok());
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set2", dictionary));
+    ASSERT_EQ("set2", dictionary["id"]);
+    ASSERT_EQ(2, dictionary["words"].size());
+    ASSERT_EQ("qualities", dictionary["words"][0]["word"]);
+    ASSERT_EQ("quality", dictionary["words"][0]["root"]);
+    ASSERT_EQ("mangoes", dictionary["words"][1]["word"]);
+    ASSERT_EQ("mangotree", dictionary["words"][1]["root"]);
 
     //get all dictionary sets
     nlohmann::json dictionary_sets;
