@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get -y update && apt-get -y install ca-certificates
+RUN apt-get -y update && apt-get -y install ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt
 COPY typesense-server /opt
