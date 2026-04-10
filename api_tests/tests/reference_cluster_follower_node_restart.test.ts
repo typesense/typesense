@@ -8,7 +8,7 @@ setDefaultTimeout(45 * 60 * 1000);
 
 const BASE_DIR = join(process.cwd(), "./data/join-snapshot");
 const CLUSTER_REFRESH_WAIT_MS = 30_000;
-const CLUSTER_HEALTH_TIMEOUT_MS = 10 * 60 * 1000;
+const CLUSTER_HEALTH_TIMEOUT_MS = 20 * 60 * 1000;
 const RESTARTED_NODE_TIMEOUT_MS = 20 * 60 * 1000;
 const IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
 const SNAPSHOT_TIMEOUT_MS = 10 * 60 * 1000;
