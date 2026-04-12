@@ -1148,7 +1148,7 @@ Option<std::string> CFConversationModel::parse_stream_response(const std::string
                 }
                 nlohmann::json json_line;
                 json_line = nlohmann::json::parse(substr_line);
-                if(json_line.contains("response") && json_line["response"].is_null()) {
+                if(!json_line.contains("response") || json_line["response"].is_null()) {
                     continue;
                 }
                 parsed_response += json_line["response"];
