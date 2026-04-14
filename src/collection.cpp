@@ -5365,19 +5365,23 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         text = string_utils.unicode_nfkd(text);
     }
 
+    bool is_phrase_query = !q_phrases.empty();
+    bool use_exact_phrase_highlight = is_phrase_query && is_arr_obj_ele && match.offsets.empty();
+    std::map<size_t, size_t> phrase_token_offsets;
+    std::vector<std::pair<size_t, size_t>> phrase_text_token_positions;
+    bool found_phrase_match = false;
+    size_t first_phrase_token_idx = 0;
     // special handling for phrase queries in nested array fields (array of objects)
     // when is_arr_obj_ele is true, match.offsets is empty, so we need to manually check for phrase matches
-    bool is_phrase_query = !q_phrases.empty();
-    if (is_phrase_query && is_arr_obj_ele && match.offsets.empty() && !text.empty()) {
+    if(is_phrase_query && !text.empty()) {
         struct TextToken {
             std::string token;
             size_t token_index;
             size_t tok_start;
             size_t tok_end;
         };
-        std::vector<TextToken> text_tokens;
-        std::vector<std::pair<size_t, size_t>> text_token_positions; // (start, end) offsets
 
+        std::vector<TextToken> text_tokens;
         Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
         Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
@@ -5393,31 +5397,28 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
             }
             text_tokens.push_back({token, token_index, tok_start, tok_end});
-            text_token_positions.push_back({tok_start, tok_end});
+            phrase_text_token_positions.push_back({tok_start, tok_end});
         }
 
         std::unordered_map<std::string, std::vector<std::vector<std::string>>> phrases_by_first_token;
-        
         for(const auto& phrase : q_phrases) {
-            if(!phrase.empty()) {
-                std::vector<std::string> phrase_lower;
-                phrase_lower.reserve(phrase.size());
-                for(const auto& token : phrase) {
-                    std::string token_lower = token;
-                    StringUtils::tolowercase(token_lower);
-                    phrase_lower.push_back(token_lower);
-                }
-                
-                std::string first_lower = phrase_lower[0];
-                phrases_by_first_token[first_lower].push_back(phrase_lower);
+            if(phrase.empty()) {
+                continue;
             }
-        }
-        
-        // Single pass through text tokens to find phrase matches (track all matches)
-        bool found_phrase_match = false;
-        std::map<size_t, size_t> phrase_token_offsets;
 
-        for(size_t i = 0; i < text_tokens.size(); i++) {
+            std::vector<std::string> phrase_lower;
+            phrase_lower.reserve(phrase.size());
+            for(const auto& phrase_token : phrase) {
+                std::string token_lower = phrase_token;
+                StringUtils::tolowercase(token_lower);
+                phrase_lower.push_back(token_lower);
+            }
+
+            phrases_by_first_token[phrase_lower[0]].push_back(phrase_lower);
+        }
+
+        // Single pass through text tokens to find phrase matches (track all matches)
+        for(size_t i = 0; i < text_tokens.size() && !found_phrase_match; i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
             
@@ -5447,20 +5448,30 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 
                 if(phrase_matches) {
                     found_phrase_match = true;
+                    first_phrase_token_idx = i;
                     // Record ALL matches, not just first
                     for(size_t j = 0; j < phrase.size(); j++) {
-                        const auto& pos = text_token_positions[i + j];
+                        const auto& pos = phrase_text_token_positions[i + j];
                         phrase_token_offsets[pos.first] = pos.second;
                     }
+                    break;
                 }
             }
         }
 
+        if(!use_exact_phrase_highlight && !match.offsets.empty() && found_phrase_match &&
+           first_phrase_token_idx != match.offsets.front().offset) {
+            use_exact_phrase_highlight = true;
+        }
+    }
+
+    if(use_exact_phrase_highlight && !text.empty()) {
         if(!found_phrase_match) {
             return false;
         }
 
         std::map<size_t, size_t> token_offsets = phrase_token_offsets;
+        const std::vector<std::pair<size_t, size_t>>& text_token_positions = phrase_text_token_positions;
 
         // set snippet boundaries with context around matched tokens
         size_t snippet_start_offset = 0;
