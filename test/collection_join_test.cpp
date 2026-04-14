@@ -11033,6 +11033,227 @@ TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
     ASSERT_EQ(0, res_obj["facet_counts"][0]["counts"].size());
 }
 
+TEST_F(CollectionJoinTest, GroupByReferenceFacetsCountParentGroups) {
+    auto schema_json =
+            R"({
+            "name": "Variants",
+            "fields": [
+                {"name": "product_id", "type": "string", "facet": true},
+                {"name": "color", "type": "string", "facet": true}
+            ]
+        })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({"id":"v1","product_id":"p1","color":"Red"})"_json,
+            R"({"id":"v2","product_id":"p1","color":"Green"})"_json,
+            R"({"id":"v3","product_id":"p2","color":"Pink"})"_json,
+            R"({"id":"v4","product_id":"p2","color":"Gold"})"_json,
+            R"({"id":"v5","product_id":"p3","color":"Black"})"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Price",
+            "fields": [
+                {"name": "variant_id", "type": "string", "reference": "Variants.id"},
+                {"name": "salePrice", "type": "float", "facet": true, "sort": true},
+                {"name": "priceListId", "type": "string"}
+            ]
+        })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"id":"v1-p1","variant_id":"v1","salePrice":10,"priceListId":"B2B-BE"})"_json,
+            R"({"id":"v2-p1","variant_id":"v2","salePrice":15,"priceListId":"B2B-BE"})"_json,
+            R"({"id":"v3-p1","variant_id":"v3","salePrice":20,"priceListId":"B2B-BE"})"_json,
+            R"({"id":"v4-p1","variant_id":"v4","salePrice":200,"priceListId":"B2B-BE"})"_json,
+            R"({"id":"v4-p2","variant_id":"v4","salePrice":10,"priceListId":"B2B-BE"})"_json,
+            R"({"id":"v5-p1","variant_id":"v5","salePrice":75,"priceListId":"B2B-BE"})"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Stock",
+            "fields": [
+                {"name": "variant_id", "type": "string", "reference": "Variants.id"},
+                {"name": "inStock", "type": "bool", "facet": true, "sort": true},
+                {"name": "stockLocation", "type": "string", "facet": true, "sort": true}
+            ]
+        })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"id":"v1-s1","variant_id":"v1","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v1-s2","variant_id":"v1","inStock":false,"stockLocation":"FR"})"_json,
+            R"({"id":"v2-s1","variant_id":"v2","inStock":false,"stockLocation":"BE"})"_json,
+            R"({"id":"v2-s2","variant_id":"v2","inStock":false,"stockLocation":"FR"})"_json,
+            R"({"id":"v3-s1","variant_id":"v3","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v3-s2","variant_id":"v3","inStock":true,"stockLocation":"FR"})"_json,
+            R"({"id":"v4-s1","variant_id":"v4","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v4-s2","variant_id":"v4","inStock":true,"stockLocation":"FR"})"_json,
+            R"({"id":"v5-s1","variant_id":"v5","inStock":false,"stockLocation":"BE"})"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto get_facet_counts = [](const nlohmann::json& res_obj, const std::string& field_name) {
+        std::map<std::string, int> counts_by_value;
+        for (const auto& facet_count : res_obj["facet_counts"]) {
+            if (facet_count["field_name"].get<std::string>() != field_name) {
+                continue;
+            }
+
+            for (const auto& count : facet_count["counts"]) {
+                counts_by_value[count["value"].get<std::string>()] = count["count"].get<int>();
+            }
+            break;
+        }
+        return counts_by_value;
+    };
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Variants"},
+            {"q", "*"},
+            {"filter_by", "id:* || $Price(priceListId:=B2B-BE) || $Stock(id:*)"},
+            {"group_by", "product_id"},
+            {"group_limit", "10"},
+            {"per_page", "10"},
+            {"facet_by", "$Stock(inStock, stockLocation)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<int>());
+    ASSERT_EQ(3, res_obj["grouped_hits"].size());
+
+    auto stock_status_counts = get_facet_counts(res_obj, "$Stock(inStock)");
+    ASSERT_EQ(2, stock_status_counts["true"]);
+    ASSERT_EQ(2, stock_status_counts["false"]);
+
+    auto stock_location_counts = get_facet_counts(res_obj, "$Stock(stockLocation)");
+    ASSERT_EQ(3, stock_location_counts["BE"]);
+    ASSERT_EQ(2, stock_location_counts["FR"]);
+
+    req_params["facet_by"] = "$Price(salePrice(lt18:[,18], from18to35:[18,35], gt35:[35,]))";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    auto price_range_counts = get_facet_counts(res_obj, "$Price(salePrice)");
+    ASSERT_EQ(2, price_range_counts["lt18"]);
+    ASSERT_EQ(1, price_range_counts["from18to35"]);
+    ASSERT_EQ(2, price_range_counts["gt35"]);
+}
+
+TEST_F(CollectionJoinTest, GroupByReferenceFacetQueryUsesJoinedCollectionFacetField) {
+    auto schema_json =
+            R"({
+            "name": "Variants",
+            "fields": [
+                {"name": "product_id", "type": "string", "facet": true},
+                {"name": "color", "type": "string", "facet": true}
+            ]
+        })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({"id":"v1","product_id":"p1","color":"Red"})"_json,
+            R"({"id":"v2","product_id":"p1","color":"Green"})"_json,
+            R"({"id":"v3","product_id":"p2","color":"Pink"})"_json,
+            R"({"id":"v4","product_id":"p2","color":"Gold"})"_json,
+            R"({"id":"v5","product_id":"p3","color":"Black"})"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+            "name": "Stock",
+            "fields": [
+                {"name": "variant_id", "type": "string", "reference": "Variants.id"},
+                {"name": "inStock", "type": "bool", "facet": true, "sort": true},
+                {"name": "stockLocation", "type": "string", "facet": true, "sort": true}
+            ]
+        })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"id":"v1-s1","variant_id":"v1","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v1-s2","variant_id":"v1","inStock":false,"stockLocation":"FR"})"_json,
+            R"({"id":"v2-s1","variant_id":"v2","inStock":false,"stockLocation":"BE"})"_json,
+            R"({"id":"v2-s2","variant_id":"v2","inStock":false,"stockLocation":"FR"})"_json,
+            R"({"id":"v3-s1","variant_id":"v3","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v3-s2","variant_id":"v3","inStock":true,"stockLocation":"FR"})"_json,
+            R"({"id":"v4-s1","variant_id":"v4","inStock":true,"stockLocation":"BE"})"_json,
+            R"({"id":"v4-s2","variant_id":"v4","inStock":true,"stockLocation":"FR"})"_json,
+            R"({"id":"v5-s1","variant_id":"v5","inStock":false,"stockLocation":"BE"})"_json
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Variants"},
+            {"q", "*"},
+            {"filter_by", "id:* || $Stock(id:*)"},
+            {"group_by", "product_id"},
+            {"group_limit", "10"},
+            {"per_page", "0"},
+            {"facet_by", "$Stock(stockLocation)"},
+            {"facet_query", "$Stock(stockLocation): B"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["facet_counts"].size());
+    ASSERT_EQ("$Stock(stockLocation)", res_obj["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("BE", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"][0]["count"].get<int>());
+    ASSERT_EQ("<mark>B</mark>E", res_obj["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
+}
+
 TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     auto schema_json =
             R"({

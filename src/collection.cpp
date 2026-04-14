@@ -2577,7 +2577,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     }
 
     // parse facet query
-    facet_query_t facet_query = {"", ""};
+    facet_query_t facet_query = {};
 
     if(!simple_facet_query.empty()) {
         size_t found_colon_index = simple_facet_query.find(':');
@@ -2602,24 +2602,59 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             // empty facet value, we will treat it as no facet query
             facet_query = {"", ""};
         } else {
-            // facet query field must be part of facet fields requested
-            facet_query = { StringUtils::trim(facet_query_fname), facet_query_value };
-            bool found = false;
-            for(const auto& facet : facets) {
-                if(facet.field_name == facet_query.field_name) {
-                    found=true;
-                    break;
+            std::vector<const facet*> exact_matches;
+            std::vector<const facet*> short_matches;
+
+            for (const auto& facet : facets) {
+                if (facet_query_fname == get_facet_full_name(facet) ||
+                    facet_query_fname == get_facet_full_name(facet, false)) {
+                    exact_matches.push_back(&facet);
+                    continue;
+                }
+
+                if (facet_query_fname == facet.field_name) {
+                    short_matches.push_back(&facet);
                 }
             }
-            if(!found) {
-                std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
+
+            const facet* matched_facet = nullptr;
+            if (exact_matches.size() == 1) {
+                matched_facet = exact_matches.front();
+            } else if (exact_matches.empty() && short_matches.size() == 1) {
+                matched_facet = short_matches.front();
+            } else if (exact_matches.empty() && short_matches.size() > 1) {
+                std::string error = "Facet query refers to an ambiguous facet field `" + facet_query_fname +
+                                    "`. Use the fully-qualified reference facet field.";
+                return Option<bool>(400, error);
+            }
+
+            if(matched_facet == nullptr) {
+                std::string error = "Facet query refers to a facet field `" + facet_query_fname + "` " +
                                     "that is not part of `facet_by` parameter.";
                 return Option<bool>(400, error);
             }
 
-            if(search_schema.count(facet_query.field_name) == 0 || !search_schema.at(facet_query.field_name).facet) {
-                std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
-                return Option<bool>(404, error);
+            facet_query.field_name = matched_facet->field_name;
+            facet_query.query = facet_query_value;
+            facet_query.reference_collection_name = matched_facet->reference_collection_name;
+            facet_query.reference_collection_alias_name = matched_facet->reference_collection_alias_name;
+            facet_query.is_reference_query = !matched_facet->reference_collection_name.empty();
+
+            if(matched_facet->reference_collection_name.empty()) {
+                if(search_schema.count(facet_query.field_name) == 0 || !search_schema.at(facet_query.field_name).facet) {
+                    std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
+                    return Option<bool>(404, error);
+                }
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(matched_facet->reference_collection_name);
+                if (ref_collection == nullptr ||
+                    ref_collection->get_schema().count(facet_query.field_name) == 0 ||
+                    !ref_collection->get_schema().at(facet_query.field_name).facet) {
+                    std::string error = "Could not find a facet field named `" + get_facet_full_name(*matched_facet) +
+                                        "` in the schema.";
+                    return Option<bool>(404, error);
+                }
             }
         }
     }
@@ -3249,7 +3284,18 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     if(!facet_query.query.empty()) {
         // identify facet hash tokens
 
-        auto fq_field = search_schema_snapshot.at(facet_query.field_name);
+        field fq_field;
+        if (facet_query.reference_collection_name.empty()) {
+            fq_field = search_schema_snapshot.at(facet_query.field_name);
+        } else {
+            auto& cm = CollectionManager::get_instance();
+            auto ref_collection = cm.get_collection(facet_query.reference_collection_name);
+            if (ref_collection == nullptr) {
+                return Option<nlohmann::json>(404, "Referenced collection `" + facet_query.reference_collection_name +
+                                                   "` in `facet_query` not found.");
+            }
+            fq_field = ref_collection->get_schema().at(facet_query.field_name);
+        }
         bool is_cyrillic = Tokenizer::is_cyrillic(fq_field.locale);
         bool normalise = is_cyrillic ? false : true;
 
@@ -8160,20 +8206,24 @@ Option<bool> Collection::process_ref_include_fields_sort(const std::string& sort
 }
 
 Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
-                                               const uint32_t facet_query_num_typos,
-                                               uint32_t* all_result_ids, const size_t& all_result_ids_len,
-                                               const std::vector<std::string>& group_by_fields,
-                                               size_t group_limit, bool is_wildcard_no_filter_query,
-                                               size_t max_candidates,
-                                               std::vector<facet_info_t>& facet_infos,
-                                               const std::vector<facet_index_type_t>& facet_index_types,
-                                               bool is_group_by_first_pass,
-                                               std::set<uint32_t>& group_by_missing_value_ids) const {
+                                             const uint32_t facet_query_num_typos,
+                                             uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                             const std::vector<std::string>& group_by_fields,
+                                             size_t group_limit, bool group_missing_values,
+                                             bool is_wildcard_no_filter_query,
+                                             size_t max_candidates,
+                                             std::vector<facet_info_t>& facet_infos,
+                                             const std::vector<facet_index_type_t>& facet_index_types,
+                                             bool is_group_by_first_pass,
+                                             std::set<uint32_t>& group_by_missing_value_ids,
+                                             reference_facet_contexts_t* grouped_reference_facet_contexts) const {
 
     std::shared_lock lock(mutex);
     return index->compute_facet_infos_with_lock(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
-                                                group_by_fields, group_limit, is_wildcard_no_filter_query, max_candidates, facet_infos,
-                                                facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
+                                                group_by_fields, group_limit, group_missing_values,
+                                                is_wildcard_no_filter_query, max_candidates, facet_infos,
+                                                facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this,
+                                                grouped_reference_facet_contexts);
 }
 
 Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
@@ -8185,12 +8235,15 @@ Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_q
                                              int max_facet_count, bool is_wildcard_query,
                                              const std::vector<facet_index_type_t>& facet_index_types,
                                              bool is_group_by_first_pass,
-                                             std::set<uint32_t>& group_by_missing_value_ids) const {
+                                             std::set<uint32_t>& group_by_missing_value_ids,
+                                             const reference_facet_contexts_t* reference_facet_contexts,
+                                             const reference_facet_context_t* reference_facet_context) const {
 
     std::shared_lock lock(mutex);
     return index->do_facets_with_lock(facets, facet_query, estimate_facets, facet_sample_percent, facet_infos, group_limit,
                                       group_by_fields, group_missing_values, result_ids, results_size, max_facet_count, is_wildcard_query,
-                                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
+                                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this,
+                                      reference_facet_contexts, reference_facet_context);
 }
 
 Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,
@@ -9461,7 +9514,7 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                 highlight_t highlight;
 
-                if(!facet_query.query.empty()) {
+                if(!facet_query.query.empty() && facet_matches_query(a_facet, facet_query)) {
                     bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
                     bool normalise = !use_word_tokenizer;
 
@@ -9836,7 +9889,8 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
                     }
                 }
 
-                reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
+                const uint32_t ref_doc_ids[] = {ref_doc_id};
+                reference_filter_result_t result(1, ref_doc_ids);
                 op = Join::prune_ref_doc(doc[key][i], result,
                                          ref_include_fields_full, ref_exclude_fields_full,
                                          false, ref_include_exclude);
@@ -9855,11 +9909,10 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
                 }
                 return Option<bool>(true);
             }
-            reference_filter_result_t result(ids.size(), &ids[0]);
+            reference_filter_result_t result(ids.size(), ids.data());
 
             auto op = Join::prune_ref_doc(doc[key], result, ref_include_fields_full, ref_exclude_fields_full,
                                           ref_info.is_array, ref_include_exclude);
-            result.docs = nullptr;
             return op;
         }
     } else {
@@ -9873,10 +9926,9 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
             }
             return Option<bool>(true);
         }
-        reference_filter_result_t result(ids.size(), &ids[0]);
+        reference_filter_result_t result(ids.size(), ids.data());
         auto op = Join::prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
                                       ref_info.is_array, ref_include_exclude);
-        result.docs = nullptr;
         return op;
     }
 

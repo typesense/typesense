@@ -327,6 +327,13 @@ struct index_record {
     }
 };
 
+struct reference_facet_context_t {
+    reference_filter_result_t references{};
+    spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> doc_to_parent_groups{};
+};
+
+using reference_facet_contexts_t = std::unordered_map<std::string, reference_facet_context_t>;
+
 class VectorFilterFunctor: public hnswlib::BaseFilterFunctor {
     filter_result_iterator_t* const filter_result_iterator;
 
@@ -539,7 +546,8 @@ private:
                    bool is_group_by_first_pass,
                    std::set<uint32_t>& group_by_missing_value_ids,
                    Collection const *const collection,
-                   std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const;
+                   const reference_facet_contexts_t* reference_facet_contexts = nullptr,
+                   const reference_facet_context_t* reference_facet_context = nullptr) const;
 
     bool static_filter_query_eval(const curation_t* curation, const std::string& curation_normalized_query, std::vector<std::string>& tokens,
                                   std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
@@ -967,24 +975,32 @@ public:
                                                const uint32_t facet_query_num_typos,
                                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                                const std::vector<std::string>& group_by_fields,
-                                               size_t group_limit, bool is_wildcard_no_filter_query,
+                                               size_t group_limit, bool group_missing_values,
+                                               bool is_wildcard_no_filter_query,
                                                size_t max_candidates,
                                                std::vector<facet_info_t>& facet_infos,
                                                const std::vector<facet_index_type_t>& facet_index_types,
                                                bool is_group_by_first_pass,
                                                std::set<uint32_t>& group_by_missing_value_ids,
-                                               Collection const *const collection) const;
+                                               Collection const *const collection,
+                                               reference_facet_contexts_t* grouped_reference_facet_contexts = nullptr) const;
 
-    void get_reference_facet_ids(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
-                                 const std::string& collection_name, Collection const *const ref_collection,
-                                 filter_result_iterator_t& filter_result_iterator,
-                                 std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
+    void get_reference_facet_context(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                                     const std::string& collection_name, Collection const *const ref_collection,
+                                     const std::vector<std::string>& group_by_fields,
+                                     const bool group_missing_values,
+                                     const bool is_group_by_first_pass,
+                                     const bool include_parent_groups,
+                                     std::set<uint32_t>& group_by_missing_value_ids,
+                                     filter_result_iterator_t& filter_result_iterator,
+                                     reference_facet_contexts_t& reference_facet_contexts) const;
 
     Option<bool> compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
                                      const uint32_t facet_query_num_typos,
                                      uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                      const std::vector<std::string>& group_by_fields,
-                                     size_t group_limit, bool is_wildcard_no_filter_query,
+                                     size_t group_limit, bool group_missing_values,
+                                     bool is_wildcard_no_filter_query,
                                      size_t max_candidates,
                                      std::vector<facet_info_t>& facet_infos,
                                      const std::vector<facet_index_type_t>& facet_index_types,
@@ -992,7 +1008,7 @@ public:
                                      std::set<uint32_t>& group_by_missing_value_ids,
                                      Collection const *const collection,
                                      filter_result_iterator_t& filter_result_iterator,
-                                     std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
+                                     reference_facet_contexts_t* reference_facet_contexts = nullptr) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;
@@ -1271,7 +1287,9 @@ public:
                                      const std::vector<facet_index_type_t>& facet_index_types,
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids,
-                                     Collection const *const collection) const;
+                                     Collection const *const collection,
+                                     const reference_facet_contexts_t* reference_facet_contexts = nullptr,
+                                     const reference_facet_context_t* reference_facet_context = nullptr) const;
 
     Option<bool> process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids);
 

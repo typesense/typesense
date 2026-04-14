@@ -17,8 +17,19 @@
 #include <variant>
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
+                            std::vector<std::map<std::string, reference_filter_result_t>>& to, const uint32_t& count) {
+    if (from == nullptr || count == 0) {
+        to.clear();
+        return;
+    }
+
+    to.assign(from, from + count);
+}
+
+void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
                             std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
     if (from == nullptr || count == 0) {
+        to = nullptr;
         return;
     }
 
@@ -34,7 +45,8 @@ void copy_references_helper(const std::map<std::string, reference_filter_result_
 }
 
 void reference_filter_result_t::copy_references(const reference_filter_result_t& from, reference_filter_result_t& to) {
-    return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
+    copy_references_helper(from.coll_to_references, to.nested_references, from.count);
+    to.sync_views();
 }
 
 void filter_result_t::copy_references(const filter_result_t& from, filter_result_t& to) {
@@ -104,22 +116,10 @@ bool reference_filter_result_t::intersect_reference_results(const reference_filt
         return false;
     }
 
-    out_ref_result.count = intersected_docs.size();
-    out_ref_result.docs = new uint32_t[out_ref_result.count];
     out_ref_result.is_reference_array_field = a_ref_result.is_reference_array_field;
-    out_ref_result.delete_docs = true;
-
-    for (size_t i = 0; i < intersected_docs.size(); i++) {
-        out_ref_result.docs[i] = intersected_docs[i];
-    }
-
-    if (has_nested_references) {
-        out_ref_result.coll_to_references =
-            new std::map<std::string, reference_filter_result_t>[intersected_nested_references.size()] {};
-        for (size_t i = 0; i < intersected_nested_references.size(); i++) {
-            out_ref_result.coll_to_references[i] = std::move(intersected_nested_references[i]);
-        }
-    }
+    out_ref_result.assign(std::move(intersected_docs),
+                          has_nested_references ? std::move(intersected_nested_references)
+                                                : std::vector<std::map<std::string, reference_filter_result_t>>{});
 
     return true;
 }
@@ -143,10 +143,7 @@ bool reference_filter_result_t::and_references(const std::map<std::string, refer
             return false;
         }
 
-        auto& out_ref_result = ref_it->second;
-        delete [] out_ref_result.docs;
-        delete [] out_ref_result.coll_to_references;
-        out_ref_result = std::move(merged_ref_result);
+        ref_it->second = std::move(merged_ref_result);
     }
 
     return true;
@@ -170,27 +167,22 @@ void reference_filter_result_t::or_references(const std::map<std::string, refere
         const auto lenA = a_ref_result.count, lenB = b_ref_result.count;
         const auto result_len = lenA + lenB;
 
-        uint32_t* merged_docs = nullptr;
-        std::map<std::string, reference_filter_result_t>* merged_coll_to_references = nullptr;
-
-        if (result_len > 0) {
-            merged_docs = new uint32_t[result_len];
-            // Nested references are present.
-            if (a_ref_result.coll_to_references != nullptr || b_ref_result.coll_to_references != nullptr) {
-                merged_coll_to_references = new std::map<std::string, reference_filter_result_t>[result_len] {};
-            }
+        std::vector<uint32_t> merged_docs(result_len);
+        std::vector<std::map<std::string, reference_filter_result_t>> merged_nested_references;
+        if (a_ref_result.coll_to_references != nullptr || b_ref_result.coll_to_references != nullptr) {
+            merged_nested_references.resize(result_len);
         }
 
         size_t indexA = 0, indexB = 0, result_index = 0;
 
         auto merge_nested_references = [&](const size_t out_index, const reference_filter_result_t& source,
                                            const size_t source_index) {
-            if (merged_coll_to_references == nullptr || source.coll_to_references == nullptr ||
+            if (merged_nested_references.empty() || source.coll_to_references == nullptr ||
                 source.coll_to_references[source_index].empty()) {
                 return;
             }
 
-            auto& out_references = merged_coll_to_references[out_index];
+            auto& out_references = merged_nested_references[out_index];
             auto const& source_references = source.coll_to_references[source_index];
             if (out_references.empty()) {
                 out_references.insert(source_references.begin(), source_references.end());
@@ -243,31 +235,12 @@ void reference_filter_result_t::or_references(const std::map<std::string, refere
             indexB++;
         }
 
-        uint32_t* out_docs = nullptr;
-        if (result_index > 0) {
-            out_docs = new uint32_t[result_index];
-            for (size_t i = 0; i < result_index; i++) {
-                out_docs[i] = merged_docs[i];
-            }
+        merged_docs.resize(result_index);
+        if (!merged_nested_references.empty()) {
+            merged_nested_references.resize(result_index);
         }
 
-        std::map<std::string, reference_filter_result_t>* out_coll_to_references = nullptr;
-        if (merged_coll_to_references != nullptr && result_index > 0) {
-            out_coll_to_references = new std::map<std::string, reference_filter_result_t>[result_index] {};
-            for (size_t i = 0; i < result_index; i++) {
-                out_coll_to_references[i] = std::move(merged_coll_to_references[i]);
-            }
-        }
-
-        delete [] merged_docs;
-        delete [] merged_coll_to_references;
-        delete [] a_ref_result.docs;
-        delete [] a_ref_result.coll_to_references;
-
-        a_ref_result.count = result_index;
-        a_ref_result.docs = out_docs;
-        a_ref_result.coll_to_references = out_coll_to_references;
-        a_ref_result.delete_docs = true;
+        a_ref_result.assign(std::move(merged_docs), std::move(merged_nested_references));
     }
 }
 
