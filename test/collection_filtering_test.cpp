@@ -4259,3 +4259,853 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
+
+TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
+    // track_missing_values on non-optional field should fail
+    auto schema = R"({
+        "name": "bad_coll",
+        "fields": [
+            {"name": "title", "type": "string", "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `track_missing_values` property can only be set on optional fields.", op.error());
+
+    schema = R"({
+        "name": "bad_coll_not_indexed",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "index": false, "track_missing_values": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `track_missing_values` property can only be set on indexed optional fields.", op.error());
+
+    // track_missing_values on optional field should succeed and appear in summary
+    schema = R"({
+        "name": "good_coll",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+    auto summary = coll->get_summary_json();
+    bool found = false;
+    for (auto& f : summary["fields"]) {
+        if (f["name"] == "color") {
+            LOG(INFO) << "Field summary: " << f.dump();
+            ASSERT_TRUE(f["track_missing_values"].get<bool>());
+            found = true;
+        }
+    }
+    ASSERT_TRUE(found);
+
+    collectionManager.drop_collection("good_coll");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterBasic) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "Scarf", "points": 40})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "4", "title": "Shoes", "color": "green", "points": 50})"_json.dump()).ok());
+
+    // !_missing: docs with color
+    auto results = coll->search("*", {}, "color: !_missing",
+                                {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"4", "2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // _missing: docs without color
+    results = coll->search("*", {}, "color: _missing",
+                           {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "1"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterWithoutTrackMissingValues) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+
+    auto search_op = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.", search_op.error());
+
+    search_op = coll->search("*", {}, "color: _missing", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.", search_op.error());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterDoesNotHijackStringValuesContainingMissing) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "pre_missing_post", "color": "red"})"_json.dump()).ok());
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    auto filter_op = filter::parse_filter_query("title: _missing", coll->get_schema(), store, doc_id_prefix,
+                                                filter_tree_root);
+    ASSERT_FALSE(filter_op.ok());
+    ASSERT_EQ("Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.",
+              filter_op.error());
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("color: _missing", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_EQ(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    ASSERT_FALSE(filter_tree_root->filter_exp.apply_not_equals);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("title: pre_missing_post", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query(R"(title: `_missing`)", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("title:=_missing", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("title: _missing value", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    ASSERT_NE(MISSING, filter_tree_root->filter_exp.comparators[0]);
+    delete filter_tree_root;
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterCombinedWithOtherFilters) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "Scarf", "points": 5})"_json.dump()).ok());
+
+    // AND with numeric
+    auto results = coll->search("*", {}, "color: !_missing && points: >15",
+                                {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "color: _missing && points: >10",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // OR
+    results = coll->search("*", {}, "color: !_missing || points: >15",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // text search + exists
+    results = coll->search("s", {"title"}, "color: !_missing",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterMultipleOptionalFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "size", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "color": "red", "size": "M", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "color": "blue", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "size": "L", "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "points": 40})"_json.dump()).ok());
+
+    // both exist
+    auto results = coll->search("*", {}, "color: !_missing && size: !_missing",
+                                {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // color exists, size missing
+    results = coll->search("*", {}, "color: !_missing && size: _missing",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // both missing
+    results = coll->search("*", {}, "color: _missing && size: _missing",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // either exists (OR)
+    results = coll->search("*", {}, "color: !_missing || size: !_missing",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterNumericAndBoolFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "rating", "type": "float", "optional": true, "track_missing_values": true},
+            {"name": "stock", "type": "int32", "optional": true, "track_missing_values": true},
+            {"name": "in_stock", "type": "bool", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "rating": 4.5, "stock": 100, "in_stock": true, "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "rating": 3.2, "in_stock": false, "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "stock": 50, "points": 30})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "points": 40})"_json.dump()).ok());
+
+    // float exists
+    auto results = coll->search("*", {}, "rating: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // float not exists
+    results = coll->search("*", {}, "rating: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // int exists
+    results = coll->search("*", {}, "stock: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // bool exists: docs 0 and 1 (both true and false count)
+    results = coll->search("*", {}, "in_stock: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // bool not exists
+    results = coll->search("*", {}, "in_stock: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"3", "2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // cross-field: rating exists AND stock missing
+    results = coll->search("*", {}, "rating: !_missing && stock: _missing",
+                           {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterAfterDeletion) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "color": "blue", "points": 30})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // delete doc with color
+    coll->remove("0");
+    results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // delete doc without color
+    coll->remove("1");
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterAfterUpdate) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "points": 20})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // upsert doc 1 with color
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "color": "green", "points": 20})"_json.dump(), UPSERT).ok());
+    results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // upsert doc 2 without color
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Pants", "points": 30})"_json.dump(), UPSERT).ok());
+    results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterMixedBatchUpdatePreservesUnchangedFieldState) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Shirt", "color": "red", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Hat", "color": "blue", "points": 20})"_json.dump()).ok());
+
+    std::vector<std::string> updates = {
+        R"({"id": "0", "points": 15})",
+        R"({"id": "1", "color": "green"})"
+    };
+    nlohmann::json update_doc;
+    auto import_response = coll->add_many(updates, update_doc, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterOnArrayFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "tags", "type": "string[]", "optional": true, "track_missing_values": true},
+            {"name": "scores", "type": "int32[]", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "tags": ["sport", "outdoor"], "scores": [10, 20], "points": 1})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "tags": ["indoor"], "points": 2})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "points": 3})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "tags: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "scores: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "scores: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterRegexDynamicFields) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "extra_.*", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    // Index docs before and after concrete regex-matched fields are materialized.
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "extra_size": "L", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "extra_color": "green", "points": 30})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "extra_color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"1", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    results = coll->search("*", {}, "extra_color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "extra_size: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    expected_ids = {"2", "0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    results = coll->search("*", {}, "extra_size: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterFallbackField) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": ".*", "type": "string*", "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "color": "red"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "size": "L"})"_json.dump()).ok());
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    std::vector<std::string> expected_ids = {"2", "1"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterSchemaAlter) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "A", "points": 10})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "B", "points": 20})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "C", "color": "green", "points": 30})"_json.dump()).ok());
+
+    // add optional field with track_missing_values
+    auto alter_payload = R"({
+        "fields": [
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+
+    // docs 0 and 1 should be missing; doc 2 had color and gets re-indexed during alter
+    auto results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // add new doc with color
+    ASSERT_TRUE(coll->add(R"({"id": "3", "title": "D", "color": "red", "points": 40})"_json.dump()).ok());
+    results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // drop the field
+    alter_payload = R"({"fields": [{"name": "color", "drop": true}]})"_json;
+    ASSERT_TRUE(coll->alter(alter_payload).ok());
+
+    // filter on dropped field should fail
+    auto search_op = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0});
+    ASSERT_FALSE(search_op.ok());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterLargerDataset) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    for (int i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        doc["points"] = i;
+        if (i % 2 == 0) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto results = coll->search("*", {}, "color: !_missing", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(50, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: _missing", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(50, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "color: !_missing && points: >=50", {}, sort_fields, {0}, 200).get();
+    ASSERT_EQ(25, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluation) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<int> has_color = {0, 1, 5};
+    for (int i = 0; i < 6; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (has_color.count(i)) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto const enable_lazy_evaluation = true;
+    auto const disable_lazy_evaluation = false;
+
+    Option<bool> filter_op = filter::parse_filter_query("color: !_missing", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_missing = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                               enable_lazy_evaluation);
+    ASSERT_TRUE(iter_missing.init_status().ok());
+    ASSERT_FALSE(iter_missing._get_is_filter_result_initialized());
+
+    // !_missing (complement): docs with color = {0, 1, 5}
+    // is_valid sets seq_id = id+1 for the probed doc; next() keeps that value for complement iterators.
+    // is_valid(0)=1, next()→1; is_valid(1)=1, next()→2; is_valid(2)=0; is_valid(3)=0; is_valid(4)=0;
+    // is_valid(5)=1, next()→invalid
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    std::vector<uint32_t> seq_ids = {1, 2, 3, 4, 5, 6, 6};
+    std::vector<int> expected = {1, 1, 0, 0, 0, 1, -1};
+
+    iter_missing.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_missing.validity);
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_missing.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_missing.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_missing.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_missing.validity);
+
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_missing_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                             disable_lazy_evaluation);
+        ASSERT_TRUE(iter_missing_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_missing_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5, 6};
+        seq_ids = {1, 5, 5, 5, 5, 5, 5};
+        expected = {1, 1, 0, 0, 0, 1, -1};
+
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i] == -1 ? filter_result_iterator_t::invalid : filter_result_iterator_t::valid,
+                      iter_missing_non_lazy.validity);
+            ASSERT_EQ(expected[i], iter_missing_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_missing_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_missing_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_missing_non_lazy.validity);
+    }
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    // _missing (direct): docs missing color = {2, 3, 4}
+    filter_op = filter::parse_filter_query("color: _missing", coll->get_schema(), store, doc_id_prefix,
+                                          filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_missing = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                    enable_lazy_evaluation);
+    ASSERT_TRUE(iter_not_missing.init_status().ok());
+    ASSERT_FALSE(iter_not_missing._get_is_filter_result_initialized());
+
+    // is_valid(0)=0; is_valid(1)=0; is_valid(2)=1, next()→3; is_valid(3)=1, next()→4;
+    // is_valid(4)=1, next()→invalid
+    validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    seq_ids = {2, 2, 3, 4, 4, 4, 4};
+    expected = {0, 0, 1, 1, 1, -1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i] == -1 ? filter_result_iterator_t::invalid : filter_result_iterator_t::valid,
+                  iter_not_missing.validity);
+        ASSERT_EQ(expected[i], iter_not_missing.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_missing.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_missing.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_missing.validity);
+
+    // With enable_lazy_evaluation = false, filter result should be initialized.
+    {
+        auto iter_not_missing_non_lazy = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                                 disable_lazy_evaluation);
+        ASSERT_TRUE(iter_not_missing_non_lazy.init_status().ok());
+        ASSERT_TRUE(iter_not_missing_non_lazy._get_is_filter_result_initialized());
+
+        validate_ids = {0, 1, 2, 3, 4, 5, 6};
+        seq_ids = {2, 2, 3, 4, 4, 4, 4};
+        expected = {0, 0, 1, 1, 1, -1, -1};
+
+        for (uint32_t i = 0; i < validate_ids.size(); i++) {
+            ASSERT_EQ(expected[i] == -1 ? filter_result_iterator_t::invalid : filter_result_iterator_t::valid,
+                      iter_not_missing_non_lazy.validity);
+            ASSERT_EQ(expected[i], iter_not_missing_non_lazy.is_valid(validate_ids[i]));
+
+            if (expected[i] == 1) {
+                iter_not_missing_non_lazy.next();
+            }
+            ASSERT_EQ(seq_ids[i], iter_not_missing_non_lazy.seq_id);
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_missing_non_lazy.validity);
+    }
+
+    delete filter_tree_root;
+    collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluationSearchHits) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<std::string> expected_ids;
+    for (int i = 0; i < 30; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (i < 25) {
+            doc["color"] = "color_" + std::to_string(i);
+            expected_ids.insert(std::to_string(i));
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "products"},
+        {"q", "*"},
+        {"query_by", "title"},
+        {"filter_by", "color: !_missing"},
+        {"enable_lazy_filter", "true"},
+        {"per_page", "30"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(25, res_obj["found"].get<size_t>());
+    ASSERT_EQ(25, res_obj["hits"].size());
+
+    std::set<std::string> actual_ids;
+    for (const auto& hit : res_obj["hits"]) {
+        actual_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(expected_ids, actual_ids);
+
+    collectionManager.drop_collection("products");
+}

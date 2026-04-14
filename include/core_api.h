@@ -226,6 +226,8 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
 
 void init_api(uint32_t cache_num_entries);
 
+bool use_response_cache(const std::map<std::string, std::string>& params);
+
 
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

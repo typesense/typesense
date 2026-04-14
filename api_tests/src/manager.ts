@@ -10,13 +10,22 @@ type ServerInstance = {
   port: number;
 };
 
+export type MultiNodeConfig = {
+  name: string;
+  port: number;
+  peerPort: number;
+  dataDir: string;
+  logDir: string;
+  analyticsDir: string;
+};
+
 export class TypesenseProcessManager {
   baseDir: string;
   binaryPath: string;
   ipAddress: string;
   nodesFile: string;
   processes: Map<string, ServerInstance> = new Map();
-  static multiNodeConfigs = [
+  static multiNodeConfigs: MultiNodeConfig[] = [
     { name: "multi-node1", port: 5108, peerPort: 5107, dataDir: "typesense-data-1", logDir: "typesense-1", analyticsDir: "typesense-data-1/analytics_db" },
     { name: "multi-node2", port: 6108, peerPort: 6107, dataDir: "typesense-data-2", logDir: "typesense-2", analyticsDir: "typesense-data-2/analytics_db" },
     { name: "multi-node3", port: 7108, peerPort: 7107, dataDir: "typesense-data-3", logDir: "typesense-3", analyticsDir: "typesense-data-3/analytics_db" },
@@ -91,33 +100,59 @@ export class TypesenseProcessManager {
     return this.waitForHealth(port);
   }
 
-  async startMultiNode() {
-    const clusterStr = [
-      `${this.ipAddress}:5107:5108`,
-      `${this.ipAddress}:6107:6108`,
-      `${this.ipAddress}:7107:7108`,
-    ].join(",");
+  getNodesConfigString(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs) {
+    return configs
+      .map((node) => `${this.ipAddress}:${node.peerPort}:${node.port}`)
+      .join(",");
+  }
 
-    writeFileSync(this.nodesFile, clusterStr);
+  writeNodesConfig(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs, nodesFile: string = this.nodesFile) {
+    writeFileSync(nodesFile, this.getNodesConfigString(configs));
+  }
 
-    for (const node of TypesenseProcessManager.multiNodeConfigs) {
-      const args = [
-        `--nodes=${this.nodesFile}`,
-        `--peering-address=${this.ipAddress}`,
-        `--data-dir=${join(this.baseDir, node.dataDir)}`,
-        `--api-key=xyz`,
-        `--api-port=${node.port}`,
-        `--api-address=0.0.0.0`,
-        `--peering-port=${node.peerPort}`,
-        `--log-dir=${join(this.baseDir, "logs", node.logDir)}`,
-        `--analytics-dir=${join(this.baseDir, node.analyticsDir)}`,
-        ...TypesenseProcessManager.additionalConfigs,
-      ];
-      this.spawnServer(node.name, args, node.port);
+  async startClusterNode(node: MultiNodeConfig, nodesFile: string = this.nodesFile, waitForHealth: boolean = true) {
+    const dataDir = join(this.baseDir, node.dataDir);
+    const analyticsDir = join(this.baseDir, node.analyticsDir);
+    const logDir = join(this.baseDir, "logs", node.logDir);
+    mkdirSync(logDir, { recursive: true });
+    mkdirSync(analyticsDir, { recursive: true });
+    mkdirSync(dataDir, { recursive: true });
+
+    const args = [
+      `--nodes=${nodesFile}`,
+      `--peering-address=${this.ipAddress}`,
+      `--data-dir=${dataDir}`,
+      `--api-key=xyz`,
+      `--api-port=${node.port}`,
+      `--api-address=0.0.0.0`,
+      `--peering-port=${node.peerPort}`,
+      `--log-dir=${logDir}`,
+      `--analytics-dir=${analyticsDir}`,
+      ...TypesenseProcessManager.additionalConfigs,
+    ];
+
+    this.spawnServer(node.name, args, node.port);
+    if (waitForHealth) {
+      await this.waitForHealth(node.port);
     }
-    await this.waitForHealth(5108);
-    await this.electLeader();
-    for (const node of TypesenseProcessManager.multiNodeConfigs) {
+  }
+
+  async startMultiNode(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs, nodesFile: string = this.nodesFile) {
+    const firstNode = configs[0];
+    if (!firstNode) {
+      throw new Error("At least one node config is required");
+    }
+
+    this.writeNodesConfig(configs, nodesFile);
+
+    for (const node of configs) {
+      await this.startClusterNode(node, nodesFile, false);
+    }
+
+    await this.waitForHealth(firstNode.port);
+    await this.electLeader(firstNode.port);
+
+    for (const node of configs) {
       await this.waitForHealth(node.port);
     }
   }
@@ -135,16 +170,16 @@ export class TypesenseProcessManager {
     await this.startSingleNode();
   }
 
-  async restartMultiNode() {
+  async restartMultiNode(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs, nodesFile: string = this.nodesFile) {
     await fetchMultiNode(1, "/status");
-    for (const name of ["multi-node2", "multi-node3", "multi-node1"]) {
-      await this.stopServer(name);
+    for (const node of [...configs].reverse()) {
+      await this.stopServer(node.name);
     }
-    await this.startMultiNode();
+    await this.startMultiNode(configs, nodesFile);
   }
 
-  async electLeader() {
-    const res = await fetch(`http://localhost:5108/operations/vote`, {
+  async electLeader(port: number = 5108) {
+    const res = await fetch(`http://localhost:${port}/operations/vote`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

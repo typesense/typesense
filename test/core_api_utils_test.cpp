@@ -103,7 +103,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     // single document match
 
     filter_result_t filter_results;
-    coll1->get_filter_ids("points: 99", filter_results);
+    coll1->get_filter_ids_with_lock("points: 99", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -122,7 +122,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 11", filter_results);
+    coll1->get_filter_ids_with_lock("points:< 11", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -149,7 +149,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 20", filter_results);
+    coll1->get_filter_ids_with_lock("points:< 20", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -182,7 +182,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id:[0, 1, 2]", filter_results);
+    coll1->get_filter_ids_with_lock("id:[0, 1, 2]", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -202,7 +202,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id :10", filter_results);
+    coll1->get_filter_ids_with_lock("id :10", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -222,18 +222,18 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     filter_results = filter_result_t(0, nullptr);
     // bad filter query
-    auto op = coll1->get_filter_ids("bad filter", filter_results);
+    auto op = coll1->get_filter_ids_with_lock("bad filter", filter_results);
     ASSERT_FALSE(op.ok());
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
 
     bool should_timeout = true;
     bool validate_field_names = true;
-    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    op = coll1->get_filter_ids_with_lock("foo: 99", filter_results, should_timeout, validate_field_names);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Could not find a filter field named `foo` in the schema.", op.error());
 
     validate_field_names = false;
-    op = coll1->get_filter_ids("foo: 99", filter_results, should_timeout, validate_field_names);
+    op = coll1->get_filter_ids_with_lock("foo: 99", filter_results, should_timeout, validate_field_names);
     ASSERT_TRUE(op.ok());
     ASSERT_EQ(0, filter_results.count);
     ASSERT_EQ(nullptr, filter_results.docs);
@@ -566,6 +566,38 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
 }
 
+TEST_F(CoreAPIUtilsTest, ConversationSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "1"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "1"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
+TEST_F(CoreAPIUtilsTest, ConversationMultiSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "true"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "true"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationWithEarlierErrorShouldNotReuseFirstSearchCollection) {
     nlohmann::json schema = R"({
         "name": "stale_res_index_docs",
@@ -663,6 +695,55 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationUnderlyingSearchErrorShouldNotThro
     auto response = nlohmann::json::parse(res->body);
     ASSERT_EQ("Could not find a field named `missing_field` in the schema.",
               response["message"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchConversationAllSearchesFailedSkipsModelCall) {
+    nlohmann::json schema = R"({
+        "name": "conversation_all_fail_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    const std::string model_id = "conversation-all-fail-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", 100000}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->params["q"] = "duck";
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back({
+        {"collection", "conversation_all_fail_docs"},
+        {"query_by", "missing_field"}
+    });
+    req->body = body.dump();
+
+    bool handled = post_multi_search(req, res);
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(200, res->status_code);
+
+    auto response = nlohmann::json::parse(res->body);
+    // The error result should be present
+    ASSERT_TRUE(response.contains("results"));
+    ASSERT_EQ(1, response["results"].size());
+    ASSERT_TRUE(response["results"][0].contains("code"));
+    // The conversation block should NOT be present since model call was skipped
+    ASSERT_FALSE(response.contains("conversation"));
 }
 
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
@@ -1372,7 +1453,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
 
     export_state_t export_state;
     filter_result_t filter_result;
-    coll1->get_filter_ids("points:>=0", export_state.filter_result);
+    coll1->get_filter_ids_with_lock("points:>=0", export_state.filter_result);
 
     export_state.collection = coll1;
     export_state.res_body = &res_body;
@@ -1483,7 +1564,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
 
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
-    coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
+    coll1->get_filter_ids_with_lock("$Customers(customer_id:customer_a)", export_state.filter_result);
     export_state.collection = coll1.get();
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
@@ -2410,6 +2491,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "locale":"",
               "name":"title",
               "optional":false,
+              "track_missing_values":false,
               "sort":false,
               "stem":false,
               "store": true,
@@ -2622,6 +2704,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -2639,6 +2722,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2655,6 +2739,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2671,6 +2756,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2727,6 +2813,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -2744,6 +2831,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2760,6 +2848,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2776,6 +2865,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -3087,6 +3177,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "locale":"en",
                     "name":"title",
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "stem":false,
                     "store":false,
@@ -3101,6 +3192,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "locale":"",
                     "name":"points",
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "stem":false,
                     "store":true,
@@ -3177,7 +3269,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
 
     // Single document match with return values
     filter_result_t filter_results;
-    coll1->get_filter_ids("points: 5", filter_results);
+    coll1->get_filter_ids_with_lock("points: 5", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3205,7 +3297,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
     deletion_state.removed_docs.clear();
     deletion_state.removed_ids.clear();
 
-    coll1->get_filter_ids("points:>= 6", filter_results);
+    coll1->get_filter_ids_with_lock("points:>= 6", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3247,7 +3339,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
         coll1->add(doc.dump());
     }
 
-    coll1->get_filter_ids("points: 3", filter_results);
+    coll1->get_filter_ids_with_lock("points: 3", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3284,7 +3376,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
         coll1->add(doc.dump());
     }
 
-    coll1->get_filter_ids("points: 4", filter_results);
+    coll1->get_filter_ids_with_lock("points: 4", filter_results);
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
@@ -3433,7 +3525,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
     deletion_state.num_removed = 0;
 
     filter_result_t filter_results;
-    auto filter_op = coll1->get_filter_ids("points:>= 0", filter_results);
+    auto filter_op = coll1->get_filter_ids_with_lock("points:>= 0", filter_results);
     ASSERT_TRUE(filter_op.ok());
     deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
     filter_results.docs = nullptr;

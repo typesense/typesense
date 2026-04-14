@@ -71,6 +71,19 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
+bool use_response_cache(const std::map<std::string, std::string>& params) {
+    const auto use_cache_it = params.find("use_cache");
+    bool use_cache = (use_cache_it != params.end()) &&
+                     (use_cache_it->second == "1" || use_cache_it->second == "true");
+
+    const auto conversation_it = params.find("conversation");
+    if(conversation_it != params.end() && conversation_it->second == "true") {
+        use_cache = false;
+    }
+
+    return use_cache;
+}
+
 bool get_alter_in_progress(const std::string& collection) {
     std::shared_lock lock(alter_mutex);
     return alters_in_progress.count(collection) != 0;
@@ -599,8 +612,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -894,8 +907,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -1202,6 +1215,21 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
+        // If all searches failed (no successful search results), skip the model call entirely.
+        // Successful searches with zero hits should still follow the normal conversation path.
+        if(result_docs_arr.empty()) {
+            // No successful search results — skip conversation model call
+            // and return the response with just the error results
+            std::string response_str = response.dump();
+            if(res->content_type_header.find("event-stream") != std::string::npos) {
+                response_str = "data: " + response_str + "\n\n";
+            }
+            res->set_200(response_str);
+            res->final = true;
+            stream_response(req, res);
+            return true;
+        }
+
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
         auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
@@ -1450,8 +1478,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 validate_field_names = false;
             }
 
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
-                                                            validate_field_names);
+            auto filter_ids_op = collection->get_filter_ids_with_lock(filter_query, export_state->filter_result, false,
+                                                                      validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2121,8 +2149,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
-                                                        validate_field_names);
+        auto filter_ids_op = collection->get_filter_ids_with_lock(simple_filter_query, filter_result, false,
+                                                                  validate_field_names);
 
         if (!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
