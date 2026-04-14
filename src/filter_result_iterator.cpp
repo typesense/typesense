@@ -1034,6 +1034,21 @@ void filter_result_iterator_t::next() {
 
     const filter a_filter = filter_node->filter_exp;
 
+    if (is_not_equals_iterator) {
+        return;
+    }
+
+    if (is_missing_filter) {
+        missing_values_iterator.next();
+        if (!missing_values_iterator.valid()) {
+            validity = invalid;
+            return;
+        }
+
+        equals_iterator_id = seq_id = missing_values_iterator.id();
+        return;
+    }
+
     if (a_filter.field_name == "id") {
         all_seq_ids_iterator.next();
         if (!all_seq_ids_iterator.valid()) {
@@ -1051,10 +1066,6 @@ void filter_result_iterator_t::next() {
     }
 
     field f = index->search_schema.at(a_filter.field_name);
-
-    if (is_not_equals_iterator) {
-        return;
-    }
 
     if (f.is_integer() || f.is_float()) {
         advance_numeric_filter_iterators();
@@ -1307,6 +1318,86 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         seq_id = filter_result.docs[result_index];
         approx_filter_ids_length = filter_result.count;
+        return;
+    }
+
+    if(!a_filter.comparators.empty() && a_filter.comparators[0] == MISSING) {
+        auto map_it = index->field_missing_index.find(a_filter.field_name);
+        missing_list_ptr = map_it != index->field_missing_index.end() ? map_it->second : nullptr;
+
+        if(a_filter.apply_not_equals) {
+            auto const& num_ids = index->seq_ids->num_ids();
+            auto const missing_count = missing_list_ptr != nullptr ? missing_list_ptr->num_ids() : 0;
+            approx_filter_ids_length = num_ids - missing_count;
+
+            if (enable_lazy_evaluation && approx_filter_ids_length >= numeric_filter_ids_threshold) {
+                is_missing_filter = true;
+                is_not_equals_iterator = true;
+                last_valid_id = index->seq_ids->last_id();
+
+                if (missing_list_ptr != nullptr) {
+                    missing_values_iterator = missing_list_ptr->new_iterator();
+                    is_equals_iterator_valid = missing_values_iterator.valid();
+                    if (is_equals_iterator_valid) {
+                        equals_iterator_id = missing_values_iterator.id();
+                    }
+                } else {
+                    missing_values_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+                    is_equals_iterator_valid = false;
+                }
+
+                seq_id = 0;
+                validity = valid;
+            } else {
+                filter_result.docs = missing_list_ptr != nullptr ? missing_list_ptr->uncompress() : nullptr;
+                filter_result.count = missing_count;
+                apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                 filter_result.docs, filter_result.count);
+
+                is_filter_result_initialized = true;
+
+                if(filter_result.count == 0) {
+                    validity = invalid;
+                } else {
+                    seq_id = filter_result.docs[result_index];
+                    approx_filter_ids_length = filter_result.count;
+                }
+            }
+        } else {
+            // _missing: docs where the field is absent
+            if(missing_list_ptr == nullptr || missing_list_ptr->num_ids() == 0) {
+                is_filter_result_initialized = true;
+                validity = invalid;
+                return;
+            }
+
+            approx_filter_ids_length = missing_list_ptr->num_ids();
+
+            if (enable_lazy_evaluation && approx_filter_ids_length >= numeric_filter_ids_threshold) {
+                is_missing_filter = true;
+                missing_values_iterator = missing_list_ptr->new_iterator();
+
+                if (missing_values_iterator.valid()) {
+                    is_equals_iterator_valid = true;
+                    equals_iterator_id = seq_id = missing_values_iterator.id();
+                    validity = valid;
+                } else {
+                    is_equals_iterator_valid = false;
+                    validity = invalid;
+                }
+            } else {
+                filter_result.docs = missing_list_ptr->uncompress();
+                filter_result.count = missing_list_ptr->num_ids();
+                is_filter_result_initialized = true;
+
+                if(filter_result.count == 0) {
+                    validity = invalid;
+                } else {
+                    seq_id = filter_result.docs[result_index];
+                    approx_filter_ids_length = filter_result.count;
+                }
+            }
+        }
         return;
     }
 
@@ -2111,6 +2202,18 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     const filter a_filter = filter_node->filter_exp;
 
+    if (is_missing_filter) {
+        missing_values_iterator.skip_to(id);
+        if (!missing_values_iterator.valid()) {
+            is_equals_iterator_valid = false;
+            validity = invalid;
+            return;
+        }
+
+        equals_iterator_id = seq_id = missing_values_iterator.id();
+        return;
+    }
+
     if (a_filter.field_name == "id") {
         all_seq_ids_iterator.skip_to(id);
         if (!all_seq_ids_iterator.valid()) {
@@ -2555,6 +2658,35 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
     }
 
     const filter a_filter = filter_node->filter_exp;
+
+    if (is_missing_filter) {
+        if (missing_list_ptr != nullptr) {
+            missing_values_iterator = missing_list_ptr->new_iterator();
+        } else {
+            missing_values_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+        }
+
+        if (is_not_equals_iterator) {
+            auto const missing_count = missing_list_ptr != nullptr ? missing_list_ptr->num_ids() : 0;
+            approx_filter_ids_length = index->seq_ids->num_ids() - missing_count;
+            is_equals_iterator_valid = missing_values_iterator.valid();
+
+            if (is_equals_iterator_valid) {
+                equals_iterator_id = missing_values_iterator.id();
+            }
+
+            seq_id = 0;
+            validity = approx_filter_ids_length == 0 ? invalid : valid;
+        } else if (missing_values_iterator.valid()) {
+            equals_iterator_id = seq_id = missing_values_iterator.id();
+            approx_filter_ids_length = missing_list_ptr->num_ids();
+            is_equals_iterator_valid = true;
+            validity = valid;
+        } else {
+            validity = invalid;
+        }
+        return;
+    }
 
     if (a_filter.field_name == "id") {
         all_seq_ids_iterator = index->seq_ids->new_iterator();
@@ -3058,7 +3190,15 @@ void filter_result_iterator_t::compute_iterators() {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float()) {
+    if (is_missing_filter) {
+        filter_result.docs = missing_list_ptr != nullptr ? missing_list_ptr->uncompress() : nullptr;
+        filter_result.count = missing_list_ptr != nullptr ? missing_list_ptr->num_ids() : 0;
+
+        if (is_not_equals_iterator) {
+            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                             filter_result.docs, filter_result.count);
+        }
+    } else if (f.is_integer() || f.is_float()) {
         uint32_t* filter_ids = nullptr;
         size_t filter_ids_len = 0;
 

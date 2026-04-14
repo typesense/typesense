@@ -2328,6 +2328,318 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchFacetsRespectDistanceThreshold) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_facets",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["group"] = "group-a";
+    doc["category"] = "keep";
+    doc["vec"] = {0.6, 0.7, 0.8};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["group"] = "group-b";
+    doc["category"] = "stale";
+    doc["vec"] = {0.1, 0.2, 0.3};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    const std::string vector_query = "vec:([0.3,0.4,0.5], distance_threshold:0.01)";
+
+    auto ungrouped_res = coll1->search("*", {}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                       Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                       "", 10, {}, {}, {}, 0,
+                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                       6000 * 1000, 4, 7, fallback,
+                                       4, {off}, 32767, 32767, 2,
+                                       false, true, vector_query).get();
+
+    ASSERT_EQ(1, ungrouped_res["found"].get<size_t>());
+    ASSERT_EQ(1, ungrouped_res["hits"].size());
+    ASSERT_EQ(1, ungrouped_res["facet_counts"].size());
+    ASSERT_EQ(1, ungrouped_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("keep", ungrouped_res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    auto grouped_res = coll1->search("*", {}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                     Index::DROP_TOKENS_THRESHOLD,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                     "", 10, {}, {}, {"group"}, 1,
+                                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                     6000 * 1000, 4, 7, fallback,
+                                     4, {off}, 32767, 32767, 2,
+                                     false, true, vector_query).get();
+
+    ASSERT_EQ(1, grouped_res["found"].get<size_t>());
+    ASSERT_EQ(1, grouped_res["found_docs"].get<size_t>());
+    ASSERT_EQ(1, grouped_res["grouped_hits"].size());
+    ASSERT_EQ(1, grouped_res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("0", grouped_res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, grouped_res["facet_counts"].size());
+    ASSERT_EQ(1, grouped_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("keep", grouped_res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchEmptyResultsRespectDistanceThreshold) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_empty",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["group"] = "group-a";
+    doc["category"] = "keep";
+    doc["vec"] = {0.6, 0.7, 0.8};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["group"] = "group-b";
+    doc["category"] = "stale";
+    doc["vec"] = {0.1, 0.2, 0.3};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    const std::string vector_query = "vec:([0.3,0.4,0.5], distance_threshold:0.0)";
+
+    auto ungrouped_res = coll1->search("*", {}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                       Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                       "", 10, {}, {}, {}, 0,
+                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                       6000 * 1000, 4, 7, fallback,
+                                       4, {off}, 32767, 32767, 2,
+                                       false, true, vector_query).get();
+
+    ASSERT_EQ(0, ungrouped_res["found"].get<size_t>());
+    ASSERT_EQ(0, ungrouped_res["hits"].size());
+    ASSERT_EQ(1, ungrouped_res["facet_counts"].size());
+    ASSERT_EQ(0, ungrouped_res["facet_counts"][0]["counts"].size());
+
+    auto grouped_res = coll1->search("*", {}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                     Index::DROP_TOKENS_THRESHOLD,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                     "", 10, {}, {}, {"group"}, 1,
+                                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                     6000 * 1000, 4, 7, fallback,
+                                     4, {off}, 32767, 32767, 2,
+                                     false, true, vector_query).get();
+
+    ASSERT_EQ(0, grouped_res["found"].get<size_t>());
+    ASSERT_EQ(0, grouped_res["found_docs"].get<size_t>());
+    ASSERT_EQ(0, grouped_res["grouped_hits"].size());
+    ASSERT_EQ(1, grouped_res["facet_counts"].size());
+    ASSERT_EQ(0, grouped_res["facet_counts"][0]["counts"].size());
+}
+
+TEST_F(CollectionVectorTest, GroupByWithHybridSearchKeepsVectorOnlyGroups) {
+    nlohmann::json schema = R"({
+        "name": "grouped_hybrid_vector_only_group",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "title", "type": "string"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["group"] = "group-text";
+    doc["category"] = "text-only";
+    doc["title"] = "alpha text match";
+    doc["vec"] = {0.0, 1.0, 0.0};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["group"] = "group-vector";
+    doc["category"] = "vector-only";
+    doc["title"] = "zzz";
+    doc["vec"] = {1.0, 0.0, 0.0};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    const std::string vector_query = "vec:([1.0,0.0,0.0], distance_threshold:0.01)";
+
+    auto ungrouped_res = coll1->search("alpha", {"title"}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                       Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                       "", 10, {}, {}, {}, 0,
+                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                       6000 * 1000, 4, 7, fallback,
+                                       4, {off}, 32767, 32767, 2,
+                                       false, true, vector_query).get();
+
+    ASSERT_EQ(2, ungrouped_res["found"].get<size_t>());
+    ASSERT_EQ(2, ungrouped_res["hits"].size());
+    ASSERT_EQ(1, ungrouped_res["facet_counts"].size());
+    ASSERT_EQ(2, ungrouped_res["facet_counts"][0]["counts"].size());
+
+    std::set<std::string> ungrouped_ids;
+    for (const auto& hit : ungrouped_res["hits"]) {
+        ungrouped_ids.insert(hit["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "1"}), ungrouped_ids);
+
+    auto grouped_res = coll1->search("alpha", {"title"}, "", {"category"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                     Index::DROP_TOKENS_THRESHOLD,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                     "", 10, {}, {}, {"group"}, 1,
+                                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                     6000 * 1000, 4, 7, fallback,
+                                     4, {off}, 32767, 32767, 2,
+                                     false, true, vector_query).get();
+
+    ASSERT_EQ(2, grouped_res["found"].get<size_t>());
+    ASSERT_EQ(2, grouped_res["found_docs"].get<size_t>());
+    ASSERT_EQ(2, grouped_res["grouped_hits"].size());
+    ASSERT_EQ(1, grouped_res["facet_counts"].size());
+    ASSERT_EQ(2, grouped_res["facet_counts"][0]["counts"].size());
+
+    std::set<std::string> grouped_ids;
+    for (const auto& grouped_hit : grouped_res["grouped_hits"]) {
+        grouped_ids.insert(grouped_hit["hits"][0]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "1"}), grouped_ids);
+}
+
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchDefaultKFindsDistinctGroups) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_default_k_group_discovery",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "0",
+        "group": "g1",
+        "vec": [1.0, 0.0]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "1",
+        "group": "g1",
+        "vec": [0.999, 0.001]
+    })"_json.dump()).ok());
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "2",
+        "group": "g2",
+        "vec": [0.98, 0.02]
+    })"_json.dump()).ok());
+
+    auto grouped_with_explicit_k = coll->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true},
+                                                Index::DROP_TOKENS_THRESHOLD,
+                                                spp::sparse_hash_set<std::string>(),
+                                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                                "", 10, {}, {}, {"group"}, 1,
+                                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                                6000 * 1000, 4, 7, fallback,
+                                                4, {off}, 32767, 32767, 2,
+                                                false, true, "vec:([1.0, 0.0], k:3)").get();
+
+    ASSERT_EQ(2, grouped_with_explicit_k["found"].get<size_t>());
+    ASSERT_EQ(3, grouped_with_explicit_k["found_docs"].get<size_t>());
+    ASSERT_EQ(2, grouped_with_explicit_k["grouped_hits"].size());
+
+    std::set<std::string> grouped_with_explicit_k_ids;
+    for (const auto& grouped_hit : grouped_with_explicit_k["grouped_hits"]) {
+        grouped_with_explicit_k_ids.insert(grouped_hit["hits"][0]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "2"}), grouped_with_explicit_k_ids);
+
+    auto grouped_with_default_k = coll->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true},
+                                               Index::DROP_TOKENS_THRESHOLD,
+                                               spp::sparse_hash_set<std::string>(),
+                                               spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                               "", 10, {}, {}, {"group"}, 1,
+                                               "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                                               6000 * 1000, 4, 7, fallback,
+                                               4, {off}, 32767, 32767, 2,
+                                               false, true, "vec:([1.0, 0.0])").get();
+
+    ASSERT_EQ(2, grouped_with_default_k["found"].get<size_t>());
+    ASSERT_EQ(3, grouped_with_default_k["found_docs"].get<size_t>());
+    ASSERT_EQ(2, grouped_with_default_k["grouped_hits"].size());
+
+    std::set<std::string> grouped_with_default_k_ids;
+    for (const auto& grouped_hit : grouped_with_default_k["grouped_hits"]) {
+        grouped_with_default_k_ids.insert(grouped_hit["hits"][0]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "2"}), grouped_with_default_k_ids);
+}
+
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchExplicitGroupMaxCandidatesShouldCountAllGroups) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_exact_group_count",
+        "fields": [
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    const size_t total_groups = 12;
+    for (size_t i = 0; i < total_groups; ++i) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["group"] = "g" + std::to_string(i);
+        doc["vec"] = {1.0, 0.0};
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "grouped_vector_exact_group_count"},
+            {"q", "*"},
+            {"group_by", "group"},
+            {"group_limit", "1"},
+            {"per_page", "2"},
+            {"group_max_candidates", "1000"},
+            {"vector_query", "vec:([1.0, 0.0])"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ(total_groups, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({

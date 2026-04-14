@@ -329,6 +329,10 @@ private:
 
     bool delete_filter_node = false;
 
+    bool is_missing_filter = false;
+    id_list_t* missing_list_ptr = nullptr;
+    id_list_t::iterator_t missing_values_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
 
     /// Initializes the state of iterator node after it's creation.
