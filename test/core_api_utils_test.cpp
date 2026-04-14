@@ -779,6 +779,8 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNot
     nlohmann::json response;
     ASSERT_NO_THROW(response = nlohmann::json::parse(res->body));
     ASSERT_TRUE(response.contains("hits"));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
     nlohmann::json schema = R"({
         "name": "conversation_zero_hits_docs",
