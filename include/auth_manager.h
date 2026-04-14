@@ -16,6 +16,8 @@ struct api_key_t {
     std::string description;
     std::vector<std::string> actions;
     std::vector<std::string> collections;
+    std::vector<std::string> synonym_sets;
+    std::vector<std::string> curation_sets;
     uint64_t expires_at;
     bool autodelete;
 
@@ -27,9 +29,10 @@ struct api_key_t {
     }
 
     api_key_t(const std::string &value, const std::string &description, const std::vector<std::string> &actions,
-              const std::vector<std::string> &collections, uint64_t expires_at, bool autodel=false) :
-            value(value), description(description), actions(actions), collections(collections), expires_at(expires_at),
-            autodelete(autodel) {
+              const std::vector<std::string> &collections, const std::vector<std::string> &synonym_sets,
+              const std::vector<std::string> &curation_sets, uint64_t expires_at, bool autodel=false) :
+            value(value), description(description), actions(actions), collections(collections), synonym_sets(synonym_sets),
+            curation_sets(curation_sets), expires_at(expires_at), autodelete(autodel) {
 
     }
 
@@ -62,6 +65,14 @@ struct api_key_t {
             autodelete = false;
         }
 
+        if(key_obj.count("synonym_sets") != 0) {
+            synonym_sets = key_obj["synonym_sets"].get<std::vector<std::string>>();
+        }
+
+        if(key_obj.count("curation_sets") != 0) {
+            curation_sets = key_obj["curation_sets"].get<std::vector<std::string>>();
+        }
+
         return Option<bool>(true);
     }
 
@@ -76,6 +87,14 @@ struct api_key_t {
         obj["collections"] = collections;
         obj["expires_at"] = expires_at;
         obj["autodelete"] = autodelete;
+
+        if(!synonym_sets.empty()) {
+            obj["synonym_sets"] = synonym_sets;
+        }
+
+        if(!curation_sets.empty()) {
+            obj["curation_sets"] = curation_sets;
+        }
 
         return obj;
     }
@@ -120,11 +139,18 @@ private:
 
     static std::string fmt_error(std::string&& error, const std::string& key);
 
+    static bool sets_allowed(const std::vector<std::string>& allowed_set_patterns,
+                                        const std::vector<std::string>& collection_sets);
+
     Option<bool> authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
+                                           const std::map<std::string, std::string>& params,
+                                           const nlohmann::json& auth_context,
                                            nlohmann::json& embedded_params) const ;
 
     bool auth_against_key(const std::string& req_collection, const std::string& action,
-                          const api_key_t &api_key, const bool search_only) const;
+                          const api_key_t &api_key, const bool search_only,
+                          const std::map<std::string, std::string>& params,
+                          const nlohmann::json& auth_context) const;
 
     static bool regexp_match(const std::string& value, const std::string& regexp);
 
@@ -134,6 +160,10 @@ public:
     static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
     static constexpr const char* AUTH_RESOLVED_COLLECTION_PARAM = "__typesense_authorized_collection";
+    static constexpr const char* AUTH_REQUESTED_SYNONYM_SETS_PARAM = "__typesense_requested_synonym_sets";
+    static constexpr const char* AUTH_REQUESTED_CURATION_SETS_PARAM = "__typesense_requested_curation_sets";
+    static constexpr const char* AUTH_PRESET_SYNONYM_SETS_PARAM = "__typesense_preset_synonym_sets";
+    static constexpr const char* AUTH_PRESET_CURATION_SETS_PARAM = "__typesense_preset_curation_sets";
 
     AuthManager() = default;
 
