@@ -3842,6 +3842,33 @@ TEST_F(CollectionSpecificMoreTest, SingleTokenPhraseQueryShouldHighlightExactMat
     collectionManager.drop_collection("single_token_phrase_highlight");
 }
 
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldUseExactPhraseTokens) {
+    std::vector<field> fields = {field("textContent", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("phrase_highlight_exact_tokens", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["textContent"] = "The value of the share. Earnings per share (EPS) are calculated.";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"earnings per share\"", {"textContent"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "textContent", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("textContent", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+
+    const std::string snippet = results["hits"][0]["highlights"][0]["snippet"].get<std::string>();
+    ASSERT_NE(snippet.find("<mark>Earnings</mark> <mark>per</mark> <mark>share</mark>"), std::string::npos);
+    ASSERT_EQ(snippet.find("<mark>share</mark> . <mark>Earnings</mark>"), std::string::npos);
+
+    collectionManager.drop_collection("phrase_highlight_exact_tokens");
+}
+
 TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
