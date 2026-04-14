@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <fstream>
 #include <collection_manager.h>
 #include <filter.h>
@@ -716,6 +717,57 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_prefix_value_test_2.validity);
 
     delete filter_tree_root;
+}
+
+TEST_F(FilterTest, MissingFilterLazyEvaluationComputeIterators) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<int> has_color = {0, 1, 5};
+    for (int i = 0; i < 6; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (has_color.count(i)) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("color: !_missing", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_missing = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, true);
+    ASSERT_TRUE(iter_missing.init_status().ok());
+    ASSERT_FALSE(iter_missing._get_is_filter_result_initialized());
+
+    uint32_t* filter_ids = nullptr;
+    iter_missing.compute_iterators();
+
+    const uint32_t filter_ids_length = iter_missing.to_filter_id_array(filter_ids);
+    ASSERT_EQ(3, filter_ids_length);
+
+    std::vector<uint32_t> expected = {0, 1, 5};
+    for (uint32_t i = 0; i < filter_ids_length; i++) {
+        ASSERT_EQ(expected[i], filter_ids[i]);
+    }
+
+    delete[] filter_ids;
+    delete filter_tree_root;
+    collectionManager.drop_collection("products");
 }
 
 TEST_F(FilterTest, FilterTreeIteratorTimeout) {

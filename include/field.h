@@ -89,6 +89,7 @@ namespace fields {
     static const std::string truncate_len = "truncate_len";
     
     static const std::string hnsw_params = "hnsw_params";
+    static const std::string track_missing_values = "track_missing_values";
 }
 
 enum vector_distance_type_t {
@@ -143,6 +144,8 @@ struct field {
 
     bool range_index;
 
+    bool track_missing_values = false;
+
     bool is_reference_helper = false;
     bool cascade_delete = true;
 
@@ -163,10 +166,11 @@ struct field {
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
-          const bool cascade_delete = true, const uint32_t truncate_len = 100) :
+          const bool cascade_delete = true, const uint32_t truncate_len = 100,
+          const bool track_missing_values = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            embed(embed), range_index(range_index), track_missing_values(track_missing_values), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
             hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);
@@ -415,7 +419,8 @@ struct field {
                      json[fields::token_separators].get<nlohmann::json>(),
                      json[fields::symbols_to_index].get<nlohmann::json>(),
                      json[fields::cascade_delete].get<bool>(),
-                     json[fields::truncate_len].get<uint32_t>());
+                     json[fields::truncate_len].get<uint32_t>(),
+                     json[fields::track_missing_values].get<bool>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,

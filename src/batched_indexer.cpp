@@ -63,12 +63,14 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
         if(req_res_map_it == req_res_map.end()) {
             // first chunk
-            req_res_t req_res(req->start_ts, "", req, res, now, 1, 0, false);
+            req_res_t req_res(req->start_ts, "", req, res, now, 1, 0, false, static_cast<uint64_t>(req->log_index));
             req_res_map.emplace(req->start_ts, req_res);
         } else {
-            chunk_sequence = req_res_map_it->second.num_chunks;
-            req_res_map_it->second.num_chunks += 1;
-            req_res_map_it->second.last_updated = now;
+            auto& req_res = req_res_map_it->second;
+            chunk_sequence = req_res.num_chunks;
+            req_res.num_chunks += 1;
+            req_res.last_updated = now;
+            req_res.latest_chunk_log_index = std::max(req_res.latest_chunk_log_index, static_cast<uint64_t>(req->log_index));
         }
     }
 
@@ -96,7 +98,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 req_res_map[req->start_ts].is_complete = true;
             }
 
-            auto wait_on_request_ids = get_requests_to_wait_on_with_lock(req, coll_name);
+            auto wait_on_request_ids = get_requests_to_wait_on_with_lock(req->start_ts, coll_name);
             if(wait_on_request_ids.empty()) {
                 std::unique_lock qlk(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
@@ -518,6 +520,7 @@ void BatchedIndexer::serialize_state(nlohmann::json& state) {
         req_res["num_chunks"] = kv.second.num_chunks;
         req_res["next_chunk_index"] = kv.second.next_chunk_index;
         req_res["is_complete"] = kv.second.is_complete;
+        req_res["latest_chunk_log_index"] = kv.second.latest_chunk_log_index;
         req_res["req"] = kv.second.req->to_json();
         req_res["prev_req_body"] = kv.second.prev_req_body;
         num_reqs_stored++;
@@ -559,12 +562,16 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         req->load_from_json(kv.value()["req"].get<std::string>());
 
         std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+        const uint64_t latest_chunk_log_index = kv.value().contains("latest_chunk_log_index") ?
+                                                    kv.value()["latest_chunk_log_index"].get<uint64_t>() :
+                                                    static_cast<uint64_t>(req->log_index);
         req_res_t req_res(kv.value()["start_ts"].get<uint64_t>(),
                           kv.value()["prev_req_body"].get<std::string>(), req, res,
                           kv.value()["last_updated"].get<uint64_t>(),
                           kv.value()["num_chunks"].get<uint32_t>(),
                           kv.value()["next_chunk_index"].get<uint32_t>(),
-                          kv.value()["is_complete"].get<bool>());
+                          kv.value()["is_complete"].get<bool>(),
+                          latest_chunk_log_index);
 
         {
             std::unique_lock mlk(mutex);
@@ -597,13 +604,13 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
                     ref.waiting_on_requests.insert(waiting_on_req_id.get<uint64_t>());
                 }
             } else {
-                // For backwards compatibility since `ref_entry["waiting_on_requests"]` will not be present for previous
+                // For backwards compatibility since `ref_entry["waiting_on_requests"]` will not be present in previous
                 // versions.
                 auto req_res_it = req_res_map.find(ref.start_ts);
                 if (req_res_it != req_res_map.end()) {
                     const auto& req = req_res_it->second.req;
                     const std::string& coll_name = get_collection_name(req);
-                    ref.waiting_on_requests = get_requests_to_wait_on(req, coll_name);
+                    ref.waiting_on_requests = get_requests_to_wait_on(ref.start_ts, coll_name);
                 }
             }
             reference_q.emplace_back(std::move(ref));
@@ -617,7 +624,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
     {
         std::unique_lock lk(mutex);
         for (const auto& [req_id, req_res] : req_res_map) {
-            const uint64_t log_index = (req_res.req != nullptr) ? req_res.req->log_index : 0;
+            const uint64_t log_index = req_res.latest_chunk_log_index;
             restored_request_order.emplace(req_id, std::make_pair(log_index, req_id));
         }
     }
@@ -737,25 +744,25 @@ void BatchedIndexer::update_coll_to_references_after_request(const std::shared_p
     it->second = CollectionManager::get_instance().get_collection_references(coll_name);
 }
 
-std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on_with_lock(const std::shared_ptr<http_req>& req,
+std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on_with_lock(const uint64_t req_id,
                                                                                const std::string& coll_name) {
     std::unique_lock lk(mutex);
-    return get_requests_to_wait_on(req, coll_name);
+    return get_requests_to_wait_on(req_id, coll_name);
 }
 
-std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
+std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on(const uint64_t req_id,
                                                                      const std::string& coll_name) {
-    auto coll_to_ref_it = coll_to_references.find(coll_name);
-    if (coll_to_ref_it == coll_to_references.end()) {
-        return {};
-    }
-
-    // Wait for all the referenced collections.
-    std::unordered_set<std::string> wait_for_collections(coll_to_ref_it->second.begin(), coll_to_ref_it->second.end());
     std::unordered_set<std::string> processed_collections;
     std::queue<std::string> pending_collections;
-    for (const auto& item: wait_for_collections) {
-        pending_collections.push(item);
+    std::unordered_set<std::string> wait_for_collections;
+
+    // Wait for all the referenced collections.
+    auto coll_to_ref_it = coll_to_references.find(coll_name);
+    if (coll_to_ref_it != coll_to_references.end()) {
+        wait_for_collections.insert(coll_to_ref_it->second.begin(), coll_to_ref_it->second.end());
+        for (const auto& item: wait_for_collections) {
+            pending_collections.push(item);
+        }
     }
 
     // Also wait for the all the referencing collections.
@@ -791,21 +798,35 @@ std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on(const std::
     // same collection must wait on them as well to preserve per-collection ordering.
     wait_for_collections.insert(coll_name);
 
+    const auto current_req_it = req_res_map.find(req_id);
+    if (current_req_it == req_res_map.end()) {
+        return {};
+    }
+
+    const auto current_req_last_log_index = current_req_it->second.latest_chunk_log_index;
     std::unordered_set<uint64_t> wait_on_request_ids;
-    for (const auto& [req_id, req_res] : req_res_map) {
-        const auto& ref_req = req_res.req;
-        const bool has_log_order = req->log_index != 0 && ref_req->log_index != 0;
-        const bool is_earlier_request = has_log_order ? (ref_req->log_index < req->log_index)
-                                                      : (req_id < req->start_ts);
+    for (const auto& [other_req_id, other_req_res] : req_res_map) {
+        // We won't wait on requests whose last chunk has still not been received.
+        if (!other_req_res.is_complete) {
+            continue;
+        }
+        const auto& other_req_last_log_index = other_req_res.latest_chunk_log_index;
+        const bool has_log_order = current_req_last_log_index != 0 && other_req_last_log_index != 0;
+        const auto& other_req_last_updated = other_req_res.last_updated;
+        const auto& current_req_last_updated = current_req_it->second.last_updated;
+        const bool is_earlier_request = has_log_order ? (other_req_last_log_index < current_req_last_log_index)
+                                                      : (other_req_last_updated < current_req_last_updated ||
+                                                         (other_req_last_updated == current_req_last_updated &&
+                                                            other_req_id < req_id));
         if (!is_earlier_request) {
             continue;
         }
 
-        const auto& ref_coll_name = get_collection_name(ref_req);
+        const auto& ref_coll_name = get_collection_name(other_req_res.req);
         if (wait_for_collections.count(ref_coll_name) == 0) {
             continue;
         }
-        wait_on_request_ids.insert(req_id);
+        wait_on_request_ids.insert(other_req_id);
     }
 
     return wait_on_request_ids;

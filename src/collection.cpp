@@ -435,6 +435,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::store] = coll_field.store;
         field_json[fields::truncate_len] = coll_field.truncate_len;
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
+        field_json[fields::track_missing_values] = coll_field.track_missing_values;
 
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
@@ -2875,7 +2876,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, all_synonym_sets, std::move(diversity),
+                                               validate_field_names, nullptr, this, all_synonym_sets, std::move(diversity),
                                                coll_args.group_max_candidates);
 
     return Option<bool>(true);
@@ -3656,7 +3657,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
     long totalSearchTime = 0;
     auto group_limit = searches[0].group_limit;
+    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
     auto found_docs = 0;
+    std::unordered_map<uint32_t, std::unique_ptr<id_list_t>> union_result_seq_ids_by_collection;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3692,6 +3695,16 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                                                                       true, search_index);
         if (!init_index_search_args_op.ok()) {
             return init_index_search_args_op;
+        }
+
+        if(should_remove_duplicates) {
+            auto [it, inserted] = union_result_seq_ids_by_collection.try_emplace(coll_id);
+            if(inserted) {
+                it->second = std::make_unique<id_list_t>(ids_t::MAX_BLOCK_ELEMENTS);
+            }
+            search_params_guard->union_result_seq_ids = it->second.get();
+        } else {
+            search_params_guard->union_result_seq_ids = nullptr;
         }
 
         const auto search_op = coll->run_search_with_lock(search_params_guard.get());
@@ -3829,26 +3842,25 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto curations_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
-    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
+    if(should_remove_duplicates) {
+        total = 0;
+        for(const auto& entry : union_result_seq_ids_by_collection) {
+            total += entry.second->num_ids();
+        }
+    }
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
-            auto ret = union_topster->add(&kv);
-            if(should_remove_duplicates && ret == 0) { //duplicate doc
-                total--;
-            }
+            union_topster->add(&kv);
         }
 
         //populate curations
         for(auto& kvs : search_param->curation_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
-            auto ret = curations_topster->add(&kv);
-            if(should_remove_duplicates && ret == 0) { //duplicate doc
-                total--;
-            }
+            curations_topster->add(&kv);
         }
     }
 
@@ -3868,6 +3880,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     std::vector<std::vector<Union_KV*>> merged_result_kvs;
     size_t curation_kv_index = 0;
     size_t raw_results_index = 0;
+    std::unordered_set<uint64_t> curated_union_keys;
+
+    if(should_remove_duplicates) {
+        curated_union_keys.reserve(curation_result_kvs.size());
+        for(const auto& kvs : curation_result_kvs) {
+            const auto* kv = kvs[0];
+            curated_union_keys.insert(StringUtils::hash_combine(kv->collection_id, kv->distinct_key));
+        }
+    }
 
     // merge raw results and curation results
     while(raw_results_index < raw_result_kvs.size()) {
@@ -3879,6 +3900,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 curation_kv->match_score_index = CURATED_RECORD_IDENTIFIER;
                 merged_result_kvs.push_back(curation_result_kvs[curation_kv_index]);
                 curation_kv_index++;
+                continue;
+            }
+        }
+
+        if(should_remove_duplicates) {
+            const auto* raw_kv = raw_result_kvs[raw_results_index][0];
+            const auto raw_union_key = StringUtils::hash_combine(raw_kv->collection_id, raw_kv->distinct_key);
+            if(curated_union_keys.count(raw_union_key) != 0) {
+                raw_results_index++;
                 continue;
             }
         }

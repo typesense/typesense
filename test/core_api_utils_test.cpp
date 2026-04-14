@@ -566,6 +566,38 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
 }
 
+TEST_F(CoreAPIUtilsTest, ConversationSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "1"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "1"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
+TEST_F(CoreAPIUtilsTest, ConversationMultiSearchShouldBypassHttpResponseCache) {
+    std::map<std::string, std::string> params = {
+        {"use_cache", "true"},
+        {"conversation", "true"},
+        {"q", "cache conversation"}
+    };
+
+    std::map<std::string, std::string> cacheable_params = {
+        {"use_cache", "true"},
+        {"q", "cache conversation"}
+    };
+
+    ASSERT_TRUE(use_response_cache(cacheable_params));
+    ASSERT_FALSE(use_response_cache(params));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationWithEarlierErrorShouldNotReuseFirstSearchCollection) {
     nlohmann::json schema = R"({
         "name": "stale_res_index_docs",
@@ -665,6 +697,55 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationUnderlyingSearchErrorShouldNotThro
               response["message"].get<std::string>());
 }
 
+TEST_F(CoreAPIUtilsTest, MultiSearchConversationAllSearchesFailedSkipsModelCall) {
+    nlohmann::json schema = R"({
+        "name": "conversation_all_fail_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    const std::string model_id = "conversation-all-fail-model-" + StringUtils::randstring(8);
+    nlohmann::json model = {
+        {"id", model_id},
+        {"model_name", "azure/test-model"},
+        {"api_key", "dummy"},
+        {"url", "http://127.0.0.1:1"},
+        {"history_collection", "conversation_store"},
+        {"max_bytes", 100000}
+    };
+    ConversationModelManager::insert_model_for_testing(model_id, model);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["conversation"] = "true";
+    req->params["conversation_model_id"] = model_id;
+    req->params["q"] = "duck";
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back({
+        {"collection", "conversation_all_fail_docs"},
+        {"query_by", "missing_field"}
+    });
+    req->body = body.dump();
+
+    bool handled = post_multi_search(req, res);
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(200, res->status_code);
+
+    auto response = nlohmann::json::parse(res->body);
+    // The error result should be present
+    ASSERT_TRUE(response.contains("results"));
+    ASSERT_EQ(1, response["results"].size());
+    ASSERT_TRUE(response["results"][0].contains("code"));
+    // The conversation block should NOT be present since model call was skipped
+    ASSERT_FALSE(response.contains("conversation"));
+}
+
 TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNotFrameAsSSE) {
     nlohmann::json schema = R"({
         "name": "conversation_stream_no_convo_docs",
@@ -674,6 +755,7 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNot
     })"_json;
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
+    
     Collection* coll = op.get();
     ASSERT_TRUE(coll->add(R"({"id":"1","title":"duck story"})", CREATE).ok());
 
@@ -697,8 +779,6 @@ TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNot
     nlohmann::json response;
     ASSERT_NO_THROW(response = nlohmann::json::parse(res->body));
     ASSERT_TRUE(response.contains("hits"));
-}
-
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
     nlohmann::json schema = R"({
         "name": "conversation_zero_hits_docs",
@@ -2444,6 +2524,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "locale":"",
               "name":"title",
               "optional":false,
+              "track_missing_values":false,
               "sort":false,
               "stem":false,
               "store": true,
@@ -2656,6 +2737,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -2673,6 +2755,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2689,6 +2772,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2705,6 +2789,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2761,6 +2846,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -2778,6 +2864,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2794,6 +2881,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2810,6 +2898,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -3121,6 +3210,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "locale":"en",
                     "name":"title",
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "stem":false,
                     "store":false,
@@ -3135,6 +3225,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "locale":"",
                     "name":"points",
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "stem":false,
                     "store":true,

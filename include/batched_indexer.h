@@ -20,17 +20,20 @@ private:
         uint32_t num_chunks;
         uint32_t next_chunk_index;   // index where next read must begin
         bool is_complete;           //  whether the req has been written to store fully
+        uint64_t latest_chunk_log_index = 0;  // latest raft log index seen for any chunk of this request
 
         req_res_t(uint64_t start_ts, const std::string& prev_req_body,
                   const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
-                  uint64_t last_updated, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete):
+                  uint64_t last_updated, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete,
+                  uint64_t latest_chunk_log_index):
                 start_ts(start_ts), prev_req_body(prev_req_body), req(req), res(res), last_updated(last_updated),
-                num_chunks(num_chunks), next_chunk_index(next_chunk_index), is_complete(is_complete) {
+                num_chunks(num_chunks), next_chunk_index(next_chunk_index), is_complete(is_complete),
+                latest_chunk_log_index(latest_chunk_log_index) {
 
         }
 
         req_res_t(): req(nullptr), res(nullptr), last_updated(0), num_chunks(0),
-                     next_chunk_index(0), is_complete(false) {};
+                     next_chunk_index(0), is_complete(false), latest_chunk_log_index(0) {};
     };
 
     struct await_t {
@@ -97,10 +100,10 @@ private:
 
     static std::string get_req_suffix_key(uint64_t req_id);
 
-    std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(const std::shared_ptr<http_req>& req,
+    std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(uint64_t req_id,
                                                                    const std::string& coll_name);
 
-    std::unordered_set<uint64_t> get_requests_to_wait_on(const std::shared_ptr<http_req>& req,
+    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id,
                                                          const std::string& coll_name);
 
     void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
