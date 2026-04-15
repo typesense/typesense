@@ -4748,3 +4748,28 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldMarkAllNestedPhrase
 
     collectionManager.drop_collection("nested_phrase_highlight_multiple_occurrences");
 }
+
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatFieldOccurrences) {
+    std::vector<field> fields = {field("textContent", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("phrase_highlight_flat_multiple_occurrences", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["textContent"] = "Earnings per share improved. Later, earnings per share declined.";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"earnings per share\"", {"textContent"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "textContent", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("textContent", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Earnings</mark> <mark>per</mark> <mark>share</mark> improved. Later, earnings per share declined.",
+              results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
+}

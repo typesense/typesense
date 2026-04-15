@@ -5417,9 +5417,7 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             phrases_by_first_token[phrase_lower[0]].push_back(phrase_lower);
         }
 
-        // Single pass through text tokens to find phrase matches and collect every
-        // matching span. Nested array/object fields need the full union of all
-        // phrase occurrences, not just the first hit.
+        // Single pass through text tokens to find phrase matches (track all matches)
         for(size_t i = 0; i < text_tokens.size(); i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
@@ -5449,8 +5447,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
                 
                 if(phrase_matches) {
+                    if(!found_phrase_match) {
+                        first_phrase_token_idx = i;
+                    }
                     found_phrase_match = true;
-                    first_phrase_token_idx = i;
                     // Record ALL matches, not just first
                     for(size_t j = 0; j < phrase.size(); j++) {
                         const auto& pos = phrase_text_token_positions[i + j];
