@@ -5417,8 +5417,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             phrases_by_first_token[phrase_lower[0]].push_back(phrase_lower);
         }
 
-        // Single pass through text tokens to find phrase matches (track all matches)
-        for(size_t i = 0; i < text_tokens.size() && !found_phrase_match; i++) {
+        // Single pass through text tokens to find phrase matches and collect every
+        // matching span. Nested array/object fields need the full union of all
+        // phrase occurrences, not just the first hit.
+        for(size_t i = 0; i < text_tokens.size(); i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
             
@@ -5454,7 +5456,6 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                         const auto& pos = phrase_text_token_positions[i + j];
                         phrase_token_offsets[pos.first] = pos.second;
                     }
-                    break;
                 }
             }
         }
