@@ -9366,6 +9366,10 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
             facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
         }
 
+        if(is_union && !a_facet.reference_collection_name.empty()) {
+            facet_result["merge_key"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
         std::vector<facet_value_t> facet_values;
         std::vector<facet_count_t> facet_counts;
 
@@ -9657,23 +9661,23 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
 
         //first pass : merge all results by field
         for(const auto& facet_count : result["facet_counts"]) {
+            const auto merge_key = facet_count.value("merge_key", facet_count["field_name"]).get<std::string>();
+            const auto field_name = facet_count["field_name"].get<std::string>();
             for(const auto& count : facet_count["counts"]) {
-                const auto& field_name = facet_count["field_name"];
-
-                if(field_to_facet_counts.find(field_name) == field_to_facet_counts.end()) {
-                    field_to_facet_counts[field_name]["counts"] = nlohmann::json::array();
-                    field_to_facet_counts[field_name]["field_name"] = field_name;
-                    field_to_facet_counts[field_name]["sampled"] = facet_count["sampled"];
-                    field_to_facet_counts[field_name]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
-                    field_to_facet_counts[field_name]["sort_order"] = facet_count["sort_order"];
-                    field_to_facet_counts[field_name]["is_dynamic"] = facet_count.value("is_dynamic", false);
+                if(field_to_facet_counts.find(merge_key) == field_to_facet_counts.end()) {
+                    field_to_facet_counts[merge_key]["counts"] = nlohmann::json::array();
+                    field_to_facet_counts[merge_key]["field_name"] = field_name;
+                    field_to_facet_counts[merge_key]["sampled"] = facet_count["sampled"];
+                    field_to_facet_counts[merge_key]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
+                    field_to_facet_counts[merge_key]["sort_order"] = facet_count["sort_order"];
+                    field_to_facet_counts[merge_key]["is_dynamic"] = facet_count.value("is_dynamic", false);
                 } else {
-                    field_to_facet_counts[field_name]["is_dynamic"] =
-                        field_to_facet_counts[field_name]["is_dynamic"].get<bool>() &&
+                    field_to_facet_counts[merge_key]["is_dynamic"] =
+                        field_to_facet_counts[merge_key]["is_dynamic"].get<bool>() &&
                         facet_count.value("is_dynamic", false);
                 }
 
-                field_to_facet_counts[field_name]["counts"].push_back(count);
+                field_to_facet_counts[merge_key]["counts"].push_back(count);
             }
         }
 
@@ -9728,10 +9732,11 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
                                  });
             }
 
-            result["facet_counts"].clear();
-            for (const auto& kv: field_to_facet_counts) {
-                result["facet_counts"].push_back(kv.second);
-            }
+        }
+
+        result["facet_counts"].clear();
+        for (const auto& kv: field_to_facet_counts) {
+            result["facet_counts"].push_back(kv.second);
         }
     }
     return Option<bool>(true);

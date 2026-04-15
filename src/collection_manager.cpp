@@ -1572,8 +1572,11 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
     const auto& facet_strategy = coll_searches[0].facet_strategy;
     const auto& simple_facet_query = coll_searches[0].simple_facet_query;
     const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
-    spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
+    spp::sparse_hash_map<std::string, facet_field_parent> facet_identity_to_facet_field_map;
     std::string generic_error = " should be uniform across searches for faceting with union search.";
+    auto facet_identity = [](const facet& a_facet) {
+        return a_facet.field_name + "|ref:" + a_facet.reference_collection_name;
+    };
     auto facet_signature = [](const facet& a_facet) {
         std::stringstream ss;
         ss << a_facet.field_name
@@ -1616,6 +1619,14 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
             return Option<bool>(404, "Collection not found while validating union facet params.");
         }
 
+        auto normalized_facet_return_parent = args.facet_return_parent;
+        if(!normalized_facet_return_parent.empty()) {
+            auto facet_return_parent_op = collection->process_facet_return_parent(normalized_facet_return_parent);
+            if(!facet_return_parent_op.ok()) {
+                return facet_return_parent_op;
+            }
+        }
+
         for(const auto& field : args.facet_fields) {
             std::vector<facet> parsed_facets;
             auto parse_op = collection->parse_facet_with_lock(field, parsed_facets);
@@ -1624,23 +1635,24 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
             }
 
             for(const auto& a_facet : parsed_facets) {
-                const auto& field_name = a_facet.field_name;
+                const auto field_identity = facet_identity(a_facet);
                 const auto signature = facet_signature(a_facet);
                 const auto should_return_parent =
-                    args.facet_return_parent.size() == 1 && args.facet_return_parent[0] == "*" ||
-                    std::find(args.facet_return_parent.begin(), args.facet_return_parent.end(), field_name) !=
-                        args.facet_return_parent.end();
+                    normalized_facet_return_parent.size() == 1 && normalized_facet_return_parent[0] == "*" ||
+                    std::find(normalized_facet_return_parent.begin(), normalized_facet_return_parent.end(),
+                              a_facet.field_name) != normalized_facet_return_parent.end();
 
-                auto it1 = field_to_facet_field_map.find(field_name);
+                auto it1 = facet_identity_to_facet_field_map.find(field_identity);
 
-                if (it1 != field_to_facet_field_map.end()) {
+                if (it1 != facet_identity_to_facet_field_map.end()) {
                     if(signature != it1->second.facet_signature) {
                         return Option<bool>(400, "facet fields" + generic_error);
                     } else if(it1->second.should_return_parent != should_return_parent) {
                         return Option<bool>(400, "`facet_return_parent`" + generic_error);
                     }
                 } else {
-                    field_to_facet_field_map[field_name] = facet_field_parent{signature, should_return_parent};
+                    facet_identity_to_facet_field_map[field_identity] =
+                        facet_field_parent{signature, should_return_parent};
                 }
             }
         }
