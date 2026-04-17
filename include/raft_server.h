@@ -71,17 +71,18 @@ private:
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     const std::string ext_snapshot_path;
-    const std::string state_dir_path;
 
 public:
 
     OnDemandSnapshotClosure(ReplicationState *replication_state, const std::shared_ptr<http_req>& req,
-                            const std::shared_ptr<http_res>& res, const std::string& ext_snapshot_path,
-                            const std::string& state_dir_path) :
-        replication_state(replication_state), req(req), res(res), ext_snapshot_path(ext_snapshot_path),
-        state_dir_path(state_dir_path) {}
+                            const std::shared_ptr<http_res>& res, const std::string& ext_snapshot_path) :
+        replication_state(replication_state), req(req), res(res), ext_snapshot_path(ext_snapshot_path) {}
 
     ~OnDemandSnapshotClosure() {}
+
+    const std::string& get_ext_snapshot_path() const {
+        return ext_snapshot_path;
+    }
 
     void Run();
 };
@@ -131,8 +132,6 @@ private:
     std::atomic<bool> write_caught_up;
 
     std::string raft_dir_path;
-
-    std::string ext_snapshot_path;
 
     int election_timeout_interval_ms;
 
@@ -212,8 +211,6 @@ public:
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
 
-    void set_ext_snapshot_path(const std::string &snapshot_path);
-
     void set_snapshot_in_progress(const bool snapshot_in_progress);
 
     // for timed snapshots
@@ -262,14 +259,13 @@ public:
 private:
 
     friend class ReplicationClosure;
-
+    friend class OnDemandSnapshotClosure;
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);
 
     struct SnapshotArg {
         ReplicationState* replication_state;
         braft::SnapshotWriter* writer;
-        std::string state_dir_path;
         std::string db_snapshot_path;
         std::string analytics_db_snapshot_path;
         std::string ext_snapshot_path;
@@ -277,6 +273,9 @@ private:
     };
 
     static void *save_snapshot(void* arg);
+
+    bool try_set_snapshot_in_progress();
+    bool export_snapshot_to_path(const std::string& ext_snapshot_path);
 
     void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done);
 
