@@ -4990,17 +4990,31 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
                                  const std::vector<std::string>& field_path, size_t field_index,
                                  const std::string& val) {
     if(field_index == field_path.size()) {
-        std::string str_val;
+        auto json_to_facet_str = [](const nlohmann::json& value) -> std::string {
+            if(value.is_string()) {
+                return value.get<std::string>();
+            }
 
-        if(child.is_string()) {
-            str_val = child.get<std::string>();
-        } else if(child.is_number_integer()) {
-            str_val = std::to_string(child.get<int>());
-        } else if(child.is_number_float()) {
-            str_val = std::to_string(child.get<float>());
-        }  else if(child.is_boolean()) {
-            str_val = std::to_string(child.get<bool>());
-        }
+            if(value.is_number_integer()) {
+                return std::to_string(value.get<int64_t>());
+            }
+
+            if(value.is_number_unsigned()) {
+                return std::to_string(value.get<uint64_t>());
+            }
+
+            if(value.is_number_float()) {
+                return StringUtils::float_to_str(value.get<float>());
+            }
+
+            if(value.is_boolean()) {
+                return value.get<bool>() ? "true" : "false";
+            }
+
+            return "";
+        };
+
+        const auto str_val = json_to_facet_str(child);
 
         if(str_val == val) {
             return parent;
@@ -5008,7 +5022,7 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
 
         if(child.is_array()) {
             for(const auto& ele: child) {
-                if(ele.is_string() && ele == val) {
+                if(json_to_facet_str(ele) == val) {
                     return parent;
                 }
             }
@@ -5412,19 +5426,23 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         text = string_utils.unicode_nfkd(text);
     }
 
+    bool is_phrase_query = !q_phrases.empty();
+    bool use_exact_phrase_highlight = is_phrase_query && is_arr_obj_ele && match.offsets.empty();
+    std::map<size_t, size_t> phrase_token_offsets;
+    std::vector<std::pair<size_t, size_t>> phrase_text_token_positions;
+    bool found_phrase_match = false;
+    size_t first_phrase_token_idx = 0;
     // special handling for phrase queries in nested array fields (array of objects)
     // when is_arr_obj_ele is true, match.offsets is empty, so we need to manually check for phrase matches
-    bool is_phrase_query = !q_phrases.empty();
-    if (is_phrase_query && is_arr_obj_ele && match.offsets.empty() && !text.empty()) {
+    if(is_phrase_query && !text.empty()) {
         struct TextToken {
             std::string token;
             size_t token_index;
             size_t tok_start;
             size_t tok_end;
         };
-        std::vector<TextToken> text_tokens;
-        std::vector<std::pair<size_t, size_t>> text_token_positions; // (start, end) offsets
 
+        std::vector<TextToken> text_tokens;
         Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
         Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
@@ -5440,30 +5458,27 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
             }
             text_tokens.push_back({token, token_index, tok_start, tok_end});
-            text_token_positions.push_back({tok_start, tok_end});
+            phrase_text_token_positions.push_back({tok_start, tok_end});
         }
 
         std::unordered_map<std::string, std::vector<std::vector<std::string>>> phrases_by_first_token;
-        
         for(const auto& phrase : q_phrases) {
-            if(!phrase.empty()) {
-                std::vector<std::string> phrase_lower;
-                phrase_lower.reserve(phrase.size());
-                for(const auto& token : phrase) {
-                    std::string token_lower = token;
-                    StringUtils::tolowercase(token_lower);
-                    phrase_lower.push_back(token_lower);
-                }
-                
-                std::string first_lower = phrase_lower[0];
-                phrases_by_first_token[first_lower].push_back(phrase_lower);
+            if(phrase.empty()) {
+                continue;
             }
-        }
-        
-        // Single pass through text tokens to find phrase matches (track all matches)
-        bool found_phrase_match = false;
-        std::map<size_t, size_t> phrase_token_offsets;
 
+            std::vector<std::string> phrase_lower;
+            phrase_lower.reserve(phrase.size());
+            for(const auto& phrase_token : phrase) {
+                std::string token_lower = phrase_token;
+                StringUtils::tolowercase(token_lower);
+                phrase_lower.push_back(token_lower);
+            }
+
+            phrases_by_first_token[phrase_lower[0]].push_back(phrase_lower);
+        }
+
+        // Single pass through text tokens to find phrase matches (track all matches)
         for(size_t i = 0; i < text_tokens.size(); i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
@@ -5493,21 +5508,32 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
                 
                 if(phrase_matches) {
+                    if(!found_phrase_match) {
+                        first_phrase_token_idx = i;
+                    }
                     found_phrase_match = true;
                     // Record ALL matches, not just first
                     for(size_t j = 0; j < phrase.size(); j++) {
-                        const auto& pos = text_token_positions[i + j];
+                        const auto& pos = phrase_text_token_positions[i + j];
                         phrase_token_offsets[pos.first] = pos.second;
                     }
                 }
             }
         }
 
+        if(!use_exact_phrase_highlight && !match.offsets.empty() && found_phrase_match &&
+           first_phrase_token_idx != match.offsets.front().offset) {
+            use_exact_phrase_highlight = true;
+        }
+    }
+
+    if(use_exact_phrase_highlight && !text.empty()) {
         if(!found_phrase_match) {
             return false;
         }
 
         std::map<size_t, size_t> token_offsets = phrase_token_offsets;
+        const std::vector<std::pair<size_t, size_t>>& text_token_positions = phrase_text_token_positions;
 
         // set snippet boundaries with context around matched tokens
         size_t snippet_start_offset = 0;
@@ -9405,6 +9431,10 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
             facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
         }
 
+        if(is_union && !a_facet.reference_collection_name.empty()) {
+            facet_result["merge_key"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
         std::vector<facet_value_t> facet_values;
         std::vector<facet_count_t> facet_counts;
 
@@ -9586,15 +9616,17 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                 }
 
                 nlohmann::json parent;
-                if(the_field.nested && should_return_parent) {
+                const bool is_reference_facet = !a_facet.reference_collection_name.empty();
+                if(should_return_parent && (the_field.nested || is_reference_facet)) {
+                    const Collection* parent_collection = is_reference_facet ? ref_collection.get() : this;
                     nlohmann::json document;
-                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    const std::string& seq_id_key = parent_collection->get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool>& document_op = parent_collection->get_document_from_store(seq_id_key, document);
                     if (!document_op.ok()) {
                         LOG(ERROR) << "Facet fetch error. " << document_op.error();
                         continue;
                     }
-                    parent = get_facet_parent(the_field.name, document, value, the_field.is_array());
+                    parent = parent_collection->get_facet_parent(the_field.name, document, value, the_field.is_array());
                 }
 
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
@@ -9694,23 +9726,23 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
 
         //first pass : merge all results by field
         for(const auto& facet_count : result["facet_counts"]) {
+            const auto merge_key = facet_count.value("merge_key", facet_count["field_name"]).get<std::string>();
+            const auto field_name = facet_count["field_name"].get<std::string>();
             for(const auto& count : facet_count["counts"]) {
-                const auto& field_name = facet_count["field_name"];
-
-                if(field_to_facet_counts.find(field_name) == field_to_facet_counts.end()) {
-                    field_to_facet_counts[field_name]["counts"] = nlohmann::json::array();
-                    field_to_facet_counts[field_name]["field_name"] = field_name;
-                    field_to_facet_counts[field_name]["sampled"] = facet_count["sampled"];
-                    field_to_facet_counts[field_name]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
-                    field_to_facet_counts[field_name]["sort_order"] = facet_count["sort_order"];
-                    field_to_facet_counts[field_name]["is_dynamic"] = facet_count.value("is_dynamic", false);
+                if(field_to_facet_counts.find(merge_key) == field_to_facet_counts.end()) {
+                    field_to_facet_counts[merge_key]["counts"] = nlohmann::json::array();
+                    field_to_facet_counts[merge_key]["field_name"] = field_name;
+                    field_to_facet_counts[merge_key]["sampled"] = facet_count["sampled"];
+                    field_to_facet_counts[merge_key]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
+                    field_to_facet_counts[merge_key]["sort_order"] = facet_count["sort_order"];
+                    field_to_facet_counts[merge_key]["is_dynamic"] = facet_count.value("is_dynamic", false);
                 } else {
-                    field_to_facet_counts[field_name]["is_dynamic"] =
-                        field_to_facet_counts[field_name]["is_dynamic"].get<bool>() &&
+                    field_to_facet_counts[merge_key]["is_dynamic"] =
+                        field_to_facet_counts[merge_key]["is_dynamic"].get<bool>() &&
                         facet_count.value("is_dynamic", false);
                 }
 
-                field_to_facet_counts[field_name]["counts"].push_back(count);
+                field_to_facet_counts[merge_key]["counts"].push_back(count);
             }
         }
 
@@ -9765,10 +9797,11 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
                                  });
             }
 
-            result["facet_counts"].clear();
-            for (const auto& kv: field_to_facet_counts) {
-                result["facet_counts"].push_back(kv.second);
-            }
+        }
+
+        result["facet_counts"].clear();
+        for (const auto& kv: field_to_facet_counts) {
+            result["facet_counts"].push_back(kv.second);
         }
     }
     return Option<bool>(true);

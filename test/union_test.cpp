@@ -2084,6 +2084,47 @@ TEST_F(UnionTest, FacetingWithUnion) {
     ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][4]["count"].get<size_t>());
     ASSERT_EQ("England", json_res["facet_counts"][0]["counts"][5]["value"]);
     ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][5]["count"].get<size_t>());
+
+    auto symlink_op = collectionManager.upsert_symlink("Countries_alias", "Countries");
+    ASSERT_TRUE(symlink_op.ok());
+
+    // joined facets using an alias and the canonical collection name should merge into one runtime facet
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(country_name)"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries_alias(id:*)",
+                        "facet_by": "$Countries_alias(country_name)"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res["facet_counts"].size()) << json_res.dump();
+    ASSERT_EQ("$Countries(country_name)", json_res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(6, json_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(6, json_res["facet_counts"][0]["stats"]["total_values"]);
+
+    ASSERT_EQ("Italy", json_res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Germany", json_res["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    ASSERT_EQ("United States", json_res["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][2]["count"].get<size_t>());
+    ASSERT_EQ("Switzerland", json_res["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][3]["count"].get<size_t>());
+    ASSERT_EQ("France", json_res["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][4]["count"].get<size_t>());
+    ASSERT_EQ("England", json_res["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][5]["count"].get<size_t>());
 }
 
 TEST_F(UnionTest, FacetingWithUnionsValidation) {
@@ -2091,7 +2132,7 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
             R"({
                 "name": "Cars",
                 "fields": [
-                    {"name": "name", "type": "string"},
+                    {"name": "name", "type": "string", "facet": true},
                     {"name": "country", "type": "string", "facet": true},
                     {"name": "rating", "type": "float", "facet": true},
                     {"name" : "country_id", "type": "string", "reference": "Countries.country_id"},
@@ -2103,7 +2144,7 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
             R"({
                 "name": "Watches",
                 "fields": [
-                    {"name": "name", "type": "string"},
+                    {"name": "name", "type": "string", "facet": true},
                     {"name": "country", "type": "string", "facet": true},
                     {"name": "rating", "type": "float", "facet":true},
                     {"name" : "country_id", "type": "string", "reference": "Countries.country_id"}
@@ -2139,6 +2180,9 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
 
     collection_create_op = collectionManager.create_collection(schema_json4);
     ASSERT_TRUE(collection_create_op.ok());
+
+    auto symlink_op = collectionManager.upsert_symlink("Countries_alias", "Countries");
+    ASSERT_TRUE(symlink_op.ok());
 
     embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
     //facet query should be uniform across all faceted searches
@@ -2264,6 +2308,138 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_EQ(1, json_res.count("error"));
     ASSERT_EQ("`facet_return_parent` should be uniform across searches for faceting with union search.", json_res["error"]);
 
+    // facet_return_parent should be validated after wildcard normalization
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "facet_by": "country",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "cou*"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "facet_by": "country",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "country"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code")) << json_res.dump();
+    ASSERT_EQ(0, json_res.count("error")) << json_res.dump();
+
+    // canonical and alias-based joined facets should be treated as the same facet shape
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries_alias(id:*)",
+                        "facet_by": "$Countries_alias(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code"));
+    ASSERT_EQ(0, json_res.count("error"));
+
+    // joined reference facets should use the referenced field name for parent-return validation
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code"));
+    ASSERT_EQ(0, json_res.count("error"));
+
+    // joined reference facet mismatch should still fail the uniformity check
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values",
+                        "facet_return_parent": "name"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)",
+                        "facet_strategy": "top_values"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res.count("code"));
+    ASSERT_EQ(400, json_res["code"]);
+    ASSERT_EQ(1, json_res.count("error"));
+    ASSERT_EQ("`facet_return_parent` should be uniform across searches for faceting with union search.", json_res["error"]);
+
+    // a local facet and a joined facet with the same field name should still be treated as distinct facets
+    req_params.clear();
+    json_res.clear();
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "name, $Countries(name)",
+                        "facet_strategy": "top_values"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "name, $Countries(name)",
+                        "facet_strategy": "top_values"
+                    }
+                ])OVR"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code")) << json_res.dump();
+    ASSERT_EQ(0, json_res.count("error")) << json_res.dump();
+
     // if facet fields are different then it's alright
     req_params.clear();
     json_res.clear();
@@ -2330,6 +2506,160 @@ TEST_F(UnionTest, FacetingWithUnionsValidation) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, json_res.count("code"));
     ASSERT_EQ(1, json_res.count("error"));
+}
+
+TEST_F(UnionTest, FacetingWithUnionsShouldMergeAliasAndCanonicalJoinedFacetResults) {
+    auto cars_schema = R"({
+        "name": "Cars",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "country_id", "type": "string", "reference": "Countries.country_id"}
+        ]
+    })"_json;
+
+    auto watches_schema = R"({
+        "name": "Watches",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "country_id", "type": "string", "reference": "Countries.country_id"}
+        ]
+    })"_json;
+
+    auto countries_schema = R"({
+        "name": "Countries",
+        "fields": [
+            {"name": "country_id", "type": "string"},
+            {"name": "name", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(cars_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto cars = create_op.get();
+
+    create_op = collectionManager.create_collection(watches_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto watches = create_op.get();
+
+    create_op = collectionManager.create_collection(countries_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto countries = create_op.get();
+
+    auto symlink_op = collectionManager.upsert_symlink("Countries_alias", "Countries");
+    ASSERT_TRUE(symlink_op.ok());
+
+    ASSERT_TRUE(countries->add(R"({"id":"country_1_doc","country_id":"country_1","name":"USA"})").ok());
+    ASSERT_TRUE(countries->add(R"({"id":"country_2_doc","country_id":"country_2","name":"Japan"})").ok());
+
+    ASSERT_TRUE(cars->add(R"({"id":"car_1","name":"Sedan","country_id":"country_1"})").ok());
+    ASSERT_TRUE(cars->add(R"({"id":"car_2","name":"Coupe","country_id":"country_2"})").ok());
+    ASSERT_TRUE(watches->add(R"({"id":"watch_1","name":"Field","country_id":"country_1"})").ok());
+
+    req_params.clear();
+    json_res.clear();
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"OVR([
+                    {
+                        "collection": "Cars",
+                        "q": "*",
+                        "filter_by": "$Countries(id:*)",
+                        "facet_by": "$Countries(name)"
+                    },
+                    {
+                        "collection": "Watches",
+                        "q": "*",
+                        "filter_by": "$Countries_alias(id:*)",
+                        "facet_by": "$Countries_alias(name)"
+                    }
+                ])OVR"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code")) << json_res.dump();
+    ASSERT_EQ(0, json_res.count("error")) << json_res.dump();
+    ASSERT_EQ(3, json_res["found"].get<size_t>());
+    ASSERT_EQ(1, json_res["facet_counts"].size()) << json_res.dump();
+    ASSERT_EQ("$Countries(name)", json_res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, json_res["facet_counts"][0]["stats"]["total_values"]);
+
+    ASSERT_EQ("USA", json_res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Japan", json_res["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+}
+
+TEST_F(UnionTest, FacetingWithUnionsShouldNormalizeFacetReturnParentPrefixes) {
+    auto paints_schema_a = R"({
+        "name": "PaintsA",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "value.color", "type": "string", "facet": true},
+            {"name": "value.r", "type": "int32", "facet": true},
+            {"name": "value.g", "type": "int32", "facet": true},
+            {"name": "value.b", "type": "int32", "facet": true}
+        ]
+    })"_json;
+
+    auto paints_schema_b = paints_schema_a;
+    paints_schema_b["name"] = "PaintsB";
+
+    auto create_op = collectionManager.create_collection(paints_schema_a);
+    ASSERT_TRUE(create_op.ok());
+    auto paints_a = create_op.get();
+
+    create_op = collectionManager.create_collection(paints_schema_b);
+    ASSERT_TRUE(create_op.ok());
+    auto paints_b = create_op.get();
+
+    ASSERT_TRUE(paints_a->add(R"({
+        "id": "paint_a_red",
+        "value": {"color": "red", "r": 255, "g": 0, "b": 0}
+    })").ok());
+    ASSERT_TRUE(paints_a->add(R"({
+        "id": "paint_a_blue",
+        "value": {"color": "blue", "r": 0, "g": 0, "b": 255}
+    })").ok());
+    ASSERT_TRUE(paints_b->add(R"({
+        "id": "paint_b_red",
+        "value": {"color": "red", "r": 255, "g": 0, "b": 0}
+    })").ok());
+
+    req_params.clear();
+    json_res.clear();
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"OVR([
+                    {
+                        "collection": "PaintsA",
+                        "q": "*",
+                        "facet_by": "value.color",
+                        "facet_return_parent": "value.*"
+                    },
+                    {
+                        "collection": "PaintsB",
+                        "q": "*",
+                        "facet_by": "value.color",
+                        "facet_return_parent": "value.color"
+                    }
+                ])OVR"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, json_res.count("code")) << json_res.dump();
+    ASSERT_EQ(0, json_res.count("error")) << json_res.dump();
+    ASSERT_EQ(3, json_res["found"].get<size_t>());
+    ASSERT_EQ(1, json_res["facet_counts"].size()) << json_res.dump();
+    ASSERT_EQ("value.color", json_res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ("red", json_res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(2, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}",
+              json_res["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("blue", json_res["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(1, json_res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}",
+              json_res["facet_counts"][0]["counts"][1]["parent"].dump());
 }
 
 TEST_F(UnionTest, UnionHighlightingUAFRaceASAN) {

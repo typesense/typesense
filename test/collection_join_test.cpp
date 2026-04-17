@@ -10753,6 +10753,61 @@ TEST_F(CollectionJoinTest, FacetByReference) {
             {"collection", "Products"},
             {"q", "*"},
             {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"facet_by", "$Customers(product_price)"},
+            {"facet_return_parent", "*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("143", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("customer_a", res_obj["facet_counts"][0]["counts"][0]["parent"]["customer_id"]);
+    ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][0]["parent"]["customer_name"]);
+    ASSERT_EQ(143, res_obj["facet_counts"][0]["counts"][0]["parent"]["product_price"]);
+    ASSERT_EQ("product_a", res_obj["facet_counts"][0]["counts"][0]["parent"]["product_id"]);
+    ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("customer_a", res_obj["facet_counts"][0]["counts"][1]["parent"]["customer_id"]);
+    ASSERT_EQ("Joe", res_obj["facet_counts"][0]["counts"][1]["parent"]["customer_name"]);
+    ASSERT_EQ(73.5, res_obj["facet_counts"][0]["counts"][1]["parent"]["product_price"]);
+    ASSERT_EQ("product_b", res_obj["facet_counts"][0]["counts"][1]["parent"]["product_id"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"facet_by", "$Customers(product_price)"},
+            {"facet_return_parent", "product_price"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(143, res_obj["facet_counts"][0]["counts"][0]["parent"]["product_price"]);
+    ASSERT_EQ("product_a", res_obj["facet_counts"][0]["counts"][0]["parent"]["product_id"]);
+    ASSERT_EQ(73.5, res_obj["facet_counts"][0]["counts"][1]["parent"]["product_price"]);
+    ASSERT_EQ("product_b", res_obj["facet_counts"][0]["counts"][1]["parent"]["product_id"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"facet_by", "$Customers(product_price)"},
+            {"facet_return_parent", "customer_name"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(0, res_obj["facet_counts"][0]["counts"][0].count("parent"));
+    ASSERT_EQ(0, res_obj["facet_counts"][0]["counts"][1].count("parent"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
             {"facet_by", "rating, $Customers(product_price)"}
     };
 

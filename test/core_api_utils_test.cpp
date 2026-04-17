@@ -11,6 +11,7 @@
 #include <conversation_model.h>
 #include <core_api.h>
 #include <gtest/gtest.h>
+#include <map>
 #include <unistd.h>
 #include <vector>
 
@@ -1384,6 +1385,86 @@ TEST_F(CoreAPIUtilsTest, SearchPagination) {
     ASSERT_EQ(2, results["page"].get<size_t>());
     ASSERT_EQ(0, results.count("offset"));
 
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchFacetReturnParentOnJoinedFacet) {
+    auto attribute_types_schema = R"({
+        "name": "AttributeTypes",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "label", "type": "string"},
+            {"name": "sort", "type": "int32"}
+        ],
+        "default_sorting_field": "sort"
+    })"_json;
+
+    auto attribute_values_schema = R"({
+        "name": "AttributeValues",
+        "fields": [
+            {"name": "value", "type": "string", "facet": true},
+            {"name": "type_id", "type": "string", "reference": "AttributeTypes.id"},
+            {"name": "sort", "type": "int32"}
+        ],
+        "default_sorting_field": "sort"
+    })"_json;
+
+    auto attribute_types_op = collectionManager.create_collection(attribute_types_schema);
+    ASSERT_TRUE(attribute_types_op.ok());
+
+    auto attribute_values_op = collectionManager.create_collection(attribute_values_schema);
+    ASSERT_TRUE(attribute_values_op.ok());
+
+    auto attribute_types = attribute_types_op.get();
+    auto attribute_values = attribute_values_op.get();
+
+    ASSERT_TRUE(attribute_types->add(R"({"id":"1","name":"Color","label":"Color","sort":1})").ok());
+    ASSERT_TRUE(attribute_types->add(R"({"id":"2","name":"Size","label":"Size","sort":2})").ok());
+    ASSERT_TRUE(attribute_values->add(R"({"id":"1","value":"Red","type_id":"1","sort":1})").ok());
+    ASSERT_TRUE(attribute_values->add(R"({"id":"2","value":"Large","type_id":"2","sort":2})").ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "AttributeTypes";
+    search["q"] = "*";
+    search["filter_by"] = "$AttributeValues(id: *)";
+    search["facet_by"] = "$AttributeValues(value)";
+    search["facet_return_parent"] = "*";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(0, response.count("code")) << response.dump();
+    ASSERT_EQ(1, response["results"].size()) << response.dump();
+    ASSERT_EQ(1, response["results"][0]["facet_counts"].size()) << response.dump();
+    ASSERT_EQ("$AttributeValues(value)", response["results"][0]["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, response["results"][0]["facet_counts"][0]["counts"].size()) << response.dump();
+
+    std::map<std::string, nlohmann::json> parents_by_value;
+    for(const auto& count: response["results"][0]["facet_counts"][0]["counts"]) {
+        parents_by_value[count["value"].get<std::string>()] = count["parent"];
+    }
+
+    ASSERT_EQ(1, parents_by_value.count("Red")) << response.dump();
+    ASSERT_EQ(1, parents_by_value.count("Large")) << response.dump();
+
+    ASSERT_EQ("1", parents_by_value["Red"]["id"]);
+    ASSERT_EQ("Red", parents_by_value["Red"]["value"]);
+    ASSERT_EQ("1", parents_by_value["Red"]["type_id"]);
+    ASSERT_EQ(1, parents_by_value["Red"]["sort"]);
+
+    ASSERT_EQ("2", parents_by_value["Large"]["id"]);
+    ASSERT_EQ("Large", parents_by_value["Large"]["value"]);
+    ASSERT_EQ("2", parents_by_value["Large"]["type_id"]);
+    ASSERT_EQ(2, parents_by_value["Large"]["sort"]);
 }
 
 TEST_F(CoreAPIUtilsTest, Union) {

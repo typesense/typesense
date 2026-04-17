@@ -1562,19 +1562,42 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
     }
 }
 
-Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches) {
+Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches,
+                                                      const std::vector<std::shared_ptr<Collection>>& collections) {
     struct facet_field_parent {
-        std::string facet_field;
+        std::string facet_signature;
         bool should_return_parent;
     };
 
     const auto& facet_strategy = coll_searches[0].facet_strategy;
     const auto& simple_facet_query = coll_searches[0].simple_facet_query;
     const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
-    spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
+    spp::sparse_hash_map<std::string, facet_field_parent> facet_identity_to_facet_field_map;
     std::string generic_error = " should be uniform across searches for faceting with union search.";
+    auto facet_identity = [](const facet& a_facet) {
+        return a_facet.field_name + "|ref:" + a_facet.reference_collection_name;
+    };
+    auto facet_signature = [](const facet& a_facet) {
+        std::stringstream ss;
+        ss << a_facet.field_name
+           << "|ref:" << a_facet.reference_collection_name
+           << "|range:" << a_facet.is_range_query
+           << "|alpha:" << a_facet.is_sort_by_alpha
+           << "|order:" << a_facet.sort_order
+           << "|sort:" << a_facet.sort_field
+           << "|topk:" << a_facet.is_top_k;
 
-    for(const auto& args : coll_searches) {
+        if(a_facet.is_range_query) {
+            for(const auto& kv : a_facet.facet_range_map) {
+                ss << "|bucket:" << kv.first << ":" << kv.second.lower_range << ":" << kv.second.range_label;
+            }
+        }
+
+        return ss.str();
+    };
+
+    for(size_t search_index = 0; search_index < coll_searches.size(); search_index++) {
+        const auto& args = coll_searches[search_index];
         if(args.facet_fields.empty()) {
             continue;
         }
@@ -1591,30 +1614,46 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
             return Option<bool>(400, "`facet_min_occurrence_ratio`" + generic_error);
         }
 
+        auto collection = collections[search_index];
+        if(collection == nullptr) {
+            return Option<bool>(404, "Collection not found while validating union facet params.");
+        }
+
+        auto normalized_facet_return_parent = args.facet_return_parent;
+        if(!normalized_facet_return_parent.empty()) {
+            auto facet_return_parent_op = collection->process_facet_return_parent(normalized_facet_return_parent);
+            if(!facet_return_parent_op.ok()) {
+                return facet_return_parent_op;
+            }
+        }
+
         for(const auto& field : args.facet_fields) {
-            std::string field_name = field;
-
-            auto pos = field_name.find("(");
-            field_name = field_name.substr(0, pos);
-
-            auto should_return_parent = false;
-            for(const auto& val : args.facet_return_parent) {
-                if(val == "*" || val == field_name) {
-                    should_return_parent = true;
-                    break;
-                }
+            std::vector<facet> parsed_facets;
+            auto parse_op = collection->parse_facet_with_lock(field, parsed_facets);
+            if(!parse_op.ok()) {
+                return parse_op;
             }
 
-            auto it1 = field_to_facet_field_map.find(field_name);
+            for(const auto& a_facet : parsed_facets) {
+                const auto field_identity = facet_identity(a_facet);
+                const auto signature = facet_signature(a_facet);
+                const auto should_return_parent =
+                    normalized_facet_return_parent.size() == 1 && normalized_facet_return_parent[0] == "*" ||
+                    std::find(normalized_facet_return_parent.begin(), normalized_facet_return_parent.end(),
+                              a_facet.field_name) != normalized_facet_return_parent.end();
 
-            if (it1 != field_to_facet_field_map.end()) {
-                if(field != it1->second.facet_field) {
-                    return Option<bool>(400, "facet fields" + generic_error);
-                } else if(it1->second.should_return_parent != should_return_parent) {
-                    return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                auto it1 = facet_identity_to_facet_field_map.find(field_identity);
+
+                if (it1 != facet_identity_to_facet_field_map.end()) {
+                    if(signature != it1->second.facet_signature) {
+                        return Option<bool>(400, "facet fields" + generic_error);
+                    } else if(it1->second.should_return_parent != should_return_parent) {
+                        return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                    }
+                } else {
+                    facet_identity_to_facet_field_map[field_identity] =
+                        facet_field_parent{signature, should_return_parent};
                 }
-            } else {
-                field_to_facet_field_map[field_name] = facet_field_parent{field, should_return_parent};
             }
         }
     }
@@ -1637,6 +1676,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     auto const orig_req_params = req_params;
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
+    std::vector<std::shared_ptr<Collection>> union_collections;
     auto result_op = Option<bool>(true);
     auto group_by_args_count = 0;
 
@@ -1700,6 +1740,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
         args.curation_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
         collection_ids.emplace_back(collection->get_collection_id());
+        union_collections.emplace_back(collection);
     }
 
     if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
@@ -1707,7 +1748,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     }
 
     if (result_op.ok()) {
-        result_op = validate_facet_params(coll_searches);
+        result_op = validate_facet_params(coll_searches, union_collections);
     }
 
     if (!result_op.ok()) {
