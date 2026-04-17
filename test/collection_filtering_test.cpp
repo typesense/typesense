@@ -4260,6 +4260,71 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
 }
 
+TEST_F(CollectionFilteringTest, DeepNestedFieldsInsideObjectFilter) {
+    auto schema_json =
+            R"({
+                "name": "show_nested",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "performances", "type": "object[]"},
+                    {"name": "performances.startDate.localTimeHour", "type": "int32[]"},
+                    {"name": "performances.pricing.minPrice", "type": "int64[]"}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Same Object Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 19}, "pricing": {"minPrice": 4500}},
+                    {"startDate": {"localTimeHour": 18}, "pricing": {"minPrice": 9000}}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Object Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 19}, "pricing": {"minPrice": 9000}},
+                    {"startDate": {"localTimeHour": 18}, "pricing": {"minPrice": 4500}}
+                ]
+            })"_json,
+            R"({
+                "title": "No Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 20}, "pricing": {"minPrice": 9000}}
+                ]
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "show_nested"},
+            {"q",              "*"},
+            {"filter_by",      "performances.{startDate.localTimeHour:19 && pricing.minPrice:<5000}"},
+            {"include_fields", "title, performances"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Same Object Match", result["hits"][0]["document"]["title"]);
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
     // track_missing_values on non-optional field should fail
     auto schema = R"({
