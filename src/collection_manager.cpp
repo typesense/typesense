@@ -2875,3 +2875,37 @@ void CollectionManager::lock_nested_referencing_collections(const std::string& c
     std::set<std::string> referencing_collections{coll_name};
     lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
 }
+
+nlohmann::json CollectionManager::preprocess_union_hits_for_conversation(const nlohmann::json& hits) {
+    nlohmann::json result_docs = nlohmann::json::array();
+    if(!hits.is_array()) {
+        return result_docs;
+    }
+
+    std::unordered_map<std::string, nlohmann::json> collection_to_hits;
+    for(const auto& hit : hits) {
+        if(!hit.is_object() || !hit.contains("document")) {
+            continue;
+        }
+
+        auto collection_name_it = hit.find("collection");
+        if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
+            result_docs.push_back(hit["document"]);
+            continue;
+        }
+
+        collection_to_hits[collection_name_it->get<std::string>()].push_back(hit);
+    }
+
+    for(const auto& [collection_name, coll_hits] : collection_to_hits) {
+        auto collection = CollectionManager::get_instance().get_collection(collection_name);
+        if(collection == nullptr) {
+            continue;
+        }
+
+        auto group_docs = collection->preprocess_result_docs_for_conversation(coll_hits);
+        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+    }
+
+    return result_docs;
+}

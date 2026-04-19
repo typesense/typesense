@@ -1187,33 +1187,20 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
-        if(is_union && response.contains("hits") && response["hits"].is_array()) {
+        if(is_union && ((response.contains("hits") && response["hits"].is_array()) ||
+                        (response.contains("grouped_hits") && response["grouped_hits"].is_array()))) {
             nlohmann::json result_docs = nlohmann::json::array();
-            std::unordered_map<std::string, nlohmann::json> collection_to_hits;
-            for(const auto& hit : response["hits"]) {
-                if(!hit.is_object() || !hit.contains("document")) {
-                    continue;
-                }
+            if(response.contains("grouped_hits") && response["grouped_hits"].is_array()) {
+                for(const auto& grouped_hit : response["grouped_hits"]) {
+                    if(!grouped_hit.is_object() || !grouped_hit.contains("hits") || !grouped_hit["hits"].is_array()) {
+                        continue;
+                    }
 
-                auto collection_name_it = hit.find("collection");
-                if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
-                    // if collection not found, directly insert the hit to the result_docs
-                    auto doc = hit["document"];
-                    result_docs.push_back(doc);
-                    continue;
+                    auto group_docs = CollectionManager::preprocess_union_hits_for_conversation(grouped_hit["hits"]);
+                    result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
                 }
-
-                const auto hit_collection_name = collection_name_it->get<std::string>();
-                collection_to_hits[hit_collection_name].push_back(hit);
-            }
-            for(const auto& [collection_name, hits] : collection_to_hits) {
-                auto collection = CollectionManager::get_instance().get_collection(collection_name);
-                if(collection == nullptr) {
-                    continue;
-                }
-
-                auto group_docs = collection->preprocess_result_docs_for_conversation(hits);
-                result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+            } else {
+                result_docs = CollectionManager::preprocess_union_hits_for_conversation(response["hits"]);
             }
 
             result_docs_arr.push_back(result_docs);
