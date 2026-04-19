@@ -1187,63 +1187,62 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
-        if(response.contains("hits") && response["hits"].is_array()) {
-            if(is_union) {
+        if(is_union && response.contains("hits") && response["hits"].is_array()) {
+            nlohmann::json result_docs = nlohmann::json::array();
+            std::unordered_map<std::string, nlohmann::json> collection_to_hits;
+            for(const auto& hit : response["hits"]) {
+                if(!hit.is_object() || !hit.contains("document")) {
+                    continue;
+                }
+
+                auto collection_name_it = hit.find("collection");
+                if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
+                    // if collection not found, directly insert the hit to the result_docs
+                    auto doc = hit["document"];
+                    result_docs.push_back(doc);
+                    continue;
+                }
+
+                const auto hit_collection_name = collection_name_it->get<std::string>();
+                collection_to_hits[hit_collection_name].push_back(hit);
+            }
+            for(const auto& [collection_name, hits] : collection_to_hits) {
+                auto collection = CollectionManager::get_instance().get_collection(collection_name);
+                if(collection == nullptr) {
+                    continue;
+                }
+
+                auto group_docs = collection->preprocess_result_docs_for_conversation(hits);
+                result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+            }
+
+            result_docs_arr.push_back(result_docs);
+
+        } else if(!is_union && response.contains("results") && response["results"].is_array()) {
+            for(const auto& result : response["results"]) {
+                if(result.count("code") != 0) {
+                    continue;
+                }
+
+                auto collection_name_it = result["request_params"].find("collection_name");
+                auto collection = (collection_name_it == result["request_params"].end() || !collection_name_it->is_string())
+                                  ? nullptr
+                                  : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
+                if(collection == nullptr) {
+                    continue;
+                }
+
                 nlohmann::json result_docs = nlohmann::json::array();
-                std::unordered_map<std::string, nlohmann::json> collection_to_hits;
-                for(const auto& hit : response["hits"]) {
-                    if(!hit.is_object() || !hit.contains("document")) {
-                        continue;
+                if(result.contains("grouped_hits")) {
+                    for(const auto& grouped_hit : result["grouped_hits"]) {
+                        auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+                        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
                     }
-    
-                    auto collection_name_it = hit.find("collection");
-                    if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
-                        // if collection not found, directly insert the hit to the result_docs
-                        auto doc = hit["document"];
-                        result_docs.push_back(doc);
-                    }
-    
-                    const auto hit_collection_name = collection_name_it->get<std::string>();
-                    collection_to_hits[hit_collection_name].push_back(hit);
+                } else {
+                    result_docs = collection->preprocess_result_docs_for_conversation(result["hits"]);
                 }
-                for(const auto& [collection_name, hits] : collection_to_hits) {
-                    auto collection = CollectionManager::get_instance().get_collection(collection_name);
-                    if(collection == nullptr) {
-                        continue;
-                    }
-    
-                    auto group_docs = collection->preprocess_result_docs_for_conversation(hits);
-                    result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
-                }
-    
+
                 result_docs_arr.push_back(result_docs);
-    
-            } else {
-                for(const auto& result : response["results"]) {
-                    if(result.count("code") != 0) {
-                        continue;
-                    }
-    
-                    auto collection_name_it = result["request_params"].find("collection_name");
-                    auto collection = collection_name_it == result["request_params"].end() || !collection_name_it->is_string()
-                                      ? nullptr
-                                      : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
-                    if(collection == nullptr) {
-                        continue;
-                    }
-    
-                    nlohmann::json result_docs = nlohmann::json::array();
-                    if(result.contains("grouped_hits")) {
-                        for(const auto& grouped_hit : result["grouped_hits"]) {
-                            auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
-                            result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
-                        }
-                    } else {
-                        result_docs = collection->preprocess_result_docs_for_conversation(result["hits"]);
-                    }
-    
-                    result_docs_arr.push_back(result_docs);
-                }
             }
         }
 
