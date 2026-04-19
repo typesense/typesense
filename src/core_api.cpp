@@ -1188,33 +1188,36 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
         if(is_union && response.contains("hits") && response["hits"].is_array()) {
-            // Union response has top-level hits, not a results[] array.
-            // Gather vector fields from all collections involved in the union.
-            std::vector<std::string> vector_fields;
-            for(const auto& search : searches) {
-                if(search.contains("collection") && search["collection"].is_string()) {
-                    auto coll = CollectionManager::get_instance().get_collection(search["collection"].get<std::string>());
-                    if(coll != nullptr) {
-                        for(const auto& field : coll->get_schema()) {
-                            if(field.type == field_types::FLOAT_ARRAY) {
-                                vector_fields.push_back(field.name);
-                            }
-                        }
-                    }
+            nlohmann::json result_docs = nlohmann::json::array();
+            std::unordered_map<std::string, nlohmann::json> collection_to_hits;
+            nlohmann::json current_group_hits = nlohmann::json::array();
+            for(const auto& hit : response["hits"]) {
+                if(!hit.is_object() || !hit.contains("document")) {
+                    continue;
                 }
+
+                auto collection_name_it = hit.find("collection");
+                if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
+                    // if collection not found, directly insert the hit to the result_docs
+                    auto doc = hit["document"];
+                    result_docs.push_back(doc);
+                }
+
+                const auto hit_collection_name = collection_name_it->get<std::string>();
+                collection_to_hits[hit_collection_name].push_back(hit);
+            }
+            for(const auto& [collection_name, hits] : collection_to_hits) {
+                auto collection = CollectionManager::get_instance().get_collection(collection_name);
+                if(collection == nullptr) {
+                    continue;
+                }
+
+                auto group_docs = collection->preprocess_result_docs_for_conversation(hits);
+                result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
             }
 
-            nlohmann::json result_docs = nlohmann::json::array();
-            for(const auto& hit : response["hits"]) {
-                auto doc = hit["document"];
-                for(const auto& vector_field : vector_fields) {
-                    if(doc.contains(vector_field)) {
-                        doc.erase(vector_field);
-                    }
-                }
-                result_docs.push_back(doc);
-            }
             result_docs_arr.push_back(result_docs);
+
         } else if(response.contains("results") && response["results"].is_array()) {
             for(const auto& result : response["results"]) {
                 if(result.count("code") != 0) {
