@@ -1190,7 +1190,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(is_union && response.contains("hits") && response["hits"].is_array()) {
             nlohmann::json result_docs = nlohmann::json::array();
             std::unordered_map<std::string, nlohmann::json> collection_to_hits;
-            nlohmann::json current_group_hits = nlohmann::json::array();
             for(const auto& hit : response["hits"]) {
                 if(!hit.is_object() || !hit.contains("document")) {
                     continue;
