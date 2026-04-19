@@ -1,5 +1,7 @@
 #include <string>
 #include <vector>
+#include <queue>
+#include <set>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -120,6 +122,10 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             field_obj[fields::cascade_delete] = true;
         }
 
+        if(field_obj.count(fields::track_missing_values) == 0) {
+            field_obj[fields::track_missing_values] = false;
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0 && field_obj[fields::vec_dist].is_string()) {
@@ -155,7 +161,8 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
                 field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed],
                 field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
                 field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators],
-                field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len]);
+                field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len],
+                field_obj[fields::track_missing_values]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -1555,19 +1562,42 @@ void remove_global_params(std::map<std::string, std::string>& req_params) {
     }
 }
 
-Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches) {
+Option<bool> CollectionManager::validate_facet_params(const std::vector<collection_search_args_t>& coll_searches,
+                                                      const std::vector<std::shared_ptr<Collection>>& collections) {
     struct facet_field_parent {
-        std::string facet_field;
+        std::string facet_signature;
         bool should_return_parent;
     };
 
     const auto& facet_strategy = coll_searches[0].facet_strategy;
     const auto& simple_facet_query = coll_searches[0].simple_facet_query;
     const auto& facet_min_occurrence_ratio = coll_searches[0].facet_min_occurrence_ratio;
-    spp::sparse_hash_map<std::string, facet_field_parent> field_to_facet_field_map;
+    spp::sparse_hash_map<std::string, facet_field_parent> facet_identity_to_facet_field_map;
     std::string generic_error = " should be uniform across searches for faceting with union search.";
+    auto facet_identity = [](const facet& a_facet) {
+        return a_facet.field_name + "|ref:" + a_facet.reference_collection_name;
+    };
+    auto facet_signature = [](const facet& a_facet) {
+        std::stringstream ss;
+        ss << a_facet.field_name
+           << "|ref:" << a_facet.reference_collection_name
+           << "|range:" << a_facet.is_range_query
+           << "|alpha:" << a_facet.is_sort_by_alpha
+           << "|order:" << a_facet.sort_order
+           << "|sort:" << a_facet.sort_field
+           << "|topk:" << a_facet.is_top_k;
 
-    for(const auto& args : coll_searches) {
+        if(a_facet.is_range_query) {
+            for(const auto& kv : a_facet.facet_range_map) {
+                ss << "|bucket:" << kv.first << ":" << kv.second.lower_range << ":" << kv.second.range_label;
+            }
+        }
+
+        return ss.str();
+    };
+
+    for(size_t search_index = 0; search_index < coll_searches.size(); search_index++) {
+        const auto& args = coll_searches[search_index];
         if(args.facet_fields.empty()) {
             continue;
         }
@@ -1584,30 +1614,46 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
             return Option<bool>(400, "`facet_min_occurrence_ratio`" + generic_error);
         }
 
+        auto collection = collections[search_index];
+        if(collection == nullptr) {
+            return Option<bool>(404, "Collection not found while validating union facet params.");
+        }
+
+        auto normalized_facet_return_parent = args.facet_return_parent;
+        if(!normalized_facet_return_parent.empty()) {
+            auto facet_return_parent_op = collection->process_facet_return_parent(normalized_facet_return_parent);
+            if(!facet_return_parent_op.ok()) {
+                return facet_return_parent_op;
+            }
+        }
+
         for(const auto& field : args.facet_fields) {
-            std::string field_name = field;
-
-            auto pos = field_name.find("(");
-            field_name = field_name.substr(0, pos);
-
-            auto should_return_parent = false;
-            for(const auto& val : args.facet_return_parent) {
-                if(val == "*" || val == field_name) {
-                    should_return_parent = true;
-                    break;
-                }
+            std::vector<facet> parsed_facets;
+            auto parse_op = collection->parse_facet_with_lock(field, parsed_facets);
+            if(!parse_op.ok()) {
+                return parse_op;
             }
 
-            auto it1 = field_to_facet_field_map.find(field_name);
+            for(const auto& a_facet : parsed_facets) {
+                const auto field_identity = facet_identity(a_facet);
+                const auto signature = facet_signature(a_facet);
+                const auto should_return_parent =
+                    normalized_facet_return_parent.size() == 1 && normalized_facet_return_parent[0] == "*" ||
+                    std::find(normalized_facet_return_parent.begin(), normalized_facet_return_parent.end(),
+                              a_facet.field_name) != normalized_facet_return_parent.end();
 
-            if (it1 != field_to_facet_field_map.end()) {
-                if(field != it1->second.facet_field) {
-                    return Option<bool>(400, "facet fields" + generic_error);
-                } else if(it1->second.should_return_parent != should_return_parent) {
-                    return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                auto it1 = facet_identity_to_facet_field_map.find(field_identity);
+
+                if (it1 != facet_identity_to_facet_field_map.end()) {
+                    if(signature != it1->second.facet_signature) {
+                        return Option<bool>(400, "facet fields" + generic_error);
+                    } else if(it1->second.should_return_parent != should_return_parent) {
+                        return Option<bool>(400, "`facet_return_parent`" + generic_error);
+                    }
+                } else {
+                    facet_identity_to_facet_field_map[field_identity] =
+                        facet_field_parent{signature, should_return_parent};
                 }
-            } else {
-                field_to_facet_field_map[field_name] = facet_field_parent{field, should_return_parent};
             }
         }
     }
@@ -1630,6 +1676,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     auto const orig_req_params = req_params;
     std::vector<collection_search_args_t> coll_searches;
     std::vector<uint32_t> collection_ids;
+    std::vector<std::shared_ptr<Collection>> union_collections;
     auto result_op = Option<bool>(true);
     auto group_by_args_count = 0;
 
@@ -1693,6 +1740,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
         args.curation_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
         collection_ids.emplace_back(collection->get_collection_id());
+        union_collections.emplace_back(collection);
     }
 
     if(result_op.ok() && group_by_args_count > 0 && group_by_args_count != searches.size()) {
@@ -1700,7 +1748,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
     }
 
     if (result_op.ok()) {
-        result_op = validate_facet_params(coll_searches);
+        result_op = validate_facet_params(coll_searches, union_collections);
     }
 
     if (!result_op.ok()) {
@@ -2158,7 +2206,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false);
+            std::unordered_set<std::string> dummy;
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false, dummy);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
@@ -2472,6 +2521,42 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
     return references;
 }
 
+std::unordered_set<std::string> CollectionManager::get_nested_referencing_collections(const std::string& coll_name) {
+    std::shared_lock lock(mutex);
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return {};
+    }
+
+    std::unordered_set<std::string> referencing_collections;
+    std::queue<std::string> pending_collections;
+
+    for (const auto& [ref_coll_name, _] : it->second) {
+        if (referencing_collections.insert(ref_coll_name).second) {
+            pending_collections.push(ref_coll_name);
+        }
+    }
+
+    while (!pending_collections.empty()) {
+        auto nested_ref_coll = pending_collections.front();
+        pending_collections.pop();
+
+        auto nested_it = referenced_ins.find(nested_ref_coll);
+        if (nested_it == referenced_ins.end()) {
+            continue;
+        }
+
+        for (const auto& [nested_ref_coll_name, _] : nested_it->second) {
+            if (referencing_collections.insert(nested_ref_coll_name).second) {
+                pending_collections.push(nested_ref_coll_name);
+            }
+        }
+    }
+
+    return referencing_collections;
+}
+
 bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections,
                                                     std::shared_ptr<Collection> coll) const {
     for(const auto& api_collection : api_collections) {
@@ -2642,7 +2727,7 @@ Option<bool> CollectionManager::get_filter_ids(const std::string collection_name
         return Option<bool>(400, "Collection `" + collection_name + "` not found.");
     }
 
-    return collection->get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
+    return collection->get_filter_ids_with_lock(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
 Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& referenced_coll_name,
@@ -2663,8 +2748,14 @@ Option<reference_info_t> CollectionManager::is_referenced_in(const std::string& 
 
 Option<reference_info_t> CollectionManager::is_referenced_in_with_lock(const std::string& referenced_coll_name,
                                                                        const std::string& referring_coll_name) const {
-    std::unique_lock lock(mutex);
+    std::shared_lock lock(mutex);
     return is_referenced_in(referenced_coll_name, referring_coll_name);
+}
+
+bool CollectionManager::is_referenced_in_any(const std::string& referenced_coll_name) const {
+    std::shared_lock lock(mutex);
+    const auto it = referenced_ins.find(referenced_coll_name);
+    return it != referenced_ins.end();
 }
 
 Option<bool> CollectionManager::populate_include_exclude_fields(const std::string& collection_name,
@@ -2732,4 +2823,55 @@ Option<bool> CollectionManager::process_ref_include_fields_sort(const std::strin
     }
 
     return collection->process_ref_include_fields_sort(sort_by_str, limit, doc_ids);
+}
+
+void CollectionManager::lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                                   cascade_remove_node_t* cascade_node,
+                                                                   std::set<std::string>& referencing_collections) {
+    if (cascade_node == nullptr) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    for (const auto& [ref_coll_name, ref_info]: it->second) {
+        if (!referencing_collections.insert(ref_coll_name).second) {
+            continue;
+        }
+
+        auto red_coll_it = collections.find(ref_coll_name);
+        if (red_coll_it == collections.end()) {
+            continue;
+        }
+
+        cascade_node->ref_infos.emplace_back(ref_info);
+        cascade_node->nested_references.emplace_back(new cascade_remove_node_t({red_coll_it->second,
+                                                            std::unique_lock<std::shared_mutex>(red_coll_it->second->get_mutex())}));
+        lock_nested_referencing_collections_helper(ref_coll_name, cascade_node->nested_references.back(),
+                                                   referencing_collections);
+    }
+}
+
+void CollectionManager::lock_nested_referencing_collections(const std::string& coll_name,
+                                                            cascade_remove_node_t*& cascade_tree) {
+    std::shared_lock lock(mutex);
+
+    auto coll_it = collections.find(coll_name);
+    if (coll_it == collections.end()) {
+        return;
+    }
+
+    auto it = referenced_ins.find(coll_name);
+    if (it == referenced_ins.end()) {
+        return;
+    }
+
+    cascade_tree = new cascade_remove_node_t({coll_it->second,
+                                              std::unique_lock<std::shared_mutex>(coll_it->second->get_mutex())});
+
+    std::set<std::string> referencing_collections{coll_name};
+    lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
 }

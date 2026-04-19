@@ -202,6 +202,7 @@ struct search_args {
     bool validate_field_names;
     size_t found_count = 0;
     size_t found_docs = 0;
+    id_list_t* union_result_seq_ids = nullptr;
     Collection const *const collection;
 
     diversity_t diversity{};
@@ -226,7 +227,8 @@ struct search_args {
                 std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                 bool enable_synonyms, bool demote_synonym_match, bool synonym_prefix, uint32_t synonym_num_typos,
                 bool enable_typos_for_alpha_numerical_tokens, bool rerank_hybrid_matches, const bool& validate_field_names,
-                Collection const *const collection, const std::vector<std::string>& synonym_sets, diversity_t&& diversity,
+                id_list_t* union_result_seq_ids, Collection const *const collection,
+                const std::vector<std::string>& synonym_sets, diversity_t&& diversity,
                 size_t group_max_candidates) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), facets(facets),
@@ -254,6 +256,7 @@ struct search_args {
             demote_synonym_match(demote_synonym_match), synonym_prefix(synonym_prefix), synonym_num_typos(synonym_num_typos),
             enable_typos_for_alpha_numerical_tokens(enable_typos_for_alpha_numerical_tokens),
             rerank_hybrid_matches(rerank_hybrid_matches), validate_field_names(validate_field_names),
+            union_result_seq_ids(union_result_seq_ids),
             collection(collection), synonym_sets(synonym_sets), diversity(diversity), group_max_candidates(group_max_candidates) {
 
     }
@@ -403,6 +406,35 @@ struct group_by_field_it_t {
 
 class Index {
 private:
+    struct grouped_search_pass_state_t {
+        // The first grouped pass only discovers candidate groups, so it does not need facet state.
+        std::vector<facet> facets;
+        spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
+        std::vector<std::vector<std::string>> searched_query_tokens;
+        tsl::htrie_map<char, token_leaf> qtoken_set;
+        Topster<KV>* topster = nullptr;
+        Topster<KV>* curated_topster = nullptr;
+        std::unique_ptr<Topster<KV>> topster_guard;
+        std::unique_ptr<Topster<KV>> curated_topster_guard;
+        std::vector<std::vector<KV*>> raw_result_kvs;
+        std::vector<std::vector<KV*>> curation_result_kvs;
+        size_t all_result_ids_len = 0;
+
+        void take_ownership() {
+            topster_guard.reset(topster);
+            curated_topster_guard.reset(curated_topster);
+        }
+
+        bool empty() const {
+            return raw_result_kvs.empty() && curation_result_kvs.empty();
+        }
+
+        size_t groups_count() const {
+            return (topster != nullptr ? topster->getGroupsCount() : 0) +
+                   (curated_topster != nullptr ? curated_topster->getGroupsCount() : 0);
+        }
+    };
+
     mutable std::shared_mutex mutex;
 
     std::string name;
@@ -457,6 +489,9 @@ private:
     // this is used for wildcard queries
     id_list_t* seq_ids;
     mutable std::shared_mutex seq_ids_mutex;
+
+    // tracks which docs are missing a field
+    spp::sparse_hash_map<std::string, id_list_t*> field_missing_index;
 
     std::vector<char> symbols_to_index;
 
@@ -798,8 +833,9 @@ public:
                 bool is_group_by_first_pass,
                 std::set<uint32_t>& group_by_missing_value_ids,
                 Collection const *const collection,
-               const std::vector<std::string>& synonym_sets,
-               const diversity_t& diversity, const size_t group_max_candidates) const;
+                const std::vector<std::string>& synonym_sets,
+                id_list_t* union_result_seq_ids,
+                const diversity_t& diversity, const size_t group_max_candidates) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
@@ -840,11 +876,9 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      std::unordered_set<std::string>& found_fields,
                                      const bool use_addition_fields = false,
-                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>(),
-                                     const std::string& collection_name = "");
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
 
-    void index_field_in_memory(const std::string& collection_name, const field& afield,
-                               std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -893,6 +927,20 @@ public:
                                  const std::vector<size_t>& geopoint_indices,
                                  const bool& is_group_by_first_pass,
                                  std::set<uint32_t>& group_by_missing_value_ids) const;
+
+    void process_grouped_vector_results_hnsw(filter_result_iterator_t* filter_result_iterator_no_groups,
+                                             const vector_query_t& vector_query,
+                                             hnsw_index_t* field_vector_index,
+                                             VectorFilterFunctor& filter_functor,
+                                             size_t initial_k,
+                                             size_t fetch_size,
+                                             size_t group_max_candidates,
+                                             size_t group_limit,
+                                             const std::vector<std::string>& group_by_fields,
+                                             bool group_missing_values,
+                                             bool is_group_by_first_pass,
+                                             bool is_wildcard_non_phrase_query,
+                                             std::vector<std::pair<float, single_filter_result_t>>& dist_results) const;
 
     Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                               size_t max_extra_prefix, size_t max_extra_suffix) const;
@@ -1227,9 +1275,9 @@ public:
 
     Option<bool> process_ref_include_fields_sort(std::vector<sort_by>& sort_fields_std, size_t limit, std::vector<uint32_t>& doc_ids);
 
-    static void update_async_references(const std::string& collection_name, std::vector<index_record>& iter_batch,
-                                        const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins =
-                                        spp::sparse_hash_map<std::string, std::set<reference_pair_t>>());
+    static Option<bool> update_async_references(const std::string& collection_name, const bool& return_doc, const bool& return_id,
+                                                const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins,
+                                                index_record& record, std::vector<std::string>& json_out);
 
     Option<bool> diversify_text_score_buckets(const std::vector<std::pair<size_t, size_t>>& bucket_indexes,
                                               const diversity_t& diversity,

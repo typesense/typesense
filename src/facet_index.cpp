@@ -76,7 +76,7 @@ void facet_index_t::insert(const std::string& field_name,
                 if(facet_count_it->facet_id == facet_id) {
                     auto facet_count_node = facet_index.counts.extract(facet_count_it);
                     facet_count_node.value().count = ids_t::num_ids(fvalue_index_it->second.seq_ids);
-                    facet_index.counts.insert(std::move(facet_count_node));
+                    fvalue_index_it->second.facet_count_it = facet_index.counts.insert(std::move(facet_count_node));
                 } else {
                     LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
                 }
@@ -183,7 +183,7 @@ void facet_index_t::remove(const nlohmann::json& doc, const field& afield, const
                 // update count
                 auto count_node = counts.extract(fvalue_it->second.facet_count_it);
                 count_node.value().count = ids_t::num_ids(ids);
-                counts.insert(std::move(count_node));
+                fvalue_it->second.facet_count_it = counts.insert(std::move(count_node));
             }
         }
     }
@@ -535,4 +535,3 @@ void facet_index_t::check_for_high_cardinality(const string& field_name, size_t 
         //LOG(INFO) << "Dropped value index for field " << field_name;
     }
 }
-

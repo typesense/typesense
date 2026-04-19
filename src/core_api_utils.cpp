@@ -48,6 +48,7 @@ Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch
         for(auto& doc: removed_docs_batch) {
             if(deletion_state->return_doc) {
                 Collection::remove_flat_fields(doc);
+                Collection::remove_reference_helper_fields(doc);
                 deletion_state->removed_docs.push_back(doc);
             }
 

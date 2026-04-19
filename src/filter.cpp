@@ -517,6 +517,30 @@ Option<bool> toFilter(const std::string& expression,
     const field& _field = field_it.value();
     std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
     StringUtils::trim(raw_value);
+
+    // Handle missing filter: field: _missing  or  field: !_missing
+    if(!raw_value.empty() && raw_value[0] != '=') {
+        std::string missing_token = raw_value;
+
+        bool is_negated = false;
+        if(!missing_token.empty() && missing_token[0] == '!') {
+            is_negated = true;
+            missing_token = missing_token.substr(1);
+            StringUtils::trim(missing_token);
+        }
+
+        if(missing_token == filter::MISSING_FILTER_KEY) {
+            if(!_field.optional || !_field.track_missing_values) {
+                return Option<bool>(400, "Missing filter can only be applied to optional fields with `track_missing_values` enabled in the schema.");
+            }
+
+            filter_exp = {field_name, {}, {MISSING}};
+            filter_exp.apply_not_equals = is_negated;
+
+            return Option<bool>(true);
+        }
+    }
+
     // skip past optional `:=` operator, which has no meaning for non-string fields
     if (!_field.is_string() && raw_value[0] == '=') {
         size_t filter_value_index = 0;

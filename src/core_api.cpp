@@ -71,6 +71,19 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
+bool use_response_cache(const std::map<std::string, std::string>& params) {
+    const auto use_cache_it = params.find("use_cache");
+    bool use_cache = (use_cache_it != params.end()) &&
+                     (use_cache_it->second == "1" || use_cache_it->second == "true");
+
+    const auto conversation_it = params.find("conversation");
+    if(conversation_it != params.end() && conversation_it->second == "true") {
+        use_cache = false;
+    }
+
+    return use_cache;
+}
+
 bool get_alter_in_progress(const std::string& collection) {
     std::shared_lock lock(alter_mutex);
     return alters_in_progress.count(collection) != 0;
@@ -599,8 +612,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -653,7 +666,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         conversation = true;
     }
 
-    if(req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
+    if(conversation && req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
         conversation_stream = true;
     }
 
@@ -742,10 +755,17 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         results_json["conversation"] = nlohmann::json::object();
         results_json["conversation"]["query"] = query;
 
+        auto collection = CollectionManager::get_instance().get_collection(req->params["collection"]);
         nlohmann::json docs_array = nlohmann::json::array();
-
-        if(results_json.count("hits") != 0 && results_json["hits"].is_array()) {
-            docs_array = results_json["hits"];
+        if(collection != nullptr) {
+            if(results_json.contains("grouped_hits")) {
+                for(const auto& grouped_hit : results_json["grouped_hits"]) {
+                    auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+                    docs_array.insert(docs_array.end(), group_docs.begin(), group_docs.end());
+                }
+            } else {
+                docs_array = collection->preprocess_result_docs_for_conversation(results_json["hits"]);
+            }
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
@@ -887,8 +907,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -1033,7 +1053,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     bool conversation = orig_req_params["conversation"] == "true";
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
+    bool conversation_stream = conversation && orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
@@ -1201,49 +1221,41 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                     continue;
                 }
 
-                nlohmann::json result_docs = nlohmann::json::array();
-                std::vector<std::string> vector_fields;
-
                 auto collection_name_it = result["request_params"].find("collection_name");
                 auto collection = collection_name_it == result["request_params"].end() || !collection_name_it->is_string()
                                   ? nullptr
                                   : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
-                if(collection != nullptr) {
-                    auto search_schema = collection->get_schema();
-                    for(const auto& field : search_schema) {
-                        if(field.type == field_types::FLOAT_ARRAY) {
-                            vector_fields.push_back(field.name);
-                        }
-                    }
+                if(collection == nullptr) {
+                    continue;
                 }
 
+                nlohmann::json result_docs = nlohmann::json::array();
                 if(result.contains("grouped_hits")) {
                     for(const auto& grouped_hit : result["grouped_hits"]) {
-                        for(const auto& hit : grouped_hit["hits"]) {
-                            auto doc = hit["document"];
-                            for(const auto& vector_field : vector_fields) {
-                                if(doc.contains(vector_field)) {
-                                    doc.erase(vector_field);
-                                }
-                            }
-                            result_docs.push_back(doc);
-                        }
+                        auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+                        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
                     }
-                }
-                else {
-                    for(const auto& hit : result["hits"]) {
-                        auto doc = hit["document"];
-                        for(const auto& vector_field : vector_fields) {
-                            if(doc.contains(vector_field)) {
-                                doc.erase(vector_field);
-                            }
-                        }
-                        result_docs.push_back(doc);
-                    }
+                } else {
+                    result_docs = collection->preprocess_result_docs_for_conversation(result["hits"]);
                 }
 
                 result_docs_arr.push_back(result_docs);
             }
+        }
+
+        // If all searches failed (no successful search results), skip the model call entirely.
+        // Successful searches with zero hits should still follow the normal conversation path.
+        if(result_docs_arr.empty()) {
+            // No successful search results — skip conversation model call
+            // and return the response with just the error results
+            std::string response_str = response.dump();
+            if(res->content_type_header.find("event-stream") != std::string::npos) {
+                response_str = "data: " + response_str + "\n\n";
+            }
+            res->set_200(response_str);
+            res->final = true;
+            stream_response(req, res);
+            return true;
         }
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
@@ -1324,7 +1336,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         auto conversation_history = conversation_history_op.get();
 
         std::vector<std::string> exclude_fields;
-        StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
+        StringUtils::split(orig_req_params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
         auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
@@ -1348,7 +1360,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             response["conversation"]["conversation_history"] = conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
-
     }
 
     std::string response_str = response.dump();
@@ -1495,8 +1506,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 validate_field_names = false;
             }
 
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
-                                                            validate_field_names);
+            auto filter_ids_op = collection->get_filter_ids_with_lock(filter_query, export_state->filter_result, false,
+                                                                      validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2166,8 +2177,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
-                                                        validate_field_names);
+        auto filter_ids_op = collection->get_filter_ids_with_lock(simple_filter_query, filter_result, false,
+                                                                  validate_field_names);
 
         if (!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
