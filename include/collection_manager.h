@@ -227,6 +227,8 @@ public:
                                        filter_result_t& filter_result,
                                        const bool& should_timeout = true, const bool& validate_field_names = true);
 
+    static nlohmann::json preprocess_union_hits_for_conversation(const nlohmann::json& hits);
+
     bool is_referenced_in_any(const std::string& referenced_coll_name) const;
 
     Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,

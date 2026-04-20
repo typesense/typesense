@@ -858,6 +858,80 @@ TEST_F(CollectionManagerTest, CollectionPreprocessesConversationResultDocs) {
     ASSERT_FALSE(conversation_result_docs[2].contains("embedding"));
 }
 
+TEST_F(CollectionManagerTest, PreprocessUnionHitsForConversation) {
+    nlohmann::json schema_a = R"({
+        "name": "union_docs_a",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    nlohmann::json schema_b = R"({
+        "name": "union_docs_b",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto coll_a = collectionManager.create_collection(schema_a).get();
+    auto coll_b = collectionManager.create_collection(schema_b).get();
+
+    ASSERT_TRUE(coll_a->add(R"({
+        "id": "a1", "title": "duck story", "points": 30, "embedding": [0.1, 0.2]
+    })").ok());
+    ASSERT_TRUE(coll_b->add(R"({
+        "id": "b1", "title": "duck facts", "points": 20, "embedding": [0.2, 0.3]
+    })").ok());
+
+    // hits from a grouped_hits entry: each hit carries its source collection
+    nlohmann::json union_hits = nlohmann::json::array();
+    union_hits.push_back(nlohmann::json{
+        {"collection", "union_docs_a"},
+        {"document", {{"id", "a1"}, {"title", "duck story"}, {"points", 30}, {"embedding", {0.1, 0.2}}}}
+    });
+    union_hits.push_back(nlohmann::json{
+        {"collection", "union_docs_b"},
+        {"document", {{"id", "b1"}, {"title", "duck facts"}, {"points", 20}, {"embedding", {0.2, 0.3}}}}
+    });
+    // hit without a collection field should be kept as-is (the raw document)
+    union_hits.push_back(nlohmann::json{
+        {"document", {{"id", "x1"}, {"title", "orphan"}}}
+    });
+    // hit whose collection does not exist should be dropped
+    union_hits.push_back(nlohmann::json{
+        {"collection", "missing_coll"},
+        {"document", {{"id", "m1"}, {"title", "missing"}}}
+    });
+
+    auto result_docs = CollectionManager::preprocess_union_hits_for_conversation(union_hits);
+
+    ASSERT_EQ(3, result_docs.size());
+
+    std::map<std::string, nlohmann::json> docs_by_id;
+    for(const auto& doc : result_docs) {
+        docs_by_id[doc["id"].get<std::string>()] = doc;
+    }
+    ASSERT_EQ(1, docs_by_id.count("a1"));
+    ASSERT_EQ(1, docs_by_id.count("b1"));
+    ASSERT_EQ(1, docs_by_id.count("x1"));
+    ASSERT_EQ(0, docs_by_id.count("m1"));
+
+    // embedding is stripped for hits routed through a known collection
+    ASSERT_FALSE(docs_by_id["a1"].contains("embedding"));
+    ASSERT_FALSE(docs_by_id["b1"].contains("embedding"));
+
+    // non-array input returns empty array
+    auto empty_result = CollectionManager::preprocess_union_hits_for_conversation(nlohmann::json::object());
+    ASSERT_TRUE(empty_result.is_array());
+    ASSERT_EQ(0, empty_result.size());
+}
+
 TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("year", field_types::INT32, false),

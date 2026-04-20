@@ -1187,14 +1187,32 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
-        if(response.contains("results") && response["results"].is_array()) {
+        if(is_union && ((response.contains("hits") && response["hits"].is_array()) ||
+                        (response.contains("grouped_hits") && response["grouped_hits"].is_array()))) {
+            nlohmann::json result_docs = nlohmann::json::array();
+            if(response.contains("grouped_hits") && response["grouped_hits"].is_array()) {
+                for(const auto& grouped_hit : response["grouped_hits"]) {
+                    if(!grouped_hit.is_object() || !grouped_hit.contains("hits") || !grouped_hit["hits"].is_array()) {
+                        continue;
+                    }
+
+                    auto group_docs = CollectionManager::preprocess_union_hits_for_conversation(grouped_hit["hits"]);
+                    result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+                }
+            } else {
+                result_docs = CollectionManager::preprocess_union_hits_for_conversation(response["hits"]);
+            }
+
+            result_docs_arr.push_back(result_docs);
+
+        } else if(!is_union && response.contains("results") && response["results"].is_array()) {
             for(const auto& result : response["results"]) {
                 if(result.count("code") != 0) {
                     continue;
                 }
 
                 auto collection_name_it = result["request_params"].find("collection_name");
-                auto collection = collection_name_it == result["request_params"].end() || !collection_name_it->is_string()
+                auto collection = (collection_name_it == result["request_params"].end() || !collection_name_it->is_string())
                                   ? nullptr
                                   : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
                 if(collection == nullptr) {
