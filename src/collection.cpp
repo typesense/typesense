@@ -3485,6 +3485,37 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     return Option<nlohmann::json>(result);
 }
 
+nlohmann::json Collection::preprocess_result_docs_for_conversation(const nlohmann::json& result_hits) const {
+    nlohmann::json result_docs = nlohmann::json::array();
+    if(!result_hits.is_array()) {
+        return result_docs;
+    }
+
+    std::shared_lock lock(mutex);
+    std::vector<std::string> vector_fields;
+
+    for(const auto& schema_field : search_schema) {
+        if(schema_field.type == field_types::FLOAT_ARRAY) {
+            vector_fields.push_back(schema_field.name);
+        }
+    }
+    for(const auto& hit : result_hits) {
+        if(!hit.is_object() || !hit.contains("document")) {
+            continue;
+        }
+
+        auto doc = hit["document"];
+        for(const auto& vector_field : vector_fields) {
+            if(doc.contains(vector_field)) {
+                doc.erase(vector_field);
+            }
+        }
+        result_docs.push_back(std::move(doc));
+    }
+
+    return result_docs;
+}
+
 void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                                  const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                  const string& query, const std::vector<std::string>& raw_search_fields,

@@ -788,6 +788,76 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionManagerTest, CollectionPreprocessesConversationResultDocs) {
+    nlohmann::json conversation_schema = R"({
+        "name": "conversation_docs",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string", "facet": true},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(conversation_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto conversation_coll = create_op.get();
+
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "1",
+        "title": "duck story",
+        "brand": "acme",
+        "points": 30,
+        "embedding": [0.1, 0.2]
+    })").ok());
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "2",
+        "title": "duck facts",
+        "brand": "acme",
+        "points": 20,
+        "embedding": [0.2, 0.3]
+    })").ok());
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "3",
+        "title": "duck recipes",
+        "brand": "beta",
+        "points": 10,
+        "embedding": [0.3, 0.4]
+    })").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "conversation_docs"},
+        {"q", "duck"},
+        {"query_by", "title"},
+        {"group_by", "brand"},
+        {"group_limit", "2"}
+    };
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, 0);
+    ASSERT_TRUE(search_op.ok());
+
+    auto results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, results["grouped_hits"].size());
+    ASSERT_TRUE(results["grouped_hits"][0]["hits"][0]["document"].contains("embedding"));
+
+    nlohmann::json conversation_result_docs = nlohmann::json::array();
+    for(const auto& grouped_hit : results["grouped_hits"]) {
+        auto group_docs = conversation_coll->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+        conversation_result_docs.insert(conversation_result_docs.end(), group_docs.begin(), group_docs.end());
+    }
+
+    ASSERT_EQ(3, conversation_result_docs.size());
+    ASSERT_EQ("1", conversation_result_docs[0]["id"]);
+    ASSERT_EQ("2", conversation_result_docs[1]["id"]);
+    ASSERT_EQ("3", conversation_result_docs[2]["id"]);
+    ASSERT_FALSE(conversation_result_docs[0].contains("embedding"));
+    ASSERT_FALSE(conversation_result_docs[1].contains("embedding"));
+    ASSERT_FALSE(conversation_result_docs[2].contains("embedding"));
+}
+
 TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("year", field_types::INT32, false),

@@ -747,6 +747,41 @@ TEST_F(CoreAPIUtilsTest, MultiSearchConversationAllSearchesFailedSkipsModelCall)
     ASSERT_FALSE(response.contains("conversation"));
 }
 
+TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNotFrameAsSSE) {
+    nlohmann::json schema = R"({
+        "name": "conversation_stream_no_convo_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"duck story"})", CREATE).ok());
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "conversation_stream_no_convo_docs";
+    req->params["q"] = "duck";
+    req->params["query_by"] = "title";
+    req->params["conversation_stream"] = "true";
+    // conversation is NOT set to true
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    bool handled = get_search(req, res);
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(200, res->status_code);
+
+    // Response body should be plain JSON, not SSE-framed
+    ASSERT_EQ(std::string::npos, res->body.find("data: "));
+
+    // Should parse as valid JSON
+    nlohmann::json response;
+    ASSERT_NO_THROW(response = nlohmann::json::parse(res->body));
+    ASSERT_TRUE(response.contains("hits"));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
     nlohmann::json schema = R"({
         "name": "conversation_zero_hits_docs",

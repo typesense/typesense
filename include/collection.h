@@ -1011,6 +1011,8 @@ public:
 
     Option<nlohmann::json> search(collection_search_args_t& coll_args);
 
+    nlohmann::json preprocess_result_docs_for_conversation(const nlohmann::json& result_hits) const;
+
     // Only for tests.
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
