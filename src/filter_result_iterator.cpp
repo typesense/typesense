@@ -3726,6 +3726,7 @@ bool filter_result_iterator_t::validate_object_filter() {
         size_t result_count = 0;
         for (size_t i = 0; i < filter_result.count; i++) {
             if (timeout_info != nullptr && is_timed_out()) {
+                filter_result.count = result_count;
                 return false;
             }
 
