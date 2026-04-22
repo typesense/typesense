@@ -6805,7 +6805,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             // put delete first because a field could be deleted and added in the same change set
             if(!del_fields.empty()) {
                 for(auto& rec: iter_batch) {
-                    index->remove(seq_id, rec.doc, del_fields, true);
+                    index->remove(rec.seq_id, rec.doc, del_fields, true);
                 }
             }
 
