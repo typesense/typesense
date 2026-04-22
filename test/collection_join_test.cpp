@@ -11629,6 +11629,250 @@ TEST_F(CollectionJoinTest, AlterReferenceField) {
     ASSERT_EQ("1", res_obj["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, DropObjectFieldRemovesNestedReferenceMetadata) {
+    auto schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto authors = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(authors->add(json.dump()).ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "books",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author", "type": "object", "optional": true},
+                    {"name": "author.id", "type": "string", "reference": "authors.id", "optional": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto books = collection_create_op.get();
+
+    auto add_op = books->add(R"({
+        "id": "0",
+        "title": "Famous Five",
+        "author": {
+            "id": "0"
+        }
+    })");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto doc = books->get("0").get();
+    ASSERT_EQ(1, doc["author"].count("id"));
+    ASSERT_EQ(1, doc.count("author.id_sequence_id"));
+    ASSERT_EQ(0, doc["author.id_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("author.id_sequence_id", doc[".ref"][0]);
+
+    auto schema = books->get_schema();
+    ASSERT_EQ(1, schema.count("author"));
+    ASSERT_EQ(1, schema.count("author.id"));
+    ASSERT_EQ(1, schema.count("author.id_sequence_id"));
+
+    auto reference_fields = books->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author.id"));
+    ASSERT_EQ("authors", reference_fields.at("author.id").collection);
+    ASSERT_EQ("id", reference_fields.at("author.id").field);
+    ASSERT_EQ(1, books->get_object_reference_fields().count("author.id"));
+
+    auto alter_schema = R"({
+        "fields": [
+            {"name": "author", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = books->alter(alter_schema);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+
+    schema = books->get_schema();
+    ASSERT_EQ(1, schema.count("title"));
+    ASSERT_EQ(0, schema.count("author"));
+    ASSERT_EQ(0, schema.count("author.id"));
+    ASSERT_EQ(0, schema.count("author.id_sequence_id"));
+
+    reference_fields = books->get_reference_fields();
+    ASSERT_EQ(0, reference_fields.count("author.id"));
+    ASSERT_EQ(0, books->get_object_reference_fields().count("author.id"));
+
+    auto collection_summary = books->get_summary_json();
+    ASSERT_EQ("books", collection_summary["name"]);
+    ASSERT_EQ(1, collection_summary["fields"].size());
+    ASSERT_EQ("title", collection_summary["fields"][0]["name"]);
+
+    doc = books->get("0").get();
+    ASSERT_EQ(1, doc.count("author"));
+    ASSERT_EQ(1, doc["author"].count("id"));
+    ASSERT_EQ(0, doc.count("author.id_sequence_id")) << "Reference helper field should be removed from the document.";
+    ASSERT_EQ(0, doc.count(".ref"));
+}
+
+TEST_F(CollectionJoinTest, AlterReferenceFieldReindexesHelperIndexAcrossBatches) {
+    auto schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto authors = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(authors->add(json.dump()).ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors_v2",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "last_name", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto authors_v2 = collection_create_op.get();
+
+    documents = {
+            R"({
+                "id": "dummy_0",
+                "first_name": "dummy",
+                "last_name": "dummy"
+            })"_json,
+            R"({
+                "id": "dummy_1",
+                "first_name": "dummy",
+                "last_name": "dummy"
+            })"_json,
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "last_name": "Blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "last_name": "Lupoff"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(authors_v2->add(json.dump()).ok());
+    }
+
+    ASSERT_EQ(0, authors->doc_id_to_seq_id("0").get());
+    ASSERT_EQ(1, authors->doc_id_to_seq_id("1").get());
+    ASSERT_EQ(2, authors_v2->doc_id_to_seq_id("0").get());
+    ASSERT_EQ(3, authors_v2->doc_id_to_seq_id("1").get());
+
+    schema_json =
+            R"({
+                "name": "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.id", "async_reference": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto books = collection_create_op.get();
+
+    for (size_t i = 0; i < 1005; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Book " + std::to_string(i);
+        doc["author_id"] = (i % 2 == 0) ? "0" : "1";
+        ASSERT_TRUE(books->add(doc.dump()).ok());
+    }
+
+    auto helper_filter_count = [&](const std::string& filter_by) -> uint32_t {
+        filter_result_t filter_result;
+        auto filter_op = books->get_filter_ids_with_lock(filter_by, filter_result, false);
+        if (!filter_op.ok()) {
+            ADD_FAILURE() << filter_op.error();
+            return 0;
+        }
+        return filter_result.count;
+    };
+
+    ASSERT_EQ(503, helper_filter_count("author_id_sequence_id:0"));
+    ASSERT_EQ(502, helper_filter_count("author_id_sequence_id:1"));
+
+    auto alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true},
+            {"name": "author_id", "type": "string", "reference": "authors_v2.id", "async_reference": true, "facet": true}
+        ]
+    })"_json;
+
+    auto alter_op = books->alter(alter_schema);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+
+    auto doc = books->get("0").get();
+    ASSERT_EQ(2, doc["author_id_sequence_id"]);
+    doc = books->get("1").get();
+    ASSERT_EQ(3, doc["author_id_sequence_id"]);
+
+    ASSERT_EQ(0, helper_filter_count("author_id_sequence_id:0"));
+    ASSERT_EQ(0, helper_filter_count("author_id_sequence_id:1"));
+    ASSERT_EQ(503, helper_filter_count("author_id_sequence_id:2"));
+    ASSERT_EQ(502, helper_filter_count("author_id_sequence_id:3"));
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "books"},
+            {"q", "*"},
+            {"filter_by", "$authors_v2(id:1)"}
+    };
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(502, res_obj["found"].get<size_t>());
+}
+
 TEST_F(CollectionJoinTest, AlteredReferenceFieldOnRestart) {
     auto schema_json =
             R"({
