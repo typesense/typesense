@@ -441,6 +441,10 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 
 void filter_result_iterator_t::and_filter_iterators() {
     while (left_it->validity && right_it->validity) {
+        if (timeout_info != nullptr && is_timed_out()) {
+            return;
+        }
+
         if (left_it->seq_id < right_it->seq_id) {
             auto const& left_validity = left_it->is_valid(right_it->seq_id);
 
@@ -519,6 +523,10 @@ void filter_result_iterator_t::and_filter_iterators() {
 void filter_result_iterator_t::or_filter_iterators() {
     if (filter_node->is_object_filter_root) {
         while (left_it->validity || right_it->validity) {
+            if (timeout_info != nullptr && is_timed_out()) {
+                return;
+            }
+
             if (left_it->validity && right_it->validity) {
                 if (left_it->seq_id < right_it->seq_id) {
                     seq_id = left_it->seq_id;
@@ -3580,9 +3588,23 @@ bool filter_result_iterator_t::validate_object_filter_helper(
                    match_it->second.count(object_index) != 0;
         }
 
-        auto pos = filter_exp.field_name.rfind(".");
+        auto nested_field_path = filter_exp.field_name;
+        const auto object_prefix = object_field_name + ".";
+        if (nested_field_path.rfind(object_prefix, 0) == 0) {
+            nested_field_path = nested_field_path.substr(object_prefix.size());
+        }
 
-        const auto& nested_field = filter_exp.field_name.substr(pos+1, filter_exp.field_name.size() - (pos+1));
+        const nlohmann::json* nested_doc = &doc;
+        std::vector<std::string> nested_field_parts;
+        StringUtils::split(nested_field_path, nested_field_parts, ".");
+        for (const auto& nested_field_part : nested_field_parts) {
+            if (!nested_doc->is_object() || nested_doc->count(nested_field_part) == 0) {
+                return false;
+            }
+
+            nested_doc = &nested_doc->at(nested_field_part);
+        }
+
         field f = index->search_schema.at(filter_exp.field_name);
 
         using fieldType = std::variant<int64_t, float, bool, std::string>;
@@ -3612,7 +3634,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(
                 size_t token_index = 0;
                 filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
                 
-                std::string doc_str = doc[nested_field].get<std::string>();
+                std::string doc_str = nested_doc->get<std::string>();
                 Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
                 
                 std::string tokenized_doc_val;
@@ -3620,13 +3642,13 @@ bool filter_result_iterator_t::validate_object_filter_helper(
                 doc_val = doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
-                doc_val = doc[nested_field].get<float>();
+                doc_val = nested_doc->get<float>();
             } else if (f.is_bool()) {
                 filter_val = val == "1" ? true : false;
-                doc_val = doc[nested_field].get<bool>();
+                doc_val = nested_doc->get<bool>();
             } else if (f.is_integer()) {
                 filter_val = std::stoll(val);
-                doc_val = doc[nested_field].get<int64_t>();
+                doc_val = nested_doc->get<int64_t>();
             }
 
             if (comparator == EQUALS) {
@@ -3684,6 +3706,10 @@ bool filter_result_iterator_t::validate_object_filter() {
 
         nlohmann::json return_doc = document;
         for(auto i = 0; i < results.size(); ++i) {
+            if (!return_doc.is_object() || return_doc.count(results[i]) == 0) {
+                return nlohmann::json();
+            }
+
             return_doc = return_doc[results[i]];
         }
 
@@ -3699,6 +3725,11 @@ bool filter_result_iterator_t::validate_object_filter() {
     if (is_filter_result_initialized) {
         size_t result_count = 0;
         for (size_t i = 0; i < filter_result.count; i++) {
+            if (timeout_info != nullptr && is_timed_out()) {
+                filter_result.count = result_count;
+                return false;
+            }
+
             const auto& id = filter_result.docs[i];
             const std::string& seq_id_key = collection->get_seq_id_key(id);
 
@@ -3742,8 +3773,17 @@ bool filter_result_iterator_t::validate_object_filter() {
     }
     auto object_join_matches = build_object_join_matches(collection_name, filter_node->object_field_name,
                                                          document, &reference);
-    for (uint32_t object_index = 0; object_index < document[filter_node->object_field_name].size(); object_index++) {
-        const auto& nested_object = document[filter_node->object_field_name][object_index];
+    const auto& nested_doc = get_nested_field_doc(filter_node->object_field_name, document);
+    if (!nested_doc.is_array()) {
+        return false;
+    }
+
+    for (uint32_t object_index = 0; object_index < nested_doc.size(); object_index++) {
+        if (timeout_info != nullptr && is_timed_out()) {
+            return false;
+        }
+
+        const auto& nested_object = nested_doc[object_index];
         if (validate_object_filter_helper(index, nested_object, filter_node,
                                           collection_name, filter_node->object_field_name,
                                           &object_join_matches, object_index)) {

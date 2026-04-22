@@ -3842,6 +3842,33 @@ TEST_F(CollectionSpecificMoreTest, SingleTokenPhraseQueryShouldHighlightExactMat
     collectionManager.drop_collection("single_token_phrase_highlight");
 }
 
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldUseExactPhraseTokens) {
+    std::vector<field> fields = {field("textContent", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("phrase_highlight_exact_tokens", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["textContent"] = "The value of the share. Earnings per share (EPS) are calculated.";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"earnings per share\"", {"textContent"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "textContent", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("textContent", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+
+    const std::string snippet = results["hits"][0]["highlights"][0]["snippet"].get<std::string>();
+    ASSERT_NE(snippet.find("<mark>Earnings</mark> <mark>per</mark> <mark>share</mark>"), std::string::npos);
+    ASSERT_EQ(snippet.find("<mark>share</mark> . <mark>Earnings</mark>"), std::string::npos);
+
+    collectionManager.drop_collection("phrase_highlight_exact_tokens");
+}
+
 TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -4637,4 +4664,112 @@ TEST_F(CollectionSpecificMoreTest, PrioritizeTokenPositionSingleTokenOffsetsAreN
     ASSERT_EQ("255", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("token_offsets");
+}
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldMarkAllNestedPhrasesInValue) {
+    nlohmann::json schema = R"({
+        "name": "nested_phrase_highlight_multiple_phrases",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "experiences", "type": "object[]"},
+            {"name": "experiences.description", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["experiences"] = nlohmann::json::array();
+    nlohmann::json exp1;
+    exp1["description"] = "Harvard Business School collaborated with Stanford University on a joint program.";
+    doc1["experiences"].push_back(exp1);
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"harvard business school\" \"stanford university\"", {"experiences.description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "experiences.description", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0].count("highlight") > 0);
+    ASSERT_TRUE(results["hits"][0]["highlight"].count("experiences") > 0);
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["experiences"].size());
+    ASSERT_TRUE(results["hits"][0]["highlight"]["experiences"][0].count("description") > 0);
+    ASSERT_TRUE(results["hits"][0]["highlight"]["experiences"][0]["description"].count("value") > 0);
+    ASSERT_EQ("<mark>Harvard</mark> <mark>Business</mark> <mark>School</mark> collaborated with "
+              "<mark>Stanford</mark> <mark>University</mark> on a joint program.",
+              results["hits"][0]["highlight"]["experiences"][0]["description"]["value"].get<std::string>());
+
+    collectionManager.drop_collection("nested_phrase_highlight_multiple_phrases");
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldMarkAllNestedPhraseOccurrencesInValue) {
+    nlohmann::json schema = R"({
+        "name": "nested_phrase_highlight_multiple_occurrences",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "experiences", "type": "object[]"},
+            {"name": "experiences.description", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["experiences"] = nlohmann::json::array();
+    nlohmann::json exp1;
+    exp1["description"] = "Harvard Business School works closely with Harvard Business School alumni.";
+    doc1["experiences"].push_back(exp1);
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"harvard business school\"", {"experiences.description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "experiences.description", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0].count("highlight") > 0);
+    ASSERT_TRUE(results["hits"][0]["highlight"].count("experiences") > 0);
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["experiences"].size());
+    ASSERT_TRUE(results["hits"][0]["highlight"]["experiences"][0].count("description") > 0);
+    ASSERT_TRUE(results["hits"][0]["highlight"]["experiences"][0]["description"].count("value") > 0);
+    ASSERT_EQ("<mark>Harvard</mark> <mark>Business</mark> <mark>School</mark> works closely with "
+              "<mark>Harvard</mark> <mark>Business</mark> <mark>School</mark> alumni.",
+              results["hits"][0]["highlight"]["experiences"][0]["description"]["value"].get<std::string>());
+
+    collectionManager.drop_collection("nested_phrase_highlight_multiple_occurrences");
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatFieldOccurrences) {
+    std::vector<field> fields = {field("textContent", field_types::STRING, false)};
+    Collection* coll1 = collectionManager.create_collection("phrase_highlight_flat_multiple_occurrences", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["textContent"] = "Earnings per share improved. Later, earnings per share declined.";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("\"earnings per share\"", {"textContent"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "textContent", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback, 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("textContent", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Earnings</mark> <mark>per</mark> <mark>share</mark> improved. Later, earnings per share declined.",
+              results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
 }

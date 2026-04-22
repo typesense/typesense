@@ -60,7 +60,8 @@ private:
         return "";
     }
 
-    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches);
+    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches,
+                                              const std::vector<std::shared_ptr<Collection>>& collections);
 
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
@@ -225,6 +226,8 @@ public:
     static Option<bool> get_filter_ids(const std::string collection, const std::string & filter_query,
                                        filter_result_t& filter_result,
                                        const bool& should_timeout = true, const bool& validate_field_names = true);
+
+    static nlohmann::json preprocess_union_hits_for_conversation(const nlohmann::json& hits);
 
     bool is_referenced_in_any(const std::string& referenced_coll_name) const;
 
