@@ -3600,6 +3600,48 @@ TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificMoreTest, ReloadMergedStemmingDictionaryOnRestart) {
+    stemmerManager.delete_all_stemming_dictionaries();
+
+    std::vector<std::string> json_lines = {
+        "{\"word\": \"people\", \"root\":\"person\"}",
+        "{\"word\": \"children\", \"root\":\"child\"}"
+    };
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    json_lines = {
+        "{\"word\": \"geese\", \"root\":\"goose\"}"
+    };
+
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("set1", json_lines).ok());
+
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    store = new Store(state_dir_path);
+
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    nlohmann::json dictionary;
+    ASSERT_TRUE(stemmerManager.get_stemming_dictionary("set1", dictionary));
+    ASSERT_EQ("set1", dictionary["id"]);
+    ASSERT_EQ(3, dictionary["words"].size());
+
+    std::map<std::string, std::string> words_to_roots;
+    for(const auto& word_obj : dictionary["words"]) {
+        words_to_roots[word_obj["word"].get<std::string>()] = word_obj["root"].get<std::string>();
+    }
+
+    ASSERT_EQ("person", words_to_roots["people"]);
+    ASSERT_EQ("child", words_to_roots["children"]);
+    ASSERT_EQ("goose", words_to_roots["geese"]);
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingNonCyrilic) {
     nlohmann::json schema = R"({
          "name": "swedish_words",
