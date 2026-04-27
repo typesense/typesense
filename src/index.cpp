@@ -2550,6 +2550,8 @@ Option<bool> Index::run_search(search_args* search_params) {
 
     size_t first_pass_found_count = 0;
     size_t first_pass_found_docs = 0;
+    spp::sparse_hash_map<uint64_t, uint32_t> second_pass_groups_processed;
+    const spp::sparse_hash_map<uint64_t, uint32_t>* result_group_counts = nullptr;
     const bool is_vector_group_query = search_params->group_limit && !search_params->vector_query.field_name.empty();
 
     if (search_params->group_limit) {
@@ -2570,7 +2572,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                           search_params->fetch_size,
                           search_params->per_page, search_params->offset, search_params->token_order,
                           search_params->prefixes, search_params->drop_tokens_threshold,
-                          first_pass.all_result_ids_len, first_pass.groups_processed,
+                          first_pass.all_result_ids_len, first_pass.groups_processed, nullptr,
                           first_pass.searched_query_tokens,
                           first_pass.qtoken_set,
                           first_pass.raw_result_kvs, first_pass.curation_result_kvs,
@@ -2756,9 +2758,22 @@ Option<bool> Index::run_search(search_args* search_params) {
             return prepare_op;
         }
 
+        if (vector_only_group_by_second_pass) {
+            search_params->groups_processed.clear();
+        } else {
+            // Preserve first-pass group counts for `_group_found` ordering and grouped hit counts.
+            search_params->groups_processed = first_pass.groups_processed;
+            result_group_counts = &search_params->groups_processed;
+        }
+
         filter_result_iterator_no_groups->reset();
         group_by_missing_value_ids.clear();
     }
+
+    auto& second_pass_group_counts =
+        (search_params->group_limit != 0 && !vector_only_group_by_second_pass)
+            ? second_pass_groups_processed
+            : search_params->groups_processed;
 
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
@@ -2773,7 +2788,7 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->fetch_size,
                   search_params->per_page, search_params->offset, search_params->token_order,
                   search_params->prefixes, search_params->drop_tokens_threshold,
-                  search_params->all_result_ids_len, search_params->groups_processed,
+                  search_params->all_result_ids_len, second_pass_group_counts, result_group_counts,
                   search_params->searched_query_tokens,
                   search_params->qtoken_set,
                   search_params->raw_result_kvs, search_params->curation_result_kvs,
@@ -3648,6 +3663,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                    const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                   const spp::sparse_hash_map<uint64_t, uint32_t>* result_group_counts,
                    std::vector<std::vector<std::string>>& searched_query_tokens,
                    tsl::htrie_map<char, token_leaf>& qtoken_set,
                    std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& curation_result_kvs,
@@ -4455,9 +4471,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     topster->sort();
     curated_topster->sort();
 
-    populate_result_kvs(topster, raw_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass, diversity,
+    const auto& result_group_count_map =
+        result_group_counts == nullptr ? groups_processed : *result_group_counts;
+
+    populate_result_kvs(topster, raw_result_kvs, result_group_count_map, sort_fields_std, is_group_by_first_pass, diversity,
                         sort_index, facet_index_v4, vector_index);
-    populate_result_kvs(curated_topster, curation_result_kvs, groups_processed, sort_fields_std, is_group_by_first_pass,
+    populate_result_kvs(curated_topster, curation_result_kvs, result_group_count_map, sort_fields_std,
+                        is_group_by_first_pass,
                         diversity, sort_index, facet_index_v4, vector_index);
 
     std::vector<uint32_t> top_k_result_ids, top_k_curated_result_ids;

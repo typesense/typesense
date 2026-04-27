@@ -805,6 +805,7 @@ public:
                 const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                 const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                const spp::sparse_hash_map<uint64_t, uint32_t>* result_group_counts,
                 std::vector<std::vector<std::string>>& searched_query_tokens,
                 tsl::htrie_map<char, token_leaf>& qtoken_set,
                 std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& curation_result_kvs,
