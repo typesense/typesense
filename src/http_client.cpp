@@ -515,9 +515,13 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
         chunk = curl_slist_append(chunk, api_key_header.c_str());
     }
 
-    // set content length
-    std::string content_length_header = std::string("content-length: ") + std::to_string(req_res->req->_req->content_length);
-    chunk = curl_slist_append(chunk, content_length_header.c_str());
+    // Use POSTFIELDSIZE_LARGE (curl_off_t) to handle bodies over 2 GB safely.
+    // h2o uses SIZE_MAX as a sentinel for "no Content-Length header"; map that to -1
+    // so libcurl falls back to chunked encoding when the size is genuinely unknown.
+    curl_off_t post_size = (req_res->req->_req->content_length == SIZE_MAX)
+        ? -1
+        : static_cast<curl_off_t>(req_res->req->_req->content_length);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, post_size);
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
 
