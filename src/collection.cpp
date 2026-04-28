@@ -40,6 +40,18 @@ const std::string curation_t::MATCH_CONTAINS = "contains";
 
 const int ALTER_STATUS_MSG_COUNT = 5; // we keep track of last 5 status of alter op
 
+namespace {
+bool is_dynamic_alter_type(const field& f) {
+    return f.is_dynamic() || f.is_auto() || f.is_string_star();
+}
+
+bool is_allowed_alter_type_transition(const std::string& from_type, const std::string& to_type) {
+    return from_type == to_type ||
+           (from_type == field_types::INT32 && to_type == field_types::INT64) ||
+           (from_type == field_types::INT32_ARRAY && to_type == field_types::INT64_ARRAY);
+}
+}
+
 struct sort_fields_guard_t {
     std::vector<sort_by> sort_fields_std;
 
@@ -7259,10 +7271,30 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 auto& f = diff_fields.back();
+                const field& new_field = (f.is_reference_helper && diff_fields.size() > 1)
+                                         ? diff_fields[diff_fields.size() - 2]
+                                         : f;
+
+                if(!new_field.has_valid_type()) {
+                    return Option<bool>(400, "Field `" + new_field.name +
+                                        "` has an invalid data type `" + new_field.type +
+                                        "`, see docs for supported data types.");
+                }
+
+                if(is_reindex) {
+                    const field& old_field = found_field ? field_it.value() : dyn_field_it->second;
+                    if(!is_dynamic_alter_type(old_field) &&
+                       !is_dynamic_alter_type(new_field) &&
+                       !is_allowed_alter_type_transition(old_field.type, new_field.type)) {
+                        return Option<bool>(400, "Field `" + field_name + "` cannot be altered from `"
+                                            + old_field.type + "` to `" + new_field.type +
+                                            "`: only widening or same-meaning type changes are allowed.");
+                    }
+                }
 
                 if (f.is_reference_helper && diff_fields.size() > 1 &&
                             !diff_fields[diff_fields.size() - 2].reference.empty()) {
-                    const auto& field = diff_fields[diff_fields.size() - 2];
+                    const auto& field = new_field;
 
                     updated_search_schema[field.name] = field;
 
