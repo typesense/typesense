@@ -12849,3 +12849,77 @@ TEST_F(CollectionJoinTest, MultipleJoinsSameCollection) {
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
 }
+
+TEST_F(CollectionJoinTest, FilterByReference_UsesMaterializedReferenceCount) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "productId", "type": "int32", "sort": true},
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_coll = collection_create_op.get();
+
+    for (size_t i = 0; i < 100; i++) {
+        nlohmann::json document;
+        document["productId"] = i;
+        document["name"] = "product " + std::to_string(i);
+        auto add_op = products_coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    schema_json =
+            R"({
+                "name": "ProductWarehouses",
+                "fields": [
+                    {"name": "productId", "type": "int32", "reference": "Products.productId",
+                     "async_reference": true, "cascade_delete": false, "range_index": true, "sort": true},
+                    {"name": "tags", "type": "string[]"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto product_warehouses_coll = collection_create_op.get();
+
+    for (size_t i = 0; i < 100; i++) {
+        nlohmann::json document;
+        document["productId"] = i;
+        document["tags"] = {i < 50 ? "left" : "right"};
+        auto add_op = product_warehouses_coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "ProductWarehouses"},
+            {"q", "*"},
+            {"filter_by", "tags:!=left && tags:!=right"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_TRUE(res_obj["hits"].empty());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$ProductWarehouses(tags:!=left && tags:!=right)"}
+    };
+    json_res.clear();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_TRUE(res_obj["hits"].empty());
+}
