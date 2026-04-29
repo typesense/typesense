@@ -3185,8 +3185,11 @@ void filter_result_iterator_t::compute_iterators() {
 
         is_filter_result_initialized = true;
 
-        if (validity != timed_out && filter_result.count == 0) {
-            validity = invalid;
+        if (filter_result.count == 0) {
+            if (validity != timed_out) {
+                validity = invalid;
+            }
+            approx_filter_ids_length = 0;
             return;
         }
 
@@ -3434,8 +3437,11 @@ void filter_result_iterator_t::compute_iterators() {
 
     is_filter_result_initialized = true;
 
-    if (validity != timed_out && filter_result.count == 0) {
-        validity = invalid;
+    if (filter_result.count == 0) {
+        if (validity != timed_out) {
+            validity = invalid;
+        }
+        approx_filter_ids_length = 0;
         return;
     }
 
