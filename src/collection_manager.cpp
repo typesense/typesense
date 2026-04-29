@@ -944,19 +944,8 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     auto reference_fields = collection->get_reference_fields();
     for (const auto& item: reference_fields) {
         const auto& reference_info = item.second;
-        const auto& field_name = item.first;
-        const auto& ref_coll_name = reference_info.collection;
 
-        remove_referenced_ins(ref_coll_name, actual_coll_name);
-
-        auto& cm = CollectionManager::get_instance();
-        auto ref_coll = cm.get_collection(ref_coll_name);
-        if (ref_coll == nullptr) {
-            LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
-            continue;
-        }
-
-        ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+        remove_referenced_ins_with_lock(collection_name, reference_info);
     }
 
     std::unique_lock u_lock(mutex);
@@ -2455,23 +2444,35 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
     return Option<bool>(true);
 }
 
-void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
-                                              const std::string& referring_coll_name) {
+void CollectionManager::remove_referenced_ins_with_lock(const std::string& referencing_coll_name,
+                                                        const reference_info_t& ref_info) {
     std::unique_lock lock(mutex);
-    if (referring_coll_name.empty()) {
-        referenced_ins.erase(referenced_coll_name);
+    if (referencing_coll_name.empty()) {
         return;
     }
 
-    auto it = referenced_ins.find(referenced_coll_name);
-    if (it == referenced_ins.end()) {
+    const auto& referenced_coll_name = ref_info.collection;
+    auto referenced_it = referenced_ins.find(referenced_coll_name);
+    if (referenced_it == referenced_ins.end()) {
         return;
     }
-    it->second.erase(referring_coll_name);
-
-    if (it->second.empty()) {
-        referenced_ins.erase(it);
+    auto referencing_it = referenced_it->second.find(referencing_coll_name);
+    if (referencing_it == referenced_it->second.end()) {
+        return;
     }
+    const auto referencing_field_name = referencing_it->second.field;
+    referenced_it->second.erase(referencing_it);
+    if (referenced_it->second.empty()) {
+        referenced_ins.erase(referenced_it);
+    }
+
+    auto ref_coll = get_collection_unsafe(referenced_coll_name);
+    if (ref_coll == nullptr) {
+        LOG(ERROR) << "Could not remove referenced in: Referenced collection `" + referenced_coll_name + "` not found.";
+        return;
+    }
+    ref_coll->remove_referenced_in(referencing_coll_name, referencing_field_name, ref_info.is_async,
+                                   ref_info.referenced_field.name);
 }
 
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {

@@ -11729,6 +11729,10 @@ TEST_F(CollectionJoinTest, DropObjectFieldRemovesNestedReferenceMetadata) {
     ASSERT_EQ(1, doc["author"].count("id"));
     ASSERT_EQ(0, doc.count("author.id_sequence_id")) << "Reference helper field should be removed from the document.";
     ASSERT_EQ(0, doc.count(".ref"));
+
+    auto referenced_in_op = collectionManager.is_referenced_in_with_lock("author", "books");
+    ASSERT_FALSE(referenced_in_op.ok());
+    ASSERT_EQ("referenced_coll_name: `author` not found.", referenced_in_op.error());
 }
 
 TEST_F(CollectionJoinTest, AlterReferenceFieldReindexesHelperIndexAcrossBatches) {
@@ -11871,6 +11875,165 @@ TEST_F(CollectionJoinTest, AlterReferenceFieldReindexesHelperIndexAcrossBatches)
 
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(502, res_obj["found"].get<size_t>());
+}
+
+TEST_F(CollectionJoinTest, AlterReferenceFieldReplacesReferenceMetadataAndBookkeeping) {
+    auto schema_json =
+            R"({
+                "name": "authors",
+                "fields": [
+                    {"name": "first_name", "type": "string"},
+                    {"name": "slug", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto authors = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "0",
+                "first_name": "Enid",
+                "slug": "enid-blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "first_name": "Richard",
+                "slug": "richard-lupoff"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(authors->add(json.dump()).ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "authors_v2",
+                "fields": [
+                    {"name": "first_name", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto authors_v2 = collection_create_op.get();
+
+    documents = {
+            R"({
+                "id": "dummy",
+                "first_name": "dummy"
+            })"_json,
+            R"({
+                "id": "enid-blyton",
+                "first_name": "Enid"
+            })"_json,
+            R"({
+                "id": "richard-lupoff",
+                "first_name": "Richard"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(authors_v2->add(json.dump()).ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "books",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "author_id", "type": "string", "reference": "authors.slug", "async_reference": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto books = collection_create_op.get();
+
+    documents = {
+            R"({
+                "id": "0",
+                "title": "Famous Five",
+                "author_id": "enid-blyton"
+            })"_json,
+            R"({
+                "id": "1",
+                "title": "Space War Blues",
+                "author_id": "richard-lupoff"
+            })"_json
+    };
+    for (const auto& json: documents) {
+        ASSERT_TRUE(books->add(json.dump()).ok()) << json.dump();
+    }
+
+    ASSERT_TRUE(authors->is_referenced_in("books"));
+    auto authors_async_referenced_ins = authors->get_async_referenced_ins();
+    ASSERT_EQ(1, authors_async_referenced_ins.count("slug"));
+    ASSERT_EQ(1, authors_async_referenced_ins.at("slug").count(reference_pair_t("books", "author_id")));
+    ASSERT_FALSE(authors_v2->is_referenced_in("books"));
+
+    auto doc = books->get("0").get();
+    ASSERT_EQ(0, doc["author_id_sequence_id"]);
+
+    doc = books->get("1").get();
+    ASSERT_EQ(1, doc["author_id_sequence_id"]);
+
+    auto alter_schema = R"({
+        "fields":[
+            {"name": "author_id", "drop": true},
+            {"name": "author_id", "type": "string", "reference": "authors_v2.id", "async_reference": false}
+        ]
+    })"_json;
+
+    auto alter_op = books->alter(alter_schema);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+
+    auto enid_ref_seq_id_op = authors_v2->doc_id_to_seq_id("enid-blyton");
+    ASSERT_TRUE(enid_ref_seq_id_op.ok());
+    ASSERT_EQ(1, enid_ref_seq_id_op.get());
+    auto richard_ref_seq_id_op = authors_v2->doc_id_to_seq_id("richard-lupoff");
+    ASSERT_TRUE(richard_ref_seq_id_op.ok());
+    ASSERT_EQ(2, richard_ref_seq_id_op.get());
+
+    doc = books->get("0").get();
+    ASSERT_EQ(enid_ref_seq_id_op.get(), doc["author_id_sequence_id"]);
+    doc = books->get("1").get();
+    ASSERT_EQ(richard_ref_seq_id_op.get(), doc["author_id_sequence_id"]);
+
+    auto schema = books->get_schema();
+    ASSERT_EQ(1, schema.count("author_id"));
+    ASSERT_EQ("authors_v2.id", schema.at("author_id").reference);
+
+    auto reference_fields = books->get_reference_fields();
+    ASSERT_EQ(1, reference_fields.count("author_id"));
+    ASSERT_EQ("authors_v2", reference_fields.at("author_id").collection);
+    ASSERT_EQ("id", reference_fields.at("author_id").field);
+    ASSERT_FALSE(reference_fields.at("author_id").is_async);
+    ASSERT_FALSE(reference_fields.at("author_id").is_array);
+
+    ASSERT_FALSE(authors->is_referenced_in("books"));
+    authors_async_referenced_ins = authors->get_async_referenced_ins();
+    ASSERT_EQ(0, authors_async_referenced_ins.count("slug"));
+    ASSERT_FALSE(collectionManager.is_referenced_in_with_lock("authors", "books").ok());
+
+    ASSERT_TRUE(authors_v2->is_referenced_in("books"));
+    auto authors_v2_async_referenced_ins = authors_v2->get_async_referenced_ins();
+    ASSERT_EQ(0, authors_v2_async_referenced_ins.count("id"));
+
+    auto referenced_in_op = collectionManager.is_referenced_in_with_lock("authors_v2", "books");
+    ASSERT_TRUE(referenced_in_op.ok());
+    auto referenced_in = referenced_in_op.get();
+    ASSERT_EQ("books", referenced_in.collection);
+    ASSERT_EQ("author_id", referenced_in.field);
+    ASSERT_EQ("id", referenced_in.referenced_field_name);
+    ASSERT_FALSE(referenced_in.is_async);
+
+    auto add_op = books->add(R"({
+        "id": "2",
+        "title": "The Enchanted Wood",
+        "author_id": "enid-blyton"
+    })");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    doc = books->get("2").get();
+    ASSERT_EQ(enid_ref_seq_id_op.get(), doc["author_id_sequence_id"]);
 }
 
 TEST_F(CollectionJoinTest, AlterArrayReferenceFieldReindexesHelperIndexAcrossBatches) {

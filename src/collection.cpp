@@ -6667,7 +6667,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     for(auto& f: alter_fields) {
         if(!f.reference.empty()) {
             altered_reference_helper_fields.insert(f.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
-            auto ref_info_it = updated_reference_fields.find(f.name);
+            const auto ref_info_it = updated_reference_fields.find(f.name);
             if (ref_info_it == updated_reference_fields.end()) {
                 return Option<bool>(400, "`" + f.name + "` not present in updated_reference_fields map.");
             }
@@ -6682,7 +6682,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 return op;
             }
 
-            reference_fields.emplace(f.name, ref_info_it->second);
+            reference_fields[f.name] = ref_info_it->second;
             if (f.nested) {
                 object_reference_fields.emplace(f.name);
             }
@@ -6729,13 +6729,25 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
     // Only reference helper field should be removed from the document when a reference field is dropped in the schema.
     for (auto& f: del_fields) {
-        if (f.reference.empty() || updated_reference_fields.count(f.name) > 0) {
+        if (f.reference.empty()) {
+            continue;
+        }
+
+        auto erase_it = reference_fields.find(f.name);
+        if (erase_it == reference_fields.end()) {
+            continue;
+        }
+
+        auto it = updated_reference_fields.find(f.name);
+        if (it != updated_reference_fields.end() && f.reference != (it->second.collection + it->second.field)) {
+            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
+            // No need to remove the field from reference index if it still references the same field.
             continue;
         }
 
         // Removing the dropped field from the reference index now so reference helper field is not populated again when
         // Join::populate_reference_helper_fields() is called downstream.
-        reference_fields.erase(f.name);
+        reference_fields.erase(erase_it);
         if (f.nested) {
             object_reference_fields.erase(f.name);
         }
@@ -8500,6 +8512,9 @@ void Collection::remove_referenced_in(const std::string& collection_name, const 
     referenced_in.erase(collection_name);
     if (is_async) {
         async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
+        if (async_referenced_ins[referenced_field_name].empty()) {
+            async_referenced_ins.erase(referenced_field_name);
+        }
     }
 }
 
