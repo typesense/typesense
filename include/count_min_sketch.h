@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cmath>
-#include <ctime>
+#include <cstdlib>
 #include <cstdint>
 
 /**
@@ -12,6 +12,8 @@
 **/
 class CountMinSketch {
 private:
+    static constexpr uint32_t LONG_PRIME = 32993;
+
     uint32_t w, d;
     float eps;
     float gamma;
@@ -34,7 +36,7 @@ public:
             C[i] = new uint32_t[w]{0};
         }
 
-        srand(time(NULL));
+        srand(LONG_PRIME);
 
         hashes = new int* [d];
         for (size_t i = 0; i < d; i++) {
@@ -77,7 +79,6 @@ public:
 };
 
 inline void CountMinSketch::genajbj(int* hash, int i) {
-    constexpr auto LONG_PRIME = 32993;
     hash[0] = int(float(rand())*float(LONG_PRIME)/float(RAND_MAX) + 1);
     hash[1] = int(float(rand())*float(LONG_PRIME)/float(RAND_MAX) + 1);
 }
