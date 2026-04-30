@@ -55,7 +55,7 @@ protected:
                 {"name": "starring", "type": "string", "infix": true},
                 {"name": "cast", "type": "string[]", "facet": true, "optional": true},
                 {"name": ".*_year", "type": "int32", "facet": true, "optional": true},
-                {"name": "location", "type": "geopoint", "optional": true},
+                {"name": "location", "type": "geopoint", "optional": true, "track_missing_values": true},
                 {"name": "not_stored", "type": "string", "optional": true, "index": false},
                 {"name": "points", "type": "int32"},
                 {"name": "person", "type": "object", "optional": true},
@@ -153,6 +153,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"title",
               "nested":false,
               "optional":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -169,6 +170,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"starring",
               "nested":false,
               "optional":false,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -185,6 +187,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"cast",
               "nested":false,
               "optional":true,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string[]",
@@ -201,6 +204,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":".*_year",
               "nested":false,
               "optional":true,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int32",
@@ -217,6 +221,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"location",
               "nested":false,
               "optional":true,
+              "track_missing_values":true,
               "sort":true,
               "store":true,
               "type":"geopoint",
@@ -233,6 +238,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"not_stored",
               "nested":false,
               "optional":true,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -249,6 +255,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"points",
               "nested":false,
               "optional":false,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int32",
@@ -266,6 +273,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":true,
               "nested_array":2,
               "optional":true,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"object",
@@ -284,6 +292,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "num_dim":128,
               "optional":true,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"float[]",
@@ -303,6 +312,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"product_id",
               "nested":false,
               "optional":true,
+              "track_missing_values":false,
               "sort":false,
               "store":true,
               "type":"string",
@@ -320,6 +330,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "name":"product_id_sequence_id",
               "nested":false,
               "optional":true,
+              "track_missing_values":false,
               "sort":true,
               "store":true,
               "type":"int64",
@@ -775,6 +786,150 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     // ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, CollectionPreprocessesConversationResultDocs) {
+    nlohmann::json conversation_schema = R"({
+        "name": "conversation_docs",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string", "facet": true},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(conversation_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto conversation_coll = create_op.get();
+
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "1",
+        "title": "duck story",
+        "brand": "acme",
+        "points": 30,
+        "embedding": [0.1, 0.2]
+    })").ok());
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "2",
+        "title": "duck facts",
+        "brand": "acme",
+        "points": 20,
+        "embedding": [0.2, 0.3]
+    })").ok());
+    ASSERT_TRUE(conversation_coll->add(R"({
+        "id": "3",
+        "title": "duck recipes",
+        "brand": "beta",
+        "points": 10,
+        "embedding": [0.3, 0.4]
+    })").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "conversation_docs"},
+        {"q", "duck"},
+        {"query_by", "title"},
+        {"group_by", "brand"},
+        {"group_limit", "2"}
+    };
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string json_res;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, 0);
+    ASSERT_TRUE(search_op.ok());
+
+    auto results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, results["grouped_hits"].size());
+    ASSERT_TRUE(results["grouped_hits"][0]["hits"][0]["document"].contains("embedding"));
+
+    nlohmann::json conversation_result_docs = nlohmann::json::array();
+    for(const auto& grouped_hit : results["grouped_hits"]) {
+        auto group_docs = conversation_coll->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+        conversation_result_docs.insert(conversation_result_docs.end(), group_docs.begin(), group_docs.end());
+    }
+
+    ASSERT_EQ(3, conversation_result_docs.size());
+    ASSERT_EQ("1", conversation_result_docs[0]["id"]);
+    ASSERT_EQ("2", conversation_result_docs[1]["id"]);
+    ASSERT_EQ("3", conversation_result_docs[2]["id"]);
+    ASSERT_FALSE(conversation_result_docs[0].contains("embedding"));
+    ASSERT_FALSE(conversation_result_docs[1].contains("embedding"));
+    ASSERT_FALSE(conversation_result_docs[2].contains("embedding"));
+}
+
+TEST_F(CollectionManagerTest, PreprocessUnionHitsForConversation) {
+    nlohmann::json schema_a = R"({
+        "name": "union_docs_a",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    nlohmann::json schema_b = R"({
+        "name": "union_docs_b",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 2}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto coll_a = collectionManager.create_collection(schema_a).get();
+    auto coll_b = collectionManager.create_collection(schema_b).get();
+
+    ASSERT_TRUE(coll_a->add(R"({
+        "id": "a1", "title": "duck story", "points": 30, "embedding": [0.1, 0.2]
+    })").ok());
+    ASSERT_TRUE(coll_b->add(R"({
+        "id": "b1", "title": "duck facts", "points": 20, "embedding": [0.2, 0.3]
+    })").ok());
+
+    // hits from a grouped_hits entry: each hit carries its source collection
+    nlohmann::json union_hits = nlohmann::json::array();
+    union_hits.push_back(nlohmann::json{
+        {"collection", "union_docs_a"},
+        {"document", {{"id", "a1"}, {"title", "duck story"}, {"points", 30}, {"embedding", {0.1, 0.2}}}}
+    });
+    union_hits.push_back(nlohmann::json{
+        {"collection", "union_docs_b"},
+        {"document", {{"id", "b1"}, {"title", "duck facts"}, {"points", 20}, {"embedding", {0.2, 0.3}}}}
+    });
+    // hit without a collection field should be kept as-is (the raw document)
+    union_hits.push_back(nlohmann::json{
+        {"document", {{"id", "x1"}, {"title", "orphan"}}}
+    });
+    // hit whose collection does not exist should be dropped
+    union_hits.push_back(nlohmann::json{
+        {"collection", "missing_coll"},
+        {"document", {{"id", "m1"}, {"title", "missing"}}}
+    });
+
+    auto result_docs = CollectionManager::preprocess_union_hits_for_conversation(union_hits);
+
+    ASSERT_EQ(3, result_docs.size());
+
+    std::map<std::string, nlohmann::json> docs_by_id;
+    for(const auto& doc : result_docs) {
+        docs_by_id[doc["id"].get<std::string>()] = doc;
+    }
+    ASSERT_EQ(1, docs_by_id.count("a1"));
+    ASSERT_EQ(1, docs_by_id.count("b1"));
+    ASSERT_EQ(1, docs_by_id.count("x1"));
+    ASSERT_EQ(0, docs_by_id.count("m1"));
+
+    // embedding is stripped for hits routed through a known collection
+    ASSERT_FALSE(docs_by_id["a1"].contains("embedding"));
+    ASSERT_FALSE(docs_by_id["b1"].contains("embedding"));
+
+    // non-array input returns empty array
+    auto empty_result = CollectionManager::preprocess_union_hits_for_conversation(nlohmann::json::object());
+    ASSERT_TRUE(empty_result.is_array());
+    ASSERT_EQ(0, empty_result.size());
 }
 
 TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
@@ -1725,6 +1880,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":false,
                     "store":true,
                     "type":"string",
@@ -1742,6 +1898,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -1758,6 +1915,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -1774,6 +1932,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "nested":true,
                     "nested_array":2,
                     "optional":false,
+                    "track_missing_values":false,
                     "sort":true,
                     "store":true,
                     "type":"int32",
@@ -2104,4 +2263,17 @@ TEST_F(CollectionManagerTest, CloneCollectionWithDocuments) {
     collectionManager.drop_collection("source_collection");
     collectionManager.drop_collection("cloned_collection_no_docs");
     collectionManager.drop_collection("cloned_collection_with_docs");
+}
+
+TEST_F(CollectionManagerTest, FieldFromJsonPreservesTrackMissingValues) {
+    auto field_json = R"({
+        "name": "color",
+        "type": "string",
+        "optional": true,
+        "track_missing_values": true
+    })"_json;
+
+    auto parsed_field = field::field_from_json(field_json);
+    ASSERT_TRUE(parsed_field.optional);
+    ASSERT_TRUE(parsed_field.track_missing_values);
 }

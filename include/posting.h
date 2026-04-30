@@ -115,6 +115,8 @@ public:
 
     static void get_or_iterator(void*& raw_posting_lists, std::vector<or_iterator_t>& or_iterators,
                                 std::vector<posting_list_t*>& expanded_plists);
+
+    static posting_list_t* to_owned_posting_list(const void* raw_posting_list);
 };
 
 template<class T>

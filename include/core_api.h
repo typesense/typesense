@@ -120,6 +120,8 @@ bool get_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_re
 
 bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Health + Metrics
 
 bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -223,6 +225,8 @@ bool is_doc_del_route(uint64_t route_hash);
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata);
 
 void init_api(uint32_t cache_num_entries);
+
+bool use_response_cache(const std::map<std::string, std::string>& params);
 
 
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

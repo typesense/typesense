@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <fstream>
 #include <collection_manager.h>
 #include <filter.h>
@@ -718,6 +719,57 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 }
 
+TEST_F(FilterTest, MissingFilterLazyEvaluationComputeIterators) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<int> has_color = {0, 1, 5};
+    for (int i = 0; i < 6; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (has_color.count(i)) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("color: !_missing", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_missing = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, true);
+    ASSERT_TRUE(iter_missing.init_status().ok());
+    ASSERT_FALSE(iter_missing._get_is_filter_result_initialized());
+
+    uint32_t* filter_ids = nullptr;
+    iter_missing.compute_iterators();
+
+    const uint32_t filter_ids_length = iter_missing.to_filter_id_array(filter_ids);
+    ASSERT_EQ(3, filter_ids_length);
+
+    std::vector<uint32_t> expected = {0, 1, 5};
+    for (uint32_t i = 0; i < filter_ids_length; i++) {
+        ASSERT_EQ(expected[i], filter_ids[i]);
+    }
+
+    delete[] filter_ids;
+    delete filter_tree_root;
+    collectionManager.drop_collection("products");
+}
+
 TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     auto count = 20;
     auto filter_ids = new uint32_t[count];
@@ -841,6 +893,34 @@ TEST_F(FilterTest, FilterTreeInitialization) {
     ASSERT_FALSE(iter_inner_subtree_0_matches._get_is_filter_result_initialized());
     ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_left_it());
     ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    auto add_op = coll->add(
+            R"({"name": "Jeremy Howard", "top_3": [0, 0.0, 0.0], "rating": 0.0,"age": 63, "years": [1981, 1985],
+                 "timestamps": [348974822, 475205222], "tags": ["silver"]})");
+    ASSERT_TRUE(add_op.ok());
+    std::string dirty_values = "DROP";
+    auto alter_op = coll->update_matching_filter("id: 0", R"({"tags": ["gold"]})", dirty_values);
+    ASSERT_TRUE(alter_op.ok());
+
+    filter_op = filter::parse_filter_query("years:!= 2016 && tags: != silver", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                   filter_tree_root, enable_lazy_evaluation);
+
+    ASSERT_TRUE(iter_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_0_matches.validity);
+    ASSERT_FALSE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(3, iter_0_matches.approx_filter_ids_length);
+
+    iter_0_matches.compute_iterators();
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_0_matches.validity);
+    ASSERT_TRUE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(0, iter_0_matches.approx_filter_ids_length);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
