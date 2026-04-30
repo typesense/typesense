@@ -145,16 +145,28 @@ Option<nlohmann::json> CurationIndexManager::upsert_curation_set(const std::stri
     if(!store) {
         return Option<nlohmann::json>(500, "Store not initialized.");
     }
-    CurationIndex index{store, name};
     if(!items_array.is_array()) {
         return Option<nlohmann::json>(400, "Invalid 'items' field; must be an array");
     }
+
+    std::vector<curation_t> curations;
     for(const auto& item: items_array) {
         curation_t ov;
         auto op = curation_t::parse(item, item.value("id", std::string{}), ov);
         if(!op.ok()) {
             return Option<nlohmann::json>(op.code(), op.error());
         }
+        curations.push_back(std::move(ov));
+    }
+
+    auto delete_op = store->delete_range(CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + name + "_",
+                                         CurationIndex::COLLECTION_CURATION_SET_PREFIX + std::string("_") + name + "`");
+    if(!delete_op.ok()) {
+        return Option<nlohmann::json>(500, "Error while removing existing curations from disk.");
+    }
+
+    CurationIndex index{store, name};
+    for(const auto& ov: curations) {
         auto add_op = index.add_curation(ov, true);
         if(!add_op.ok()) {
             return Option<nlohmann::json>(add_op.code(), add_op.error());
@@ -223,5 +235,4 @@ void CurationIndexManager::dispose() {
     curation_index_map.clear();
     this->store = nullptr;
 }
-
 
