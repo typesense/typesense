@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <memory>
 #include <queue>
 #include <id_list.h>
@@ -2076,41 +2075,47 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
 
             if (is_infix_match) {
-                // Use existing search_infix() per token, intersect for multi-token, OR across values
-                std::vector<uint32_t> infix_ids;
-                bool first_token = true;
-
-                for (const auto& token : str_tokens) {
-                    std::vector<uint32_t> token_ids;
-                    auto infix_op = index->search_infix(token, a_filter.field_name,
-                                                         token_ids, INT16_MAX, INT16_MAX);
+                if (str_tokens.size() == 1) {
+                    // Lazy path: one posting_list_iterators entry per matching vocab token.
+                    // The CONTAINS comparator branch in get_string_filter_next_match ORs all entries
+                    // without position verification, which is correct for infix substring matching.
+                    std::vector<art_leaf*> infix_leaves;
+                    auto infix_op = index->search_infix_leaves(str_tokens[0], a_filter.field_name,
+                                                               infix_leaves, INT16_MAX, INT16_MAX);
                     if (!infix_op.ok()) {
                         status = Option<bool>(infix_op.code(), infix_op.error());
                         validity = invalid;
                         return;
                     }
 
-                    if (first_token) {
-                        infix_ids = std::move(token_ids);
-                        first_token = false;
-                    } else {
-                        std::vector<uint32_t> intersected;
-                        std::set_intersection(infix_ids.begin(), infix_ids.end(),
-                                              token_ids.begin(), token_ids.end(),
-                                              std::back_inserter(intersected));
-                        infix_ids = std::move(intersected);
+                    for (auto* leaf : infix_leaves) {
+                        std::vector<void*> raw = {leaf->values};
+                        std::vector<posting_list_t*> plists;
+                        posting_t::to_expanded_plists(raw, plists, expanded_plists);
+                        if (plists.empty()) {
+                            continue;
+                        }
+
+                        posting_lists.push_back(plists);
+                        posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
+                        for (auto const& plist : plists) {
+                            posting_list_iterators.back().push_back(plist->new_iterator());
+                        }
+
+                        // Multiple filter values get OR; accumulate approx count (may overcount
+                        // since the same doc can appear in multiple vocab token posting lists).
+                        approx_filter_ids_length += posting_t::num_ids(leaf->values);
                     }
-
-                    if (infix_ids.empty()) break;
-                }
-
-                if (!infix_ids.empty()) {
-                    uint32_t* out = nullptr;
-                    filter_result.count = ArrayUtils::or_scalar(
-                        &infix_ids[0], infix_ids.size(),
-                        filter_result.docs, filter_result.count, &out);
-                    delete[] filter_result.docs;
-                    filter_result.docs = out;
+                } else {
+                    // Multi-token infix (e.g. *foo bar*) is not supported: the infix index stores
+                    // individual word tokens only, so substring search across word boundaries is
+                    // structurally impossible. Use separate conditions instead, e.g. field:*foo* && field:*bar*.
+                    status = Option<bool>(400, "Error with filter field `" + f.name +
+                        "`: Infix filter value must be a single token. "
+                        "To match multiple substrings use separate conditions, "
+                        "e.g. `field:*foo* && field:*bar*`.");
+                    validity = invalid;
+                    return;
                 }
 
                 continue;
@@ -2221,50 +2226,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // Multiple filter values get OR.
             approx_filter_ids_length += approx_filter_value_match;
-        }
-
-        // If infix filter values populated filter_result, finalize as flat ID result
-        bool has_infix_results = (filter_result.count > 0);
-        if (has_infix_results) {
-            if (!posting_lists.empty()) {
-                // Mixed infix + exact/prefix: flatten posting lists, then OR with infix results
-                uint32_t* infix_docs = filter_result.docs;
-                uint32_t infix_count = filter_result.count;
-                filter_result.docs = nullptr;
-                filter_result.count = 0;
-
-                compute_iterators();  // flattens posting_lists -> filter_result
-
-                uint32_t* out = nullptr;
-                filter_result.count = ArrayUtils::or_scalar(
-                    infix_docs, infix_count,
-                    filter_result.docs, filter_result.count, &out);
-                delete[] infix_docs;
-                delete[] filter_result.docs;
-                filter_result.docs = out;
-            }
-
-            if (a_filter.apply_not_equals) {
-                auto all_ids = index->seq_ids->uncompress();
-                auto all_ids_len = index->seq_ids->num_ids();
-                uint32_t* excluded = nullptr;
-                auto excluded_len = ArrayUtils::exclude_scalar(
-                    all_ids, all_ids_len,
-                    filter_result.docs, filter_result.count, &excluded);
-                delete[] all_ids;
-                delete[] filter_result.docs;
-                filter_result.docs = excluded;
-                filter_result.count = excluded_len;
-            }
-
-            is_filter_result_initialized = true;
-            if (filter_result.count == 0) {
-                validity = invalid;
-                return;
-            }
-            seq_id = filter_result.docs[result_index];
-            approx_filter_ids_length = filter_result.count;
-            return;
         }
 
         if (a_filter.apply_not_equals) {
