@@ -4325,6 +4325,123 @@ TEST_F(CollectionFilteringTest, DeepNestedFieldsInsideObjectFilter) {
     ASSERT_EQ("Same Object Match", result["hits"][0]["document"]["title"]);
 }
 
+TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
+    auto schema_json =
+            R"({
+                "name": "performance_nested_bands",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "bands", "type": "object[]"},
+                    {"name": "bands.sizes", "type": "int32[]", "range_index": true},
+                    {"name": "bands.labels", "type": "string[]"},
+                    {"name": "bands.accessible", "type": "bool[]"},
+                    {"name": "bands.discount", "type": "float[]"},
+                    {"name": "bands.minSeatPrice", "type": "int32[]", "range_index": true},
+                    {"name": "bands.maxSeatPrice", "type": "int32[]", "range_index": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Same Band Numeric Match",
+                "bands": [
+                    {"sizes": [1, 3], "labels": ["standard"], "accessible": [false], "discount": [2.0], "minSeatPrice": 7000, "maxSeatPrice": 4500},
+                    {"sizes": [1], "labels": ["balcony"], "accessible": [false], "discount": [5.0], "minSeatPrice": 9000, "maxSeatPrice": 12000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Band Numeric Match",
+                "bands": [
+                    {"sizes": [2, 3], "labels": ["standard"], "accessible": [false], "discount": [1.0], "minSeatPrice": 9000, "maxSeatPrice": 12000},
+                    {"sizes": [1], "labels": ["balcony"], "accessible": [false], "discount": [5.0], "minSeatPrice": 7000, "maxSeatPrice": 4500}
+                ]
+            })"_json,
+            R"({
+                "title": "String Label Match",
+                "bands": [
+                    {"sizes": [1], "labels": ["vip", "accessible"], "accessible": [true, false], "discount": [1.25], "minSeatPrice": 7200, "maxSeatPrice": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Label Match",
+                "bands": [
+                    {"sizes": [1], "labels": ["vip"], "accessible": [true], "discount": [1.0], "minSeatPrice": 9000, "maxSeatPrice": 10000},
+                    {"sizes": [1], "labels": ["standard"], "accessible": [false], "discount": [5.0], "minSeatPrice": 7200, "maxSeatPrice": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Range Size Match",
+                "bands": [
+                    {"sizes": [4], "labels": ["standard"], "accessible": [false], "discount": [1.75], "minSeatPrice": 7300, "maxSeatPrice": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "No Match",
+                "bands": [
+                    {"sizes": [1], "labels": ["standard"], "accessible": [false], "discount": [5.0], "minSeatPrice": 9000, "maxSeatPrice": 12000}
+                ]
+            })"_json
+    };
+
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const auto search_titles = [&](const std::string& filter_by) {
+        std::map<std::string, std::string> req_params = {
+                {"collection",     "performance_nested_bands"},
+                {"q",              "*"},
+                {"filter_by",      filter_by},
+                {"include_fields", "title, bands"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+
+        std::vector<std::string> titles;
+        if (search_op.ok()) {
+            auto result = nlohmann::json::parse(json_res);
+            for (const auto& hit: result["hits"]) {
+                titles.push_back(hit["document"]["title"].get<std::string>());
+            }
+        }
+        std::sort(titles.begin(), titles.end());
+        return titles;
+    };
+
+    ASSERT_EQ(std::vector<std::string>({"Same Band Numeric Match"}),
+              search_titles("bands.{sizes:>=3 && minSeatPrice:<=7100 && maxSeatPrice:>=4000}"));
+    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
+              search_titles("bands.{labels:=vip && minSeatPrice:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
+              search_titles("bands.{accessible:true && minSeatPrice:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
+              search_titles("bands.{discount:<1.5 && minSeatPrice:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Size Match"}),
+              search_titles("bands.{sizes:[3..4] && minSeatPrice:<=7400 && maxSeatPrice:>=4900}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Size Match", "Split Band Numeric Match",
+                                        "Split Label Match", "String Label Match"}),
+              search_titles("bands.{sizes:!=3 && minSeatPrice:<=7400}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Range Size Match", "Same Band Numeric Match",
+                                        "Split Band Numeric Match", "Split Label Match"}),
+              search_titles("bands.{labels:!=vip}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Same Band Numeric Match", "Split Band Numeric Match",
+                                        "Split Label Match", "String Label Match"}),
+              search_titles("bands.{sizes:![3..4]}"));
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
     // track_missing_values on non-optional field should fail
     auto schema = R"({
