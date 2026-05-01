@@ -3437,6 +3437,52 @@ TEST_F(CollectionFilteringTest, InfixFilterOnTextFields) {
     results = coll->search("*", {}, "title: *unt*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("Good Will Hunting", results["hits"][0]["document"]["title"]);
+
+    // Test 10: enable_lazy_filter=true + OR of infix values, cast:[*an*,*in*] with q:"will".
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 11: enable_lazy_filter=true + negated OR of infix values, cast:![*an*,*in*] with q:"will".
+    // NOT({0,2,4,5}) = {1,3}. "will" in title: {2,3}. Result = {3}.
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: ! [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 12: Exact-match operator (:=) with infix-style value — cast:= *in*.
+    // No exact matches to "in" in our cast so should return 0
+    results = coll->search("*", {}, "cast:= *in*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionFilteringTest, ExactFilterOnLongField) {
