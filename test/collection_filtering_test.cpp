@@ -3397,7 +3397,8 @@ TEST_F(CollectionFilteringTest, InfixFilterOnTextFields) {
     auto res_op = coll->search("*", {}, "name_no_infix: *foo*", {}, {}, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ(400, res_op.code());
-    ASSERT_NE(std::string::npos, res_op.error().find("infix"));
+    ASSERT_EQ("Error with filter field `name_no_infix`: Infix filtering requires the field to have "
+              "`infix: true` in the schema.", res_op.error());
 
     // Test 6: Mixed infix + exact in OR - [*ris*, Martin]
     results = coll->search("*", {}, "cast: [*ris*, Martin]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();

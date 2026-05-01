@@ -2077,8 +2077,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             if (is_infix_match) {
                 if (str_tokens.size() == 1) {
                     // Lazy path: one posting_list_iterators entry per matching vocab token.
-                    // The CONTAINS comparator branch in get_string_filter_next_match ORs all entries
-                    // without position verification, which is correct for infix substring matching.
                     std::vector<art_leaf*> infix_leaves;
                     auto infix_op = index->search_infix_leaves(str_tokens[0], a_filter.field_name,
                                                                infix_leaves, INT16_MAX, INT16_MAX);
@@ -2107,9 +2105,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                         approx_filter_ids_length += posting_t::num_ids(leaf->values);
                     }
                 } else {
-                    // Multi-token infix (e.g. *foo bar*) is not supported: the infix index stores
-                    // individual word tokens only, so substring search across word boundaries is
-                    // structurally impossible. Use separate conditions instead, e.g. field:*foo* && field:*bar*.
+                    // Multi-token infix (e.g. *foo bar*) is not supported
                     status = Option<bool>(400, "Error with filter field `" + f.name +
                         "`: Infix filter value must be a single token. "
                         "To match multiple substrings use separate conditions, "

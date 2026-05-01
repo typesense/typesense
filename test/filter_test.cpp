@@ -2984,7 +2984,29 @@ TEST_F(FilterTest, InfixLazyEvaluation) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 
-    // Test 5: Multi-token infix must return 400 — *ris pin* tokenizes to ["ris", "pin"].
+    // Test 5: AND of two single-token infix conditions — cast:*ris* && cast:*in*.
+    // *ris*: docs {0, 1, 5} (via "chris"); *in*: docs {2, 5} (via "martin"/"stringer" and "pine").
+    // Intersection = {5}.
+    filter_op = filter::parse_filter_query("cast: *ris* && cast: *in*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_two_infix_and = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                       filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_two_infix_and.init_status().ok());
+
+    expected = {5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_two_infix_and.validity);
+        ASSERT_EQ(id, iter_two_infix_and.seq_id);
+        iter_two_infix_and.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_two_infix_and.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 6: Multi-token infix must return 400 — *ris pin* tokenizes to ["ris", "pin"].
     // The infix index stores individual word tokens only; substring search across word
     // boundaries is structurally impossible. Users should write cast:*ris* && cast:*pin* instead.
     filter_op = filter::parse_filter_query("cast: *ris pin*", coll->get_schema(), store,
@@ -2995,7 +3017,9 @@ TEST_F(FilterTest, InfixLazyEvaluation) {
                                                      filter_tree_root, enable_lazy_evaluation);
     ASSERT_FALSE(iter_multi_token.init_status().ok());
     ASSERT_EQ(400, iter_multi_token.init_status().code());
-    ASSERT_NE(std::string::npos, iter_multi_token.init_status().error().find("single token"));
+    ASSERT_EQ("Error with filter field `cast`: Infix filter value must be a single token. "
+              "To match multiple substrings use separate conditions, "
+              "e.g. `field:*foo* && field:*bar*`.", iter_multi_token.init_status().error());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
