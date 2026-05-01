@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cmath>
-#include <cstdlib>
 #include <cstdint>
+#include <random>
 
 /**
     Daniel Alabi
@@ -19,12 +19,13 @@ private:
     float gamma;
     uint32_t **C;
     int **hashes;
+    std::mt19937 rng;
 
     void genajbj(int* hash, int i);
 
 public:
 
-    CountMinSketch(float ep, float gamm) {
+    CountMinSketch(float ep, float gamm) : rng(LONG_PRIME) {
         eps = (0.009 <= ep && ep < 1) ? ep : 0.01;
         gamma = (0 < gamm && gamm < 1) ? gamm : 0.1;
 
@@ -35,8 +36,6 @@ public:
         for (size_t i = 0; i < d; i++) {
             C[i] = new uint32_t[w]{0};
         }
-
-        srand(LONG_PRIME);
 
         hashes = new int* [d];
         for (size_t i = 0; i < d; i++) {
@@ -79,6 +78,6 @@ public:
 };
 
 inline void CountMinSketch::genajbj(int* hash, int i) {
-    hash[0] = int(float(rand())*float(LONG_PRIME)/float(RAND_MAX) + 1);
-    hash[1] = int(float(rand())*float(LONG_PRIME)/float(RAND_MAX) + 1);
+    hash[0] = int(float(rng()) * float(LONG_PRIME) / float(rng.max()) + 1);
+    hash[1] = int(float(rng()) * float(LONG_PRIME) / float(rng.max()) + 1);
 }
