@@ -66,6 +66,16 @@ private:
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
+    // Effective memory percentage cap during collection load. Even when memory-used-max-percentage
+    // is set to its default of 100, the load loop will abort once host memory usage crosses this
+    // threshold so the process exits cleanly with an ERROR log instead of being SIGKILLed by the
+    // kernel OOM-killer (which causes a systemd restart loop on too-small hosts).
+    static constexpr const int LOAD_MEMORY_GUARD_MAX_PCT = 95;
+
+    // How often (in documents) the load loop re-checks host memory. The underlying resource
+    // stat is cached for 5s so the syscall cost is paid at most once per cache window.
+    static constexpr const size_t LOAD_MEMORY_GUARD_CHECK_INTERVAL = 1024;
+
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
     static constexpr const char* PRESET_PREFIX = "$PS";

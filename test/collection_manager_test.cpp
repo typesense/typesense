@@ -4,6 +4,7 @@
 #include <fstream>
 #include <collection_manager.h>
 #include "analytics_manager.h"
+#include "cached_resource_stat.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "synonym_index.h"
@@ -2276,4 +2277,107 @@ TEST_F(CollectionManagerTest, FieldFromJsonPreservesTrackMissingValues) {
     auto parsed_field = field::field_from_json(field_json);
     ASSERT_TRUE(parsed_field.optional);
     ASSERT_TRUE(parsed_field.track_missing_values);
+}
+
+// Verifies that load_collection aborts with a clean error when host memory is exhausted,
+// instead of letting allocations grow unbounded until the kernel SIGKILLs the process.
+// On too-small hosts this prevents a systemd restart loop where each cycle replays the
+// same deterministic load and OOM-s at the same point.
+TEST_F(CollectionManagerTest, LoadAbortsCleanlyWhenMemoryExhausted) {
+    // Create a small collection with enough documents to cross the load loop's memory-check
+    // interval (LOAD_MEMORY_GUARD_CHECK_INTERVAL = 1024). We use 1100 to comfortably exceed
+    // the first checkpoint while keeping the test fast.
+    nlohmann::json coll_schema = R"({
+        "name": "oom_load_coll",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(coll_schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    Collection* oom_coll = create_op.get();
+
+    const size_t total_docs = CollectionManager::LOAD_MEMORY_GUARD_CHECK_INTERVAL + 100;
+    for(size_t i = 0; i < total_docs; ++i) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "doc-" + std::to_string(i);
+        doc["points"] = static_cast<int32_t>(i);
+        auto add_op = oom_coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    // Recycle in-memory state so the next load() reads the collection from disk.
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+
+    // Force the cached resource stat to report OUT_OF_MEMORY for the next call. The load
+    // loop caps the effective memory percentage at LOAD_MEMORY_GUARD_MAX_PCT (95%) so it
+    // takes the slow path of the resource check (rather than the 100/100 fast-return) and
+    // observes our forced state.
+    cached_resource_stat_t::get_instance().set_resource_status_for_testing(
+            cached_resource_stat_t::OUT_OF_MEMORY);
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+
+    auto load_op = collectionManager.load(8, 1000);
+
+    // Restore the cache to honest readings before any assertions so a failure here does
+    // not leak the override into the next test.
+    cached_resource_stat_t::get_instance().invalidate_cache();
+
+    ASSERT_FALSE(load_op.ok()) << "load should have aborted on OUT_OF_MEMORY";
+    ASSERT_EQ(508, load_op.code());
+    ASSERT_NE(std::string::npos, load_op.error().find("Out of memory"));
+    ASSERT_NE(std::string::npos, load_op.error().find("oom_load_coll"));
+}
+
+// Verifies that the load path is unaffected when memory is healthy: the same data
+// loads end-to-end and the documents are visible after restart.
+TEST_F(CollectionManagerTest, LoadCompletesNormallyWhenMemoryHealthy) {
+    nlohmann::json coll_schema = R"({
+        "name": "healthy_load_coll",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(coll_schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    Collection* coll = create_op.get();
+
+    const size_t total_docs = CollectionManager::LOAD_MEMORY_GUARD_CHECK_INTERVAL + 100;
+    for(size_t i = 0; i < total_docs; ++i) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "doc-" + std::to_string(i);
+        doc["points"] = static_cast<int32_t>(i);
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+
+    // Default memory_used_max_percentage = 100. The load loop caps the effective
+    // percentage at LOAD_MEMORY_GUARD_MAX_PCT = 95, but a healthy CI host should be
+    // far below that.
+    cached_resource_stat_t::get_instance().invalidate_cache();
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    Collection* loaded = collectionManager.get_collection("healthy_load_coll").get();
+    ASSERT_NE(nullptr, loaded);
+    ASSERT_EQ(total_docs, loaded->get_num_documents());
 }

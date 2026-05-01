@@ -8,6 +8,7 @@
 #include "collection_manager.h"
 #include "analytics_manager.h"
 #include "batched_indexer.h"
+#include "cached_resource_stat.h"
 #include "logger.h"
 #include "magic_enum.hpp"
 #include "stopwords_manager.h"
@@ -539,6 +540,15 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     std::condition_variable cv_process;
     std::string collection_name;
 
+    // Captures the first non-OK result reported by any loader thread. If set, CollectionManager::load
+    // returns it after all enqueued loaders have finished (or signalled completion via num_processed).
+    // This replaces an earlier `exit(1)` from inside the loader lambda, which made the failure path
+    // untestable and prevented other loaders from cleaning up. Production behaviour is preserved
+    // because the immediate caller (`ReplicationState::init_db`) already turns this error into a
+    // fatal startup failure.
+    std::shared_ptr<Option<bool>> first_load_error = std::make_shared<Option<bool>>(true);
+    std::atomic<bool> load_error_seen{false};
+
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
@@ -549,30 +559,26 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
-        auto captured_store = store;
         auto captured_referenced_ins = referenced_ins;
-        loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
+        loading_pool.enqueue([num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                                     captured_referenced_ins, collection_name]() {
+                              captured_referenced_ins, collection_name,
+                              first_load_error, &load_error_seen]() {
 
-            //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
                                                captured_referenced_ins);
-            /*long long int timeMillis =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-            LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
-
-            if(!res.ok()) {
-                LOG(ERROR) << "Error while loading collection. " << res.error();
-                LOG(ERROR) << "Typesense is quitting.";
-                captured_store->close();
-                exit(1);
-            }
 
             std::unique_lock<std::mutex> lock(m_process);
-            num_processed++;
 
-            auto& cm = CollectionManager::get_instance();
+            if(!res.ok()) {
+                LOG(ERROR) << "Error while loading collection " << collection_name << ": " << res.error();
+                bool expected = false;
+                if(load_error_seen.compare_exchange_strong(expected, true)) {
+                    *first_load_error = res;
+                }
+            }
+
+            num_processed++;
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -586,8 +592,11 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
-        // return num_processed == 1;
     });
+
+    if(!first_load_error->ok()) {
+        return *first_load_error;
+    }
 
     // load presets
 
@@ -2219,6 +2228,32 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             if(time_elapsed > 30) {
                 begin = std::chrono::high_resolution_clock::now();
                 LOG(INFO) << "Loaded " << num_found_docs << " documents from " << collection->get_name() << " so far.";
+            }
+        }
+
+        // Abort the load if the host is out of memory. Without this, the kernel will SIGKILL
+        // the process and systemd will restart it, replaying the same deterministic load and
+        // OOM-ing again on a tight cycle. A clean abort produces an actionable ERROR log so
+        // operators can intervene (resize the host, lower memory-used-max-percentage, etc.).
+        // We cap the effective memory percentage at LOAD_MEMORY_GUARD_MAX_PCT during load so
+        // that even with the default 100/100 configuration the guard fires before the kernel
+        // OOM-killer does. The check has a 5s internal cache so the syscall cost is amortised
+        // across the LOAD_MEMORY_GUARD_CHECK_INTERVAL documents between cache misses.
+        if(num_found_docs % LOAD_MEMORY_GUARD_CHECK_INTERVAL == 0) {
+            const int configured_max_pct = Config::get_instance().get_memory_used_max_percentage();
+            const int effective_max_pct = std::min(LOAD_MEMORY_GUARD_MAX_PCT, configured_max_pct);
+            auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(
+                    Config::get_instance().get_data_dir(),
+                    Config::get_instance().get_disk_used_max_percentage(),
+                    effective_max_pct);
+
+            if(resource_check == cached_resource_stat_t::OUT_OF_MEMORY) {
+                LOG(ERROR) << "Aborting load of collection " << collection->get_name()
+                           << " at " << num_found_docs << " documents: host is out of memory. "
+                           << "Increase host RAM or lower --memory-used-max-percentage to abort earlier.";
+                return Option<bool>(508, "Out of memory while loading collection `" +
+                                          collection->get_name() + "` at " +
+                                          std::to_string(num_found_docs) + " documents.");
             }
         }
 
