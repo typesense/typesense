@@ -4328,16 +4328,16 @@ TEST_F(CollectionFilteringTest, DeepNestedFieldsInsideObjectFilter) {
 TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
     auto schema_json =
             R"({
-                "name": "performance_nested_bands",
+                "name": "inventory_nested_offers",
                 "fields": [
                     {"name": "title", "type": "string"},
-                    {"name": "bands", "type": "object[]"},
-                    {"name": "bands.sizes", "type": "int32[]", "range_index": true},
-                    {"name": "bands.labels", "type": "string[]"},
-                    {"name": "bands.accessible", "type": "bool[]"},
-                    {"name": "bands.discount", "type": "float[]"},
-                    {"name": "bands.minSeatPrice", "type": "int32[]", "range_index": true},
-                    {"name": "bands.maxSeatPrice", "type": "int32[]", "range_index": true}
+                    {"name": "offers", "type": "object[]"},
+                    {"name": "offers.quantities", "type": "int32[]", "range_index": true},
+                    {"name": "offers.markers", "type": "string[]"},
+                    {"name": "offers.enabled", "type": "bool[]"},
+                    {"name": "offers.score", "type": "float[]"},
+                    {"name": "offers.minCost", "type": "int32[]", "range_index": true},
+                    {"name": "offers.maxCost", "type": "int32[]", "range_index": true}
                 ],
                 "enable_nested_fields": true
             })"_json;
@@ -4347,42 +4347,42 @@ TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
 
     std::vector<nlohmann::json> documents = {
             R"({
-                "title": "Same Band Numeric Match",
-                "bands": [
-                    {"sizes": [1, 3], "labels": ["standard"], "accessible": [false], "discount": [2.0], "minSeatPrice": 7000, "maxSeatPrice": 4500},
-                    {"sizes": [1], "labels": ["balcony"], "accessible": [false], "discount": [5.0], "minSeatPrice": 9000, "maxSeatPrice": 12000}
+                "title": "Same Offer Numeric Match",
+                "offers": [
+                    {"quantities": [1, 3], "markers": ["standard"], "enabled": [false], "score": [2.0], "minCost": 7000, "maxCost": 4500},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
                 ]
             })"_json,
             R"({
-                "title": "Split Band Numeric Match",
-                "bands": [
-                    {"sizes": [2, 3], "labels": ["standard"], "accessible": [false], "discount": [1.0], "minSeatPrice": 9000, "maxSeatPrice": 12000},
-                    {"sizes": [1], "labels": ["balcony"], "accessible": [false], "discount": [5.0], "minSeatPrice": 7000, "maxSeatPrice": 4500}
+                "title": "Split Offer Numeric Match",
+                "offers": [
+                    {"quantities": [2, 3], "markers": ["standard"], "enabled": [false], "score": [1.0], "minCost": 9000, "maxCost": 12000},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 7000, "maxCost": 4500}
                 ]
             })"_json,
             R"({
-                "title": "String Label Match",
-                "bands": [
-                    {"sizes": [1], "labels": ["vip", "accessible"], "accessible": [true, false], "discount": [1.25], "minSeatPrice": 7200, "maxSeatPrice": 5000}
+                "title": "String Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority", "manual"], "enabled": [true, false], "score": [1.25], "minCost": 7200, "maxCost": 5000}
                 ]
             })"_json,
             R"({
-                "title": "Split Label Match",
-                "bands": [
-                    {"sizes": [1], "labels": ["vip"], "accessible": [true], "discount": [1.0], "minSeatPrice": 9000, "maxSeatPrice": 10000},
-                    {"sizes": [1], "labels": ["standard"], "accessible": [false], "discount": [5.0], "minSeatPrice": 7200, "maxSeatPrice": 5000}
+                "title": "Split Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority"], "enabled": [true], "score": [1.0], "minCost": 9000, "maxCost": 10000},
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 7200, "maxCost": 5000}
                 ]
             })"_json,
             R"({
-                "title": "Range Size Match",
-                "bands": [
-                    {"sizes": [4], "labels": ["standard"], "accessible": [false], "discount": [1.75], "minSeatPrice": 7300, "maxSeatPrice": 5000}
+                "title": "Range Quantity Match",
+                "offers": [
+                    {"quantities": [4], "markers": ["standard"], "enabled": [false], "score": [1.75], "minCost": 7300, "maxCost": 5000}
                 ]
             })"_json,
             R"({
                 "title": "No Match",
-                "bands": [
-                    {"sizes": [1], "labels": ["standard"], "accessible": [false], "discount": [5.0], "minSeatPrice": 9000, "maxSeatPrice": 12000}
+                "offers": [
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
                 ]
             })"_json
     };
@@ -4397,10 +4397,10 @@ TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
 
     const auto search_titles = [&](const std::string& filter_by) {
         std::map<std::string, std::string> req_params = {
-                {"collection",     "performance_nested_bands"},
+                {"collection",     "inventory_nested_offers"},
                 {"q",              "*"},
                 {"filter_by",      filter_by},
-                {"include_fields", "title, bands"}
+                {"include_fields", "title, offers"}
         };
         nlohmann::json embedded_params;
         std::string json_res;
@@ -4421,25 +4421,25 @@ TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
         return titles;
     };
 
-    ASSERT_EQ(std::vector<std::string>({"Same Band Numeric Match"}),
-              search_titles("bands.{sizes:>=3 && minSeatPrice:<=7100 && maxSeatPrice:>=4000}"));
-    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
-              search_titles("bands.{labels:=vip && minSeatPrice:<=7500}"));
-    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
-              search_titles("bands.{accessible:true && minSeatPrice:<=7500}"));
-    ASSERT_EQ(std::vector<std::string>({"String Label Match"}),
-              search_titles("bands.{discount:<1.5 && minSeatPrice:<=7500}"));
-    ASSERT_EQ(std::vector<std::string>({"Range Size Match"}),
-              search_titles("bands.{sizes:[3..4] && minSeatPrice:<=7400 && maxSeatPrice:>=4900}"));
-    ASSERT_EQ(std::vector<std::string>({"Range Size Match", "Split Band Numeric Match",
-                                        "Split Label Match", "String Label Match"}),
-              search_titles("bands.{sizes:!=3 && minSeatPrice:<=7400}"));
-    ASSERT_EQ(std::vector<std::string>({"No Match", "Range Size Match", "Same Band Numeric Match",
-                                        "Split Band Numeric Match", "Split Label Match"}),
-              search_titles("bands.{labels:!=vip}"));
-    ASSERT_EQ(std::vector<std::string>({"No Match", "Same Band Numeric Match", "Split Band Numeric Match",
-                                        "Split Label Match", "String Label Match"}),
-              search_titles("bands.{sizes:![3..4]}"));
+    ASSERT_EQ(std::vector<std::string>({"Same Offer Numeric Match"}),
+              search_titles("offers.{quantities:>=3 && minCost:<=7100 && maxCost:>=4000}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{markers:=priority && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{enabled:true && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{score:<1.5 && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match"}),
+              search_titles("offers.{quantities:[3..4] && minCost:<=7400 && maxCost:>=4900}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match", "Split Marker Match",
+                                        "Split Offer Numeric Match", "String Marker Match"}),
+              search_titles("offers.{quantities:!=3 && minCost:<=7400}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Range Quantity Match", "Same Offer Numeric Match",
+                                        "Split Marker Match", "Split Offer Numeric Match"}),
+              search_titles("offers.{markers:!=priority}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Same Offer Numeric Match", "Split Marker Match",
+                                        "Split Offer Numeric Match", "String Marker Match"}),
+              search_titles("offers.{quantities:![3..4]}"));
 }
 
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {

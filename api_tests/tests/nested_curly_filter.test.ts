@@ -5,12 +5,12 @@ import { fetchSingleNode } from "../src/request";
 const COLLECTION_NAME = "show_nested_curly_repro";
 const ALIAS_NAME = "show_v2_repro";
 const PERFORMANCE_COUNTS = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 60];
-const HIGH_LOAD_COLLECTION_NAME = "performance_nested_curly_high_load";
+const HIGH_LOAD_COLLECTION_NAME = "catalog_nested_offer_high_load";
 const HIGH_LOAD_QUERY_TIMEOUT_MS = 20_000;
-const HIGH_LOAD_SHOWS = 200;
-const HIGH_LOAD_PERFS_PER_SHOW = 25;
-const HIGH_LOAD_BANDS_PER_PERF_MIN = 4;
-const HIGH_LOAD_BANDS_PER_PERF_MAX = 7;
+const HIGH_LOAD_GROUPS = 200;
+const HIGH_LOAD_ITEMS_PER_GROUP = 25;
+const HIGH_LOAD_OFFERS_PER_ITEM_MIN = 4;
+const HIGH_LOAD_OFFERS_PER_ITEM_MAX = 7;
 
 function buildDocuments() {
   const docs: Array<Record<string, unknown>> = [];
@@ -95,75 +95,75 @@ function rngFactory(seed: number) {
   };
 }
 
-function buildHighLoadPerformances() {
+function buildHighLoadItems() {
   const rng = rngFactory(42);
   const pick = <T>(arr: T[]) => arr[Math.floor(rng() * arr.length)]!;
   const intBetween = (lo: number, hi: number) => lo + Math.floor(rng() * (hi - lo + 1));
-  const seatTypes = ["Stalls", "Circle", "Upper", "Boxes", "Premium"];
-  const performances: Array<{
+  const categories = ["alpha", "beta", "gamma", "delta", "omega"];
+  const items: Array<{
     id: string;
-    showSlug: string;
-    sourceType: string;
-    sourceId: string;
-    "startDate.iso": string;
-    "startDate.unix": number;
-    "startDate.timezone": string;
-    "startDate.localTimeHour": number;
-    "startDate.localTimeDay": number;
-    bands: Array<{
-      seatType: string;
-      minSeatPrice: number;
-      maxSeatPrice: number;
-      sizes: number[];
+    groupKey: string;
+    sourceKind: string;
+    sourceRef: string;
+    "publishedAt.iso": string;
+    "publishedAt.unix": number;
+    "publishedAt.zone": string;
+    "publishedAt.hour": number;
+    "publishedAt.day": number;
+    offers: Array<{
+      category: string;
+      minCost: number;
+      maxCost: number;
+      quantities: number[];
     }>;
   }> = [];
   let id = 0;
 
-  for (let showIndex = 0; showIndex < HIGH_LOAD_SHOWS; showIndex++) {
-    const showSlug = `show-${showIndex.toString().padStart(4, "0")}`;
-    for (let perfIndex = 0; perfIndex < HIGH_LOAD_PERFS_PER_SHOW; perfIndex++) {
-      const bandCount = intBetween(HIGH_LOAD_BANDS_PER_PERF_MIN, HIGH_LOAD_BANDS_PER_PERF_MAX);
-      const bands = [];
-      for (let bandIndex = 0; bandIndex < bandCount; bandIndex++) {
-        const minSeatPrice = intBetween(1500, 9000);
-        const maxSeatPrice = minSeatPrice + intBetween(500, 5000);
-        const sizes = [
+  for (let groupIndex = 0; groupIndex < HIGH_LOAD_GROUPS; groupIndex++) {
+    const groupKey = `group-${groupIndex.toString().padStart(4, "0")}`;
+    for (let itemIndex = 0; itemIndex < HIGH_LOAD_ITEMS_PER_GROUP; itemIndex++) {
+      const offerCount = intBetween(HIGH_LOAD_OFFERS_PER_ITEM_MIN, HIGH_LOAD_OFFERS_PER_ITEM_MAX);
+      const offers = [];
+      for (let offerIndex = 0; offerIndex < offerCount; offerIndex++) {
+        const minCost = intBetween(1500, 9000);
+        const maxCost = minCost + intBetween(500, 5000);
+        const quantities = [
           ...new Set(
             Array.from({ length: intBetween(1, 3) }, () => intBetween(1, 6)),
           ),
         ].sort((a, b) => a - b);
-        bands.push({
-          seatType: pick(seatTypes),
-          minSeatPrice,
-          maxSeatPrice,
-          sizes,
+        offers.push({
+          category: pick(categories),
+          minCost,
+          maxCost,
+          quantities,
         });
       }
 
-      const startUnix = 1_770_000_000 + intBetween(0, 60 * 24 * 60 * 60);
-      performances.push({
-        id: `perf-${(id++).toString().padStart(6, "0")}`,
-        showSlug,
-        sourceType: "lineup",
-        sourceId: `src-${id}`,
-        "startDate.iso": new Date(startUnix * 1000).toISOString(),
-        "startDate.unix": startUnix,
-        "startDate.timezone": "Europe/London",
-        "startDate.localTimeHour": intBetween(10, 22),
-        "startDate.localTimeDay": intBetween(0, 6),
-        bands,
+      const publishedAt = 1_770_000_000 + intBetween(0, 60 * 24 * 60 * 60);
+      items.push({
+        id: `item-${(id++).toString().padStart(6, "0")}`,
+        groupKey,
+        sourceKind: "batch",
+        sourceRef: `src-${id}`,
+        "publishedAt.iso": new Date(publishedAt * 1000).toISOString(),
+        "publishedAt.unix": publishedAt,
+        "publishedAt.zone": "UTC",
+        "publishedAt.hour": intBetween(10, 22),
+        "publishedAt.day": intBetween(0, 6),
+        offers,
       });
     }
   }
 
-  return performances;
+  return items;
 }
 
 function countSameObjectMatches(
-  performances: ReturnType<typeof buildHighLoadPerformances>,
-  matcher: (band: ReturnType<typeof buildHighLoadPerformances>[number]["bands"][number]) => boolean,
+  items: ReturnType<typeof buildHighLoadItems>,
+  matcher: (offer: ReturnType<typeof buildHighLoadItems>[number]["offers"][number]) => boolean,
 ) {
-  return performances.filter((performance) => performance.bands.some(matcher)).length;
+  return items.filter((item) => item.offers.some(matcher)).length;
 }
 
 async function search(filterBy: string) {
@@ -302,28 +302,28 @@ describe(Phases.SINGLE_FRESH, () => {
         enable_nested_fields: true,
         fields: [
           { name: "id", type: "string" },
-          { name: "showSlug", type: "string", facet: true, index: true, sort: false },
-          { name: "sourceType", type: "string", index: true },
-          { name: "sourceId", type: "string", index: true },
-          { name: "startDate.iso", type: "string", index: false },
-          { name: "startDate.unix", type: "int64", index: true, sort: true },
-          { name: "startDate.timezone", type: "string", index: false },
-          { name: "startDate.localTimeHour", type: "int32", index: true, range_index: true },
-          { name: "startDate.localTimeDay", type: "int32", index: true, range_index: true },
-          { name: "bands", type: "object[]", optional: true, index: true, facet: false },
-          { name: "bands.seatType", type: "string[]", optional: true, facet: true, index: true },
-          { name: "bands.minSeatPrice", type: "int32[]", optional: true, index: true, range_index: true },
-          { name: "bands.maxSeatPrice", type: "int32[]", optional: true, index: true, range_index: true },
-          { name: "bands.sizes", type: "int32[]", optional: true, index: true, range_index: true },
+          { name: "groupKey", type: "string", facet: true, index: true, sort: false },
+          { name: "sourceKind", type: "string", index: true },
+          { name: "sourceRef", type: "string", index: true },
+          { name: "publishedAt.iso", type: "string", index: false },
+          { name: "publishedAt.unix", type: "int64", index: true, sort: true },
+          { name: "publishedAt.zone", type: "string", index: false },
+          { name: "publishedAt.hour", type: "int32", index: true, range_index: true },
+          { name: "publishedAt.day", type: "int32", index: true, range_index: true },
+          { name: "offers", type: "object[]", optional: true, index: true, facet: false },
+          { name: "offers.category", type: "string[]", optional: true, facet: true, index: true },
+          { name: "offers.minCost", type: "int32[]", optional: true, index: true, range_index: true },
+          { name: "offers.maxCost", type: "int32[]", optional: true, index: true, range_index: true },
+          { name: "offers.quantities", type: "int32[]", optional: true, index: true, range_index: true },
         ],
       }),
     });
     expect(res.ok).toBe(true);
 
-    const performances = buildHighLoadPerformances();
-    expect(performances.length).toBe(5000);
+    const items = buildHighLoadItems();
+    expect(items.length).toBe(5000);
 
-    const importBody = performances.map((doc) => JSON.stringify(doc)).join("\n");
+    const importBody = items.map((doc) => JSON.stringify(doc)).join("\n");
     res = await fetchSingleNode(`/collections/${HIGH_LOAD_COLLECTION_NAME}/documents/import?action=create`, {
       method: "POST",
       headers: {
@@ -334,22 +334,22 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
 
     const twoPredicateExpected = countSameObjectMatches(
-      performances,
-      (band) => band.sizes.some((size) => size >= 2) && band.minSeatPrice <= 7500,
+      items,
+      (offer) => offer.quantities.some((quantity) => quantity >= 2) && offer.minCost <= 7500,
     );
     const threePredicateExpected = countSameObjectMatches(
-      performances,
-      (band) => band.sizes.some((size) => size >= 2) && band.minSeatPrice <= 7500 && band.maxSeatPrice >= 4000,
+      items,
+      (offer) => offer.quantities.some((quantity) => quantity >= 2) && offer.minCost <= 7500 && offer.maxCost >= 4000,
     );
 
     const twoPredicateResult = await highLoadSearchWithTimeout(
-      "bands.{sizes:>=2 && minSeatPrice:<=7500}",
+      "offers.{quantities:>=2 && minCost:<=7500}",
       HIGH_LOAD_QUERY_TIMEOUT_MS,
     );
     expect(twoPredicateResult.found).toBe(twoPredicateExpected);
 
     const threePredicateResult = await highLoadSearchWithTimeout(
-      "bands.{sizes:>=2 && minSeatPrice:<=7500 && maxSeatPrice:>=4000}",
+      "offers.{quantities:>=2 && minCost:<=7500 && maxCost:>=4000}",
       HIGH_LOAD_QUERY_TIMEOUT_MS,
     );
     expect(threePredicateResult.found).toBe(threePredicateExpected);
