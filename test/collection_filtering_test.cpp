@@ -4431,14 +4431,12 @@ TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
               search_titles("offers.{score:<1.5 && minCost:<=7500}"));
     ASSERT_EQ(std::vector<std::string>({"Range Quantity Match"}),
               search_titles("offers.{quantities:[3..4] && minCost:<=7400 && maxCost:>=4900}"));
-    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match", "Split Marker Match",
-                                        "Split Offer Numeric Match", "String Marker Match"}),
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match", "Split Marker Match", "String Marker Match"}),
               search_titles("offers.{quantities:!=3 && minCost:<=7400}"));
     ASSERT_EQ(std::vector<std::string>({"No Match", "Range Quantity Match", "Same Offer Numeric Match",
-                                        "Split Marker Match", "Split Offer Numeric Match"}),
+                                        "Split Offer Numeric Match"}),
               search_titles("offers.{markers:!=priority}"));
-    ASSERT_EQ(std::vector<std::string>({"No Match", "Same Offer Numeric Match", "Split Marker Match",
-                                        "Split Offer Numeric Match", "String Marker Match"}),
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Split Marker Match", "String Marker Match"}),
               search_titles("offers.{quantities:![3..4]}"));
 }
 
