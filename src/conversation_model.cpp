@@ -2067,7 +2067,7 @@ Option<std::string> AzureConversationModel::get_answer(const std::string& contex
     headers["api-key"] = api_key;
     headers["Content-Type"] = "application/json";
 
-    long status_code = HttpClient::post_response(url, request_body.dump(), response, res_headers, headers);
+    long status_code = HttpClient::post_response(url, request_body.dump(), response, res_headers, headers, HttpProxy::default_timeout_ms);
 
     if (status_code != 200) {
         return Option<std::string>(status_code, "Failed to get response from Azure API: " + response);
