@@ -20,4 +20,3 @@ typesense-data
 /dist
 /tmp
 *.tar.gz
-.vscode
