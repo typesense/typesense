@@ -16,6 +16,7 @@
 #include "core_api_utils.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "natural_language_search_model_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -531,6 +532,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     // load curation sets
     CurationIndexManager::get_instance().load_curation_indices();
+
+    //load NL models
+    auto natural_language_search_init = NaturalLanguageSearchModelManager::init(store);
+    if(!natural_language_search_init.ok()) {
+        LOG(INFO) << "Failed to initialize natural language search model manager: "
+                  << natural_language_search_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << natural_language_search_init.get()
+                  << " natural language search model(s).";
+    }
 
     ThreadPool loading_pool(collection_batch_size);
 

@@ -1,6 +1,5 @@
 #include "raft_server.h"
 #include "core_api.h"
-#include "natural_language_search_model_manager.h"
 #include "personalization_model_manager.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "store.h"
@@ -674,15 +673,6 @@ int ReplicationState::init_db() {
     } else {
         LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
-    }
-
-    auto natural_language_search_init = NaturalLanguageSearchModelManager::init(store);
-    if(!natural_language_search_init.ok()) {
-        LOG(INFO) << "Failed to initialize natural language search model manager: "
-                  << natural_language_search_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << natural_language_search_init.get()
-                  << " natural language search model(s).";
     }
 
     // important to init conversation models only after all collections have been loaded
