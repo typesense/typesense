@@ -3151,6 +3151,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     }
 
     std::string body, url, method;
+    bool ssl_verify = false;
     std::unordered_map<std::string, std::string> headers;
 
     if(req_json.count("url") == 0 || req_json.count("method") == 0) {
@@ -3172,6 +3173,10 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             res->set_400("Headers must be a JSON object.");
             return false;
         }
+        if(req_json.count("ssl_verify") != 0 && !req_json["ssl_verify"].is_boolean()) {
+            res->set_400("SSL verify must be a boolean.");
+            return false;
+        }
         if(req_json.count("body")) {
             body = req_json["body"].get<std::string>();
         }
@@ -3179,6 +3184,9 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         method = req_json["method"].get<std::string>();
         if(req_json.count("headers")) {
             headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+        if(req_json.count("ssl_verify")) {
+            ssl_verify = req_json["ssl_verify"].get<bool>();
         }
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
@@ -3195,7 +3203,8 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    auto response = proxy.send(url, method, body, headers);
+    auto response = proxy.send(url, method, body, headers,
+                               ssl_verify ? HttpClient::SSLVerifyMode::VERIFY : HttpClient::SSLVerifyMode::NO_VERIFY);
 
     if(response.status_code != 200) {
         int code = response.status_code;
@@ -3462,6 +3471,7 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     std::string body, url, method;
+    bool ssl_verify = false;
     std::unordered_map<std::string, std::string> headers;
 
     if(req_json.count("url") == 0 || req_json.count("method") == 0) {
@@ -3491,6 +3501,12 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
             stream_response(req, res);
             return false;
         }
+        if(req_json.count("ssl_verify") != 0 && !req_json["ssl_verify"].is_boolean()) {
+            res->set_400("SSL verify must be a boolean.");
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
         if(req_json.count("body")) {
             body = req_json["body"].get<std::string>();
         }
@@ -3498,6 +3514,9 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         method = req_json["method"].get<std::string>();
         if(req_json.count("headers")) {
             headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+        if(req_json.count("ssl_verify")) {
+            ssl_verify = req_json["ssl_verify"].get<bool>();
         }
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
@@ -3518,7 +3537,8 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         return false;
     }
 
-    return proxy.call_sse(url, method, body, headers, req, res);
+    return proxy.call_sse(url, method, body, headers, req, res, HttpProxy::default_timeout_ms,
+                          ssl_verify ? HttpClient::SSLVerifyMode::VERIFY : HttpClient::SSLVerifyMode::NO_VERIFY);
 }
 
 bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {

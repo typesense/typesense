@@ -101,6 +101,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
     options.add<uint32_t>("ssl-refresh-interval-seconds", '\0', "Frequency of automatic reloading of SSL certs from disk.", false, 8 * 60 * 60);
+    options.add<std::string>("http-client-ca-certificate", '\0', "Path to the CA certificate bundle used for verified outbound HTTPS calls.", false, "");
 
     options.add<bool>("enable-cors", '\0', "Enable CORS requests.", false, true);
     options.add<std::string>("cors-domains", '\0', "Comma separated list of domains that are allowed for CORS.", false, "");
@@ -596,7 +597,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
-    httpClient.init(config.get_api_key());
+    httpClient.init(config.get_api_key(), config.get_http_client_ca_certificate());
 
     server = new HttpServer(
         version,

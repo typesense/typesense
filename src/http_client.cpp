@@ -19,8 +19,8 @@ struct client_state_t: public req_state_t {
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
                                std::map<std::string, std::string>& res_headers,
                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
-                               bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response, timeout_ms);
+                               bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
+    CURL *curl = init_curl(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -36,13 +36,63 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl, res_headers, chunk, send_ts_api_header);
 }
 
+long HttpClient::post_response_verified(const std::string &url, const std::string &body, std::string &response,
+                                        std::map<std::string, std::string>& res_headers,
+                                        const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
+                                        bool send_ts_api_header) {
+    return post_response(url, body, response, res_headers, headers, timeout_ms, send_ts_api_header,
+                         SSLVerifyMode::VERIFY);
+}
 
 long HttpClient::post_response_stream(const std::string &url, const std::string &body, async_stream_response_t &response,
                                      std::map<std::string, std::string>& res_headers,
-                                     const std::unordered_map<std::string, std::string>& headers, long timeout_ms) {
+                                     const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
+                                     SSLVerifyMode ssl_verify_mode) {
     struct curl_slist* chunk = nullptr;
 
-    CURL *curl = init_curl_stream(url, response, timeout_ms);
+    CURL *curl = init_curl_stream(url, response, timeout_ms, ssl_verify_mode);
+    if(curl == nullptr) {
+        return 500;
+    }
+
+    for(const auto& header: headers) {
+        std::string header_str = header.first + ": " + header.second;
+        chunk = curl_slist_append(chunk, header_str.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    CURLcode res_code = curl_easy_perform(curl);
+
+    long status_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    if(res_code != CURLE_OK || status_code == 0) {
+        std::unique_lock<std::mutex> lock(response.mutex);
+        response.ready = true;
+        response.cv.notify_one();
+        if(status_code == 0) {
+            status_code = res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
+        }
+    }
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(chunk);
+
+    return status_code;
+}
+
+long HttpClient::post_response_sse(const std::string &url, const std::string &body,
+                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
+                                const std::shared_ptr<http_req> request,
+                                const std::shared_ptr<http_res> response,
+                                HttpServer* server,
+                                SSLVerifyMode ssl_verify_mode) {
+    struct curl_slist* chunk = nullptr;
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, false);
+    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
+
+    CURL *curl = init_curl_sse(url, timeout_ms, req_res, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -66,37 +116,12 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
     return status_code;
 }
 
-long HttpClient::post_response_sse(const std::string &url, const std::string &body,
+long HttpClient::post_response_sse_verified(const std::string &url, const std::string &body,
                                 const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
                                 const std::shared_ptr<http_req> request,
                                 const std::shared_ptr<http_res> response,
                                 HttpServer* server) {
-    struct curl_slist* chunk = nullptr;
-    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, false);
-    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
-
-    CURL *curl = init_curl_sse(url, timeout_ms, req_res);
-    if(curl == nullptr) {
-        return 500;
-    }
-
-    for(const auto& header: headers) {
-        std::string header_str = header.first + ": " + header.second;
-        chunk = curl_slist_append(chunk, header_str.c_str());
-    }
-
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_perform(curl);
-
-    long status_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(chunk);
-
-    return status_code;
+    return post_response_sse(url, body, headers, timeout_ms, request, response, server, SSLVerifyMode::VERIFY);
 }
 
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
@@ -122,8 +147,8 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
 
 long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms,
-                              bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response, timeout_ms);
+                              bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
+    CURL *curl = init_curl(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -135,8 +160,8 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
 
 long HttpClient::patch_response(const std::string &url, const std::string &body, std::string &response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms,
-                              bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response, timeout_ms);
+                              bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
+    CURL *curl = init_curl(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -148,8 +173,8 @@ long HttpClient::patch_response(const std::string &url, const std::string &body,
 
 long HttpClient::delete_response(const std::string &url, std::string &response,
                                  std::map<std::string, std::string>& res_headers, long timeout_ms,
-                                 bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response, timeout_ms);
+                                 bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
+    CURL *curl = init_curl(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -161,8 +186,8 @@ long HttpClient::delete_response(const std::string &url, std::string &response,
 long HttpClient::get_response(const std::string &url, std::string &response,
                               std::map<std::string, std::string>& res_headers,
                               const std::unordered_map<std::string, std::string>& headers,
-                              long timeout_ms, bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response, timeout_ms);
+                              long timeout_ms, bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
+    CURL *curl = init_curl(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
         return 500;
     }
@@ -178,8 +203,20 @@ long HttpClient::get_response(const std::string &url, std::string &response,
     return perform_curl(curl, res_headers, chunk, send_ts_api_header);
 }
 
-void HttpClient::init(const std::string &api_key) {
+long HttpClient::get_response_verified(const std::string &url, std::string &response,
+                                       std::map<std::string, std::string>& res_headers,
+                                       const std::unordered_map<std::string, std::string>& headers,
+                                       long timeout_ms, bool send_ts_api_header) {
+    return get_response(url, response, res_headers, headers, timeout_ms, send_ts_api_header,
+                        SSLVerifyMode::VERIFY);
+}
+
+void HttpClient::init(const std::string &api_key, const std::string& ca_cert_path) {
     HttpClient::api_key = api_key;
+    if(!ca_cert_path.empty()) {
+        HttpClient::ca_cert_path = ca_cert_path;
+        return;
+    }
 
     // try to locate ca cert file (from: https://serverfault.com/a/722646/117601)
     std::vector<std::string> locations = {
@@ -432,15 +469,32 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     return 0;
 }
 
-CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms) {
-    CURL* curl = curl_easy_init();
+void HttpClient::configure_ssl(CURL* curl, const std::string& url, SSLVerifyMode ssl_verify_mode) {
+    if(curl == nullptr || url.compare(0, 8, "https://") != 0) {
+        return;
+    }
 
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else if (url.compare(0, 5, "https") == 0) {
+    } else {
         LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 
+    if(ssl_verify_mode == SSLVerifyMode::VERIFY) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    } else {
+        // Legacy internal cluster/self-signed paths still opt out until they are migrated.
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
+}
+
+CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms,
+                                   SSLVerifyMode ssl_verify_mode) {
+    CURL* curl = curl_easy_init();
+
+    configure_ssl(curl, url, ssl_verify_mode);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
@@ -448,10 +502,6 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
-
-    // to allow self-signed certs
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_stream);  
 
@@ -466,17 +516,14 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
 
 
 CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
-                                deferred_req_res_t* req_res) {
+                                deferred_req_res_t* req_res,
+                                SSLVerifyMode ssl_verify_mode) {
     CURL* curl = curl_easy_init();
     if(curl == nullptr) {
         return nullptr;
     }
 
-    if(!ca_cert_path.empty()) {
-    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else {
-    LOG(WARNING) << "Unable to locate system SSL certificates.";
-    }
+    configure_ssl(curl, url, ssl_verify_mode);
 
     req_res->req->data = new client_state_t(curl);  // destruction of data is managed by req destructor
 
@@ -488,10 +535,6 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
-    // to allow self-signed certs
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);
 
@@ -501,7 +544,7 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
 }
 
 CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
-                                  bool send_ts_api_header) {
+                                  bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -530,20 +573,12 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     // context to callback
     curl_easy_setopt(curl, CURLOPT_READDATA, (void *)req_res);
 
-    if(!ca_cert_path.empty()) {
-        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else if (url.compare(0, 5, "https") == 0) {
-        LOG(WARNING) << "Unable to locate system SSL certificates.";
-    }
+    configure_ssl(curl, url, ssl_verify_mode);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
-
-    // to allow self-signed certs
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);
@@ -554,7 +589,8 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     return curl;
 }
 
-CURL *HttpClient::init_curl(const std::string& url, std::string& response, const size_t timeout_ms) {
+CURL *HttpClient::init_curl(const std::string& url, std::string& response, const size_t timeout_ms,
+                            SSLVerifyMode ssl_verify_mode) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -564,11 +600,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
         return nullptr;
     }
 
-    if(!ca_cert_path.empty()) {
-        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
-    } else if (url.compare(0, 5, "https") == 0) {
-        LOG(WARNING) << "Unable to locate system SSL certificates.";
-    }
+    configure_ssl(curl, url, ssl_verify_mode);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
@@ -576,10 +608,6 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
-
-    // to allow self-signed certs
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
@@ -597,7 +625,8 @@ size_t HttpClient::curl_write_download(void *ptr, size_t size, size_t nmemb, FIL
     return written;
 }
 
-long HttpClient::download_file(const std::string& url, const std::string& file_path) {
+long HttpClient::download_file(const std::string& url, const std::string& file_path,
+                               SSLVerifyMode ssl_verify_mode) {
     CURL *curl = curl_easy_init();
     
 
@@ -609,12 +638,15 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(fp == nullptr) {
         LOG(ERROR) << "Unable to open file for writing: " << file_path;
+        curl_easy_cleanup(curl);
         return -1;
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 30000); //30s
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
+    configure_ssl(curl, url, ssl_verify_mode);
 
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_download);
@@ -625,6 +657,8 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(res_code != CURLE_OK) {
         LOG(ERROR) << "Unable to download file: " << url << " to " << file_path << " - " << curl_easy_strerror(res_code);
+        curl_easy_cleanup(curl);
+        fclose(fp);
         return -1;
     }
     long http_code = 0;
@@ -636,3 +670,6 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
     return http_code;
 }
 
+long HttpClient::download_file_verified(const std::string& url, const std::string& file_path) {
+    return download_file(url, file_path, SSLVerifyMode::VERIFY);
+}

@@ -2208,6 +2208,17 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with ssl_verify as string
+    body["headers"] = nlohmann::json::object();
+    body["ssl_verify"] = "true";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("SSL verify must be a boolean.", nlohmann::json::parse(resp->body)["message"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {

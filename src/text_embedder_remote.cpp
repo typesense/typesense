@@ -31,7 +31,8 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
     if(raft_server == nullptr || raft_server->get_leader_url().empty()) {
         // call proxy's internal send() directly
         if(method == "GET" || method == "POST") {
-            auto proxy_res = HttpProxy::get_instance().send(url, method, req_body, req_headers);
+            auto proxy_res = HttpProxy::get_instance().send(url, method, req_body, req_headers,
+                                                            HttpClient::SSLVerifyMode::VERIFY);
             res_body = std::move(proxy_res.body);
             res_headers = std::move(proxy_res.headers);
             return proxy_res.status_code;
@@ -46,6 +47,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
     proxy_req_body["url"] = url;
     proxy_req_body["body"] = req_body;
     proxy_req_body["headers"] = req_headers;
+    proxy_req_body["ssl_verify"] = true;
 
     size_t per_call_timeout_ms = HttpProxy::default_timeout_ms;
     size_t num_try = HttpProxy::default_num_try;
