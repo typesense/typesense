@@ -4038,24 +4038,76 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
         }
 
-        auto fuzzy_search_fields_op = fuzzy_search_fields(the_fields, field_query_tokens[0].q_include_tokens, {}, match_type,
-                                                          excluded_result_ids, excluded_result_ids_size,
-                                                          filter_result_iterator, curated_ids_sorted,
-                                                          sort_fields_std, num_typos,
-                                                          searched_query_tokens,
-                                                          qtoken_set, topster, groups_processed,
-                                                          all_result_ids, all_result_ids_len,
-                                                          group_limit, group_by_fields, group_missing_values, prioritize_exact_match,
-                                                          prioritize_token_position, prioritize_num_matching_fields,
-                                                          query_hashes, token_order, prefixes,
-                                                          typo_tokens_threshold, exhaustive_search,
-                                                          max_candidates, min_len_1typo, min_len_2typo,
-                                                          syn_orig_num_tokens, field_query_tokens[0].q_include_tokens.size(), false, demote_synonym_match,sort_order, field_values, geopoint_indices,
-                                                          is_group_by_first_pass, group_by_missing_value_ids,
-                                                          enable_typos_for_numerical_tokens,
-                                                          enable_typos_for_alpha_numerical_tokens);
-        if (!fuzzy_search_fields_op.ok()) {
-            return fuzzy_search_fields_op;
+        // Group fields by their tokenized query so that fields sharing the same token set are
+        // searched together (preserving cross-field matching), while fields with different
+        // tokenization (due to per-field symbols_to_index / token_separators) form their own group.
+        auto tokens_equal_fn = [](const std::vector<token_t>& a, const std::vector<token_t>& b) {
+            if(a.size() != b.size()) return false;
+            for(size_t j = 0; j < a.size(); j++) {
+                if(a[j].value != b[j].value) return false;
+            }
+            return true;
+        };
+
+        struct field_group_t {
+            size_t token_field_idx;  // which field_query_tokens entry to use
+            std::vector<search_field_t> fields;
+            std::vector<uint32_t> num_typos;
+            std::vector<bool> prefixes;
+        };
+        std::vector<field_group_t> field_groups;
+
+        for(size_t i = 0; i < num_search_fields; i++) {
+            bool placed = false;
+            for(auto& grp : field_groups) {
+                if(tokens_equal_fn(field_query_tokens[i].q_include_tokens,
+                                   field_query_tokens[grp.token_field_idx].q_include_tokens)) {
+                    grp.fields.push_back(the_fields[i]);
+                    grp.num_typos.push_back(num_typos[i]);
+                    grp.prefixes.push_back(prefixes[i]);
+                    placed = true;
+                    break;
+                }
+            }
+            if(!placed) {
+                field_groups.push_back({i, {the_fields[i]}, {num_typos[i]}, {prefixes[i]}});
+            }
+        }
+
+        // Build per-group all_queries for the drop-tokens path.
+        // Group 0 already has its queries (including synonyms) in all_queries.
+        // Other groups use their own primary token set (no synonym expansion for non-first groups).
+        std::vector<std::vector<std::vector<token_t>>> group_all_queries(field_groups.size());
+        group_all_queries[0] = all_queries;
+        for(size_t gi = 1; gi < field_groups.size(); gi++) {
+            const auto& grp_tokens = field_query_tokens[field_groups[gi].token_field_idx];
+            const auto& base_tokens = grp_tokens.q_unstemmed_tokens.empty() ?
+                                      grp_tokens.q_include_tokens : grp_tokens.q_unstemmed_tokens;
+            group_all_queries[gi] = {base_tokens};
+        }
+
+        Option<bool> fuzzy_search_fields_op(true);
+        for(auto& grp : field_groups) {
+            const auto& gtokens = field_query_tokens[grp.token_field_idx].q_include_tokens;
+            fuzzy_search_fields_op = fuzzy_search_fields(grp.fields, gtokens, {}, match_type,
+                                                         excluded_result_ids, excluded_result_ids_size,
+                                                         filter_result_iterator, curated_ids_sorted,
+                                                         sort_fields_std, grp.num_typos,
+                                                         searched_query_tokens,
+                                                         qtoken_set, topster, groups_processed,
+                                                         all_result_ids, all_result_ids_len,
+                                                         group_limit, group_by_fields, group_missing_values, prioritize_exact_match,
+                                                         prioritize_token_position, prioritize_num_matching_fields,
+                                                         query_hashes, token_order, grp.prefixes,
+                                                         typo_tokens_threshold, exhaustive_search,
+                                                         max_candidates, min_len_1typo, min_len_2typo,
+                                                         syn_orig_num_tokens, gtokens.size(), false, demote_synonym_match, sort_order, field_values, geopoint_indices,
+                                                         is_group_by_first_pass, group_by_missing_value_ids,
+                                                         enable_typos_for_numerical_tokens,
+                                                         enable_typos_for_alpha_numerical_tokens);
+            if(!fuzzy_search_fields_op.ok()) {
+                return fuzzy_search_fields_op;
+            }
         }
 
         // try split/joining tokens if no results are found
@@ -4089,21 +4141,25 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                  space_resolved_queries[0][j].size(), 0);
                 }
 
-                auto fuzzy_search_fields_op = fuzzy_search_fields(the_fields, resolved_tokens, {}, match_type, excluded_result_ids,
-                                                                  excluded_result_ids_size, filter_result_iterator, curated_ids_sorted,
-                                                                  sort_fields_std, num_typos, searched_query_tokens,
-                                                                  qtoken_set, topster, groups_processed,
-                                                                  all_result_ids, all_result_ids_len,
-                                                                  group_limit, group_by_fields, group_missing_values, 
-                                                                  prioritize_exact_match, prioritize_token_position, 
-                                                                  prioritize_num_matching_fields, 
-                                                                  query_hashes, token_order,
-                                                                  prefixes, typo_tokens_threshold, exhaustive_search,
-                                                                  max_candidates, min_len_1typo, min_len_2typo,
-                                                                  syn_orig_num_tokens, resolved_tokens.size(), false, demote_synonym_match, sort_order, field_values, geopoint_indices,
-                                                                  is_group_by_first_pass, group_by_missing_value_ids);
-                if (!fuzzy_search_fields_op.ok()) {
-                    return fuzzy_search_fields_op;
+                for(auto& grp : field_groups) {
+                    fuzzy_search_fields_op = fuzzy_search_fields(grp.fields, resolved_tokens, {}, match_type,
+                                                                 excluded_result_ids, excluded_result_ids_size,
+                                                                 filter_result_iterator, curated_ids_sorted,
+                                                                 sort_fields_std, grp.num_typos, searched_query_tokens,
+                                                                 qtoken_set, topster, groups_processed,
+                                                                 all_result_ids, all_result_ids_len,
+                                                                 group_limit, group_by_fields, group_missing_values,
+                                                                 prioritize_exact_match, prioritize_token_position,
+                                                                 prioritize_num_matching_fields,
+                                                                 query_hashes, token_order,
+                                                                 grp.prefixes, typo_tokens_threshold, exhaustive_search,
+                                                                 max_candidates, min_len_1typo, min_len_2typo,
+                                                                 syn_orig_num_tokens, resolved_tokens.size(), false, demote_synonym_match,
+                                                                 sort_order, field_values, geopoint_indices,
+                                                                 is_group_by_first_pass, group_by_missing_value_ids);
+                    if(!fuzzy_search_fields_op.ok()) {
+                        return fuzzy_search_fields_op;
+                    }
                 }
             }
         }
@@ -4132,97 +4188,104 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         // gather up both original query and synonym queries and do drop tokens
 
         if (exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
-            for (size_t qi = 0; qi < all_queries.size(); qi++) {
-                auto& orig_tokens = all_queries[qi];
-                size_t num_tokens_dropped = 0;
-                size_t total_dirs_done = 0;
+            for (size_t gi = 0; gi < field_groups.size(); gi++) {
+                auto& grp = field_groups[gi];
+                auto grp_search_field_it = search_schema.find(the_fields[grp.token_field_idx].name);
+                const bool grp_do_stemming = (grp_search_field_it != search_schema.end()) && grp_search_field_it->stem;
 
-                // NOTE: when dropping both sides we will ignore exhaustive search
+                for (size_t qi = 0; qi < group_all_queries[gi].size(); qi++) {
+                    auto& orig_tokens = group_all_queries[gi][qi];
+                    size_t num_tokens_dropped = 0;
+                    size_t total_dirs_done = 0;
 
-                auto curr_direction = drop_tokens_mode.mode;
-                bool drop_both_sides = false;
-                size_t orig_tokens_size = std::min<size_t>(orig_tokens.size(), 20);  // drop only upto N tokens
+                    // NOTE: when dropping both sides we will ignore exhaustive search
 
-                if(drop_tokens_mode.mode == both_sides) {
-                    if(orig_tokens_size <= drop_tokens_mode.token_limit) {
-                        drop_both_sides = true;
-                    } else {
-                        curr_direction = right_to_left;
-                    }
-                }
+                    auto curr_direction = drop_tokens_mode.mode;
+                    bool drop_both_sides = false;
+                    size_t orig_tokens_size = std::min<size_t>(orig_tokens.size(), 20);  // drop only upto N tokens
 
-                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) {
-                    // When atleast two tokens from the query are available we can drop one
-                    std::vector<token_t> truncated_tokens;
-                    std::vector<token_t> dropped_tokens;
-
-                    if(num_tokens_dropped >= orig_tokens_size - 1) {
-                        // swap direction and reset counter
-                        curr_direction = (curr_direction == right_to_left) ? left_to_right : right_to_left;
-                        num_tokens_dropped = 0;
-                        total_dirs_done++;
-                    }
-
-                    if(orig_tokens_size > 1 && total_dirs_done < 2) {
-                        bool prefix_search = false;
-                        if (curr_direction == right_to_left) {
-                            // drop from right
-                            size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
-                            for (size_t i = 0; i < orig_tokens_size; i++) {
-                                if(i < truncated_len) {
-                                    if (do_stemming) {
-                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
-                                    }
-                                    truncated_tokens.emplace_back(orig_tokens[i]);
-                                } else {
-                                    dropped_tokens.emplace_back(orig_tokens[i]);
-                                }
-                            }
+                    if(drop_tokens_mode.mode == both_sides) {
+                        if(orig_tokens_size <= drop_tokens_mode.token_limit) {
+                            drop_both_sides = true;
                         } else {
-                            // drop from left
-                            prefix_search = true;
-                            size_t start_index = (num_tokens_dropped + 1);
-                            for(size_t i = 0; i < orig_tokens_size; i++) {
-                                if(i >= start_index) {
-                                    if (do_stemming) {
-                                        auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                            curr_direction = right_to_left;
+                        }
+                    }
+
+                    while(exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) {
+                        // When atleast two tokens from the query are available we can drop one
+                        std::vector<token_t> truncated_tokens;
+                        std::vector<token_t> dropped_tokens;
+
+                        if(num_tokens_dropped >= orig_tokens_size - 1) {
+                            // swap direction and reset counter
+                            curr_direction = (curr_direction == right_to_left) ? left_to_right : right_to_left;
+                            num_tokens_dropped = 0;
+                            total_dirs_done++;
+                        }
+
+                        if(orig_tokens_size > 1 && total_dirs_done < 2) {
+                            bool prefix_search = false;
+                            if (curr_direction == right_to_left) {
+                                // drop from right
+                                size_t truncated_len = orig_tokens_size - num_tokens_dropped - 1;
+                                for (size_t i = 0; i < orig_tokens_size; i++) {
+                                    if(i < truncated_len) {
+                                        if (grp_do_stemming) {
+                                            auto stemmer = search_schema.at(the_fields[grp.token_field_idx].name).get_stemmer();
+                                            orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                        }
+                                        truncated_tokens.emplace_back(orig_tokens[i]);
+                                    } else {
+                                        dropped_tokens.emplace_back(orig_tokens[i]);
                                     }
-                                    truncated_tokens.emplace_back(orig_tokens[i]);
-                                } else {
-                                    dropped_tokens.emplace_back(orig_tokens[i]);
+                                }
+                            } else {
+                                // drop from left
+                                prefix_search = true;
+                                size_t start_index = (num_tokens_dropped + 1);
+                                for(size_t i = 0; i < orig_tokens_size; i++) {
+                                    if(i >= start_index) {
+                                        if (grp_do_stemming) {
+                                            auto stemmer = search_schema.at(the_fields[grp.token_field_idx].name).get_stemmer();
+                                            orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                        }
+                                        truncated_tokens.emplace_back(orig_tokens[i]);
+                                    } else {
+                                        dropped_tokens.emplace_back(orig_tokens[i]);
+                                    }
                                 }
                             }
+
+                            num_tokens_dropped++;
+                            std::vector<bool> drop_token_prefixes;
+
+                            for (const auto p : grp.prefixes) {
+                                drop_token_prefixes.push_back(p && prefix_search);
+                            }
+
+                            fuzzy_search_fields_op = fuzzy_search_fields(grp.fields, truncated_tokens, dropped_tokens, match_type,
+                                                                         excluded_result_ids, excluded_result_ids_size,
+                                                                         filter_result_iterator,
+                                                                         curated_ids_sorted,
+                                                                         sort_fields_std, grp.num_typos, searched_query_tokens,
+                                                                         qtoken_set, topster, groups_processed,
+                                                                         all_result_ids, all_result_ids_len,
+                                                                         group_limit, group_by_fields, group_missing_values,
+                                                                         prioritize_exact_match, prioritize_token_position,
+                                                                         prioritize_num_matching_fields, query_hashes,
+                                                                         token_order, grp.prefixes, typo_tokens_threshold,
+                                                                         exhaustive_search, max_candidates, min_len_1typo,
+                                                                         min_len_2typo, -1, truncated_tokens.size(), false, false,
+                                                                         sort_order, field_values, geopoint_indices,
+                                                                         is_group_by_first_pass, group_by_missing_value_ids);
+                            if (!fuzzy_search_fields_op.ok()) {
+                                return fuzzy_search_fields_op;
+                            }
+
+                        } else {
+                            break;
                         }
-
-                        num_tokens_dropped++;
-                        std::vector<bool> drop_token_prefixes;
-
-                        for (const auto p : prefixes) {
-                            drop_token_prefixes.push_back(p && prefix_search);
-                        }
-
-                        auto fuzzy_search_fields_op = fuzzy_search_fields(the_fields, truncated_tokens, dropped_tokens, match_type,
-                                                                          excluded_result_ids, excluded_result_ids_size,
-                                                                          filter_result_iterator,
-                                                                          curated_ids_sorted,
-                                                                          sort_fields_std, num_typos, searched_query_tokens,
-                                                                          qtoken_set, topster, groups_processed, 
-                                                                          all_result_ids, all_result_ids_len,
-                                                                          group_limit, group_by_fields, group_missing_values,
-                                                                          prioritize_exact_match, prioritize_token_position, 
-                                                                          prioritize_num_matching_fields, query_hashes,
-                                                                          token_order, prefixes, typo_tokens_threshold,
-                                                                          exhaustive_search, max_candidates, min_len_1typo,
-                                                                          min_len_2typo, -1, truncated_tokens.size(), false, false, sort_order, field_values, geopoint_indices,
-                                                                          is_group_by_first_pass, group_by_missing_value_ids);
-                        if (!fuzzy_search_fields_op.ok()) {
-                            return fuzzy_search_fields_op;
-                        }
-
-                    } else {
-                        break;
                     }
                 }
             }
