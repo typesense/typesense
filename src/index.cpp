@@ -2005,6 +2005,10 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     auto& reference_docs = ref_filter_result->docs;
+    count = ref_filter_result->count;
+    if (count == 0 && is_normal_join) {
+        return Option(true);
+    }
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();

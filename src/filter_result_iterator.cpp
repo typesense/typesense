@@ -3142,8 +3142,12 @@ void filter_result_iterator_t::compute_iterators() {
 
         // In a complex filter query a sub-expression might not match any document while the full expression does match
         // at least one document. If the full expression doesn't match any document, we return early in the search.
-        if (filter_result.count == 0 && validity != timed_out) {
-            validity = invalid;
+        if (filter_result.count == 0) {
+            if (validity != timed_out) {
+                validity = invalid;
+            }
+            // Updating approx_filter_ids_length to avoid having stale value in case && node matches 0 documents on compute.
+            approx_filter_ids_length = 0;
         } else if (filter_result.count > 0) {
             result_index = 0;
             seq_id = filter_result.docs[result_index];
@@ -3181,8 +3185,11 @@ void filter_result_iterator_t::compute_iterators() {
 
         is_filter_result_initialized = true;
 
-        if (validity != timed_out && filter_result.count == 0) {
-            validity = invalid;
+        if (filter_result.count == 0) {
+            if (validity != timed_out) {
+                validity = invalid;
+            }
+            approx_filter_ids_length = 0;
             return;
         }
 
@@ -3430,8 +3437,11 @@ void filter_result_iterator_t::compute_iterators() {
 
     is_filter_result_initialized = true;
 
-    if (validity != timed_out && filter_result.count == 0) {
-        validity = invalid;
+    if (filter_result.count == 0) {
+        if (validity != timed_out) {
+            validity = invalid;
+        }
+        approx_filter_ids_length = 0;
         return;
     }
 
