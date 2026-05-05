@@ -337,6 +337,18 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
 
+        if(model_config.count(fields::timeout_ms) != 0) {
+            if(!model_config[fields::timeout_ms].is_number_unsigned() || model_config[fields::timeout_ms].get<size_t>() == 0) {
+                return Option<bool>(400, "Property `embed.model_config.timeout_ms` must be a positive integer.");
+            }
+        }
+
+        if(model_config.count(fields::num_retries) != 0) {
+            if(!model_config[fields::num_retries].is_number_unsigned()) {
+                return Option<bool>(400, "Property `embed.model_config.num_retries` must be a non-negative integer.");
+            }
+        }
+
         for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
             if(!embed_from_field.is_string()) {
                 return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");

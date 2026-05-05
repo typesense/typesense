@@ -2133,3 +2133,93 @@ TEST_F(CollectionSchemaChangeTest, DropObjectFieldWithSimilarPrefix) {
     ASSERT_EQ(1, schema_map.count("attributes_filter"));
     ASSERT_EQ(1, schema_map.count("attributes_nested_string"));
 }
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingModelConfigValidSettings) {
+    // test valid model_config fields for timeout_ms and num_retries
+    
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title"],
+                "model_config": {"model_name": "ts/e5-small", "timeout_ms": 15000, "num_retries": 3}
+            }}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto emb_fields = op.get()->get_embedding_fields();  
+    auto& model_config = emb_fields.at("embedding").embed[fields::model_config];
+
+    ASSERT_TRUE(model_config.contains("timeout_ms"));
+    ASSERT_EQ(15000, model_config["timeout_ms"].get<size_t>());
+
+    ASSERT_TRUE(model_config.contains("num_retries"));
+    ASSERT_EQ(3, model_config["num_retries"].get<size_t>());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingModelConfigInvalidTimeout) {
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title"],
+                "model_config": {"model_name": "ts/e5-small", "timeout_ms": 0}
+            }}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+
+    ASSERT_EQ("Property `embed.model_config.timeout_ms` must be a positive integer.", op.error());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingModelConfigNumRetriesZeroValid) {
+    // verify that num_retries equal to 0 is a valid field
+
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title"],
+                "model_config": {"model_name": "ts/e5-small", "num_retries": 0}
+            }}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto emb_fields = op.get()->get_embedding_fields();
+    auto& model_config = emb_fields.at("embedding").embed[fields::model_config];
+    ASSERT_EQ(0, model_config["num_retries"].get<size_t>());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingModelConfigNumRetriesInvalidType) {
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "embedding", "type": "float[]", "embed": {
+                "from": ["title"],
+                "model_config": {"model_name": "ts/e5-small", "num_retries": "many"}
+            }}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+
+    ASSERT_EQ("Property `embed.model_config.num_retries` must be a non-negative integer.", op.error());
+}
