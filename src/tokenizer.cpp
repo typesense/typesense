@@ -113,7 +113,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             std::string word;
             std::string original_word;
             unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(original_word);
-            size_t orig_word_size = original_word.size();
+            size_t offset_word_size = original_word.size();
 
             if(locale == "ko") {
                 UErrorCode errcode = U_ZERO_ERROR;
@@ -123,6 +123,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
 
                 if(!U_FAILURE(errcode)) {
                     dst.toUTF8String(word);
+                    // Korean highlighting uses NFKD-normalized display text, so offsets must track normalized bytes.
+                    offset_word_size = word.size();
                 } else {
                     LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }
@@ -210,7 +212,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             start_index = utf8_start_index;
-            end_index = utf8_start_index + orig_word_size - 1;
+            end_index = utf8_start_index + offset_word_size - 1;
             utf8_start_index = end_index + 1;
 
             start_pos = end_pos;
