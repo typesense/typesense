@@ -93,18 +93,43 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 }
 
 bool SystemMetrics::get_cgroup_memory(uint64_t& limit_bytes, uint64_t& usage_bytes,
-                                      const std::string& v2_max,
-                                      const std::string& v2_current,
-                                      const std::string& v1_limit,
-                                      const std::string& v1_usage) {
+                                      const std::string& proc_self_cgroup,
+                                      const std::string& cgroup_root) {
 #ifdef __linux__
+    std::ifstream cg_file(proc_self_cgroup);
+    if (!cg_file.is_open()) {
+        return false;
+    }
+
+    std::string v2_rel_path, v1_rel_path;
+    std::string line;
+    while (std::getline(cg_file, line)) {
+        if (line.rfind("0::", 0) == 0) {
+            // cgroups v2 unified hierarchy: "0::<path>"
+            v2_rel_path = line.substr(3);
+        } else {
+            // cgroups v1: "<id>:<controllers>:<path>"
+            auto first = line.find(':');
+            if (first != std::string::npos) {
+                auto second = line.find(':', first + 1);
+                if (second != std::string::npos) {
+                    std::string controllers = line.substr(first + 1, second - first - 1);
+                    if (controllers.find("memory") != std::string::npos) {
+                        v1_rel_path = line.substr(second + 1);
+                    }
+                }
+            }
+        }
+    }
+
     // cgroups v2: memory.max + memory.current
-    {
-        std::ifstream max_file(v2_max);
+    if (!v2_rel_path.empty()) {
+        std::string base = cgroup_root + v2_rel_path;
+        std::ifstream max_file(base + "/memory.max");
         if (max_file.is_open()) {
             std::string val;
             if ((max_file >> val) && val != "max") {
-                std::ifstream curr_file(v2_current);
+                std::ifstream curr_file(base + "/memory.current");
                 if (curr_file.is_open()) {
                     uint64_t current = 0;
                     if (curr_file >> current) {
@@ -116,14 +141,16 @@ bool SystemMetrics::get_cgroup_memory(uint64_t& limit_bytes, uint64_t& usage_byt
             }
         }
     }
+
     // cgroups v1: memory.limit_in_bytes + memory.usage_in_bytes
     // The unlimited sentinel is 0x7FFFFFFFFFFFF000 (~9.2EB); treat anything above 1EB as unlimited.
-    {
-        std::ifstream lf(v1_limit);
+    if (!v1_rel_path.empty()) {
+        std::string base = cgroup_root + "/memory" + v1_rel_path;
+        std::ifstream lf(base + "/memory.limit_in_bytes");
         if (lf.is_open()) {
             uint64_t limit = 0;
             if ((lf >> limit) && limit < (1ULL << 60)) {
-                std::ifstream uf(v1_usage);
+                std::ifstream uf(base + "/memory.usage_in_bytes");
                 if (uf.is_open()) {
                     uint64_t usage = 0;
                     if (uf >> usage) {

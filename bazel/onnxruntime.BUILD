@@ -1,6 +1,6 @@
 filegroup(
     name = "all_srcs",
-    srcs = glob(["**"]),
+    srcs = glob(["**"], exclude=["winml/test/collateral/**"]),
     visibility = ["//visibility:public"],
 )
 
@@ -109,6 +109,7 @@ __ONNXRUNTIME_WITHOUT_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'onnxruntime_USE_CANN':'OFF', 'CMAKE_TLS_VERIFY':'ON', 'FETCHCONTENT_QUIET':'OFF',
 'onnxruntime_PYBIND_EXPORT_OPSCHEMA':'OFF', 'onnxruntime_ENABLE_MEMLEAK_CHECKER':'OFF',
 'CMAKE_BUILD_TYPE':'Release',
+'CMAKE_CXX_FLAGS': '-Wno-array-bounds',
 'onnxruntime_USE_EXTENSIONS': 'ON',
 'onnxruntime_EXTENSIONS_PATH': '$EXT_BUILD_ROOT/external/onnx_runtime/cmake/external/onnxruntime-extensions',
 'OCOS_ENABLE_BLINGFIRE': 'OFF'
@@ -167,7 +168,8 @@ __ONNXRUNTIME_WITH_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'onnxruntime_ENABLE_ROCM_PROFILING':'OFF', 'onnxruntime_USE_XNNPACK':'OFF',
 'onnxruntime_USE_CANN':'OFF', 'CMAKE_TLS_VERIFY':'ON', 'FETCHCONTENT_QUIET':'OFF',
 'onnxruntime_PYBIND_EXPORT_OPSCHEMA':'OFF', 'onnxruntime_ENABLE_MEMLEAK_CHECKER':'OFF',
-'CMAKE_BUILD_TYPE':'Release', 'onnxruntime_USE_CUDA':'ON', 'onnxruntime_USE_CUDNN':'ON',
+'CMAKE_BUILD_TYPE':'Release', 'CMAKE_CXX_FLAGS': '-Wno-array-bounds',
+'onnxruntime_USE_CUDA':'ON', 'onnxruntime_USE_CUDNN':'ON',
 'onnxruntime_USE_EXTENSIONS': 'ON',
 'onnxruntime_EXTENSIONS_PATH': '$EXT_BUILD_ROOT/external/onnx_runtime/cmake/external/onnxruntime-extensions',
 'onnxruntime_CUDA_HOME': CUDA_HOME,
@@ -193,7 +195,7 @@ cmake(
     working_directory="cmake",
     build_args= [
         "--config Release",
-        "-j3"
+        "-j1"
     ],
     tags=["requires-network","no-sandbox"],
     features=["-default_compile_flags","-fno-canonical-system-headers", "-Wno-builtin-macro-redefined"],

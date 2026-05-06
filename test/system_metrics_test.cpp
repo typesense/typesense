@@ -14,10 +14,8 @@ TEST(SystemMetricsTest, CgroupV2FiniteLimitReturnsContainerValues) {
     const std::string res = std::string(ROOT_DIR) + "test/resources/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "cgroup_v2_memory_max.txt",
-        res + "cgroup_v2_memory_current.txt",
-        "/nonexistent_v1_limit",
-        "/nonexistent_v1_usage");
+        res + "proc_self_cgroup_v2.txt",
+        res + "cgroupfs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -28,10 +26,8 @@ TEST(SystemMetricsTest, CgroupV2UnlimitedFallsThroughToV1) {
     const std::string res = std::string(ROOT_DIR) + "test/resources/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "cgroup_v2_memory_max_unlimited.txt",
-        res + "cgroup_v2_memory_current.txt",
-        res + "cgroup_v1_memory_limit.txt",
-        res + "cgroup_v1_memory_usage.txt");
+        res + "proc_self_cgroup_v2_unlimited_v1_limited.txt",
+        res + "cgroupfs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -42,10 +38,8 @@ TEST(SystemMetricsTest, CgroupV1FiniteLimitReturnsContainerValues) {
     const std::string res = std::string(ROOT_DIR) + "test/resources/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        "/nonexistent_v2_max",
-        "/nonexistent_v2_current",
-        res + "cgroup_v1_memory_limit.txt",
-        res + "cgroup_v1_memory_usage.txt");
+        res + "proc_self_cgroup_v1_only.txt",
+        res + "cgroupfs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -56,10 +50,8 @@ TEST(SystemMetricsTest, CgroupV1UnlimitedSentinelReturnsFalse) {
     const std::string res = std::string(ROOT_DIR) + "test/resources/";
     uint64_t limit = 99, usage = 99;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        "/nonexistent_v2_max",
-        "/nonexistent_v2_current",
-        res + "cgroup_v1_memory_limit_unlimited.txt",
-        res + "cgroup_v1_memory_usage.txt");
+        res + "proc_self_cgroup_v1_unlimited.txt",
+        res + "cgroupfs");
     ASSERT_FALSE(ok);
     ASSERT_EQ(99ULL, limit);
     ASSERT_EQ(99ULL, usage);
@@ -69,10 +61,8 @@ TEST(SystemMetricsTest, CgroupV1UnlimitedSentinelReturnsFalse) {
 TEST(SystemMetricsTest, NoCgroupFilesReturnsFalse) {
     uint64_t limit = 99, usage = 99;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        "/nonexistent_v2_max",
-        "/nonexistent_v2_current",
-        "/nonexistent_v1_limit",
-        "/nonexistent_v1_usage");
+        "/nonexistent_proc_self_cgroup",
+        "/nonexistent_cgroup_root");
     ASSERT_FALSE(ok);
     ASSERT_EQ(99ULL, limit);
     ASSERT_EQ(99ULL, usage);
