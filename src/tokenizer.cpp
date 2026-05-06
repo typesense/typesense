@@ -111,6 +111,9 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         while (end_pos != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << start_pos;
             std::string word;
+            std::string original_word;
+            unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(original_word);
+            size_t orig_word_size = original_word.size();
 
             if(locale == "ko") {
                 UErrorCode errcode = U_ZERO_ERROR;
@@ -167,7 +170,6 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             bool emit_token = false;
-            size_t orig_word_size = word.size();
 
             if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
                 emit_token = false;
