@@ -4196,7 +4196,12 @@ bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shar
         res->set(add_op.code(), add_op.error());
         return false;
     }
-    res->set_200(ov_json.dump());
+    auto get_op = manager.get_curation_item(set_name, id);
+    if(!get_op.ok()) {
+        res->set(get_op.code(), get_op.error());
+        return false;
+    }
+    res->set_200(get_op.get().dump());
     return true;
 }
 
