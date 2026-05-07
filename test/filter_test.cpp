@@ -896,6 +896,34 @@ TEST_F(FilterTest, FilterTreeInitialization) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
+
+    auto add_op = coll->add(
+            R"({"name": "Jeremy Howard", "top_3": [0, 0.0, 0.0], "rating": 0.0,"age": 63, "years": [1981, 1985],
+                 "timestamps": [348974822, 475205222], "tags": ["silver"]})");
+    ASSERT_TRUE(add_op.ok());
+    std::string dirty_values = "DROP";
+    auto alter_op = coll->update_matching_filter("id: 0", R"({"tags": ["gold"]})", dirty_values);
+    ASSERT_TRUE(alter_op.ok());
+
+    filter_op = filter::parse_filter_query("years:!= 2016 && tags: != silver", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                   filter_tree_root, enable_lazy_evaluation);
+
+    ASSERT_TRUE(iter_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_0_matches.validity);
+    ASSERT_FALSE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(3, iter_0_matches.approx_filter_ids_length);
+
+    iter_0_matches.compute_iterators();
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_0_matches.validity);
+    ASSERT_TRUE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(0, iter_0_matches.approx_filter_ids_length);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
 }
 
 TEST_F(FilterTest, NotEqualsStringFilter) {

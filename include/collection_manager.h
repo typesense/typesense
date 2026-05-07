@@ -193,7 +193,7 @@ public:
     Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
                                     std::set<update_reference_info_t>& update_ref_infos);
 
-    void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
+    void remove_referenced_ins_with_lock(const std::string& referencing_coll_name, const reference_info_t& ref_info);
 
     std::map<std::string, std::map<std::string, reference_info_t>> _get_referenced_ins() const;
 

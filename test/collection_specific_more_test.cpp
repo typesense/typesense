@@ -4167,6 +4167,81 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightingInNestedFields) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificMoreTest, NestedTransliterationHighlightShouldNotSplitUtf8Tokens) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "enrichment", "type": "object"},
+            {"name": "enrichment.transliterations", "type": "object"},
+            {"name": "enrichment.transliterations.el", "type": "string[]", "locale": "el"},
+            {"name": "enrichment.transliterations.en", "type": "string[]"},
+            {"name": "name", "type": "string", "infix": true},
+            {"name": "genres", "type": "object[]"},
+            {"name": "genres.name", "type": "string[]"},
+            {"name": "lineup", "type": "object[]"},
+            {"name": "lineup.name", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "1";
+    doc["enrichment"]["transliterations"]["el"] = nlohmann::json::array({
+        "Λύσανδρος Κατραφούρης & Θεόφιλος Σαμουραΐτης προσκαλούν τους Alex Stone & Nina Vale στο Tegan Gang Jazz Club της Αθήνας",
+        "Κατραφούρης Σαμουραΐτης Tegan Gang Jazz Club",
+        "Tegan Gang Jazz Club Συναυλία"
+    });
+    doc["enrichment"]["transliterations"]["en"] = nlohmann::json::array({
+        "Lysandros Katrafouris and Theofilos Samouraitis present Alex Stone and Nina Vale at Tegan Gang Jazz Club Athens",
+        "Tegan Gang Jazz Club"
+    });
+    doc["name"] = "Katrafouris/Samouraitis invite Alex Stone & Nina Vale";
+    doc["genres"] = nlohmann::json::array({
+        nlohmann::json::object({{"id", "jazz"}, {"name", "jazz"}})
+    });
+    doc["lineup"] = nlohmann::json::array({
+        nlohmann::json::object({{"name", "Theofilos Samouraitis"}})
+    });
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("jazz club",
+                                 {"enrichment.transliterations.el", "enrichment.transliterations.en",
+                                  "name", "genres.name", "lineup.name"},
+                                 "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                                 spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                 10, "", 30, 4, "").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    const auto& el_highlights = results["hits"][0]["highlight"]["enrichment"]["transliterations"]["el"];
+    ASSERT_GE(el_highlights.size(), 1);
+
+    bool found_problematic_greek_entry = false;
+    for(const auto& highlight: el_highlights) {
+        const auto snippet = highlight["snippet"].get<std::string>();
+        if(snippet.find("Tegan Gang") == std::string::npos || snippet.find("Αθήνας") == std::string::npos) {
+            continue;
+        }
+
+        found_problematic_greek_entry = true;
+        ASSERT_EQ(2, highlight["matched_tokens"].size()) << highlight.dump();
+        ASSERT_EQ("Jazz", highlight["matched_tokens"][0].get<std::string>()) << highlight.dump();
+        ASSERT_EQ("Club", highlight["matched_tokens"][1].get<std::string>()) << highlight.dump();
+        ASSERT_NE(snippet.find("<mark>Jazz</mark> <mark>Club</mark>"), std::string::npos) << highlight.dump();
+        ASSERT_EQ(snippet.find("<mark> Clu</mark>"), std::string::npos) << highlight.dump();
+        ASSERT_EQ(snippet.find("<mark> τη</mark>"), std::string::npos) << highlight.dump();
+    }
+
+    ASSERT_TRUE(found_problematic_greek_entry) << el_highlights.dump(2);
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificMoreTest, NestedFieldSingleTokenSnippetTruncation) {
     // verify that snippets for single-token matches in nested fields are properly truncated
     nlohmann::json schema = R"({

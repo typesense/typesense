@@ -668,14 +668,6 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
     }
 
-    auto natural_language_search_init = NaturalLanguageSearchModelManager::init(&store);
-
-    if(!natural_language_search_init.ok()) {
-        LOG(INFO) << "Failed to initialize natural language search model manager: " << natural_language_search_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << natural_language_search_init.get() << " natural language search model(s).";
-    }
-
     std::thread raft_thread([&replication_state, &store, &config, &state_dir,
                              &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
 

@@ -6,6 +6,8 @@
 #include "natural_language_search_model.h"
 #include "collection_manager.h"
 #include "field.h"
+#include "raft_server.h"
+#include "tsconfig.h"
 
 class NaturalLanguageSearchModelManagerTest : public ::testing::Test {
 protected:
@@ -29,31 +31,38 @@ protected:
         collectionManager.dispose();
         delete store;
     }
+
+    nlohmann::json create_valid_model_config() {
+        return R"({
+          "model_name": "openai/gpt-3.5-turbo",
+          "api_key": "YOUR_OPENAI_API_KEY",
+          "max_bytes": 1024,
+          "temperature": 0.0
+        })"_json;
+    }
+
+    void add_valid_model_mock_response() {
+        NaturalLanguageSearchModel::add_mock_response(R"({
+          "object": "chat.completion",
+          "model": "gpt-3.5-turbo",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Hello! How can I help you today?"
+              },
+              "finish_reason": "stop"
+            }
+          ]
+        })", 200, {});
+    }
 };
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -75,28 +84,9 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GetModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -112,28 +102,9 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -298,6 +269,37 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
     ASSERT_EQ(models.get()[0]["model_name"], "openai/gpt-3.5-turbo");
     ASSERT_EQ(models.get()[1]["id"], model_id_1);
     ASSERT_EQ(models.get()[1]["model_name"], "openai/gpt-3.5-turbo");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, ReplicationInitDbReloadsNaturalLanguageSearchModelsFromStore) {
+    add_valid_model_mock_response();
+
+    auto model_config = create_valid_model_config();
+    auto add_result = NaturalLanguageSearchModelManager::add_model(model_config, "persisted_model", true);
+    ASSERT_TRUE(add_result.ok());
+
+    auto models_before_reload = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_before_reload.ok());
+    ASSERT_EQ(models_before_reload.get().size(), 1);
+
+    NaturalLanguageSearchModelManager::dispose();
+
+    auto models_after_dispose = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_after_dispose.ok());
+    ASSERT_TRUE(models_after_dispose.get().empty());
+
+    add_valid_model_mock_response();
+
+    Config::get_instance().set_data_dir(state_dir_path);
+    ReplicationState replication_state(nullptr, nullptr, store, nullptr, nullptr, nullptr, false,
+                                       &Config::get_instance(), 8, 1000);
+
+    ASSERT_EQ(replication_state.init_db(), 0);
+
+    auto models_after_init_db = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_after_init_db.ok());
+    ASSERT_EQ(models_after_init_db.get().size(), 1);
+    ASSERT_EQ(models_after_init_db.get()[0]["id"], "persisted_model");
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
