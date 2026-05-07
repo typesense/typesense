@@ -4325,6 +4325,121 @@ TEST_F(CollectionFilteringTest, DeepNestedFieldsInsideObjectFilter) {
     ASSERT_EQ("Same Object Match", result["hits"][0]["document"]["title"]);
 }
 
+TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
+    auto schema_json =
+            R"({
+                "name": "inventory_nested_offers",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "offers", "type": "object[]"},
+                    {"name": "offers.quantities", "type": "int32[]", "range_index": true},
+                    {"name": "offers.markers", "type": "string[]"},
+                    {"name": "offers.enabled", "type": "bool[]"},
+                    {"name": "offers.score", "type": "float[]"},
+                    {"name": "offers.minCost", "type": "int32[]", "range_index": true},
+                    {"name": "offers.maxCost", "type": "int32[]", "range_index": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Same Offer Numeric Match",
+                "offers": [
+                    {"quantities": [1, 3], "markers": ["standard"], "enabled": [false], "score": [2.0], "minCost": 7000, "maxCost": 4500},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Offer Numeric Match",
+                "offers": [
+                    {"quantities": [2, 3], "markers": ["standard"], "enabled": [false], "score": [1.0], "minCost": 9000, "maxCost": 12000},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 7000, "maxCost": 4500}
+                ]
+            })"_json,
+            R"({
+                "title": "String Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority", "manual"], "enabled": [true, false], "score": [1.25], "minCost": 7200, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority"], "enabled": [true], "score": [1.0], "minCost": 9000, "maxCost": 10000},
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 7200, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Range Quantity Match",
+                "offers": [
+                    {"quantities": [4], "markers": ["standard"], "enabled": [false], "score": [1.75], "minCost": 7300, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "No Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
+                ]
+            })"_json
+    };
+
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const auto search_titles = [&](const std::string& filter_by) {
+        std::map<std::string, std::string> req_params = {
+                {"collection",     "inventory_nested_offers"},
+                {"q",              "*"},
+                {"filter_by",      filter_by},
+                {"include_fields", "title, offers"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+
+        std::vector<std::string> titles;
+        if (search_op.ok()) {
+            auto result = nlohmann::json::parse(json_res);
+            for (const auto& hit: result["hits"]) {
+                titles.push_back(hit["document"]["title"].get<std::string>());
+            }
+        }
+        std::sort(titles.begin(), titles.end());
+        return titles;
+    };
+
+    ASSERT_EQ(std::vector<std::string>({"Same Offer Numeric Match"}),
+              search_titles("offers.{quantities:>=3 && minCost:<=7100 && maxCost:>=4000}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{markers:=priority && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{enabled:true && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{score:<1.5 && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match"}),
+              search_titles("offers.{quantities:[3..4] && minCost:<=7400 && maxCost:>=4900}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match", "Split Marker Match", "String Marker Match"}),
+              search_titles("offers.{quantities:!=3 && minCost:<=7400}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Range Quantity Match", "Same Offer Numeric Match",
+                                        "Split Offer Numeric Match"}),
+              search_titles("offers.{markers:!=priority}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Split Marker Match", "String Marker Match"}),
+              search_titles("offers.{quantities:![3..4]}"));
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
     // track_missing_values on non-optional field should fail
     auto schema = R"({
