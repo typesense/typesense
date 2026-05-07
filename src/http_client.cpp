@@ -16,6 +16,72 @@ struct client_state_t: public req_state_t {
     }
 };
 
+namespace {
+    long get_curl_failure_status_code(CURLcode res_code) {
+        return res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
+    }
+
+    void log_curl_failure(CURL* curl, CURLcode res_code) {
+        char* url = nullptr;
+        char* method = nullptr;
+
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, &method);
+
+        const char* effective_url = url == nullptr ? "" : url;
+        const char* effective_method = method == nullptr ? "" : method;
+
+        if(res_code == CURLE_OPERATION_TIMEDOUT) {
+            double total_time = 0;
+            curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
+            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", method: " << effective_method
+                       << ", url: " << effective_url;
+            return;
+        }
+
+        LOG(ERROR) << "CURL failed. Code: " << res_code << ", strerror: " << curl_easy_strerror(res_code)
+                   << ", method: " << effective_method << ", url: " << effective_url;
+    }
+
+    std::string get_curl_failure_response_body(long status_code) {
+        const std::string message = status_code == 408 ?
+            "Remote server request timed out." :
+            "Server error on remote server. Please try again later.";
+
+        nlohmann::json res;
+        res["message"] = message;
+        res["error"]["message"] = message;
+        return res.dump();
+    }
+
+    void fail_sse_response(deferred_req_res_t* req_res, long status_code, const std::string& response_body) {
+        if(req_res == nullptr || req_res->req == nullptr || req_res->res == nullptr) {
+            return;
+        }
+
+        std::string content_type = "application/json; charset=utf-8";
+        if(req_res->req->async_res_set_headers_callback) {
+            req_res->req->async_res_set_headers_callback(response_body, req_res->req, status_code, content_type);
+        }
+
+        if(req_res->req->async_res_done_callback) {
+            req_res->req->async_res_done_callback(req_res->req, req_res->res);
+            return;
+        }
+
+        req_res->res->status_code = status_code;
+        req_res->res->content_type_header = content_type;
+        req_res->res->body = response_body;
+        req_res->res->final = true;
+
+        if(req_res->server != nullptr) {
+            req_res->res->wait();
+            auto* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
+            req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+        }
+    }
+}
+
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
                                std::map<std::string, std::string>& res_headers,
                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
@@ -106,10 +172,22 @@ long HttpClient::post_response_sse(const std::string &url, const std::string &bo
 
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_perform(curl);
+    CURLcode res_code = curl_easy_perform(curl);
 
     long status_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    if(res_code != CURLE_OK || status_code == 0) {
+        if(res_code != CURLE_OK) {
+            log_curl_failure(curl, res_code);
+            status_code = get_curl_failure_status_code(res_code);
+        } else {
+            status_code = 500;
+        }
+
+        if(req_res->res == nullptr || req_res->res->status_code == 0) {
+            fail_sse_response(req_res, status_code, get_curl_failure_response_body(status_code));
+        }
+    }
     curl_easy_cleanup(curl);
     curl_slist_free_all(chunk);
 
@@ -433,6 +511,11 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
     if(req_res->req->is_write) {
        req_res->server->decr_pending_writes();
+    }
+
+    if(req_res->res->status_code == 0) {
+        close(item);
+        return 0;
     }
 
     if(req_res->req->async_res_done_callback) {
