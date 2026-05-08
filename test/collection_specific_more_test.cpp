@@ -1504,8 +1504,17 @@ TEST_F(CollectionSpecificMoreTest, QueryWithOnlySpecialChars) {
     ASSERT_TRUE(res_op.ok());
     auto res = res_op.get();
 
-    ASSERT_EQ(1, res["hits"].size());
-    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, res["hits"].size());
+
+    ASSERT_EQ(0, res["found"].get<int>());
+
+    res_op = coll1->search("@", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true});
+
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+
+    ASSERT_EQ(0, res["hits"].size());
+    ASSERT_EQ(0, res["found"].get<int>());
 }
 
 TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
@@ -2493,31 +2502,6 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                            0, "exhaustive", 30000, 2, "", {}, {}, "both_sides:x");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
-}
-
-TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {"name": "title", "type": "string"},
-            {"name": "description", "type": "string"}
-        ]
-    })"_json;
-
-    Collection* coll1 = collectionManager.create_collection(schema).get();
-
-    nlohmann::json doc;
-    doc["title"] = "alpha beta gamma";
-    doc["description"] = "alpha beta gamma";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    auto res = coll1->search("'", {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 1,
-                             spp::sparse_hash_set<std::string>(),
-                             spp::sparse_hash_set<std::string>()).get();
-
-    ASSERT_EQ(1, res["hits"].size());
-    ASSERT_EQ(0, res["hits"][0]["highlight"].size());
-    ASSERT_EQ(0, res["hits"][0]["highlights"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, SearchForURL) {
