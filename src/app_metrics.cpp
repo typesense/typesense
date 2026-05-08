@@ -190,9 +190,15 @@ void AppMetrics::window_reset() {
     current_durations = new spp::sparse_hash_map<std::string, TDigest>();
 }
 
-void AppMetrics::write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path) {
+std::string AppMetrics::format_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path,
+                                          const std::string& api_key_prefix) {
+    return std::to_string(epoch_millis) + "\t" + remote_ip + "\t" + path + "\t" + api_key_prefix + "\n";
+}
+
+void AppMetrics::write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path,
+                                  const std::string& api_key_prefix) {
     if(!access_log_path.empty()) {
-        access_log << epoch_millis << "\t" << remote_ip << "\t" << path << "\n";
+        access_log << format_access_log(epoch_millis, remote_ip, path, api_key_prefix);
     }
 }
 

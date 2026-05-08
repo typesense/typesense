@@ -377,11 +377,37 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     std::string client_ip = http_req::get_ip_addr(req).ip;
 
+    std::vector<std::string> path_parts;
+    StringUtils::split(path_without_query, path_parts, "/");
+
+    h2o_iovec_t query = req->query_at != SIZE_MAX ?
+                        h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
+                        h2o_iovec_init(H2O_STRLIT(""));
+
+    std::string query_str(query.base, query.len);
+    std::map<std::string, std::string> query_map;
+    StringUtils::parse_query_string(query_str, query_map);
+
+    // cache ttl can be applied only from an embedded key: cannot be a get param
+    query_map.erase("cache_ttl");
+
+    // Extract auth key from header. If that does not exist, look for a GET parameter.
+    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, http_req::AUTH_HEADER, strlen(http_req::AUTH_HEADER), -1);
+    std::string api_auth_key_sent;
+
+    if(auth_header_cursor != -1) {
+        h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
+        api_auth_key_sent = std::string(slot.base, slot.len);
+    } else if(query_map.count(http_req::AUTH_HEADER) != 0) {
+        api_auth_key_sent = query_map[http_req::AUTH_HEADER];
+    }
+
     if(Config::get_instance().get_enable_access_logging()) {
         uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         auto epoch_millis = now / 1000;
-        AppMetrics::get_instance().write_access_log(epoch_millis, client_ip.c_str(), metric_identifier);
+        const auto api_key_prefix = api_auth_key_sent.substr(0, api_key_t::PREFIX_LEN);
+        AppMetrics::get_instance().write_access_log(epoch_millis, client_ip.c_str(), metric_identifier, api_key_prefix);
     }
 
     // Handle CORS
@@ -436,35 +462,10 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    std::vector<std::string> path_parts;
-    StringUtils::split(path_without_query, path_parts, "/");
-
-    h2o_iovec_t query = req->query_at != SIZE_MAX ?
-                        h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
-                        h2o_iovec_init(H2O_STRLIT(""));
-
     if(query.len > 4000 && http_method == "GET" && !path_parts.empty() && path_parts.back() == "search") {
         nlohmann::json resp;
         resp["message"] = "Query string exceeds max allowed length of 4000. Use the /multi_search end-point for larger payloads.";
         return send_response(req, 400, resp.dump());
-    }
-
-    std::string query_str(query.base, query.len);
-    std::map<std::string, std::string> query_map;
-    StringUtils::parse_query_string(query_str, query_map);
-
-    // cache ttl can be applied only from an embedded key: cannot be a get param
-    query_map.erase("cache_ttl");
-
-    // Extract auth key from header. If that does not exist, look for a GET parameter.
-    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, http_req::AUTH_HEADER, strlen(http_req::AUTH_HEADER), -1);
-    std::string api_auth_key_sent;
-
-    if(auth_header_cursor != -1) {
-        h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
-        api_auth_key_sent = std::string(slot.base, slot.len);
-    } else if(query_map.count(http_req::AUTH_HEADER) != 0) {
-        api_auth_key_sent = query_map[http_req::AUTH_HEADER];
     }
 
     // extract user id from header, if not already present as GET param
