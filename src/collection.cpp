@@ -4750,12 +4750,12 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
     }
 
     if(q_include_tokens.empty()) {
-        if(!stopwords_set.empty() && q_phrases.empty()) {
-            // this can happen when all tokens in the include are stopwords
-            q_include_tokens.emplace_back("##hrhdh##");
-        } else {
-            // this can happen if the only query token is an exclusion token
+        if(!q_exclude_tokens.empty() || !q_phrases.empty()) {
+            // phrase-only and exclusion-only queries use wildcard filtering internally.
             q_include_tokens.emplace_back("*");
+        } else {
+            // this can happen when the query is empty after tokenization, e.g. stopwords or punctuation only
+            q_include_tokens.emplace_back("##hrhdh##");
         }
     }
 }
@@ -4769,6 +4769,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
+    } else if(query.empty()) {
+        q_exclude_tokens = {};
+        q_include_tokens = {"*"};
     } else {
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
