@@ -1284,7 +1284,7 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 }
 
 TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
-    api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
+    api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, {}, {}, 64723363199);
     collectionManager.getAuthManager().create_key(key1);
 
     std::vector<collection_key_t> collection_keys = {

@@ -320,7 +320,7 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchC
     scoped_coll->add(R"({"id":"1","title":"scoped doc"})", CREATE);
 
     api_key_t parent_key("ScopedKeyMissingCollection1", "scoped search parent", {"documents:search"}, {"scoped_coll"},
-                         api_key_t::FAR_FUTURE_TIMESTAMP);
+                         {}, {}, api_key_t::FAR_FUTURE_TIMESTAMP);
     auto key_op = collectionManager.getAuthManager().create_key(parent_key);
     ASSERT_TRUE(key_op.ok());
 
@@ -364,7 +364,7 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionConflictFailsAuthentication)
     ASSERT_TRUE(op.ok());
 
     api_key_t parent_key("ScopedKeyConflictCollection2", "scoped search parent", {"documents:search"}, {"allowed_coll"},
-                         api_key_t::FAR_FUTURE_TIMESTAMP);
+                         {}, {}, api_key_t::FAR_FUTURE_TIMESTAMP);
     auto key_op = collectionManager.getAuthManager().create_key(parent_key);
     ASSERT_TRUE(key_op.ok());
 
@@ -452,7 +452,7 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldRespectScopedEmbeddedFilters) {
     ASSERT_TRUE(coll->add("{\"id\":\"2\",\"title\":\"" + query + "\",\"user_id\":2}", CREATE).ok());
 
     api_key_t parent_key("ScopedCacheLeak" + StringUtils::randstring(8), "scoped cache parent", {"documents:search"},
-                         {coll_name}, api_key_t::FAR_FUTURE_TIMESTAMP);
+                         {coll_name}, {}, {}, api_key_t::FAR_FUTURE_TIMESTAMP);
     auto key_op = collectionManager.getAuthManager().create_key(parent_key);
     ASSERT_TRUE(key_op.ok());
 
@@ -1106,8 +1106,8 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
 TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     nlohmann::json preset_value = R"(
         {"searches":[
-            {"collection":"foo","q":"apple", "query_by": "title"},
-            {"collection":"bar","q":"apple", "query_by": "title"}
+            {"collection":"foo","q":"apple", "query_by": "title", "synonym_sets": ["preset_syn_1"], "curation_sets": "preset_cur_1"},
+            {"collection":"bar","q":"apple", "query_by": "title", "synonym_sets": "preset_syn_2", "curation_sets": ["preset_cur_2"]}
         ]}
     )"_json;
 
@@ -1121,8 +1121,8 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
 
     std::string search_body = R"(
         {"searches":[
-            {"collection":"foo1","q":"apple", "query_by": "title"},
-            {"collection":"bar1","q":"apple", "query_by": "title"}
+            {"collection":"foo1","q":"apple", "query_by": "title", "synonym_sets": "req_syn_1", "curation_sets": ["req_cur_1"]},
+            {"collection":"bar1","q":"apple", "query_by": "title", "synonym_sets": ["req_syn_2"], "curation_sets": "req_cur_2"}
         ]}
     )";
 
@@ -1134,6 +1134,14 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ("foo1", collections[0].collection);
     ASSERT_EQ("bar1", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+    ASSERT_EQ("req_syn_1",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("req_cur_1",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("req_syn_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("req_cur_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM].get<std::string>());
 
     // with preset parameter, use collections from preset configuration
     collections.clear();
@@ -1146,11 +1154,19 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ("bar", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+    ASSERT_EQ("preset_syn_1",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("preset_cur_1",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_syn_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM][0].get<std::string>());
 
     // try using multi_search preset within individual search param
 
     preset_value = R"(
-        {"collection":"preset_coll"}
+        {"collection":"preset_coll", "synonym_sets":"preset_syn", "curation_sets":["preset_cur"]}
     )"_json;
 
     collectionManager.upsert_preset("single_preset", preset_value);
@@ -1161,8 +1177,8 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
 
     search_body = R"(
         {"searches":[
-            {"collection":"foo1","q":"apple", "query_by": "title", "preset": "single_preset"},
-            {"collection":"bar1","q":"apple", "query_by": "title", "preset": "single_preset"}
+            {"collection":"foo1","q":"apple", "query_by": "title", "preset": "single_preset", "synonym_sets":["req_syn"], "curation_sets":"req_cur"},
+            {"collection":"bar1","q":"apple", "query_by": "title", "preset": "single_preset", "synonym_sets":"req_syn_2", "curation_sets":["req_cur_2"]}
         ]}
     )";
 
@@ -1172,6 +1188,22 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ("foo1", collections[0].collection);
     ASSERT_EQ("bar1", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+    ASSERT_EQ("preset_syn",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_CURATION_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("req_syn",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("req_cur",
+              embedded_params_vec[0][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_syn",
+              embedded_params_vec[1][AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur",
+              embedded_params_vec[1][AuthManager::AUTH_PRESET_CURATION_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("req_syn_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("req_cur_2",
+              embedded_params_vec[1][AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM][0].get<std::string>());
 
     // without collection in search array
     req_params.clear();
@@ -1191,6 +1223,43 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ("preset_coll", collections[0].collection);
     ASSERT_EQ("preset_coll", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+    ASSERT_EQ("preset_syn",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_CURATION_SETS_PARAM][0].get<std::string>());
+    ASSERT_EQ("preset_syn",
+              embedded_params_vec[1][AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur",
+              embedded_params_vec[1][AuthManager::AUTH_PRESET_CURATION_SETS_PARAM][0].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, SearchPresetShouldPopulateAuthContext) {
+    nlohmann::json preset_value = R"(
+        {"collection":"preset_coll", "synonym_sets":"preset_syn", "curation_sets":["preset_cur"]}
+    )"_json;
+
+    auto preset_op = collectionManager.upsert_preset("single_search_preset_auth", preset_value);
+    ASSERT_TRUE(preset_op.ok());
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+    std::map<std::string, std::string> req_params = {
+        {"collection", "req_coll"},
+        {"preset", "single_search_preset_auth"}
+    };
+
+    std::vector<collection_key_t> collections;
+    std::vector<nlohmann::json> embedded_params_vec;
+
+    get_collections_for_auth(req_params, "", rpath_search, "", collections, embedded_params_vec);
+
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("req_coll", collections[0].collection);
+    ASSERT_EQ(1, embedded_params_vec.size());
+    ASSERT_EQ("preset_syn",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM].get<std::string>());
+    ASSERT_EQ("preset_cur",
+              embedded_params_vec[0][AuthManager::AUTH_PRESET_CURATION_SETS_PARAM][0].get<std::string>());
 }
 
 TEST_F(CoreAPIUtilsTest, PresetMultiSearch) {

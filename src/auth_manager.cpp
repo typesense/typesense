@@ -2,9 +2,91 @@
 #include <openssl/evp.h>
 #include <regex>
 #include <join.h>
+#include "collection_manager.h"
 
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
+
+std::vector<std::string> parse_requested_search_set_value(const nlohmann::json& value) {
+    if(value.is_string()) {
+        std::vector<std::string> parsed_values;
+        StringUtils::split(value.get<std::string>(), parsed_values, ",");
+        return parsed_values;
+    }
+
+    if(!value.is_array()) {
+        return {};
+    }
+
+    std::vector<std::string> parsed_values;
+    for(const auto& item: value) {
+        if(item.is_string() && !item.get<std::string>().empty()) {
+            parsed_values.push_back(item.get<std::string>());
+        }
+    }
+
+    return parsed_values;
+}
+
+std::vector<std::string> resolve_requested_search_sets(const std::map<std::string, std::string>& params,
+                                                                    const nlohmann::json& auth_context,
+                                                                    const char* request_param,
+                                                                    const char* requested_auth_param,
+                                                                    const char* preset_auth_param) {
+    const auto params_it = params.find(request_param);
+    if(params_it != params.end()) {
+        std::vector<std::string> parsed_values;
+        StringUtils::split(params_it->second, parsed_values, ",");
+        return parsed_values;
+    }
+
+    const auto auth_context_it = auth_context.find(requested_auth_param);
+    if(auth_context_it != auth_context.end()) {
+        return parse_requested_search_set_value(*auth_context_it);
+    }
+
+    const auto embedded_param_it = auth_context.find(request_param);
+    if(embedded_param_it != auth_context.end()) {
+        return parse_requested_search_set_value(*embedded_param_it);
+    }
+
+    const auto preset_auth_context_it = auth_context.find(preset_auth_param);
+    if(preset_auth_context_it != auth_context.end()) {
+        return parse_requested_search_set_value(*preset_auth_context_it);
+    }
+
+    return {};
+}
+
+std::vector<std::string> merge_requested_sets(std::vector<std::string> effective_sets,
+                                                           const std::vector<std::string>& requested_sets) {
+    std::unordered_set<std::string> effective_set_set(effective_sets.begin(), effective_sets.end());
+    for(const auto& requested_set: requested_sets) {
+        if(effective_set_set.find(requested_set) == effective_set_set.end()) {
+            effective_sets.push_back(requested_set);
+            effective_set_set.insert(requested_set);
+        }
+    }
+
+    return effective_sets;
+}
+
+bool has_non_wildcard_constraint(const std::vector<std::string>& allowed_sets) {
+    return !allowed_sets.empty() &&
+           std::find(allowed_sets.begin(), allowed_sets.end(), "*") == allowed_sets.end();
+}
+
+nlohmann::json merge_auth_context(const nlohmann::json& auth_context,
+                                               const nlohmann::json& embedded_params) {
+    nlohmann::json merged_auth_context = auth_context;
+    for(const auto& item: embedded_params.items()) {
+        if(merged_auth_context.count(item.key()) == 0) {
+            merged_auth_context[item.key()] = item.value();
+        }
+    }
+
+    return merged_auth_context;
+}
 
 Option<bool> AuthManager::init(Store* store, const std::string& bootstrap_auth_key) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
@@ -191,16 +273,17 @@ bool AuthManager::authenticate(const std::string& action,
         }
 
         const auto& key_it = api_keys.find(coll_key.api_key);
+        const auto& auth_context = embedded_params_vec[i];
         nlohmann::json embedded_params;
 
         if(key_it != api_keys.end()) {
             const api_key_t& api_key = key_it.value();
-            if(!auth_against_key(coll_key.collection, action, api_key, false)) {
+            if(!auth_against_key(coll_key.collection, action, api_key, false, params, auth_context)) {
                 return false;
             }
         } else {
             // could be a scoped API key
-            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params);
+            Option<bool> auth_op = authenticate_parse_params(coll_key, action, params, auth_context, embedded_params);
             if(!auth_op.ok()) {
                 return false;
             }
@@ -216,9 +299,8 @@ bool AuthManager::authenticate(const std::string& action,
     return (num_keys_matched == collection_keys.size());
 }
 
-namespace {
 Option<std::string> resolve_scoped_search_collection(const std::string& request_collection,
-                                                     const nlohmann::json& embedded_params) {
+                                                                  const nlohmann::json& embedded_params) {
     const auto collection_it = embedded_params.find("collection");
     if(collection_it == embedded_params.end()) {
         return Option<std::string>(request_collection);
@@ -243,6 +325,17 @@ Option<std::string> resolve_scoped_search_collection(const std::string& request_
 
     return Option<std::string>(request_collection);
 }
+
+bool AuthManager::sets_allowed(const std::vector<std::string>& allowed_set_patterns,
+                                          const std::vector<std::string>& collection_sets) {
+    return std::all_of(collection_sets.begin(), collection_sets.end(),
+                       [&](const std::string& collection_set) {
+                           return std::any_of(allowed_set_patterns.begin(), allowed_set_patterns.end(),
+                                              [&](const std::string& allowed_set_pattern) {
+                                                  return allowed_set_pattern == collection_set ||
+                                                         regexp_match(collection_set, allowed_set_pattern);
+                                              });
+                       });
 }
 
 bool AuthManager::regexp_match(const std::string& value, const std::string& regexp) {
@@ -255,7 +348,9 @@ bool AuthManager::regexp_match(const std::string& value, const std::string& rege
 }
 
 bool AuthManager::auth_against_key(const std::string& req_collection, const std::string& action,
-                                   const api_key_t& api_key, const bool search_only) const {
+                                   const api_key_t& api_key, const bool search_only,
+                                   const std::map<std::string, std::string>& params,
+                                   const nlohmann::json& auth_context) const {
 
     if(uint64_t(std::time(0)) > api_key.expires_at) {
         LOG(ERROR) << fmt_error("Rejecting expired API key.", api_key.value);
@@ -310,10 +405,51 @@ bool AuthManager::auth_against_key(const std::string& req_collection, const std:
         return false;
     }
 
+    const bool check_synonym_sets = has_non_wildcard_constraint(api_key.synonym_sets);
+    const bool check_curation_sets = has_non_wildcard_constraint(api_key.curation_sets);
+
+    if(!check_synonym_sets && !check_curation_sets) {
+        return true;
+    }
+
+    auto coll = CollectionManager::get_instance().get_collection(req_collection);
+    if(!coll) {
+        return true;
+    }
+
+
+    if(check_synonym_sets) {
+        auto search_synonym_sets = resolve_requested_search_sets(params, auth_context,
+                                      "synonym_sets",
+                                      AUTH_REQUESTED_SYNONYM_SETS_PARAM,
+                                      AUTH_PRESET_SYNONYM_SETS_PARAM);
+
+        auto effective_synonym_sets = merge_requested_sets(coll->get_synonym_sets(),
+                                                           search_synonym_sets);
+        if(!sets_allowed(api_key.synonym_sets, effective_synonym_sets)) {
+            return false;
+        }
+    }
+
+    if(check_curation_sets) {
+        auto search_curation_sets = resolve_requested_search_sets(params, auth_context,
+                                      "curation_sets",
+                                        AUTH_REQUESTED_CURATION_SETS_PARAM,
+                                        AUTH_PRESET_CURATION_SETS_PARAM);
+
+        auto effective_curation_sets = merge_requested_sets(coll->get_curation_sets(),
+                                                            search_curation_sets);
+        if(!sets_allowed(api_key.curation_sets, effective_curation_sets)) {
+            return false;
+        }
+    }
+
     return true;
 }
 
 Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
+                                                    const std::map<std::string, std::string>& params,
+                                                    const nlohmann::json& auth_context,
                                                     nlohmann::json& embedded_params) const {
 
     // allow only searches from scoped keys
@@ -364,7 +500,8 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
             const auto effective_collection = effective_collection_op.get();
 
             // ensure that parent key collection filter matches the final collection that will be executed
-            bool auth_success = auth_against_key(effective_collection, action, root_api_key, true);
+            bool auth_success = auth_against_key(effective_collection, action, root_api_key, true,
+                                                 params, merge_auth_context(auth_context, embedded_params));
             if(!auth_success) {
                 return Option<bool>(403, "Forbidden.");
             }
@@ -443,6 +580,30 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
         }
     }
 
+    if(key_obj.count("synonym_sets") != 0) {
+        if(!key_obj["synonym_sets"].is_array()) {
+            return Option<uint32_t>(400,"Wrong format for `synonym_sets`. It should be an array of string.");
+        }
+
+        for(const nlohmann::json & item: key_obj["synonym_sets"]) {
+            if(!item.is_string()) {
+                return Option<uint32_t>(400,"Wrong format for `synonym_sets`. It should be an array of string.");
+            }
+        }
+    }
+
+    if(key_obj.count("curation_sets") != 0) {
+        if(!key_obj["curation_sets"].is_array()) {
+            return Option<uint32_t>(400,"Wrong format for `curation_sets`. It should be an array of string.");
+        }
+
+        for(const nlohmann::json & item: key_obj["curation_sets"]) {
+            if(!item.is_string()) {
+                return Option<uint32_t>(400,"Wrong format for `curation_sets`. It should be an array of string.");
+            }
+        }
+    }
+    
     return Option<uint32_t>(200);
 }
 

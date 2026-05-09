@@ -89,6 +89,25 @@ bool get_alter_in_progress(const std::string& collection) {
     return alters_in_progress.count(collection) != 0;
 }
 
+void maybe_set_auth_search_set(nlohmann::json& auth_context,
+                               const nlohmann::json& source,
+                               const char* source_key,
+                               const char* auth_key,
+                               const bool overwrite) {
+    const auto param_it = source.find(source_key);
+    if(param_it == source.end()) {
+        return;
+    }
+
+    if(!param_it->is_string() && !param_it->is_array()) {
+        return;
+    }
+
+    if(overwrite || auth_context.count(auth_key) == 0) {
+        auth_context[auth_key] = *param_it;
+    }
+}
+
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body,
@@ -178,6 +197,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
             for(auto& el : req_obj["searches"]) {
                 if(el.is_object()) {
                     std::string coll_name;
+                    nlohmann::json auth_context = nlohmann::json::object();
                     if(el.count("collection") != 0 && el["collection"].is_string()) {
                         coll_name = el["collection"].get<std::string>();
                     } else if(req_params.count("collection") != 0) {
@@ -195,13 +215,37 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                         }
                     }
 
+                    if(el.count("preset") != 0 && el["preset"].is_string()) {
+                        nlohmann::json preset_obj;
+                        auto preset_op = CollectionManager::get_instance().get_preset(el["preset"].get<std::string>(), preset_obj);
+                        if(preset_op.ok()) {
+                            maybe_set_auth_search_set(auth_context, preset_obj,
+                                                    "synonym_sets",
+                                                    AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM,
+                                                    false);
+                            maybe_set_auth_search_set(auth_context, preset_obj,
+                                                    "curation_sets",
+                                                    AuthManager::AUTH_PRESET_CURATION_SETS_PARAM,
+                                                    false);
+                        }
+                    }
+
+                    maybe_set_auth_search_set(auth_context, el,
+                                              "synonym_sets",
+                                              AuthManager::AUTH_REQUESTED_SYNONYM_SETS_PARAM,
+                                              true);
+                    maybe_set_auth_search_set(auth_context, el,
+                                              "curation_sets",
+                                              AuthManager::AUTH_REQUESTED_CURATION_SETS_PARAM,
+                                              true);
+
                     const std::string& access_key = (el.count("x-typesense-api-key") != 0 &&
                                                      el["x-typesense-api-key"].is_string()) ?
                                                     el["x-typesense-api-key"].get<std::string>() :
                                                     req_auth_key;
 
                     collections.emplace_back(coll_name, access_key);
-                    embedded_params_vec.emplace_back(nlohmann::json::object());
+                    embedded_params_vec.emplace_back(std::move(auth_context));
                 } else {
                     collections.emplace_back("", req_auth_key);
                     embedded_params_vec.emplace_back(nlohmann::json::object());
@@ -224,8 +268,24 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
             }
 
         } else if(req_params.count("collection") != 0) {
+            nlohmann::json auth_context = nlohmann::json::object();
+            const auto preset_it = req_params.find("preset");
+            if(preset_it != req_params.end()) {
+                nlohmann::json preset_obj;
+                auto preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset_obj);
+                if(preset_op.ok()) {
+                    maybe_set_auth_search_set(auth_context, preset_obj,
+                                            "synonym_sets",
+                                            AuthManager::AUTH_PRESET_SYNONYM_SETS_PARAM,
+                                            false);
+                    maybe_set_auth_search_set(auth_context, preset_obj,
+                                            "curation_sets",
+                                            AuthManager::AUTH_PRESET_CURATION_SETS_PARAM,
+                                            false);
+                }
+            }
             collections.emplace_back(req_params.at("collection"), req_auth_key);
-            embedded_params_vec.emplace_back(nlohmann::json::object());
+            embedded_params_vec.emplace_back(std::move(auth_context));
         }
     }
 
@@ -2374,6 +2434,14 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["autodelete"] = false;
     }
 
+    if(req_json.count("synonym_sets") == 0) {
+        req_json["synonym_sets"] = nlohmann::json::array();
+    }
+
+    if(req_json.count("curation_sets") == 0) {
+        req_json["curation_sets"] = nlohmann::json::array();
+    }
+
     const std::string &rand_key = (req_json.count("value") != 0) ?
             req_json["value"].get<std::string>() : req->metadata;
 
@@ -2382,6 +2450,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["description"].get<std::string>(),
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
+        req_json["synonym_sets"].get<std::vector<std::string>>(),
+        req_json["curation_sets"].get<std::vector<std::string>>(),
         req_json["expires_at"].get<uint64_t>(),
         req_json["autodelete"].get<bool>()
     );
@@ -2441,11 +2511,21 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
         merged_json["autodelete"] = false;
     }
 
+    if(merged_json.count("synonym_sets") == 0) {
+        merged_json["synonym_sets"] = nlohmann::json::array();
+    }
+
+    if(merged_json.count("curation_sets") == 0) {
+        merged_json["curation_sets"] = nlohmann::json::array();
+    }
+
     api_key_t api_key(
         existing_key.value,
         merged_json["description"].get<std::string>(),
         merged_json["actions"].get<std::vector<std::string>>(),
         merged_json["collections"].get<std::vector<std::string>>(),
+        merged_json["synonym_sets"].get<std::vector<std::string>>(),
+        merged_json["curation_sets"].get<std::vector<std::string>>(),
         merged_json["expires_at"].get<uint64_t>(),
         merged_json["autodelete"].get<bool>()
     );
