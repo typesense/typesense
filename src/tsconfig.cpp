@@ -185,6 +185,7 @@ void Config::load_config_env() {
     this->master = get_env("TYPESENSE_MASTER");
     this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
     this->ssl_certificate_key = get_env("TYPESENSE_SSL_CERTIFICATE_KEY");
+    this->http_client_ca_certificate = get_env("TYPESENSE_HTTP_CLIENT_CA_CERTIFICATE");
 
     const std::string enable_cors = get_env("TYPESENSE_ENABLE_CORS");
     this->enable_cors = ("TRUE" == enable_cors || enable_cors.empty());
@@ -404,6 +405,10 @@ void Config::load_config_file(cmdline::parser& options) {
 
     if(reader.Exists("server", "ssl-certificate-key")) {
         this->ssl_certificate_key = reader.Get("server", "ssl-certificate-key", "");
+    }
+
+    if(reader.Exists("server", "http-client-ca-certificate")) {
+        this->http_client_ca_certificate = reader.Get("server", "http-client-ca-certificate", "");
     }
 
     if(reader.Exists("server", "listen-port")) {
@@ -645,6 +650,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("ssl-certificate-key")) {
         this->ssl_certificate_key = options.get<std::string>("ssl-certificate-key");
+    }
+
+    if(options.exist("http-client-ca-certificate")) {
+        this->http_client_ca_certificate = options.get<std::string>("http-client-ca-certificate");
     }
 
     if(options.exist("listen-port")) {

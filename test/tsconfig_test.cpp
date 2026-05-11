@@ -96,6 +96,7 @@ TEST(ConfigTest, LoadConfigFile) {
     ASSERT_EQ("/tmp/logs", config.get_log_dir());
     ASSERT_EQ(9090, config.get_api_port());
     ASSERT_EQ(true, config.get_enable_cors());
+    ASSERT_EQ("/tmp/ca.pem", config.get_http_client_ca_certificate());
 }
 
 TEST(ConfigTest, LoadIncompleteConfigFile) {

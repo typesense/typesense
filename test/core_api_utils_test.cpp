@@ -2208,6 +2208,17 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with ssl_verify as string
+    body["headers"] = nlohmann::json::object();
+    body["ssl_verify"] = "true";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("SSL verify must be a boolean.", nlohmann::json::parse(resp->body)["message"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
@@ -2720,6 +2731,37 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
+}
+
+TEST_F(CoreAPIUtilsTest, PutCurationSetItemReturnsNormalizedRuleFlags) {
+    CurationIndexManager& ov_manager = CurationIndexManager::get_instance();
+    ov_manager.init_store(store);
+    ASSERT_TRUE(ov_manager.add_curation_index("index").ok());
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["name"] = "index";
+    req->params["id"] = "curation1";
+    req->body = R"({
+        "rule": {
+            "query": "not-found",
+            "match": "exact"
+        },
+        "metadata": {
+            "foo": "bar"
+        }
+    })";
+
+    put_curation_set_item(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    auto body = nlohmann::json::parse(resp->body);
+    ASSERT_EQ("curation1", body["id"].get<std::string>());
+    ASSERT_FALSE(body["rule"]["synonyms"].get<bool>());
+    ASSERT_FALSE(body["rule"]["stem"].get<bool>());
+    ASSERT_EQ("exact", body["rule"]["match"].get<std::string>());
+    ASSERT_EQ("not-found", body["rule"]["query"].get<std::string>());
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {

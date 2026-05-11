@@ -807,6 +807,7 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
         proxy_req_body["url"] = openai_url + openai_path;
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        proxy_req_body["ssl_verify"] = true;
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
@@ -815,8 +816,8 @@ Option<std::string> OpenAIConversationModel::get_answer_stream(const std::string
                                                                    HttpProxy::default_timeout_ms, req, res, server);
     } else {
         res->proxied_stream = true;
-        HttpClient::get_instance().post_response_sse(openai_url + openai_path, req_body.dump(), headers,
-                                                     HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse_verified(openai_url + openai_path, req_body.dump(), headers,
+                                                              HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
@@ -1004,12 +1005,13 @@ Option<std::string> CFConversationModel::get_answer_stream(const std::string& co
         proxy_req_body["url"] = url;
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        proxy_req_body["ssl_verify"] = true;
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
         HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse_verified(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
@@ -1437,12 +1439,13 @@ Option<std::string> vLLMConversationModel::get_answer_stream(const std::string& 
         proxy_req_body["url"] = get_chat_completion_url(vllm_url);
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        proxy_req_body["ssl_verify"] = true;
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
         HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(get_chat_completion_url(vllm_url), req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse_verified(get_chat_completion_url(vllm_url), req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];
@@ -1835,12 +1838,13 @@ Option<std::string> GeminiConversationModel::get_answer_stream(const std::string
         proxy_req_body["url"] = url;
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        proxy_req_body["ssl_verify"] = true;
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
         HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse_verified(url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
     auto& async_conversation = async_conversations[req];
 
@@ -2067,7 +2071,7 @@ Option<std::string> AzureConversationModel::get_answer(const std::string& contex
     headers["api-key"] = api_key;
     headers["Content-Type"] = "application/json";
 
-    long status_code = HttpClient::post_response(url, request_body.dump(), response, res_headers, headers);
+    long status_code = HttpClient::post_response_verified(url, request_body.dump(), response, res_headers, headers);
 
     if (status_code != 200) {
         return Option<std::string>(status_code, "Failed to get response from Azure API: " + response);
@@ -2372,12 +2376,13 @@ Option<std::string> AzureConversationModel::get_answer_stream(const nlohmann::js
         proxy_req_body["url"] = azure_url;
         proxy_req_body["body"] = req_body.dump();
         proxy_req_body["headers"] = headers;
+        proxy_req_body["ssl_verify"] = true;
         std::unordered_map<std::string, std::string> header_;
         header_["x-typesense-api-key"] = HttpClient::get_api_key();
 
         HttpClient::get_instance().post_response_sse(proxy_url, proxy_req_body.dump(), header_, HttpProxy::default_timeout_ms, req, res, server);
     } else {
-        HttpClient::get_instance().post_response_sse(azure_url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
+        HttpClient::get_instance().post_response_sse_verified(azure_url, req_body.dump(), headers, HttpProxy::default_timeout_ms, req, res, server);
     }
 
     auto& async_conversation = async_conversations[req];

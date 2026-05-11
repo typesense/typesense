@@ -27,7 +27,7 @@ const Option<nlohmann::json> VQModelManager::get_config() {
     auto& client = HttpClient::get_instance();  
     std::string res;
     std::map<std::string, std::string> headers;
-    auto response = client.get_response(config_url, res, headers);
+    auto response = client.get_response_verified(config_url, res, headers);
 
     if (response != 200) {
         return Option<nlohmann::json>(400, "Failed to get model config file");
@@ -82,7 +82,7 @@ Option<bool> VQModelManager::download_model(const std::string& model_name) {
     std::unique_lock<std::mutex> lock(download_mutex);
     auto model_url = get_model_url(model_name);
     auto& client = HttpClient::get_instance();
-    auto response = client.download_file(model_url, model_path);
+    auto response = client.download_file_verified(model_url, model_path);
     LOG(INFO) << "Downloading model " << model_name << " from " << model_url << " to " << model_path;
     if (response != 200) {
         LOG(INFO) << response;
