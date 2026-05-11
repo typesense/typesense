@@ -1103,6 +1103,62 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
     ASSERT_EQ(1, embedded_params_vec.size());
 }
 
+TEST_F(CoreAPIUtilsTest, MultiSearchAuthenticationReturnsBodyApiKeyPrefixes) {
+    AuthManager& auth_manager = collectionManager.getAuthManager();
+    api_key_t body_key1("BodyKey1", "body key 1", {"documents:search"}, {"*"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    api_key_t body_key2("ZodyKey2", "body key 2", {"documents:search"}, {"*"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    auth_manager.create_key(body_key1);
+    auth_manager.create_key(body_key2);
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    std::map<std::string, std::string> req_params;
+    std::vector<nlohmann::json> embedded_params_vec;
+    std::string api_key_prefix;
+
+    std::string body = R"(
+        {"searches":[
+              {
+                "collection": "products",
+                "q": "battery",
+                "query_by": "name",
+                "x-typesense-api-key": "BodyKey1"
+              },
+              {
+                "collection": "products",
+                "q": "charger",
+                "query_by": "name",
+                "x-typesense-api-key": "ZodyKey2"
+              }
+          ]
+        }
+    )";
+
+    ASSERT_TRUE(handle_authentication(req_params, embedded_params_vec, body, rpath_multi_search, "", &api_key_prefix));
+    ASSERT_EQ("Body,Zody", api_key_prefix);
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchAuthenticationReturnsBodyApiKeyPrefixOnFailure) {
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    std::map<std::string, std::string> req_params;
+    std::vector<nlohmann::json> embedded_params_vec;
+    std::string api_key_prefix;
+
+    std::string body = R"(
+        {"searches":[
+              {
+                "collection": "products",
+                "q": "battery",
+                "query_by": "name",
+                "x-typesense-api-key": "NopeKey1"
+              }
+          ]
+        }
+    )";
+
+    ASSERT_FALSE(handle_authentication(req_params, embedded_params_vec, body, rpath_multi_search, "", &api_key_prefix));
+    ASSERT_EQ("Nope", api_key_prefix);
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     nlohmann::json preset_value = R"(
         {"searches":[

@@ -13,6 +13,7 @@
 #include "ratelimit_manager.h"
 #include "sole.hpp"
 #include "core_api.h"
+#include "collection_manager.h"
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -402,12 +403,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         api_auth_key_sent = query_map[http_req::AUTH_HEADER];
     }
 
-    if(Config::get_instance().get_enable_access_logging()) {
+    std::string api_auth_key_prefix;
+    const bool is_multi_search_request = (path_without_query == "/multi_search");
+    if(!is_multi_search_request && Config::get_instance().get_enable_access_logging()) {
         uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         auto epoch_millis = now / 1000;
-        const auto api_key_prefix = api_auth_key_sent.substr(0, api_key_t::PREFIX_LEN);
-        AppMetrics::get_instance().write_access_log(epoch_millis, client_ip.c_str(), metric_identifier, api_key_prefix);
+        api_auth_key_prefix = CollectionManager::get_instance().getAuthManager().get_api_key_prefix(api_auth_key_sent);
+        AppMetrics::get_instance().write_access_log(epoch_millis, client_ip.c_str(), metric_identifier, api_auth_key_prefix);
     }
 
     // Handle CORS
@@ -565,7 +568,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         // multi_search needs to be handled later because the API key could be part of request body and
         // the whole request body might not be available right now.
         bool authenticated = h2o_handler->http_server->auth_handler(query_map, embedded_params_vec, body, *rpath,
-                                                                    api_auth_key_sent);
+                                                                    api_auth_key_sent, &api_auth_key_prefix);
         if(!authenticated) {
             std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                   "` header must be sent.\"}";
@@ -583,7 +586,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
                                                                    route_hash, query_map, embedded_params_vec,
-                                                                   api_auth_key_sent, body, client_ip, is_binary_body);
+                                                                   api_auth_key_sent, api_auth_key_prefix, body, client_ip,
+                                                                   is_binary_body);
 
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
@@ -806,11 +810,30 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     if(root_resource == "multi_search") {
         // We can authenticate only when the full request body is available
         bool authenticated = handler->http_server->auth_handler(request->params, request->embedded_params_vec,
-                                                                request->body, *rpath, request->api_auth_key);
+                                                                request->body, *rpath, request->api_auth_key,
+                                                                &request->api_auth_key_prefix);
         if(!authenticated) {
+            if(Config::get_instance().get_enable_access_logging()) {
+                uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                auto epoch_millis = now / 1000;
+                const auto metric_identifier = rpath->http_method + " " + request->path_without_query;
+                AppMetrics::get_instance().write_access_log(epoch_millis, request->client_ip.c_str(), metric_identifier,
+                                                            request->api_auth_key_prefix);
+            }
+
             std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                   "` header must be sent.\"}";
             return send_response(request->_req, 401, message);
+        }
+
+        if(Config::get_instance().get_enable_access_logging()) {
+            uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+            auto epoch_millis = now / 1000;
+            const auto metric_identifier = rpath->http_method + " " + request->path_without_query;
+            AppMetrics::get_instance().write_access_log(epoch_millis, request->client_ip.c_str(), metric_identifier,
+                                                        request->api_auth_key_prefix);
         }
     }
 
@@ -1006,7 +1029,8 @@ void HttpServer::stream_response(stream_response_state_t& state) {
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params,
                                                   std::vector<nlohmann::json>& embedded_params_vec,
                                                   const std::string& body,
-                                                  const route_path& rpath, const std::string& auth_key)) {
+                                                  const route_path& rpath, const std::string& auth_key,
+                                                  std::string* api_key_prefix)) {
     auth_handler = handler;
 }
 

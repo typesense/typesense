@@ -50,6 +50,9 @@ TEST_F(AppMetricsTest, FormatsAccessLogWithApiKeyPrefix) {
 
     ASSERT_EQ("123456\t1.2.3.4\tGET /health\t\n",
               AppMetrics::format_access_log(123456, "1.2.3.4", "GET /health", ""));
+
+    ASSERT_EQ("123456\t1.2.3.4\tGET /collections\tab__\n",
+              AppMetrics::format_access_log(123456, "1.2.3.4", "GET /collections", "ab\t\n"));
 }
 
 TEST_F(AppMetricsTest, EstimateQuantileDuration) {

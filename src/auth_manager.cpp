@@ -216,6 +216,36 @@ bool AuthManager::authenticate(const std::string& action,
     return (num_keys_matched == collection_keys.size());
 }
 
+std::string AuthManager::get_api_key_prefix(const std::string& value) const {
+    if(value.empty()) {
+        return "";
+    }
+
+    std::shared_lock lock(mutex);
+    if(value == bootstrap_auth_key || api_keys.find(value) != api_keys.end()) {
+        return value.substr(0, api_key_t::PREFIX_LEN);
+    }
+
+    const std::string& key_payload = StringUtils::base64_decode(value);
+    if(key_payload.size() >= HMAC_BASE64_LEN + api_key_t::PREFIX_LEN) {
+        const std::string& hmacSHA256 = key_payload.substr(0, HMAC_BASE64_LEN);
+        const std::string& key_prefix = key_payload.substr(HMAC_BASE64_LEN, api_key_t::PREFIX_LEN);
+        const std::string& custom_params = key_payload.substr(HMAC_BASE64_LEN + api_key_t::PREFIX_LEN);
+        auto embedded_params = nlohmann::json::parse(custom_params, nullptr, false);
+        if(embedded_params.is_object()) {
+            auto prefix_range = api_keys.equal_prefix_range(key_prefix);
+            for(auto it = prefix_range.first; it != prefix_range.second; ++it) {
+                const api_key_t& root_api_key = it.value();
+                if(StringUtils::hmac(root_api_key.value, custom_params) == hmacSHA256) {
+                    return key_prefix;
+                }
+            }
+        }
+    }
+
+    return value.substr(0, api_key_t::PREFIX_LEN);
+}
+
 namespace {
 Option<std::string> resolve_scoped_search_collection(const std::string& request_collection,
                                                      const nlohmann::json& embedded_params) {

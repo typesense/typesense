@@ -2,6 +2,7 @@
 #include <thread>
 #include <app_metrics.h>
 #include <regex>
+#include <algorithm>
 #include <analytics_manager.h>
 #include "analytics_manager.h"
 #include <housekeeper.h>
@@ -93,7 +94,11 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body,
                            const route_path& rpath,
-                           const std::string& req_auth_key) {
+                           const std::string& req_auth_key,
+                           std::string* api_key_prefix) {
+    if(api_key_prefix != nullptr) {
+        api_key_prefix->clear();
+    }
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
@@ -102,10 +107,14 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
 
     if(rpath.handler == get_health_with_resource_usage) {
         // health_rusage end-point will be authenticated via pre-determined keys
-        return !req_auth_key.empty() && (
+        bool authenticated = !req_auth_key.empty() && (
                 req_auth_key == Config::get_instance().get_api_key() ||
                 req_auth_key == Config::get_instance().get_health_rusage_api_key()
                 );
+        if(authenticated && api_key_prefix != nullptr) {
+            *api_key_prefix = req_auth_key.substr(0, api_key_t::PREFIX_LEN);
+        }
+        return authenticated;
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -117,6 +126,22 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                    << "collections.size: " << collections.size()
                    << ", embedded_params_vec.size: " << embedded_params_vec.size();
         return false;
+    }
+
+    if(api_key_prefix != nullptr) {
+        AuthManager& auth_manager = collectionManager.getAuthManager();
+        std::vector<std::string> api_key_prefixes;
+        for(const auto& collection: collections) {
+            auto prefix = auth_manager.get_api_key_prefix(collection.api_key);
+            if(!prefix.empty() && std::find(api_key_prefixes.begin(), api_key_prefixes.end(), prefix) == api_key_prefixes.end()) {
+                api_key_prefixes.push_back(prefix);
+            }
+        }
+        auto req_auth_key_prefix = auth_manager.get_api_key_prefix(req_auth_key);
+        if(api_key_prefixes.empty() && !req_auth_key_prefix.empty()) {
+            api_key_prefixes.push_back(req_auth_key_prefix);
+        }
+        *api_key_prefix = StringUtils::join(api_key_prefixes, ",");
     }
 
     const bool authenticated = collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params,
