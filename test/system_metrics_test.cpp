@@ -11,11 +11,11 @@ TEST(SystemMetricsTest, ParsingNetworkStats) {
 
 // 2500Mi limit, 1GiB used — the common Kubernetes container scenario.
 TEST(SystemMetricsTest, CgroupV2FiniteLimitReturnsContainerValues) {
-    const std::string res = std::string(ROOT_DIR) + "test/resources/";
+    const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "proc_self_cgroup_v2.txt",
-        res + "cgroupfs");
+        res + "proc/proc_self_cgroup_v2.txt",
+        res + "fs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -23,11 +23,11 @@ TEST(SystemMetricsTest, CgroupV2FiniteLimitReturnsContainerValues) {
 
 // cgroupsv2 "max" means unlimited — must fall through to v1.
 TEST(SystemMetricsTest, CgroupV2UnlimitedFallsThroughToV1) {
-    const std::string res = std::string(ROOT_DIR) + "test/resources/";
+    const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "proc_self_cgroup_v2_unlimited_v1_limited.txt",
-        res + "cgroupfs");
+        res + "proc/proc_self_cgroup_v2_unlimited_v1_limited.txt",
+        res + "fs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -35,11 +35,11 @@ TEST(SystemMetricsTest, CgroupV2UnlimitedFallsThroughToV1) {
 
 // cgroupsv1 with a real limit.
 TEST(SystemMetricsTest, CgroupV1FiniteLimitReturnsContainerValues) {
-    const std::string res = std::string(ROOT_DIR) + "test/resources/";
+    const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "proc_self_cgroup_v1_only.txt",
-        res + "cgroupfs");
+        res + "proc/proc_self_cgroup_v1_only.txt",
+        res + "fs");
     ASSERT_TRUE(ok);
     ASSERT_EQ(2621440000ULL, limit);
     ASSERT_EQ(1073741824ULL, usage);
@@ -47,11 +47,11 @@ TEST(SystemMetricsTest, CgroupV1FiniteLimitReturnsContainerValues) {
 
 // cgroupsv1 unlimited sentinel — must return false so caller uses sysinfo.
 TEST(SystemMetricsTest, CgroupV1UnlimitedSentinelReturnsFalse) {
-    const std::string res = std::string(ROOT_DIR) + "test/resources/";
+    const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 99, usage = 99;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
-        res + "proc_self_cgroup_v1_unlimited.txt",
-        res + "cgroupfs");
+        res + "proc/proc_self_cgroup_v1_unlimited.txt",
+        res + "fs");
     ASSERT_FALSE(ok);
     ASSERT_EQ(99ULL, limit);
     ASSERT_EQ(99ULL, usage);
