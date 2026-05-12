@@ -119,8 +119,11 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
+
+    std::vector<std::string> expected = {"$CI", "$CM_collection1", "$CS_collection1", "$OISET_index", "$REFERENCED_INS",
+                                         "$SI_index"};
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        num_keys += 1;
+        ASSERT_EQ(expected[num_keys++], it->key().ToString());
     }
 
     delete it;
@@ -134,7 +137,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(Collection::get_next_seq_id_key("collection1"), next_seq_id);
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
-    ASSERT_EQ(5, num_keys);
+    ASSERT_EQ(6, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
 
@@ -1268,12 +1271,12 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
 
+    std::vector<std::string> expected = {"$CI", "$REFERENCED_INS"};
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        std::cout << it->key().ToString() << std::endl;
-        num_keys += 1;
+        ASSERT_EQ(expected[num_keys++], it->key().ToString());
     }
 
-    ASSERT_EQ(1, num_keys);
+    ASSERT_EQ(2, num_keys);
     ASSERT_TRUE(it->status().ok());
 
     ASSERT_EQ(nullptr, collectionManager.get_collection("collection1").get());

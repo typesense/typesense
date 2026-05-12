@@ -34,10 +34,15 @@ std::string get_ref_coll_names(const std::string& body, std::unordered_set<std::
                 std::vector<std::string> split_result;
                 StringUtils::split(field["reference"], split_result, ".");
 
+                auto& ref_coll_name = split_result[0];
+                auto symlink_op = CollectionManager::get_instance().resolve_symlink(ref_coll_name);
+                if (symlink_op.ok()) {
+                    ref_coll_name = symlink_op.get();
+                }
                 if (field.contains("drop") && field["drop"]) {
-                    dropped_referenced_collections.insert(split_result.front());
+                    dropped_referenced_collections.insert(ref_coll_name);
                 } else {
-                    referenced_collections.insert(split_result.front());
+                    referenced_collections.insert(ref_coll_name);
                 }
             }
         }
@@ -685,6 +690,7 @@ void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& 
         return;
     }
 
+    auto& cm = CollectionManager::get_instance();
     std::unordered_set<std::string> referenced_collections;
     std::unordered_set<std::string> dropped_referenced_collections;
     std::string parsed_coll_name = coll_name;
@@ -694,11 +700,15 @@ void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& 
         if (it != coll_to_references.end()) {
             return;
         }
-        referenced_collections = std::move(CollectionManager::get_instance().get_collection_references(parsed_coll_name));
+        referenced_collections = std::move(cm.get_collection_references(parsed_coll_name));
     } else {
         parsed_coll_name = get_ref_coll_names(req->body, referenced_collections, dropped_referenced_collections);
     }
 
+    auto symlink_op = cm.resolve_symlink(parsed_coll_name);
+    if (symlink_op.ok()) {
+        parsed_coll_name = symlink_op.get();
+    }
     if (parsed_coll_name.empty()) {
         return;
     }

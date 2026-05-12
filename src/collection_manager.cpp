@@ -683,21 +683,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
 
-    auto referenced_ins_json = nlohmann::json::array();
-    for (const auto& pair: referenced_ins) {
-        nlohmann::json temp_json;
-        temp_json["referenced_coll_name"] = pair.first;
-        for (const auto& item: pair.second) {
-            const auto& ref_info = item.second;
-            temp_json["referenced_infos"] += reference_info_t::to_json(ref_info);
-        }
-
-        referenced_ins_json += temp_json;
-    }
-    if (!store->insert(REFERENCED_INS, referenced_ins_json.dump())) {
-         LOG(ERROR) << "Could not persist referenced_ins to store.";
-    }
-
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
@@ -2422,7 +2407,8 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 }
 
 Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
-                                                   std::set<update_reference_info_t>& update_ref_infos) {
+                                                   std::set<update_reference_info_t>& update_ref_infos,
+                                                   bool is_live_request) {
     std::unique_lock lock(mutex);
 
     auto ref_coll = get_collection_unsafe(referenced_collection_name);
@@ -2444,6 +2430,16 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
         }
     }
 
+    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+
+    if (!is_live_request) {
+        auto it = collection_symlinks.find(referenced_collection_name);
+        if (it != collection_symlinks.end()) {
+            referenced_collection_name = it->second;
+        }
+        return Option<bool>(true);
+    }
+
     auto it = referenced_ins.find(referenced_collection_name);
     if (it == referenced_ins.end()) {
         referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
@@ -2451,7 +2447,7 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
         referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
     }
 
-    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+    persist_referenced_ins();
     return Option<bool>(true);
 }
 
@@ -2476,6 +2472,7 @@ void CollectionManager::remove_referenced_ins_with_lock(const std::string& refer
     if (referenced_it->second.empty()) {
         referenced_ins.erase(referenced_it);
     }
+    persist_referenced_ins();
 
     auto ref_coll = get_collection_unsafe(referenced_coll_name);
     if (ref_coll == nullptr) {
@@ -2920,4 +2917,22 @@ nlohmann::json CollectionManager::preprocess_union_hits_for_conversation(const n
     }
 
     return result_docs;
+}
+
+void CollectionManager::persist_referenced_ins() {
+    auto referenced_ins_json = nlohmann::json::array();
+    for (const auto& pair: referenced_ins) {
+        nlohmann::json temp_json;
+        temp_json["referenced_coll_name"] = pair.first;
+        for (const auto& item: pair.second) {
+            const auto& ref_info = item.second;
+            temp_json["referenced_infos"] += reference_info_t::to_json(ref_info);
+        }
+
+        referenced_ins_json += temp_json;
+    }
+
+    if (!store->insert(REFERENCED_INS, referenced_ins_json.dump())) {
+        LOG(ERROR) << "Could not persist referenced_ins to store.";
+    }
 }

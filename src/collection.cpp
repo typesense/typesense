@@ -7819,7 +7819,7 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
 
             auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
-                                                                           update_ref_infos);
+                                                                           update_ref_infos, is_live_request);
             if (!op.ok()) {
                 // Return an error in case the collection is not being loaded from disk.
                 if (is_live_request) {
