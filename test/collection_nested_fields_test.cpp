@@ -3589,6 +3589,52 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
+    nlohmann::json schema = R"({
+        "name": "books",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "title", "type": "string", "optional": true},
+          {"name": "commentsToValidate", "type": "object[]", "optional": true},
+          {"name": "commentsToValidate.userId", "type": "int64[]", "facet": true, "optional": true},
+          {"name": "commentsToValidate.commentIds", "type": "int64[]", "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "commentsToValidate": [{"userId": 12345, "commentIds": [12, 234, 456]}]
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "commentsToValidate.userId:=12345", {}, {}, {0},
+                                 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    doc = R"({
+        "id": "0",
+        "commentsToValidate": []
+    })"_json;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "commentsToValidate.userId:=12345", {}, {}, {0},
+                            10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    auto get_op = coll1->get("0");
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_TRUE(get_op.get()["commentsToValidate"].empty());
+}
+
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
     nlohmann::json schema = R"({
         "name": "coll1",
