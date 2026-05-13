@@ -3591,13 +3591,13 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
 
 TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
     nlohmann::json schema = R"({
-        "name": "books",
+        "name": "review_tasks",
         "enable_nested_fields": true,
         "fields": [
           {"name": "title", "type": "string", "optional": true},
-          {"name": "commentsToValidate", "type": "object[]", "optional": true},
-          {"name": "commentsToValidate.userId", "type": "int64[]", "facet": true, "optional": true},
-          {"name": "commentsToValidate.commentIds", "type": "int64[]", "facet": true, "optional": true}
+          {"name": "reviewQueue", "type": "object[]", "optional": true},
+          {"name": "reviewQueue.reviewerId", "type": "int64[]", "facet": true, "optional": true},
+          {"name": "reviewQueue.taskIds", "type": "int64[]", "facet": true, "optional": true}
         ]
     })"_json;
 
@@ -3608,31 +3608,31 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
     auto doc = R"({
         "id": "0",
         "title": "Title Alpha",
-        "commentsToValidate": [{"userId": 12345, "commentIds": [12, 234, 456]}]
+        "reviewQueue": [{"reviewerId": 9001, "taskIds": [11, 22, 33]}]
     })"_json;
 
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("*", {}, "commentsToValidate.userId:=12345", {}, {}, {0},
+    auto results = coll1->search("*", {}, "reviewQueue.reviewerId:=9001", {}, {}, {0},
                                  10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
 
     doc = R"({
         "id": "0",
-        "commentsToValidate": []
+        "reviewQueue": []
     })"_json;
 
     add_op = coll1->add(doc.dump(), UPDATE);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("*", {}, "commentsToValidate.userId:=12345", {}, {}, {0},
+    results = coll1->search("*", {}, "reviewQueue.reviewerId:=9001", {}, {}, {0},
                             10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     auto get_op = coll1->get("0");
     ASSERT_TRUE(get_op.ok());
-    ASSERT_TRUE(get_op.get()["commentsToValidate"].empty());
+    ASSERT_TRUE(get_op.get()["reviewQueue"].empty());
 }
 
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
