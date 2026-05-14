@@ -2027,6 +2027,7 @@ TEST_F(CollectionManagerTest, PopulateReferencedIns) {
     ASSERT_EQ("B", referenced_ins["C"].at("B").collection);
     ASSERT_EQ("c_ref", referenced_ins["C"].at("B").field);
     ASSERT_TRUE(referenced_ins["C"].at("B").is_async);
+    ASSERT_EQ("c_id", referenced_ins["C"].at("B").referenced_field_name);
     ASSERT_EQ("c_id", referenced_ins["C"].at("B").referenced_field.name);
     ASSERT_EQ("int32", referenced_ins["C"].at("B").referenced_field.type);
     ASSERT_TRUE(referenced_ins["C"].at("B").referenced_field.index);

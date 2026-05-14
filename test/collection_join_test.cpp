@@ -9718,6 +9718,100 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasReference) {
     run_join_query("after restart");
 }
 
+TEST_F(CollectionJoinTest, AsyncRefFieldAliasReferenceWithoutPersistedReferencedIns) {
+    auto schema_json =
+            R"({
+                "name": "production.bookings",
+                "fields": [
+                    {"name": "x", "type": "string", "facet": true}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto bookings = collection_create_op.get();
+
+    auto symlink_op = collectionManager.upsert_symlink("bookings", "production.bookings");
+    ASSERT_TRUE(symlink_op.ok());
+
+    schema_json =
+            R"({
+                "name": "production.booking-payments",
+                "fields": [
+                    {"name": "bookingId", "type": "string", "facet": true, "sort": true,
+                     "reference": "bookings.id", "async_reference": true},
+                    {"name": "amount", "type": "int32", "facet": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto booking_payments = collection_create_op.get();
+
+    auto add_op = bookings->add(R"({"id":"booking-11","x":"11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = booking_payments->add(R"({"id":"payment-1","bookingId":"booking-11","amount":100})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto run_join_query = [&](CollectionManager& cm, const std::string& stage) {
+        std::map<std::string, std::string> req_params = {
+                {"collection", "production.booking-payments"},
+                {"q", "*"},
+                {"query_by", "bookingId"},
+                {"filter_by", "$bookings(x:=`11`)"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = cm.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << stage << ": " << search_op.error();
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>()) << stage << ": " << json_res;
+        ASSERT_EQ(1, res_obj["hits"].size()) << stage << ": " << json_res;
+        ASSERT_EQ("payment-1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    };
+
+    run_join_query(collectionManager, "before restart");
+
+    // Removing "$REFERENCED_INS" key from the store to emulate previous versions.
+    ASSERT_TRUE(store->contains(CollectionManager::REFERENCED_INS));
+    ASSERT_TRUE(store->remove(CollectionManager::REFERENCED_INS));
+    ASSERT_FALSE(store->contains(CollectionManager::REFERENCED_INS));
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    // "$REFERENCED_INS" should be populated and persisted again.
+    ASSERT_TRUE(store->contains(CollectionManager::REFERENCED_INS));
+
+    auto referenced_in_op = collectionManager.is_referenced_in_with_lock("production.bookings",
+                                                                         "production.booking-payments");
+    ASSERT_TRUE(referenced_in_op.ok()) << referenced_in_op.error();
+    auto referenced_in = referenced_in_op.get();
+    EXPECT_EQ("bookingId", referenced_in.field);
+    EXPECT_EQ("id", referenced_in.referenced_field_name);
+    EXPECT_TRUE(referenced_in.is_async);
+
+    auto reloaded_bookings = collectionManager.get_collection("production.bookings");
+    ASSERT_NE(nullptr, reloaded_bookings);
+    auto async_refs = reloaded_bookings->get_async_referenced_ins();
+    EXPECT_EQ(1, async_refs.size());
+    EXPECT_EQ(1, async_refs.count("id"));
+    EXPECT_EQ(0, async_refs.count(""));
+    if (async_refs.count("id") == 1) {
+        EXPECT_EQ(1, async_refs.at("id").count(reference_pair_t("production.booking-payments", "bookingId")));
+    }
+
+    run_join_query(collectionManager, "after restart without $REFERENCED_INS key in store");
+}
+
 TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     std::string embedded_filter = "$Customers(customer_id:customer_a)",
                 query_filter = "$Customers(product_price:<100)";

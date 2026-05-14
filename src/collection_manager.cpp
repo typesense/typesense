@@ -423,7 +423,7 @@ void CollectionManager::_populate_referenced_ins(const std::vector<std::string>&
                 is_array = (type.size() > 2 && type[type.size() - 2] == '[' && type[type.size() - 1] == ']');
             }
 
-            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array);
+            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array, ref_field_name);
             if (!ref_field.name.empty()) {
                 ref_info.referenced_field = std::move(ref_field);
             }
@@ -484,6 +484,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     if (!store->contains(REFERENCED_INS)) {
         _populate_referenced_ins(collection_meta_jsons, referenced_ins);
+        persist_referenced_ins();
     } else {
         std::string referenced_ins_str;
         store->get(REFERENCED_INS, referenced_ins_str);
