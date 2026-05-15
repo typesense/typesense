@@ -2737,8 +2737,12 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
 
             filter_node_t* new_filter_tree_root = nullptr;
+            // The grouped second-pass filter is internally generated and chunked into many ORed
+            // sub-filters, which can exceed filter_by_max_ops even when the user's filter wouldn't.
             Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
-                                                                search_params->validate_field_names);
+                                                                search_params->validate_field_names,
+                                                                "",
+                                                                false);
             if (!filter_op.ok()) {
                 delete new_filter_tree_root;
                 return filter_op;
