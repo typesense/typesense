@@ -51,6 +51,10 @@ spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_distance_sentine
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_query_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::union_search_index_sentinel_value;
 
+// Split grouped second-pass string filters into chunks of this many values so each
+// chunk's approx_filter_ids_length stays small enough to be computed in init().
+static constexpr size_t GROUPED_STRING_FILTER_VALUES_CHUNK_SIZE = 50;
+
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
             ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
@@ -2689,16 +2693,40 @@ Option<bool> Index::run_search(search_args* search_params) {
                     continue;
                 }
 
-                std::string clause = field_name + ": [";
-                for (size_t j = 0; j < valid_values.size(); j++) {
-                    clause += valid_values[j];
-                    if (j + 1 < valid_values.size()) {
-                        clause += ",";
-                    }
-                }
-                clause += "]";
+                // For string fields, split into chunks so each leaf filter stays small enough
+                // for init() to materialize it via the string_filter_ids_threshold path. A single
+                // mega-filter would otherwise exceed the threshold and stay lazy.
+                const size_t chunk_size = group_by_fields[i].is_string
+                                              ? GROUPED_STRING_FILTER_VALUES_CHUNK_SIZE
+                                              : valid_values.size();
 
-                clauses.push_back(std::move(clause));
+                std::vector<std::string> field_clauses;
+                for (size_t start = 0; start < valid_values.size(); start += chunk_size) {
+                    const size_t end = std::min(start + chunk_size, valid_values.size());
+                    std::string clause = field_name + ": [";
+                    for (size_t j = start; j < end; j++) {
+                        clause += valid_values[j];
+                        if (j + 1 < end) {
+                            clause += ",";
+                        }
+                    }
+                    clause += "]";
+                    field_clauses.push_back(std::move(clause));
+                }
+
+                if (field_clauses.size() == 1) {
+                    clauses.push_back(std::move(field_clauses[0]));
+                } else {
+                    std::string combined = "(";
+                    for (size_t k = 0; k < field_clauses.size(); k++) {
+                        combined += field_clauses[k];
+                        if (k + 1 < field_clauses.size()) {
+                            combined += " || ";
+                        }
+                    }
+                    combined += ")";
+                    clauses.push_back(std::move(combined));
+                }
             }
 
             for (size_t i = 0; i < clauses.size(); i++) {
@@ -2750,6 +2778,11 @@ Option<bool> Index::run_search(search_args* search_params) {
                 filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
                                                                       filter_root, new_filter_tree_root);
                 filter_iterator_guard.reset(filter_result_iterator);
+            }
+
+            if (!search_params->enable_lazy_filter ||
+                    filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+                filter_result_iterator->compute_iterators();
             }
 
             return Option<bool>(true);
