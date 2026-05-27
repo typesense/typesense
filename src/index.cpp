@@ -51,6 +51,10 @@ spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_distance_sentine
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_query_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::union_search_index_sentinel_value;
 
+// Split grouped second-pass string filters into chunks of this many values so each
+// chunk's approx_filter_ids_length stays small enough to be computed in init().
+static constexpr size_t GROUPED_STRING_FILTER_VALUES_CHUNK_SIZE = 50;
+
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
             ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
@@ -2005,6 +2009,10 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     auto& reference_docs = ref_filter_result->docs;
+    count = ref_filter_result->count;
+    if (count == 0 && is_normal_join) {
+        return Option(true);
+    }
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
@@ -2685,16 +2693,40 @@ Option<bool> Index::run_search(search_args* search_params) {
                     continue;
                 }
 
-                std::string clause = field_name + ": [";
-                for (size_t j = 0; j < valid_values.size(); j++) {
-                    clause += valid_values[j];
-                    if (j + 1 < valid_values.size()) {
-                        clause += ",";
-                    }
-                }
-                clause += "]";
+                // For string fields, split into chunks so each leaf filter stays small enough
+                // for init() to materialize it via the string_filter_ids_threshold path. A single
+                // mega-filter would otherwise exceed the threshold and stay lazy.
+                const size_t chunk_size = group_by_fields[i].is_string
+                                              ? GROUPED_STRING_FILTER_VALUES_CHUNK_SIZE
+                                              : valid_values.size();
 
-                clauses.push_back(std::move(clause));
+                std::vector<std::string> field_clauses;
+                for (size_t start = 0; start < valid_values.size(); start += chunk_size) {
+                    const size_t end = std::min(start + chunk_size, valid_values.size());
+                    std::string clause = field_name + ": [";
+                    for (size_t j = start; j < end; j++) {
+                        clause += valid_values[j];
+                        if (j + 1 < end) {
+                            clause += ",";
+                        }
+                    }
+                    clause += "]";
+                    field_clauses.push_back(std::move(clause));
+                }
+
+                if (field_clauses.size() == 1) {
+                    clauses.push_back(std::move(field_clauses[0]));
+                } else {
+                    std::string combined = "(";
+                    for (size_t k = 0; k < field_clauses.size(); k++) {
+                        combined += field_clauses[k];
+                        if (k + 1 < field_clauses.size()) {
+                            combined += " || ";
+                        }
+                    }
+                    combined += ")";
+                    clauses.push_back(std::move(combined));
+                }
             }
 
             for (size_t i = 0; i < clauses.size(); i++) {
@@ -2705,8 +2737,12 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
 
             filter_node_t* new_filter_tree_root = nullptr;
+            // The grouped second-pass filter is internally generated and chunked into many ORed
+            // sub-filters, which can exceed filter_by_max_ops even when the user's filter wouldn't.
             Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
-                                                                search_params->validate_field_names);
+                                                                search_params->validate_field_names,
+                                                                "",
+                                                                false);
             if (!filter_op.ok()) {
                 delete new_filter_tree_root;
                 return filter_op;
@@ -2746,6 +2782,11 @@ Option<bool> Index::run_search(search_args* search_params) {
                 filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
                                                                       filter_root, new_filter_tree_root);
                 filter_iterator_guard.reset(filter_result_iterator);
+            }
+
+            if (!search_params->enable_lazy_filter ||
+                    filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+                filter_result_iterator->compute_iterators();
             }
 
             return Option<bool>(true);
@@ -3340,8 +3381,9 @@ bool Index::check_for_curations(const token_ordering& token_order, const string&
     return false;
 }
 
-Option<bool> Index::search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
-                                 const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+Option<bool> Index::search_infix_leaves(const std::string& query, const std::string& field_name,
+                                        std::vector<art_leaf*>& leaves,
+                                        const size_t max_extra_prefix, const size_t max_extra_suffix) const {
 
     auto infix_maps_it = infix_index.find(field_name);
 
@@ -3351,7 +3393,6 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     }
 
     auto infix_sets = infix_maps_it->second;
-    std::vector<art_leaf*> leaves;
 
     size_t num_processed = 0;
     std::mutex m_process;
@@ -3412,6 +3453,18 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == infix_sets.size(); });
     search_cutoff = parent_search_cutoff;
+
+    return Option<bool>(true);
+}
+
+Option<bool> Index::search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                                 const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+
+    std::vector<art_leaf*> leaves;
+    auto op = search_infix_leaves(query, field_name, leaves, max_extra_prefix, max_extra_suffix);
+    if (!op.ok()) {
+        return op;
+    }
 
     for(auto leaf: leaves) {
         posting_t::merge({leaf->values}, ids);

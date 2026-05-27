@@ -358,7 +358,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
         std::filesystem::create_directories(model_subdir);
     }
     if(!check_md5(get_absolute_model_path(actual_model_name, true), model.model_md5)) {
-        long res = httpClient.download_file(get_model_url(model), get_absolute_model_path(actual_model_name, true));
+        long res = httpClient.download_file_verified(get_model_url(model), get_absolute_model_path(actual_model_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download public model: " << model.model_name;
             return Option<bool>(400, "Failed to download model file");
@@ -367,7 +367,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
 
     if(!model.data_file_md5.empty()) {
         if(!check_md5(get_absolute_model_path(actual_model_name, true) + "_data", model.data_file_md5)) {
-            long res = httpClient.download_file(get_model_data_url(model), get_absolute_model_path(actual_model_name, true) + "_data");
+            long res = httpClient.download_file_verified(get_model_data_url(model), get_absolute_model_path(actual_model_name, true) + "_data");
             if(res != 200) {
                 LOG(INFO) << "Failed to download public model data file: " << model.model_name;
                 return Option<bool>(400, "Failed to download model data file");
@@ -376,7 +376,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     }
     
     if(!model.vocab_md5.empty() && !check_md5(get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true), model.vocab_md5)) {
-        long res = httpClient.download_file(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true));
+        long res = httpClient.download_file_verified(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download default vocab for model: " << model.model_name;
             return Option<bool>(400, "Failed to download vocab file");
@@ -386,7 +386,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     if(!model.tokenizer_md5.empty()) {
         auto tokenizer_file_path = get_model_subdir(actual_model_name, true) + "/" + model.tokenizer_file_name;
         if(!check_md5(tokenizer_file_path, model.tokenizer_md5)) {
-            long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.tokenizer_file_name, tokenizer_file_path);
+            long res = httpClient.download_file_verified(MODELS_REPO_URL + actual_model_name + "/" + model.tokenizer_file_name, tokenizer_file_path);
             if(res != 200) {
                 LOG(INFO) << "Failed to download tokenizer file for model: " << model.model_name;
                 return Option<bool>(400, "Failed to download tokenizer file");
@@ -397,7 +397,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     if(!model.image_processor_md5.empty()) {
         auto image_processor_file_path = get_model_subdir(actual_model_name, true) + "/" + model.image_processor_file_name;
         if(!check_md5(image_processor_file_path, model.image_processor_md5)) {
-            long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.image_processor_file_name, image_processor_file_path);
+            long res = httpClient.download_file_verified(MODELS_REPO_URL + actual_model_name + "/" + model.image_processor_file_name, image_processor_file_path);
             if(res != 200) {
                 LOG(INFO) << "Failed to download image processor file for model: " << model.model_name;
                 return Option<bool>(400, "Failed to download image processor file");
@@ -528,8 +528,8 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
     headers["Accept"] = "application/json";
     std::map<std::string, std::string> response_headers;
     std::string response_body;
-    long res = httpClient.get_response(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body,
-                                       response_headers, headers, 30*1000);
+    long res = httpClient.get_response_verified(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body,
+                                                response_headers, headers, 30*1000);
     if(res == 200 || res == 302) {
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
     }

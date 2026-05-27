@@ -895,7 +895,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                         const std::string& doc_id_prefix,
                                         filter_node_t*& root,
                                         const bool& validate_field_names,
-                                        const std::string& object_field_prefix) {
+                                        const std::string& object_field_prefix,
+                                        const bool& validate_max_ops) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
     if (_filter_query.empty()) {
@@ -915,10 +916,12 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toPostfix_op;
     }
 
-    auto const& max_ops = CollectionManager::get_instance().filter_by_max_ops;
-    if (postfix.size() > max_ops) {
-        return Option<bool>(400, "`filter_by` has too many operations. Maximum allowed: " + std::to_string(max_ops) +
-                                 ". Use `--filter-by-max-ops` command line argument to customize this value.");
+    if (validate_max_ops) {
+        auto const& max_ops = CollectionManager::get_instance().filter_by_max_ops;
+        if (postfix.size() > max_ops) {
+            return Option<bool>(400, "`filter_by` has too many operations. Maximum allowed: " + std::to_string(max_ops) +
+                                     ". Use `--filter-by-max-ops` command line argument to customize this value.");
+        }
     }
 
     Option<bool> toParseTree_op = toParseTree(postfix,

@@ -1962,7 +1962,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
         num_keys += 1;
     }
-    ASSERT_EQ(25+25+3, num_keys);  // 25 records, 25 id mapping, 3 meta keys
+    ASSERT_EQ(25+25+4, num_keys);  // 25 records, 25 id mapping, 4 meta keys
     delete it;
 
     // actually remove a record now
@@ -1994,7 +1994,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
         num_keys += 1;
     }
     delete it;
-    ASSERT_EQ(3, num_keys);
+    ASSERT_EQ(4, num_keys);
 
     collectionManager.drop_collection("collection_for_del");
 }

@@ -534,7 +534,8 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
-            {"name": "timestamp", "type": "int32"}
+            {"name": "timestamp", "type": "int32"},
+            {"name": "timestamps", "type": "int32[]"}
         ]
     })"_json;
 
@@ -547,6 +548,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     doc["id"] = "0";
     doc["title"] = "Hello";
     doc["timestamp"] = 3433232;
+    doc["timestamps"] = {1, 2, 3};
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
@@ -561,8 +563,8 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
-              "Existing data for field `title` cannot be coerced into an int32.", alter_op.error());
+    ASSERT_EQ("Field `title` cannot be altered from `string` to `int32`: only widening or same-meaning "
+              "type changes are allowed.", alter_op.error());
 
     // existing data should not have been touched
     auto res = coll1->search("he", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
@@ -603,6 +605,19 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     ASSERT_TRUE(alter_op.ok());
 
     ASSERT_EQ("int64", coll1->get_schema()["timestamp"].type);
+
+    // migrate int32[] to int64[]
+    schema_changes = R"({
+        "fields": [
+            {"name": "timestamps", "drop": true},
+            {"name": "timestamps", "type": "int64[]"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ("int64[]", coll1->get_schema()["timestamps"].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -861,7 +876,9 @@ TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsAllowed) {
     })"_json;
 
     auto alter_op = coll1->alter(schema_changes);
-    ASSERT_TRUE(alter_op.ok());
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `points` cannot be altered from `int32` to `string`: only widening or same-meaning "
+              "type changes are allowed.", alter_op.error());
 }
 
 TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
@@ -1077,6 +1094,8 @@ TEST_F(CollectionSchemaChangeTest, OrderOfDropShouldNotMatter) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `loc` cannot be altered from `geopoint` to `int32`: only widening or same-meaning "
+              "type changes are allowed.", alter_op.error());
 
     schema_changes = R"({
         "fields": [
@@ -1087,6 +1106,8 @@ TEST_F(CollectionSchemaChangeTest, OrderOfDropShouldNotMatter) {
 
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `loc` cannot be altered from `geopoint` to `int32`: only widening or same-meaning "
+              "type changes are allowed.", alter_op.error());
 }
 
 TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {

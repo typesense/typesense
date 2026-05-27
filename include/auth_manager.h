@@ -158,6 +158,8 @@ public:
                                    const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
                                    bool overwrite);
 
+    std::string get_api_key_prefix(const std::string& value) const;
+
     void do_housekeeping();
 
     std::vector<std::string> get_api_key_collections(const std::string& value);

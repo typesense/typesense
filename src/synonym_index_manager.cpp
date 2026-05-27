@@ -158,17 +158,28 @@ Option<nlohmann::json> SynonymIndexManager::upsert_synonym_set(const std::string
         return Option<nlohmann::json>(500, "Store not initialized.");
     }
 
-    SynonymIndex index{store, name};
     if(!items_array.is_array()) {
         return Option<nlohmann::json>(400, "Invalid 'items' field; must be an array");
     }
 
+    std::vector<synonym_t> synonym_entries;
     for(const auto& synonym : items_array) {
         synonym_t synonym_entry;
         auto parse_op = synonym_t::parse(synonym, synonym_entry);
         if(!parse_op.ok()) {
             return Option<nlohmann::json>(parse_op.code(), parse_op.error());
         }
+        synonym_entries.push_back(std::move(synonym_entry));
+    }
+
+    auto delete_op = store->delete_range(SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + name + "_",
+                                         SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + name + "`");
+    if(!delete_op.ok()) {
+        return Option<nlohmann::json>(500, "Error while removing existing synonyms from disk.");
+    }
+
+    SynonymIndex index{store, name};
+    for(const auto& synonym_entry : synonym_entries) {
         auto add_op = index.add_synonym(synonym_entry, true);
         if(!add_op.ok()) {
             return Option<nlohmann::json>(add_op.code(), add_op.error());

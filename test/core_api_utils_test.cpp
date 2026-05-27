@@ -747,6 +747,41 @@ TEST_F(CoreAPIUtilsTest, MultiSearchConversationAllSearchesFailedSkipsModelCall)
     ASSERT_FALSE(response.contains("conversation"));
 }
 
+TEST_F(CoreAPIUtilsTest, GetSearchConversationStreamWithoutConversationShouldNotFrameAsSSE) {
+    nlohmann::json schema = R"({
+        "name": "conversation_stream_no_convo_docs",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    
+    Collection* coll = op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"duck story"})", CREATE).ok());
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "conversation_stream_no_convo_docs";
+    req->params["q"] = "duck";
+    req->params["query_by"] = "title";
+    req->params["conversation_stream"] = "true";
+    // conversation is NOT set to true
+    req->embedded_params_vec.push_back(nlohmann::json::object());
+
+    bool handled = get_search(req, res);
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(200, res->status_code);
+
+    // Response body should be plain JSON, not SSE-framed
+    ASSERT_EQ(std::string::npos, res->body.find("data: "));
+
+    // Should parse as valid JSON
+    nlohmann::json response;
+    ASSERT_NO_THROW(response = nlohmann::json::parse(res->body));
+    ASSERT_TRUE(response.contains("hits"));
+}
+
 TEST_F(CoreAPIUtilsTest, MultiSearchConversationZeroHitTrimmingShouldNotHang) {
     nlohmann::json schema = R"({
         "name": "conversation_zero_hits_docs",
@@ -1066,6 +1101,62 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
     ASSERT_EQ(1, collections.size());
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ(1, embedded_params_vec.size());
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchAuthenticationReturnsBodyApiKeyPrefixes) {
+    AuthManager& auth_manager = collectionManager.getAuthManager();
+    api_key_t body_key1("BodyKey1", "body key 1", {"documents:search"}, {"*"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    api_key_t body_key2("ZodyKey2", "body key 2", {"documents:search"}, {"*"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    auth_manager.create_key(body_key1);
+    auth_manager.create_key(body_key2);
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    std::map<std::string, std::string> req_params;
+    std::vector<nlohmann::json> embedded_params_vec;
+    std::string api_key_prefix;
+
+    std::string body = R"(
+        {"searches":[
+              {
+                "collection": "products",
+                "q": "battery",
+                "query_by": "name",
+                "x-typesense-api-key": "BodyKey1"
+              },
+              {
+                "collection": "products",
+                "q": "charger",
+                "query_by": "name",
+                "x-typesense-api-key": "ZodyKey2"
+              }
+          ]
+        }
+    )";
+
+    ASSERT_TRUE(handle_authentication(req_params, embedded_params_vec, body, rpath_multi_search, "", &api_key_prefix));
+    ASSERT_EQ("Body,Zody", api_key_prefix);
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchAuthenticationReturnsBodyApiKeyPrefixOnFailure) {
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    std::map<std::string, std::string> req_params;
+    std::vector<nlohmann::json> embedded_params_vec;
+    std::string api_key_prefix;
+
+    std::string body = R"(
+        {"searches":[
+              {
+                "collection": "products",
+                "q": "battery",
+                "query_by": "name",
+                "x-typesense-api-key": "NopeKey1"
+              }
+          ]
+        }
+    )";
+
+    ASSERT_FALSE(handle_authentication(req_params, embedded_params_vec, body, rpath_multi_search, "", &api_key_prefix));
+    ASSERT_EQ("Nope", api_key_prefix);
 }
 
 TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
@@ -2173,6 +2264,17 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with ssl_verify as string
+    body["headers"] = nlohmann::json::object();
+    body["ssl_verify"] = "true";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("SSL verify must be a boolean.", nlohmann::json::parse(resp->body)["message"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
@@ -2685,6 +2787,37 @@ TEST_F(CoreAPIUtilsTest, OverridesPagination) {
     get_collections(req, resp);
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("{\"message\":\"Limit param should be unsigned integer.\"}", resp->body);
+}
+
+TEST_F(CoreAPIUtilsTest, PutCurationSetItemReturnsNormalizedRuleFlags) {
+    CurationIndexManager& ov_manager = CurationIndexManager::get_instance();
+    ov_manager.init_store(store);
+    ASSERT_TRUE(ov_manager.add_curation_index("index").ok());
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["name"] = "index";
+    req->params["id"] = "curation1";
+    req->body = R"({
+        "rule": {
+            "query": "not-found",
+            "match": "exact"
+        },
+        "metadata": {
+            "foo": "bar"
+        }
+    })";
+
+    put_curation_set_item(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    auto body = nlohmann::json::parse(resp->body);
+    ASSERT_EQ("curation1", body["id"].get<std::string>());
+    ASSERT_FALSE(body["rule"]["synonyms"].get<bool>());
+    ASSERT_FALSE(body["rule"]["stem"].get<bool>());
+    ASSERT_EQ("exact", body["rule"]["match"].get<std::string>());
+    ASSERT_EQ("not-found", body["rule"]["query"].get<std::string>());
 }
 
 TEST_F(CoreAPIUtilsTest, SynonymsPagination) {

@@ -78,7 +78,12 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
         auto field_name = pair.first;
         auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
-        auto const& field = schema.at(field_name);
+        auto const& it = schema.find(field_name);
+        if (it == schema.end()) {
+            return Option<bool>(400, "Could not find `" + field_name + "` in the schema.");
+        }
+
+        auto const& field = it.value();
         auto const& optional = field.optional;
         auto const& is_async_reference = field.is_async_reference;
         // Strict checking for presence of non-optional reference field during indexing operation.

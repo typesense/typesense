@@ -107,10 +107,7 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
     std::lock_guard<std::mutex> lock(mutex);
 
     nlohmann::json json_line;
-    nlohmann::json dictionary_json;
-    dictionary_json["id"] = dictionary_name;
-    dictionary_json["words"] = nlohmann::json::array();
-
+    
     for(const auto& line_str : json_lines) {
         try {
             json_line = nlohmann::json::parse(line_str);
@@ -122,10 +119,20 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
             return Option<bool>(400, "dictionary lines should contain `word` and `root` values.");
         }
         stem_dictionaries[dictionary_name].emplace(json_line["word"], json_line["root"]);
-        dictionary_json["words"].push_back(json_line);
     }
 
     if(write_to_store) {
+        nlohmann::json dictionary_json;
+        dictionary_json["id"] = dictionary_name;
+        dictionary_json["words"] = nlohmann::json::array();
+
+        for(const auto& kv : stem_dictionaries[dictionary_name]) {
+            nlohmann::json line;
+            line["word"] = kv.first;
+            line["root"] = kv.second;
+            dictionary_json["words"].push_back(line);
+        }
+
         bool inserted = store->insert(get_stemming_dictionary_key(dictionary_name), dictionary_json.dump());
         if (!inserted) {
             return Option<bool>(500, "Unable to insert into store.");
