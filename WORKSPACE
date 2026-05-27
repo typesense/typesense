@@ -103,7 +103,7 @@ perl_register_toolchains()
 git_repository(
     name = "com_github_brpc_braft",
     commit = "bc527db96420f610257573d80e5f60a8b0d835ef",
-    patches = ["//bazel/braft:0001.patch", "//bazel/braft:0002_ipv6.patch", "//bazel/braft:0003_snapshot_reader.patch"],
+    patches = ["//bazel/braft:0001.patch", "//bazel/braft:0002_ipv6.patch"],
     remote = "https://github.com/baidu/braft.git",
     repo_mapping = {
         "@zlib": "@com_github_madler_zlib",
@@ -341,7 +341,8 @@ register_detected_cuda_toolchains()
 new_git_repository(
     name= "snowball",
     build_file = "//bazel:snowball.BUILD",
-    branch = "master",
+    # Pin snowball to the latest known-good upstream commit.
+    commit = "2c40f9d8d93faa141e2a8ab640e404b815726c25",
     remote = "https://github.com/snowballstem/snowball.git"
 )
 

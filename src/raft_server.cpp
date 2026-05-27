@@ -49,7 +49,7 @@ namespace {
         const butil::FilePath src_snapshot_dir(snapshot_dir_path);
         const butil::FilePath src_meta_dir(meta_dir_path);
 
-        LOG(INFO) << "Copying pinned snapshot to temporary external path from " << snapshot_dir_path
+        LOG(INFO) << "Copying snapshot to temporary external path from " << snapshot_dir_path
                   << " with meta from " << meta_dir_path << " to " << temp_snapshot_path;
 
         const bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, temp_snapshot_root, true);
@@ -59,7 +59,7 @@ namespace {
             return true;
         }
 
-        LOG(ERROR) << "Failed to copy pinned snapshot to temporary external path from " << snapshot_dir_path
+        LOG(ERROR) << "Failed to copy snapshot to temporary external path from " << snapshot_dir_path
                    << " with meta from " << meta_dir_path << " to " << temp_snapshot_path;
         delete_path(temp_snapshot_path, true);
         return false;
@@ -1046,27 +1046,13 @@ bool ReplicationState::try_set_snapshot_in_progress() {
 }
 
 bool ReplicationState::export_snapshot_to_path(const std::string& ext_snapshot_path) {
-    std::shared_lock lock(node_mutex);
-
-    if(!node) {
-        LOG(ERROR) << "Could not export snapshot because node is not initialized.";
-        return false;
-    }
-
-    braft::SnapshotReader* snapshot_reader = node->open_snapshot_reader();
-    if(snapshot_reader == nullptr) {
-        LOG(ERROR) << "Failed to open pinned snapshot reader for external snapshot export.";
-        return false;
-    }
-
-    const std::string snapshot_dir_path = snapshot_reader->get_path();
+    const std::string snapshot_dir_path = raft_dir_path + "/snapshot";
     const std::string meta_dir_path = raft_dir_path + "/meta";
     const std::string temp_snapshot_path = ext_snapshot_path + ".tmp";
 
     const bool exported = copy_snapshot_to_temp_dir(snapshot_dir_path, meta_dir_path, temp_snapshot_path) &&
                           move_temp_snapshot_into_place(temp_snapshot_path, ext_snapshot_path);
 
-    node->close_snapshot_reader(snapshot_reader);
     return exported;
 }
 
