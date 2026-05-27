@@ -945,6 +945,10 @@ public:
     Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                               size_t max_extra_prefix, size_t max_extra_suffix) const;
 
+    Option<bool> search_infix_leaves(const std::string& query, const std::string& field_name,
+                                     std::vector<art_leaf*>& leaves,
+                                     size_t max_extra_prefix, size_t max_extra_suffix) const;
+
     void curate_filtered_ids(const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 

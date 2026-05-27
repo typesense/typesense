@@ -3381,8 +3381,9 @@ bool Index::check_for_curations(const token_ordering& token_order, const string&
     return false;
 }
 
-Option<bool> Index::search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
-                                 const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+Option<bool> Index::search_infix_leaves(const std::string& query, const std::string& field_name,
+                                        std::vector<art_leaf*>& leaves,
+                                        const size_t max_extra_prefix, const size_t max_extra_suffix) const {
 
     auto infix_maps_it = infix_index.find(field_name);
 
@@ -3392,7 +3393,6 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     }
 
     auto infix_sets = infix_maps_it->second;
-    std::vector<art_leaf*> leaves;
 
     size_t num_processed = 0;
     std::mutex m_process;
@@ -3453,6 +3453,18 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == infix_sets.size(); });
     search_cutoff = parent_search_cutoff;
+
+    return Option<bool>(true);
+}
+
+Option<bool> Index::search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                                 const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+
+    std::vector<art_leaf*> leaves;
+    auto op = search_infix_leaves(query, field_name, leaves, max_extra_prefix, max_extra_suffix);
+    if (!op.ok()) {
+        return op;
+    }
 
     for(auto leaf: leaves) {
         posting_t::merge({leaf->values}, ids);

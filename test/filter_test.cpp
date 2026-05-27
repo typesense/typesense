@@ -2865,3 +2865,162 @@ TEST_F(FilterTest, FilterReferences) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
 }
+
+TEST_F(FilterTest, InfixLazyEvaluation) {
+    // Collection with infix: true on cast (string[]) and points (int32).
+    // Documents match the same schema used in CollectionFilteringTest.InfixFilterOnTextFields.
+    nlohmann::json schema =
+            R"({
+                "name": "InfixLazyColl",
+                "fields": [
+                    {"name": "cast",   "type": "string[]", "infix": true},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    // seq_id 0: cast contains "chris" and "evans"
+    // seq_id 1: cast contains "chris" and "parnell"
+    // seq_id 2: cast contains "martin" and "stringer"
+    // seq_id 3: cast contains "matt" and "damon"
+    // seq_id 4: cast contains "logan" and "lerman"
+    // seq_id 5: cast contains "chris" and "pine"
+    std::vector<std::string> docs = {
+        R"({"cast": ["Chris Evans", "Scarlett Johansson"], "points": 78})",
+        R"({"cast": ["Chris Parnell", "Josh Lawson"],      "points": 63})",
+        R"({"cast": ["Martin Stringer", "Jacob Stringer"], "points": 81})",
+        R"({"cast": ["Matt Damon", "Ben Affleck"],         "points": 83})",
+        R"({"cast": ["Logan Lerman", "Alexandra Daddario"],"points": 59})",
+        R"({"cast": ["Chris Pine"],                        "points": 52})",
+    };
+
+    for (auto const& d : docs) {
+        auto add_op = coll->add(d);
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                       Collection::DOC_ID_PREFIX + "_";
+    auto const enable_lazy_evaluation = true;
+    filter_node_t* filter_tree_root = nullptr;
+
+    // Test 1: Basic infix *ris* — "chris" matches docs 0, 1, 5.
+    // approx_filter_ids_length = 3 (docs in "chris" posting list).
+    // In TEST_BUILD string_filter_ids_threshold = 3, so 3 < 3 is false → lazy path.
+    auto filter_op = filter::parse_filter_query("cast: *ris*", coll->get_schema(), store,
+                                                doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_basic = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                     filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_basic.init_status().ok());
+
+    std::vector<uint32_t> expected = {0, 1, 5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_basic.validity);
+        ASSERT_EQ(id, iter_infix_basic.seq_id);
+        iter_infix_basic.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_basic.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 2: No-match infix — iterator immediately invalid.
+    filter_op = filter::parse_filter_query("cast: *zzz*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_no_match = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                        filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_no_match.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_no_match.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 3: OR of two infix values — [*ris*, *art*].
+    // *ris*: "chris" → docs {0, 1, 5}
+    // *art*: "martin" → docs {2}
+    // approx_filter_ids_length = 3 + 1 = 4 > threshold=3 → lazy.
+    filter_op = filter::parse_filter_query("cast: [*ris*, *art*]", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_or = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                  filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_or.init_status().ok());
+
+    expected = {0, 1, 2, 5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_or.validity);
+        ASSERT_EQ(id, iter_infix_or.seq_id);
+        iter_infix_or.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_or.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 4: Infix AND numeric — cast:*ris* && points:>60.
+    // *ris*: docs {0, 1, 5}; points>60: docs {0, 1, 2, 3} → intersection = {0, 1}.
+    filter_op = filter::parse_filter_query("cast: *ris* && points: >60", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_and_numeric = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                           filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_and_numeric.init_status().ok());
+
+    expected = {0, 1};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_and_numeric.validity);
+        ASSERT_EQ(id, iter_infix_and_numeric.seq_id);
+        iter_infix_and_numeric.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_and_numeric.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 5: AND of two single-token infix conditions — cast:*ris* && cast:*in*.
+    // *ris*: docs {0, 1, 5} (via "chris"); *in*: docs {2, 5} (via "martin"/"stringer" and "pine").
+    // Intersection = {5}.
+    filter_op = filter::parse_filter_query("cast: *ris* && cast: *in*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_two_infix_and = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                       filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_two_infix_and.init_status().ok());
+
+    expected = {5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_two_infix_and.validity);
+        ASSERT_EQ(id, iter_two_infix_and.seq_id);
+        iter_two_infix_and.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_two_infix_and.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 6: Multi-token infix must return 400 — *ris pin* tokenizes to ["ris", "pin"].
+    // The infix index stores individual word tokens only; substring search across word
+    // boundaries is structurally impossible. Users should write cast:*ris* && cast:*pin* instead.
+    filter_op = filter::parse_filter_query("cast: *ris pin*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());  // parse succeeds — parser stores raw value, unaware of token count
+
+    auto iter_multi_token = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                     filter_tree_root, enable_lazy_evaluation);
+    ASSERT_FALSE(iter_multi_token.init_status().ok());
+    ASSERT_EQ(400, iter_multi_token.init_status().code());
+    ASSERT_EQ("Error with filter field `cast`: Infix filter value must be a single token. "
+              "To match multiple substrings use separate conditions, "
+              "e.g. `field:*foo* && field:*bar*`.", iter_multi_token.init_status().error());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+}

@@ -2010,7 +2010,25 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
-            auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
+
+            // Detect infix (*value*) before prefix (value*) to avoid misdetection
+            auto is_infix_match = filter_value.size() > 2
+                && filter_value[0] == '*'
+                && filter_value[filter_value.size() - 1] == '*';
+            auto is_prefix_match = !is_infix_match
+                && filter_value.size() > 1
+                && filter_value[filter_value.size() - 1] == '*';
+
+            if (is_infix_match) {
+                if (!f.infix) {
+                    status = Option<bool>(400, "Error with filter field `" + f.name +
+                        "`: Infix filtering requires the field to have `infix: true` in the schema.");
+                    validity = invalid;
+                    return;
+                }
+                filter_value.erase(0, 1);
+                filter_value.erase(filter_value.size() - 1);
+            }
             if (is_prefix_match) {
                 filter_value.erase(filter_value.size() - 1);
             }
@@ -2035,7 +2053,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 }
                 str_tokens.push_back(str_token);
 
-                if (is_prefix_match) {
+                if (is_prefix_match || is_infix_match) {
                     continue;
                 }
 
@@ -2054,6 +2072,49 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 status = Option<bool>(400, "Error with filter field `" + f.name + "`: Filter value cannot be empty.");
                 validity = invalid;
                 return;
+            }
+
+            if (is_infix_match) {
+                if (str_tokens.size() == 1) {
+                    // Lazy path: one posting_list_iterators entry per matching vocab token.
+                    std::vector<art_leaf*> infix_leaves;
+                    auto infix_op = index->search_infix_leaves(str_tokens[0], a_filter.field_name,
+                                                               infix_leaves, INT16_MAX, INT16_MAX);
+                    if (!infix_op.ok()) {
+                        status = Option<bool>(infix_op.code(), infix_op.error());
+                        validity = invalid;
+                        return;
+                    }
+
+                    for (auto* leaf : infix_leaves) {
+                        std::vector<void*> raw = {leaf->values};
+                        std::vector<posting_list_t*> plists;
+                        posting_t::to_expanded_plists(raw, plists, expanded_plists);
+                        if (plists.empty()) {
+                            continue;
+                        }
+
+                        posting_lists.push_back(plists);
+                        posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
+                        for (auto const& plist : plists) {
+                            posting_list_iterators.back().push_back(plist->new_iterator());
+                        }
+
+                        // Multiple filter values get OR; accumulate approx count (may overcount
+                        // since the same doc can appear in multiple vocab token posting lists).
+                        approx_filter_ids_length += posting_t::num_ids(leaf->values);
+                    }
+                } else {
+                    // Multi-token infix (e.g. *foo bar*) is not supported
+                    status = Option<bool>(400, "Error with filter field `" + f.name +
+                        "`: Infix filter value must be a single token. "
+                        "To match multiple substrings use separate conditions, "
+                        "e.g. `field:*foo* && field:*bar*`.");
+                    validity = invalid;
+                    return;
+                }
+
+                continue;
             }
 
             if (is_prefix_match) {
@@ -3742,7 +3803,11 @@ bool filter_result_iterator_t::validate_object_filter_helper(
 
             fieldType filter_val;
             if (f.is_string()) {
-                if(val.at(val.size() - 1) == '*' && effective_comparator == CONTAINS) {//prefix match
+                bool is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
+                if (is_infix) {
+                    val.erase(0, 1);
+                    val.pop_back();
+                } else if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
                     val.pop_back();
                 }
 
