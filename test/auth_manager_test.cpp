@@ -443,6 +443,19 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "SXZqcVdOWjVNNUVsY3ZiTW9YajQ1QnhrUXJaRzRaS0VhTlFvUmlvQ3gycz1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgw In0=")}, empty_params, embedded_params));
 }
 
+TEST_F(AuthManagerTest, ResolvesScopedAPIKeyPrefix) {
+    api_key_t key_search_coll1("KeyVal", "test key", {"documents:search"}, {"coll1"}, FUTURE_TS);
+    auth_manager.create_key(key_search_coll1);
+
+    std::string scoped_key = StringUtils::base64_encode(
+      R"(IvjqWNZ5M5ElcvbMoXj45BxkQrZG4ZKEaNQoRioCx2s=KeyV{"filter_by": "user_id:1080"})"
+    );
+
+    ASSERT_EQ("KeyV", auth_manager.get_api_key_prefix(key_search_coll1.value));
+    ASSERT_EQ("KeyV", auth_manager.get_api_key_prefix(scoped_key));
+    ASSERT_EQ("", auth_manager.get_api_key_prefix(""));
+}
+
 TEST_F(AuthManagerTest, ValidateBadKeyProperties) {
     nlohmann::json key_obj1;
     key_obj1["description"] = "desc";

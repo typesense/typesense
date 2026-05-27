@@ -7,7 +7,8 @@
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body, const route_path& rpath,
-                           const std::string& req_auth_key);
+                           const std::string& req_auth_key,
+                           std::string* api_key_prefix = nullptr);
 
 bool get_alter_in_progress(const std::string& collection);
 

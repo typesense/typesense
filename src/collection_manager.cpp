@@ -16,6 +16,7 @@
 #include "core_api_utils.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "natural_language_search_model_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -422,7 +423,7 @@ void CollectionManager::_populate_referenced_ins(const std::vector<std::string>&
                 is_array = (type.size() > 2 && type[type.size() - 2] == '[' && type[type.size() - 1] == ']');
             }
 
-            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array);
+            auto ref_info = reference_info_t(collection_name, field_name, async_ref, is_array, ref_field_name);
             if (!ref_field.name.empty()) {
                 ref_info.referenced_field = std::move(ref_field);
             }
@@ -483,6 +484,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     if (!store->contains(REFERENCED_INS)) {
         _populate_referenced_ins(collection_meta_jsons, referenced_ins);
+        persist_referenced_ins();
     } else {
         std::string referenced_ins_str;
         store->get(REFERENCED_INS, referenced_ins_str);
@@ -531,6 +533,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     // load curation sets
     CurationIndexManager::get_instance().load_curation_indices();
+
+    //load NL models
+    auto natural_language_search_init = NaturalLanguageSearchModelManager::init(store);
+    if(!natural_language_search_init.ok()) {
+        LOG(INFO) << "Failed to initialize natural language search model manager: "
+                  << natural_language_search_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << natural_language_search_init.get()
+                  << " natural language search model(s).";
+    }
 
     ThreadPool loading_pool(collection_batch_size);
 
@@ -671,21 +683,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
 void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
-
-    auto referenced_ins_json = nlohmann::json::array();
-    for (const auto& pair: referenced_ins) {
-        nlohmann::json temp_json;
-        temp_json["referenced_coll_name"] = pair.first;
-        for (const auto& item: pair.second) {
-            const auto& ref_info = item.second;
-            temp_json["referenced_infos"] += reference_info_t::to_json(ref_info);
-        }
-
-        referenced_ins_json += temp_json;
-    }
-    if (!store->insert(REFERENCED_INS, referenced_ins_json.dump())) {
-         LOG(ERROR) << "Could not persist referenced_ins to store.";
-    }
 
     collections.clear();
     collection_symlinks.clear();
@@ -944,19 +941,8 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     auto reference_fields = collection->get_reference_fields();
     for (const auto& item: reference_fields) {
         const auto& reference_info = item.second;
-        const auto& field_name = item.first;
-        const auto& ref_coll_name = reference_info.collection;
 
-        remove_referenced_ins(ref_coll_name, actual_coll_name);
-
-        auto& cm = CollectionManager::get_instance();
-        auto ref_coll = cm.get_collection(ref_coll_name);
-        if (ref_coll == nullptr) {
-            LOG(ERROR) << "Referenced collection `" + ref_coll_name + "` not found.";
-            continue;
-        }
-
-        ref_coll->remove_referenced_in(actual_coll_name, field_name, reference_info.is_async, reference_info.field);
+        remove_referenced_ins_with_lock(collection_name, reference_info);
     }
 
     std::unique_lock u_lock(mutex);
@@ -2422,7 +2408,8 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 }
 
 Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
-                                                   std::set<update_reference_info_t>& update_ref_infos) {
+                                                   std::set<update_reference_info_t>& update_ref_infos,
+                                                   bool is_live_request) {
     std::unique_lock lock(mutex);
 
     auto ref_coll = get_collection_unsafe(referenced_collection_name);
@@ -2444,6 +2431,16 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
         }
     }
 
+    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+
+    if (!is_live_request) {
+        auto it = collection_symlinks.find(referenced_collection_name);
+        if (it != collection_symlinks.end()) {
+            referenced_collection_name = it->second;
+        }
+        return Option<bool>(true);
+    }
+
     auto it = referenced_ins.find(referenced_collection_name);
     if (it == referenced_ins.end()) {
         referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
@@ -2451,27 +2448,40 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
         referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
     }
 
-    update_ref_infos.insert(_update_ref_infos.begin(), _update_ref_infos.end());
+    persist_referenced_ins();
     return Option<bool>(true);
 }
 
-void CollectionManager::remove_referenced_ins(const std::string& referenced_coll_name,
-                                              const std::string& referring_coll_name) {
+void CollectionManager::remove_referenced_ins_with_lock(const std::string& referencing_coll_name,
+                                                        const reference_info_t& ref_info) {
     std::unique_lock lock(mutex);
-    if (referring_coll_name.empty()) {
-        referenced_ins.erase(referenced_coll_name);
+    if (referencing_coll_name.empty()) {
         return;
     }
 
-    auto it = referenced_ins.find(referenced_coll_name);
-    if (it == referenced_ins.end()) {
+    const auto& referenced_coll_name = ref_info.collection;
+    auto referenced_it = referenced_ins.find(referenced_coll_name);
+    if (referenced_it == referenced_ins.end()) {
         return;
     }
-    it->second.erase(referring_coll_name);
-
-    if (it->second.empty()) {
-        referenced_ins.erase(it);
+    auto referencing_it = referenced_it->second.find(referencing_coll_name);
+    if (referencing_it == referenced_it->second.end()) {
+        return;
     }
+    const auto referencing_field_name = referencing_it->second.field;
+    referenced_it->second.erase(referencing_it);
+    if (referenced_it->second.empty()) {
+        referenced_ins.erase(referenced_it);
+    }
+    persist_referenced_ins();
+
+    auto ref_coll = get_collection_unsafe(referenced_coll_name);
+    if (ref_coll == nullptr) {
+        LOG(ERROR) << "Could not remove referenced in: Referenced collection `" + referenced_coll_name + "` not found.";
+        return;
+    }
+    ref_coll->remove_referenced_in(referencing_coll_name, referencing_field_name, ref_info.is_async,
+                                   ref_info.referenced_field.name);
 }
 
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
@@ -2874,4 +2884,56 @@ void CollectionManager::lock_nested_referencing_collections(const std::string& c
 
     std::set<std::string> referencing_collections{coll_name};
     lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
+}
+
+nlohmann::json CollectionManager::preprocess_union_hits_for_conversation(const nlohmann::json& hits) {
+    nlohmann::json result_docs = nlohmann::json::array();
+    if(!hits.is_array()) {
+        return result_docs;
+    }
+
+    std::unordered_map<std::string, nlohmann::json> collection_to_hits;
+    for(const auto& hit : hits) {
+        if(!hit.is_object() || !hit.contains("document")) {
+            continue;
+        }
+
+        auto collection_name_it = hit.find("collection");
+        if(collection_name_it == hit.end() || !collection_name_it->is_string()) {
+            result_docs.push_back(hit["document"]);
+            continue;
+        }
+
+        collection_to_hits[collection_name_it->get<std::string>()].push_back(hit);
+    }
+
+    for(const auto& [collection_name, coll_hits] : collection_to_hits) {
+        auto collection = CollectionManager::get_instance().get_collection(collection_name);
+        if(collection == nullptr) {
+            continue;
+        }
+
+        auto group_docs = collection->preprocess_result_docs_for_conversation(coll_hits);
+        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+    }
+
+    return result_docs;
+}
+
+void CollectionManager::persist_referenced_ins() {
+    auto referenced_ins_json = nlohmann::json::array();
+    for (const auto& pair: referenced_ins) {
+        nlohmann::json temp_json;
+        temp_json["referenced_coll_name"] = pair.first;
+        for (const auto& item: pair.second) {
+            const auto& ref_info = item.second;
+            temp_json["referenced_infos"] += reference_info_t::to_json(ref_info);
+        }
+
+        referenced_ins_json += temp_json;
+    }
+
+    if (!store->insert(REFERENCED_INS, referenced_ins_json.dump())) {
+        LOG(ERROR) << "Could not persist referenced_ins to store.";
+    }
 }

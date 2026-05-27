@@ -874,7 +874,8 @@ long NaturalLanguageSearchModel::post_response(const std::string& url, const std
         res_headers = mock_headers;
         return status;
     }
-    return HttpClient::post_response(url, body, response, res_headers, headers, timeout_ms, send_ts_api_header);
+    return HttpClient::post_response_verified(url, body, response, res_headers, headers, timeout_ms,
+                                              send_ts_api_header);
 }
 
 void NaturalLanguageSearchModel::add_mock_response(const std::string& response_body, long status_code, const std::map<std::string, std::string>& response_headers) {

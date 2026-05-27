@@ -83,7 +83,8 @@ struct filter {
                                            const std::string& doc_id_prefix,
                                            filter_node_t*& root,
                                            const bool& validate_field_names = true,
-                                           const std::string& object_field_prefix = "");
+                                           const std::string& object_field_prefix = "",
+                                           const bool& validate_max_ops = true);
 
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 

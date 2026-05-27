@@ -88,6 +88,10 @@ void StringUtils::parse_query_string(const std::string& query, std::map<std::str
     int query_len = int(query.size());
     int i = 0;
 
+    if(query.empty()) {
+        return;
+    }
+
     if(query[0] == '?') {
         i++;
     }

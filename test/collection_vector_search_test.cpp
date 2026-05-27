@@ -5484,6 +5484,32 @@ TEST_F(CollectionVectorTest, TestCFModelResponseParsing) {
     ASSERT_EQ("00,\n\"publishDateYear\": 2011,\n\"title\": \"SOPA\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"transcript\": \" \"\n},\n{\n\"altTitle\": \"I'm currently getting totally blacked out.\",\n\"id\": \"1006\",\n\"imageUrl\": \"https://imgs.xkcd.com/comics/blackout.png\",\n\"publishDateDay\": 18,\n\"publishDateMonth\": 1,\n\"publishDateTimestamp\": 1326866400,\n\"publishDateYear\": 2011,\n\"title\": \"Blackout\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"", parsed_string.get());
 }
 
+TEST_F(CollectionVectorTest, TestParsingIgnoresNonStringResponseChunks) {
+    const auto responses = {
+        R"({
+            "response": [
+                "data: {\"response\":\"Hello\"}\n\n",
+                "data: {\"response\":null,\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+                "data: {\"response\":\" world\"}\n\n",
+                "data: [DONE]\n\n"
+            ]
+        })",
+        R"({
+            "response": [
+                "data: {\"response\":\"Hello\"}\n\n",
+                "data: {\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+                "data: {\"response\":\" world\"}\n\n",
+                "data: [DONE]\n\n"
+            ]
+        })"
+    };
+    for(const auto& res : responses) {
+        auto parsed_string = CFConversationModel::parse_stream_response(res);
+        ASSERT_TRUE(parsed_string.ok());
+        ASSERT_EQ("Hello world", parsed_string.get());
+    }
+}
+
 TEST_F(CollectionVectorTest, TestInvalidOpenAIURL) {
     nlohmann::json schema_json = R"({
         "name": "test",

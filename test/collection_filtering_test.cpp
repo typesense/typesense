@@ -3330,6 +3330,161 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
     ASSERT_EQ("Steve Reiley", res_obj["hits"][3]["document"]["names"][0]);
 }
 
+TEST_F(CollectionFilteringTest, InfixFilterOnTextFields) {
+    // Create collection with infix: true on string fields
+    auto schema_json =
+            R"({
+                "name": "InfixFilterColl",
+                "fields": [
+                    {"name": "title", "type": "string", "infix": true},
+                    {"name": "cast", "type": "string[]", "infix": true},
+                    {"name": "name_no_infix", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ],
+                "default_sorting_field": "points"
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+        R"({"title": "Captain America", "cast": ["Chris Evans", "Scarlett Johansson"], "name_no_infix": "foo", "points": 78})"_json,
+        R"({"title": "Anchorman", "cast": ["Chris Parnell", "Josh Lawson"], "name_no_infix": "bar", "points": 63})"_json,
+        R"({"title": "There Will Be Blood", "cast": ["Martin Stringer", "Jacob Stringer"], "name_no_infix": "baz", "points": 81})"_json,
+        R"({"title": "Good Will Hunting", "cast": ["Matt Damon", "Ben Affleck"], "name_no_infix": "qux", "points": 83})"_json,
+        R"({"title": "Percy Jackson", "cast": ["Logan Lerman", "Alexandra Daddario"], "name_no_infix": "quux", "points": 59})"_json,
+        R"({"title": "Quantum Quest", "cast": ["Chris Pine"], "name_no_infix": "corge", "points": 52})"_json,
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Test 1: Basic single-token infix on array field - *ris* should match "Chris" (Evans, Parnell, Pine)
+    auto results = coll->search("*", {}, "cast: *ris*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+    std::set<std::string> result_ids;
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 2: Infix on string field - *pta* should match "Captain America"
+    results = coll->search("*", {}, "title: *pta*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Captain America", results["hits"][0]["document"]["title"]);
+
+    // Test 3: Infix with no matches
+    results = coll->search("*", {}, "cast: *zzz*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // Test 4: OR of infix values - [*ris*, *art*] matches Chris* and Martin
+    results = coll->search("*", {}, "cast: [*ris*, *art*]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 5: Error when field lacks infix: true
+    auto res_op = coll->search("*", {}, "name_no_infix: *foo*", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ("Error with filter field `name_no_infix`: Infix filtering requires the field to have "
+              "`infix: true` in the schema.", res_op.error());
+
+    // Test 6: Mixed infix + exact in OR - [*ris*, Martin]
+    results = coll->search("*", {}, "cast: [*ris*, Martin]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 7: Mixed infix + prefix in OR - [*ris*, Ma*]
+    results = coll->search("*", {}, "cast: [*ris*, Ma*]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("3"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 8: Infix combined with AND on another field
+    results = coll->search("*", {}, "cast: *ris* && points: >60", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+
+    // Test 9: Infix on title (non-array string field) - *unt* matches "Good Will Hunting"
+    results = coll->search("*", {}, "title: *unt*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Good Will Hunting", results["hits"][0]["document"]["title"]);
+
+    // Test 10: enable_lazy_filter=true + OR of infix values, cast:[*an*,*in*] with q:"will".
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 11: enable_lazy_filter=true + negated OR of infix values, cast:![*an*,*in*] with q:"will".
+    // NOT({0,2,4,5}) = {1,3}. "will" in title: {2,3}. Result = {3}.
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: ! [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 12: Exact-match operator (:=) with infix-style value — cast:= *in*.
+    // No exact matches to "in" in our cast so should return 0
+    results = coll->search("*", {}, "cast:= *in*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+}
+
 TEST_F(CollectionFilteringTest, ExactFilterOnLongField) {
     nlohmann::json schema = R"({
          "name": "companies",
@@ -4258,6 +4413,186 @@ TEST_F(CollectionFilteringTest, DeepNestedObjectFieldsFiltering) {
     ASSERT_EQ(2, result["hits"].size());
     ASSERT_EQ("Pizza", result["hits"][0]["document"]["root"]["main"]["name"]);
     ASSERT_EQ("Pasta", result["hits"][1]["document"]["root"]["main"]["name"]);
+}
+
+TEST_F(CollectionFilteringTest, DeepNestedFieldsInsideObjectFilter) {
+    auto schema_json =
+            R"({
+                "name": "show_nested",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "performances", "type": "object[]"},
+                    {"name": "performances.startDate.localTimeHour", "type": "int32[]"},
+                    {"name": "performances.pricing.minPrice", "type": "int64[]"}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Same Object Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 19}, "pricing": {"minPrice": 4500}},
+                    {"startDate": {"localTimeHour": 18}, "pricing": {"minPrice": 9000}}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Object Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 19}, "pricing": {"minPrice": 9000}},
+                    {"startDate": {"localTimeHour": 18}, "pricing": {"minPrice": 4500}}
+                ]
+            })"_json,
+            R"({
+                "title": "No Match",
+                "performances": [
+                    {"startDate": {"localTimeHour": 20}, "pricing": {"minPrice": 9000}}
+                ]
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "show_nested"},
+            {"q",              "*"},
+            {"filter_by",      "performances.{startDate.localTimeHour:19 && pricing.minPrice:<5000}"},
+            {"include_fields", "title, performances"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Same Object Match", result["hits"][0]["document"]["title"]);
+}
+
+TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
+    auto schema_json =
+            R"({
+                "name": "inventory_nested_offers",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "offers", "type": "object[]"},
+                    {"name": "offers.quantities", "type": "int32[]", "range_index": true},
+                    {"name": "offers.markers", "type": "string[]"},
+                    {"name": "offers.enabled", "type": "bool[]"},
+                    {"name": "offers.score", "type": "float[]"},
+                    {"name": "offers.minCost", "type": "int32[]", "range_index": true},
+                    {"name": "offers.maxCost", "type": "int32[]", "range_index": true}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Same Offer Numeric Match",
+                "offers": [
+                    {"quantities": [1, 3], "markers": ["standard"], "enabled": [false], "score": [2.0], "minCost": 7000, "maxCost": 4500},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Offer Numeric Match",
+                "offers": [
+                    {"quantities": [2, 3], "markers": ["standard"], "enabled": [false], "score": [1.0], "minCost": 9000, "maxCost": 12000},
+                    {"quantities": [1], "markers": ["backup"], "enabled": [false], "score": [5.0], "minCost": 7000, "maxCost": 4500}
+                ]
+            })"_json,
+            R"({
+                "title": "String Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority", "manual"], "enabled": [true, false], "score": [1.25], "minCost": 7200, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Split Marker Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["priority"], "enabled": [true], "score": [1.0], "minCost": 9000, "maxCost": 10000},
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 7200, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "Range Quantity Match",
+                "offers": [
+                    {"quantities": [4], "markers": ["standard"], "enabled": [false], "score": [1.75], "minCost": 7300, "maxCost": 5000}
+                ]
+            })"_json,
+            R"({
+                "title": "No Match",
+                "offers": [
+                    {"quantities": [1], "markers": ["standard"], "enabled": [false], "score": [5.0], "minCost": 9000, "maxCost": 12000}
+                ]
+            })"_json
+    };
+
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const auto search_titles = [&](const std::string& filter_by) {
+        std::map<std::string, std::string> req_params = {
+                {"collection",     "inventory_nested_offers"},
+                {"q",              "*"},
+                {"filter_by",      filter_by},
+                {"include_fields", "title, offers"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+
+        std::vector<std::string> titles;
+        if (search_op.ok()) {
+            auto result = nlohmann::json::parse(json_res);
+            for (const auto& hit: result["hits"]) {
+                titles.push_back(hit["document"]["title"].get<std::string>());
+            }
+        }
+        std::sort(titles.begin(), titles.end());
+        return titles;
+    };
+
+    ASSERT_EQ(std::vector<std::string>({"Same Offer Numeric Match"}),
+              search_titles("offers.{quantities:>=3 && minCost:<=7100 && maxCost:>=4000}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{markers:=priority && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{enabled:true && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"String Marker Match"}),
+              search_titles("offers.{score:<1.5 && minCost:<=7500}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match"}),
+              search_titles("offers.{quantities:[3..4] && minCost:<=7400 && maxCost:>=4900}"));
+    ASSERT_EQ(std::vector<std::string>({"Range Quantity Match", "Split Marker Match", "String Marker Match"}),
+              search_titles("offers.{quantities:!=3 && minCost:<=7400}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Range Quantity Match", "Same Offer Numeric Match",
+                                        "Split Offer Numeric Match"}),
+              search_titles("offers.{markers:!=priority}"));
+    ASSERT_EQ(std::vector<std::string>({"No Match", "Split Marker Match", "String Marker Match"}),
+              search_titles("offers.{quantities:![3..4]}"));
 }
 
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {

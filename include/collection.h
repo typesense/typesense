@@ -676,6 +676,7 @@ private:
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
+                                  const spp::sparse_hash_map<std::string, reference_info_t>& updated_reference_fields,
                                   const std::string& this_fallback_field_type);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
@@ -683,6 +684,7 @@ private:
                                         std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
                                         std::vector<field>& update_fields,
+                                        spp::sparse_hash_map<std::string, reference_info_t>& updated_reference_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_sort_curations(std::vector<const curation_t*>& filter_curations,
@@ -1010,6 +1012,8 @@ public:
     void do_housekeeping();
 
     Option<nlohmann::json> search(collection_search_args_t& coll_args);
+
+    nlohmann::json preprocess_result_docs_for_conversation(const nlohmann::json& result_hits) const;
 
     // Only for tests.
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
