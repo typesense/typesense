@@ -6,13 +6,13 @@
       "name": "api_tests",
       "dependencies": {
         "api_tests": ".",
-        "zod": "^3.25.67",
+        "zod": "3.25.67",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.2.15",
       },
       "peerDependencies": {
-        "typescript": "^5",
+        "typescript": "5.8.3",
       },
     },
   },

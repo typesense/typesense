@@ -1,4 +1,5 @@
 #include "num_tree.h"
+#include <cstring>
 #include "parasort.h"
 #include "timsort.hpp"
 
@@ -489,6 +490,38 @@ void num_tree_t::iterator_t::next() {
     } else {
         id_list_iterator.next();
 
+        if (!id_list_iterator.valid()) {
+            is_valid = false;
+            return;
+        }
+        seq_id = id_list_iterator.id();
+    }
+}
+
+void num_tree_t::iterator_t::next_n(const uint32_t& n, uint32_t*& docs, uint32_t& count) {
+    if (!is_valid) {
+        return;
+    }
+    if (docs == nullptr) {
+        docs = new uint32_t[n];
+    }
+
+    if (is_compact_id_list) {
+        const auto remaining = id_list_array_len - index;
+        const uint32_t ids_to_copy = std::min(n, remaining);
+
+        std::memcpy(docs, id_list_array + index, ids_to_copy * sizeof(uint32_t));
+        count += ids_to_copy;
+        index += ids_to_copy;
+
+        if (index >= id_list_array_len) {
+            is_valid = false;
+            return;
+        }
+
+        seq_id = id_list_array[index];
+    } else {
+        id_list_iterator.next_or_previous_n(n, docs, count);
         if (!id_list_iterator.valid()) {
             is_valid = false;
             return;

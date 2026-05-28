@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory>
 #include <string>
 #include <vector>
 #include <set>
@@ -3099,10 +3100,16 @@ TEST_F(FilterTest, LazyWildcardSearchInsertionOrderSortBy) {
     auto batch_result = new filter_result_t();
     fit->get_n_ids(2, excluded_result_index, nullptr, 0, batch_result);
 
+    // The matches when using `next` are 4, 2. But since `get_n_ids` copies ids in batch instead of iterating individually,
+    // the ids are returned in ascending order. It also helps with the AND and OR operations.
+    expected = {2, 4};
     ASSERT_EQ(2, batch_result->count);
     for (auto i = 0; i < 2; i++) {
         ASSERT_EQ(expected[i], batch_result->docs[i]);
     }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    ASSERT_EQ(4, fit->seq_id);
+    fit->next();
     ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
     delete batch_result;
 
@@ -3111,9 +3118,7 @@ TEST_F(FilterTest, LazyWildcardSearchInsertionOrderSortBy) {
     fit->get_n_ids(1, excluded_result_index, nullptr, 0, batch_result);
 
     ASSERT_EQ(1, batch_result->count);
-    for (auto i = 0; i < 1; i++) {
-        ASSERT_EQ(expected[i], batch_result->docs[i]);
-    }
+    ASSERT_EQ(4, batch_result->docs[0]);
     ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
     delete batch_result;
 
@@ -3124,9 +3129,7 @@ TEST_F(FilterTest, LazyWildcardSearchInsertionOrderSortBy) {
     fit->get_n_ids(2, excluded_result_index, excluded_result_ids, 2, batch_result);
 
     ASSERT_EQ(1, batch_result->count);
-    for (auto i = 0; i < 1; i++) {
-        ASSERT_EQ(expected[i], batch_result->docs[i]);
-    }
+    ASSERT_EQ(4, batch_result->docs[0]);
     ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
     delete batch_result;
 
@@ -3209,10 +3212,16 @@ TEST_F(FilterTest, LazyWildcardSearchNumericFieldSortBy) {
     auto batch_result = new filter_result_t();
     fit->get_n_ids(3, excluded_result_index, nullptr, 0, batch_result);
 
+    // Seq ids are collected according to the ascending order of `rating` field but sorted to make filter_by operations
+    // easier.
+    expected = {0, 2, 4};
     ASSERT_EQ(3, batch_result->count);
     for (auto i = 0; i < 3; i++) {
         ASSERT_EQ(expected[i], batch_result->docs[i]);
     }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    ASSERT_EQ(4, fit->seq_id);
+    fit->next();
     ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
     delete batch_result;
 
@@ -3280,4 +3289,113 @@ TEST_F(FilterTest, LazyWildcardSearchNumericFieldSortBy) {
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
     delete fit;
+}
+
+TEST_F(FilterTest, GetNidsIteratively) {
+    uint32_t size = 5;
+    auto left_ids = new uint32_t[size]{1, 3, 4, 5, 7};
+    auto right_ids = new uint32_t[size]{1, 2, 3, 4, 6};
+    auto dummy = std::make_unique<filter_node_t>();
+    auto fit = std::make_unique<filter_result_iterator_t>(AND, new filter_result_iterator_t(right_ids, size),
+                                                          new filter_result_iterator_t(left_ids, size),
+                                                          dummy, new filter_node_t());
+    auto batch_result = new filter_result_t();
+    fit->get_n_ids(3, size, nullptr, 0, batch_result);
+    ASSERT_EQ(3, batch_result->count);
+
+    std::vector<uint32_t> expected = {1, 3, 4};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    delete batch_result;
+
+    // Get 2 ids at a time.
+    fit->reset();
+    batch_result = new filter_result_t();
+    fit->get_n_ids(2, size, nullptr, 0, batch_result);
+    ASSERT_EQ(2, batch_result->count);
+
+    expected = {1, 3};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    delete batch_result;
+
+    batch_result = new filter_result_t();
+    fit->get_n_ids(2, size, nullptr, 0, batch_result);
+    ASSERT_EQ(1, batch_result->count);
+    expected = {4};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    // With excluded ids.
+    fit->reset();
+    auto excluded_ids = std::unique_ptr<uint32_t[]>(new uint32_t[1]{3});
+    batch_result = new filter_result_t();
+    uint32_t excluded_index = 0;
+    fit->get_n_ids(3, excluded_index, excluded_ids.get(), 1, batch_result);
+
+    expected = {1, 4};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+}
+
+TEST_F(FilterTest, GetNidsIteratively2) {
+    uint32_t left_size = 5;
+    auto left_ids = new uint32_t[left_size]{0, 1, 2, 4, 13};
+    uint32_t right_size = 9;
+    auto right_ids = new uint32_t[right_size]{0, 1, 3, 4, 5, 7, 8, 10, 13};
+    auto dummy = std::make_unique<filter_node_t>();
+    auto fit = std::make_unique<filter_result_iterator_t>(AND, new filter_result_iterator_t(left_ids, left_size),
+                                                          new filter_result_iterator_t(right_ids, right_size),
+                                                          dummy, new filter_node_t());
+    auto batch_result = new filter_result_t();
+    fit->get_n_ids(3, left_size, nullptr, 0, batch_result);
+    ASSERT_EQ(3, batch_result->count);
+
+    std::vector<uint32_t> expected = {0, 1, 4};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    ASSERT_EQ(4, fit->seq_id);
+    delete batch_result;
+
+    batch_result = new filter_result_t();
+    fit->get_n_ids(3, left_size, nullptr, 0, batch_result);
+    ASSERT_EQ(1, batch_result->count);
+    ASSERT_EQ(13, batch_result->docs[0]);
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+    delete batch_result;
+
+    // Get 2 ids at a time.
+    fit->reset();
+    batch_result = new filter_result_t();
+    fit->get_n_ids(2, left_size, nullptr, 0, batch_result);
+    ASSERT_EQ(2, batch_result->count);
+
+    expected = {0, 1};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    delete batch_result;
+
+    batch_result = new filter_result_t();
+    fit->get_n_ids(2, left_size, nullptr, 0, batch_result);
+    expected = {4, 13};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], batch_result->docs[i]);
+    }
+    ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+    fit->next();
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+
+    delete batch_result;
 }

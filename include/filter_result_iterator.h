@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <functional>
 #include <map>
 #include <utility>
 #include <vector>
@@ -239,7 +240,13 @@ struct filter_result_t {
 
     static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 
+    static void and_filter_results(const uint32_t& n, const filter_result_t& a, const filter_result_t& b,
+                                   filter_result_t& result, uint32_t const* const excluded_result_ids = nullptr,
+                                   const size_t& excluded_result_ids_size = 0);
+
     static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+
+    static void sort(filter_result_t& result);
 
     static void copy_references(const filter_result_t& from, filter_result_t& to);
 };
@@ -293,9 +300,9 @@ private:
     /// for each token.
     ///
     /// Multiple filter values: Multiple tokens: posting list iterator
-    std::vector<std::vector<posting_list_t*>> posting_lists;
-    std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
-    std::vector<posting_list_t*> expanded_plists;
+    std::vector<std::vector<posting_list_t*>> posting_lists{};
+    std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators{};
+    std::vector<posting_list_t*> expanded_plists{};
     /// Controls the number of similar words that Typesense considers during fuzzy search for filter_by values.
     size_t max_filter_by_candidates = DEFAULT_FILTER_BY_CANDIDATES;
 
@@ -312,20 +319,22 @@ private:
     /// iterator for each value.
     ///
     /// Multiple filters: Multiple values: id list iterator
-    std::vector<std::vector<id_list_t*>> id_lists;
-    std::vector<std::vector<id_list_t::iterator_t>> id_list_iterators;
-    std::vector<id_list_t*> expanded_id_lists;
+    std::vector<std::vector<id_list_t*>> id_lists{};
+    std::vector<std::vector<id_list_t::iterator_t>> id_list_iterators{};
+    std::vector<id_list_t*> expanded_id_lists{};
+    /// Used in case get_n_ids_iteratively() is called. Stores the unused/over-fetched seq_ids of a particular iterator.
+    std::vector<std::vector<std::unique_ptr<filter_result_t>>> id_buffers{};
 
     /// Stores the the current seq_id of filter values.
-    std::vector<uint32_t> seq_ids;
+    std::vector<uint32_t> seq_ids{};
 
     /// Numerical filters can have `!` operator individually.
     /// Sample filter: [>10, !15].
-    std::unordered_set<uint32_t> numerical_not_iterator_index;
+    std::unordered_set<uint32_t> numerical_not_iterator_index{};
 
     /// String filter can specify prefix value match.
     /// Sample filter: [Chris P*].
-    std::unordered_set<uint32_t> string_prefix_filter_index;
+    std::unordered_set<uint32_t> string_prefix_filter_index{};
 
     bool delete_filter_node = false;
 
@@ -333,7 +342,7 @@ private:
     id_list_t* missing_list_ptr = nullptr;
     id_list_t::iterator_t missing_values_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
-    std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
+    std::unique_ptr<filter_result_iterator_timeout_info> timeout_info{};
 
     /// In case we're iterating based on the values of a sort field or we're iterating in the reverse order, we will
     /// need to reset the rest of the filter_iterator for every value or the seq_id in reverse order.
@@ -358,9 +367,12 @@ private:
     bool reset_sibling = false;
 
     const num_tree_t* num_tree = nullptr;
-    std::map<int64_t, void*>::const_iterator sort_by_numeric_value_it;
-    std::map<int64_t, void*>::const_reverse_iterator sort_by_numeric_value_it_rev;
+    std::map<int64_t, void*>::const_iterator sort_by_numeric_value_it{};
+    std::map<int64_t, void*>::const_reverse_iterator sort_by_numeric_value_it_rev{};
     id_list_t::iterator_t id_list_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+
+    std::unique_ptr<filter_result_t> left_result = std::make_unique<filter_result_t>();
+    std::unique_ptr<filter_result_t> right_result = std::make_unique<filter_result_t>();
 
     /// Initializes the state of iterator node after it's creation.
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
@@ -412,8 +424,15 @@ private:
     void get_n_ids_iteratively(const uint32_t& n,
                                uint32_t const* const excluded_result_ids,
                                const size_t& excluded_result_ids_size,
-                               uint32_t& excluded_result_index,
-                               filter_result_t*& result);
+                               filter_result_t* const& result);
+
+    void get_n_ids_iteratively_helper(
+        const uint32_t& n,
+        uint32_t const* const excluded_result_ids,
+        const size_t& excluded_result_ids_size,
+        filter_result_t* const& result,
+        const std::function<bool(const uint32_t&, std::unique_ptr<filter_result_t>& buffer,
+                                    const std::pair<uint32_t, uint32_t>&)>& populate_buffer);
 
     /// Returns true if next sort_by value's iterator was successfully initialized, false otherwise.
     bool next_sort_value_iterator();
@@ -421,7 +440,7 @@ private:
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
-    std::map<std::string, reference_filter_result_t> reference;
+    std::map<std::string, reference_filter_result_t> reference{};
 
     /// In case of a complex filter query, validity of a node is dependent on it's sub-nodes.
     enum {timed_out = -1, invalid, valid} validity = valid;

@@ -149,6 +149,37 @@ TEST_F(PostingListTest, InsertInMiddle) {
     ASSERT_EQ(3, pl.get_root()->offsets.at(2));
 }
 
+TEST_F(PostingListTest, IteratorNextN) {
+    posting_list_t pl(2);
+
+    for(uint32_t i = 1; i <= 6; i++) {
+        pl.upsert(i * 2, {i * 100});
+    }
+
+    auto iter = pl.new_iterator();
+    uint32_t* docs = nullptr;
+    uint32_t count = 0;
+
+    iter.next_n(4, docs, count);
+    ASSERT_EQ(4, count);
+    ASSERT_EQ(2, docs[0]);
+    ASSERT_EQ(4, docs[1]);
+    ASSERT_EQ(6, docs[2]);
+    ASSERT_EQ(8, docs[3]);
+    ASSERT_TRUE(iter.valid());
+    ASSERT_EQ(10, iter.id());
+    ASSERT_EQ(500, iter.offset());
+
+    count = 0;
+    iter.next_n(4, docs, count);
+    ASSERT_EQ(2, count);
+    ASSERT_EQ(10, docs[0]);
+    ASSERT_EQ(12, docs[1]);
+    ASSERT_FALSE(iter.valid());
+
+    delete [] docs;
+}
+
 TEST_F(PostingListTest, InplaceUpserts) {
     std::vector<uint32_t> offsets = {1, 2, 3};
     posting_list_t pl(5);

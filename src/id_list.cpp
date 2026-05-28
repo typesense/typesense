@@ -1,5 +1,7 @@
 #include "id_list.h"
 #include <algorithm>
+#include <cstring>
+#include <timsort.hpp>
 #include "for.h"
 
 /* block_t operations */
@@ -54,34 +56,84 @@ bool id_list_t::iterator_t::valid() const {
 void id_list_t::iterator_t::next() {
     curr_index++;
     if(curr_index == curr_block->size()) {
-        curr_index = 0;
-        curr_block = curr_block->next;
+        move_to_next_block();
+    }
+}
+
+void id_list_t::iterator_t::move_to_previous_block() {
+    // Since block stores only the next pointer, we use `id_block_map` for reverse iteration.
+    auto last_ele = ids[curr_block->size()-1];
+    auto it = id_block_map->find(last_ele);
+    if(it != id_block_map->end() && it != id_block_map->begin()) {
+        it--;
+        curr_block = it->second;
+        curr_index = curr_block->size()-1;
 
         delete [] ids;
-        ids = nullptr;
+        ids = curr_block->ids.uncompress();
+    } else {
+        curr_block = end_block;
+    }
+}
 
-        if(curr_block != end_block) {
-            ids = curr_block->ids.uncompress();
+void id_list_t::iterator_t::move_to_next_block() {
+    curr_index = 0;
+    curr_block = curr_block->next;
+
+    delete [] ids;
+    ids = nullptr;
+
+    if(curr_block != end_block) {
+        ids = curr_block->ids.uncompress();
+    } else {
+        reset_cache();
+    }
+}
+
+void id_list_t::iterator_t::next_or_previous_n(const uint32_t& n, uint32_t*& docs, uint32_t& count) {
+    if (docs == nullptr) {
+        docs = new uint32_t[n];
+    }
+
+    if (reverse) {
+        while (count < n && curr_block != end_block) {
+            const uint32_t remaining = n - count;
+            const uint32_t available_in_block = curr_block->size() - (curr_block->size() - (curr_index + 1));
+            const uint32_t ids_to_copy = std::min(remaining, available_in_block);
+            const uint32_t begin_index = curr_index + 1 - ids_to_copy;
+
+            std::memcpy(docs + count, ids + begin_index, ids_to_copy * sizeof(uint32_t));
+            count += ids_to_copy;
+            curr_index -= ids_to_copy;
+
+            if (curr_index < 0) {
+                move_to_previous_block();
+            }
+        }
+    } else {
+        while (count < n && curr_block != end_block) {
+            const uint32_t remaining = n - count;
+            const uint32_t available_in_block = curr_block->size() - curr_index;
+            const uint32_t ids_to_copy = std::min(remaining, available_in_block);
+
+            std::memcpy(docs + count, ids + curr_index, ids_to_copy * sizeof(uint32_t));
+            count += ids_to_copy;
+            curr_index += ids_to_copy;
+
+            if (curr_index >= curr_block->size()) {
+                move_to_next_block();
+            }
         }
     }
+
+    // Since we traverse multiple blocks, seq_ids might not be in order.
+    gfx::timsort(docs, docs + count);
 }
 
 void id_list_t::iterator_t::previous() {
     curr_index--;
     if(curr_index < 0) {
-        // since block stores only the next pointer, we have to use `id_block_map` for reverse iteration
-        auto last_ele = ids[curr_block->size()-1];
-        auto it = id_block_map->find(last_ele);
-        if(it != id_block_map->end() && it != id_block_map->begin()) {
-            it--;
-            curr_block = it->second;
-            curr_index = curr_block->size()-1;
-
-            delete [] ids;
-            ids = curr_block->ids.uncompress();
-        } else {
-            curr_block = end_block;
-        }
+        move_to_previous_block();
     }
 }
 

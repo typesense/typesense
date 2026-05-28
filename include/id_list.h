@@ -40,6 +40,8 @@ public:
         std::map<last_id_t, block_t*>* id_block_map;
 
         bool reverse;
+        void move_to_next_block();
+        void move_to_previous_block();
 
     public:
         // uncompressed data structure for performance
@@ -52,6 +54,7 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void previous();
+        void next_or_previous_n(const uint32_t& n, uint32_t*& docs, uint32_t& count);
         [[nodiscard]] uint32_t last_block_id() const;
         void skip_n(uint32_t n);
         void skip_to(uint32_t id);
