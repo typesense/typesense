@@ -1486,7 +1486,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
 
     if(req->data == nullptr) {
         export_state = new export_state_t();
-        export_state->collection = collection.get();
+        export_state->collection = collection;
 
         // destruction of data is managed by req destructor
         req->data = export_state;
@@ -2209,7 +2209,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         for (size_t i = 0; i < deletion_state->index_ids.size(); i++) {
             deletion_state->offsets.push_back(0);
         }
-        deletion_state->collection = collection.get();
+        deletion_state->collection = collection;
         deletion_state->num_removed = 0;
     } else {
         deletion_state = dynamic_cast<deletion_state_t *>(req->data);

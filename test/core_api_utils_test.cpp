@@ -76,15 +76,15 @@ protected:
 };
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
-    Collection *coll1;
-
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    auto coll1_shared = collectionManager.get_collection("coll1");
+    if(coll1_shared == nullptr) {
+        collectionManager.create_collection("coll1", 2, fields, "points").get();
+        coll1_shared = collectionManager.get_collection("coll1");
     }
+    Collection* coll1 = coll1_shared.get();
 
     for(size_t i=0; i<100; i++) {
         nlohmann::json doc;
@@ -98,7 +98,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     bool done;
     deletion_state_t deletion_state;
-    deletion_state.collection = coll1;
+    deletion_state.collection = coll1_shared;
     deletion_state.num_removed = 0;
 
     // single document match
@@ -1603,14 +1603,15 @@ TEST_F(CoreAPIUtilsTest, Union) {
 }
 
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
-    Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    auto coll1_shared = collectionManager.get_collection("coll1");
+    if(coll1_shared == nullptr) {
+        collectionManager.create_collection("coll1", 2, fields, "points").get();
+        coll1_shared = collectionManager.get_collection("coll1");
     }
+    Collection* coll1 = coll1_shared.get();
 
     for(size_t i=0; i<4; i++) {
         nlohmann::json doc;
@@ -1627,7 +1628,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     filter_result_t filter_result;
     coll1->get_filter_ids_with_lock("points:>=0", export_state.filter_result);
 
-    export_state.collection = coll1;
+    export_state.collection = coll1_shared;
     export_state.res_body = &res_body;
 
     stateful_export_docs(&export_state, 2, done);
@@ -1737,7 +1738,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
     export_state_t export_state;
     auto coll1 = collectionManager.get_collection_unsafe("Products");
     coll1->get_filter_ids_with_lock("$Customers(customer_id:customer_a)", export_state.filter_result);
-    export_state.collection = coll1.get();
+    export_state.collection = coll1;
     export_state.res_body = &res_body;
     export_state.include_fields.insert("product_name");
     export_state.ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{"Customers", {"product_price"}, "",
@@ -3454,15 +3455,15 @@ TEST_F(CoreAPIUtilsTest, TruncateFieldValidationNegative) {
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
-    Collection *coll1;
-
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    auto coll1_shared = collectionManager.get_collection("coll1");
+    if(coll1_shared == nullptr) {
+        collectionManager.create_collection("coll1", 2, fields, "points").get();
+        coll1_shared = collectionManager.get_collection("coll1");
     }
+    Collection* coll1 = coll1_shared.get();
 
     for(size_t i=0; i<10; i++) {
         nlohmann::json doc;
@@ -3476,7 +3477,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsWithReturnValues) {
 
     bool done;
     deletion_state_t deletion_state;
-    deletion_state.collection = coll1;
+    deletion_state.collection = coll1_shared;
     deletion_state.num_removed = 0;
     deletion_state.return_doc = true;
     deletion_state.return_id = true;
@@ -3717,14 +3718,15 @@ TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyWithCascadeReference) {
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
-    Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    auto coll1_shared = collectionManager.get_collection("coll1");
+    if(coll1_shared == nullptr) {
+        collectionManager.create_collection("coll1", 2, fields, "points").get();
+        coll1_shared = collectionManager.get_collection("coll1");
     }
+    Collection* coll1 = coll1_shared.get();
 
     for(size_t i = 0; i < 1205; i++) {
         nlohmann::json doc;
@@ -3735,7 +3737,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
     }
 
     deletion_state_t deletion_state;
-    deletion_state.collection = coll1;
+    deletion_state.collection = coll1_shared;
     deletion_state.num_removed = 0;
 
     filter_result_t filter_results;
