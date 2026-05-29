@@ -1278,7 +1278,7 @@ public:
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
-                                           std::vector<uint32_t>& result) const;
+                                           std::vector<uint32_t>& result, bool keep_multiplicity = false) const;
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                    const std::set<std::string>& filter_values,
@@ -1304,7 +1304,7 @@ public:
                                              uint32_t& result) const;
 
     Option<bool> get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
-                                 std::vector<uint32_t>& result) const;
+                                 std::vector<uint32_t>& result, bool keep_multiplicity = false) const;
 
     Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,
                                                           const std::map<basic_string<char>, reference_filter_result_t>& references,

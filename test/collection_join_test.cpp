@@ -11170,6 +11170,105 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, FacetByReferenceWeightedAggregation) {
+    // The `:weighted` modifier on a reference facet multiplies stats by the
+    // number of child rows referencing each parent, instead of the default
+    // behavior that deduplicates child rows to one count per parent.
+    //
+    // Setup:
+    //   Pop A (estimatedValue_usd=1000) referenced by 3 FolderItems in folder F1.
+    //   Pop B (estimatedValue_usd=500)  referenced by 1 FolderItem  in folder F1.
+    //   1 extra FolderItem in F_other (must not affect F1 results).
+
+    auto schema_pops_json = R"({
+            "name": "Pops",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "estimatedValue_usd", "type": "int32", "facet": true}
+            ]
+        })"_json;
+    std::vector<nlohmann::json> pops = {
+            R"({ "id": "A", "name": "Alpha", "estimatedValue_usd": 1000 })"_json,
+            R"({ "id": "B", "name": "Beta",  "estimatedValue_usd": 500  })"_json
+    };
+    auto pops_create_op = collectionManager.create_collection(schema_pops_json);
+    ASSERT_TRUE(pops_create_op.ok());
+    for (auto const& json : pops) {
+        auto add_op = pops_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto schema_fi_json = R"({
+            "name": "FolderItems",
+            "fields": [
+                {"name": "folderId", "type": "string", "facet": true},
+                {"name": "itemId", "type": "string", "reference": "Pops.id"}
+            ]
+        })"_json;
+    std::vector<nlohmann::json> folderItems = {
+            R"({ "id": "fi_1", "folderId": "F1", "itemId": "A" })"_json,
+            R"({ "id": "fi_2", "folderId": "F1", "itemId": "A" })"_json,
+            R"({ "id": "fi_3", "folderId": "F1", "itemId": "A" })"_json,
+            R"({ "id": "fi_B", "folderId": "F1", "itemId": "B" })"_json,
+            R"({ "id": "fi_other", "folderId": "F_other", "itemId": "A" })"_json
+    };
+    auto fi_create_op = collectionManager.create_collection(schema_fi_json);
+    ASSERT_TRUE(fi_create_op.ok());
+    for (auto const& json : folderItems) {
+        auto add_op = fi_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // --- Default behavior: parent-dedup (regression guard) ---
+    std::map<std::string, std::string> req_params = {
+            {"collection", "FolderItems"},
+            {"q", "*"},
+            {"query_by", "folderId"},
+            {"filter_by", "folderId:=F1"},
+            {"facet_by", "$Pops(estimatedValue_usd)"},
+            {"per_page", "0"}
+    };
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    nlohmann::json res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res["found"]);
+    ASSERT_EQ(1500, res["facet_counts"][0]["stats"]["sum"].get<int>());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+    // Both A and B appear once each.
+    for (auto const& c : res["facet_counts"][0]["counts"]) {
+        ASSERT_EQ(1, c["count"].get<int>());
+    }
+
+    // --- Weighted behavior: child-multiplicity ---
+    req_params["facet_by"] = "$Pops(estimatedValue_usd):weighted";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res["found"]);
+    // sum = 3 * 1000 + 1 * 500 = 3500
+    ASSERT_EQ(3500, res["facet_counts"][0]["stats"]["sum"].get<int>());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+    // Value 1000 must appear 3 times (one per FolderItem), value 500 once.
+    int count_for_1000 = 0, count_for_500 = 0;
+    for (auto const& c : res["facet_counts"][0]["counts"]) {
+        if (c["value"].get<std::string>() == "1000") count_for_1000 = c["count"].get<int>();
+        if (c["value"].get<std::string>() == "500")  count_for_500  = c["count"].get<int>();
+    }
+    ASSERT_EQ(3, count_for_1000);
+    ASSERT_EQ(1, count_for_500);
+
+    // --- Unknown modifier rejected ---
+    req_params["facet_by"] = "$Pops(estimatedValue_usd):garbage";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_NE(std::string::npos, search_op.error().find("unknown modifier"));
+}
+
 TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
     auto schema_json =
             R"({

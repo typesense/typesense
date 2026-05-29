@@ -4874,14 +4874,14 @@ Option<bool> Collection::get_filter_ids_with_lock(const std::string& filter_quer
 }
 
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
-                                                   std::vector<uint32_t>& result) const {
+                                                   std::vector<uint32_t>& result, bool keep_multiplicity) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id_vec, result);
+    return get_related_ids(field_name, seq_id_vec, result, keep_multiplicity);
 }
 
 Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
-                                         std::vector<uint32_t>& result) const {
-    return index->get_related_ids_with_lock(ref_field_name, seq_id_vec, result);
+                                         std::vector<uint32_t>& result, bool keep_multiplicity) const {
+    return index->get_related_ids_with_lock(ref_field_name, seq_id_vec, result, keep_multiplicity);
 }
 
 Option<bool> Collection::get_object_array_related_id_with_lock(const std::string& ref_field_name,
@@ -7940,8 +7940,25 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             ref_collection_name = ref_collection->name;
         }
 
+        auto close_paren_pos = facet_field.rfind(')');
+        if (close_paren_pos == std::string::npos || close_paren_pos < open_paren_pos) {
+            return Option<bool>(400, error_message + "missing closing `)` in `" + facet_field + "`.");
+        }
+
+        // Optional trailing modifier: `$other(field):weighted`
+        bool weighted = false;
+        if (close_paren_pos + 1 < facet_field.size()) {
+            std::string suffix = facet_field.substr(close_paren_pos + 1);
+            if (suffix == ":weighted") {
+                weighted = true;
+            } else {
+                return Option<bool>(400, error_message + "unknown modifier `" + suffix +
+                                         "` (supported: `:weighted`).");
+            }
+        }
+
         std::string ref_facet_expression = facet_field.substr(open_paren_pos + 1,
-                                                              facet_field.size() - open_paren_pos - 2);
+                                                              close_paren_pos - open_paren_pos - 1);
         std::vector<std::string> ref_facet_strings;
         StringUtils::split_facet(ref_facet_expression, ref_facet_strings);
 
@@ -7956,6 +7973,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         for (auto& ref_facet: ref_facets) {
             ref_facet.reference_collection_name = ref_collection_name;
             ref_facet.reference_collection_alias_name = ref_alias_collection_name;
+            ref_facet.weighted = weighted;
             ref_facet.orig_index = facets.size();
             facets.emplace_back(std::move(ref_facet));
         }

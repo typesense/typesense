@@ -4561,7 +4561,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
                                           this_facet.sort_order, this_facet.sort_field,
                                           this_facet.reference_collection_name,
-                                          this_facet.reference_collection_alias_name);
+                                          this_facet.reference_collection_alias_name,
+                                          this_facet.weighted);
                 num_value_facets++;
                 continue;
             }
@@ -4571,7 +4572,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                               this_facet.facet_range_map, this_facet.is_range_query,
                                               this_facet.is_sort_by_alpha, this_facet.sort_order, this_facet.sort_field,
                                               this_facet.reference_collection_name,
-                                              this_facet.reference_collection_alias_name);
+                                              this_facet.reference_collection_alias_name,
+                                              this_facet.weighted);
             }
         }
 
@@ -4817,7 +4819,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                     const std::string& collection_name, Collection const *const ref_collection,
                                     filter_result_iterator_t& fit,
-                                    std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const {
+                                    std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids,
+                                    bool keep_child_multiplicity) const {
 
     auto const& ref_collection_name = ref_collection->get_name();
     reference_facet_ids[ref_collection_name] = reference_filter_result_t();
@@ -4874,7 +4877,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                 continue;
             }
 
-            get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
+            get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids, keep_child_multiplicity);
         } else if (joined_coll_has_reference) {
             auto& cm = CollectionManager::get_instance();
             auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -4894,13 +4897,20 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
 
             joined_collection->get_related_ids_with_lock(reference_field_name,
                                                          std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count),
-                                                         ref_doc_ids);
+                                                         ref_doc_ids, keep_child_multiplicity);
         }
     }
 
     fit.reset();
     gfx::timsort(ref_doc_ids.begin(), ref_doc_ids.end());
-    ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
+    if (!keep_child_multiplicity) {
+        // Default behavior: collapse to one entry per parent doc, so facet
+        // stats are computed once per matching parent.
+        ref_doc_ids.erase(unique(ref_doc_ids.begin(), ref_doc_ids.end()), ref_doc_ids.end());
+    }
+    // When keep_child_multiplicity is true, duplicates are preserved (sorted)
+    // so the downstream facet loop iterates each parent N times (once per
+    // matching child reference), naturally multiplying stats.sum and counts.
 
     auto& result = reference_facet_ids[ref_collection_name];
     result.count = ref_doc_ids.size();
@@ -6584,7 +6594,8 @@ Option<bool> Index::compute_facet_infos(const std::vector<facet>& facets, facet_
 
             if (reference_facet_ids.count(ref_collection_name) == 0) {
                 get_reference_facet_ids(all_result_ids, all_result_ids_len, collection->get_name(),
-                                        ref_collection.get(), fit, reference_facet_ids);
+                                        ref_collection.get(), fit, reference_facet_ids,
+                                        a_facet.weighted);
             }
 
             if (reference_facet_ids.at(ref_collection_name).count == 0) {
@@ -6624,7 +6635,10 @@ Option<bool> Index::compute_facet_infos(const std::vector<facet>& facets, facet_
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
         //as we use sort index for range facets with hash based index, sort index should be present
-        if(facet_index_type == exhaustive || group_limit != 0) {
+        // Weighted reference facets require the exhaustive hash-based path: the value
+        // index intersection collapses duplicate doc_ids, which would defeat the
+        // child-multiplicity preserved in get_reference_facet_ids.
+        if(facet_index_type == exhaustive || group_limit != 0 || a_facet.weighted) {
             facet_infos[findex].use_value_index = false;
         }
         else if(facet_value_index_exists) {
@@ -8634,13 +8648,13 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
 }
 
 Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
-                                              std::vector<uint32_t>& related_ids) const {
+                                              std::vector<uint32_t>& related_ids, bool keep_multiplicity) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id_vec, related_ids);
+    return get_related_ids(field_name, seq_id_vec, related_ids, keep_multiplicity);
 }
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
-                                    std::vector<uint32_t>& related_ids) const {
+                                    std::vector<uint32_t>& related_ids, bool keep_multiplicity) const {
     auto const& collection_name = get_collection_name();
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
     auto search_schema_it = search_schema.find(reference_helper_field_name);
@@ -8706,15 +8720,17 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
     }
 
     gfx::timsort(related_ids.begin(), related_ids.end());
-    related_ids.erase(unique(related_ids.begin(), related_ids.end()), related_ids.end());
+    if (!keep_multiplicity) {
+        related_ids.erase(unique(related_ids.begin(), related_ids.end()), related_ids.end());
+    }
 
     return Option<bool>(true);
 }
 
 Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
-                                    std::vector<uint32_t>& result) const {
+                                    std::vector<uint32_t>& result, bool keep_multiplicity) const {
     const std::vector<uint32_t> seq_ids_vec{seq_id};
-    return get_related_ids(field_name, seq_ids_vec, result);
+    return get_related_ids(field_name, seq_ids_vec, result, keep_multiplicity);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,

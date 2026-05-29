@@ -424,6 +424,14 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
                 return 0;
             }
 
+            // Absorb optional trailing modifier after `)` (e.g. ":weighted"),
+            // so it is forwarded to parse_facet instead of being silently dropped.
+            if (index < current_str.size() && current_str[index] == ':') {
+                while (index < current_str.size() && current_str[index] != ',') {
+                    index++;
+                }
+            }
+
             temp = delim = current_str.substr(0, index);
             subend = substart + delim.size();
 
