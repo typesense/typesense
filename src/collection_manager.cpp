@@ -942,7 +942,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     for (const auto& item: reference_fields) {
         const auto& reference_info = item.second;
 
-        remove_referenced_ins_with_lock(collection_name, reference_info);
+        remove_referenced_ins_with_lock(actual_coll_name, reference_info);
     }
 
     std::unique_lock u_lock(mutex);
