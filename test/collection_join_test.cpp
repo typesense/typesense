@@ -9772,7 +9772,7 @@ TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReference) {
                 {"collection", "s1_child"},
                 {"q", "*"},
                 {"query_by", "product_code"},
-                {"filter_by", "$s1_alias(product_code:=`p-11`)"},
+                {"filter_by", "$s1_parent_alias(product_code:=`p-11`)"},
         };
         nlohmann::json embedded_params;
         std::string json_res;
