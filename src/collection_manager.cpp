@@ -814,7 +814,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         for (auto& update_ref_info: update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
             if(coll) {
-                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+                coll->update_reference_info_with_lock(update_ref_info.field, new_collection->get_name(),
+                                                      update_ref_info.referenced_field);
                 // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
@@ -998,6 +999,47 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
     }
 
     collection_symlinks[symlink_name] = collection_name;
+
+    return resolve_deferred_references_for_symlink(symlink_name, collection_name);
+}
+
+Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                                        const std::string& collection_name) {
+    auto ref_infos_it = referenced_ins.find(symlink_name);
+    std::map<std::string, reference_info_t> deferred_ref_infos;
+    if (ref_infos_it != referenced_ins.end()) {
+        deferred_ref_infos = ref_infos_it->second;
+        referenced_ins.erase(ref_infos_it);
+    }
+
+    for (const auto& item: deferred_ref_infos) {
+        auto referenced_collection_name = collection_name;
+        auto ref_info = item.second;
+        auto referencing_collection_name = ref_info.collection;
+        auto referencing_field_name = ref_info.field;
+        std::set<update_reference_info_t> update_ref_infos;
+
+        auto op = add_referenced_ins(referenced_collection_name, std::move(ref_info), update_ref_infos);
+        if (!op.ok()) {
+            return op;
+        }
+
+        auto referencing_coll = get_collection_unsafe(referencing_collection_name);
+        if (referencing_coll == nullptr) {
+            continue;
+        }
+
+        if (update_ref_infos.empty()) {
+            referencing_coll->update_reference_info_with_lock(referencing_field_name, referenced_collection_name, field{});
+            continue;
+        }
+
+        for (const auto& update_ref_info: update_ref_infos) {
+            referencing_coll->update_reference_info_with_lock(update_ref_info.field, referenced_collection_name,
+                                                              update_ref_info.referenced_field);
+        }
+    }
+
     return Option<bool>(true);
 }
 
@@ -2407,11 +2449,16 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
+Option<bool> CollectionManager::add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                             std::set<update_reference_info_t>& update_ref_infos,
+                                                             bool is_live_request) {
+    std::unique_lock lock(mutex);
+    return add_referenced_ins(referenced_collection_name, std::move(ref_info), update_ref_infos, is_live_request);
+}
+
 Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
                                                    std::set<update_reference_info_t>& update_ref_infos,
                                                    bool is_live_request) {
-    std::unique_lock lock(mutex);
-
     auto ref_coll = get_collection_unsafe(referenced_collection_name);
     std::set<update_reference_info_t> _update_ref_infos{};
     if (ref_coll != nullptr) {

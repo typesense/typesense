@@ -9718,6 +9718,91 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasReference) {
     run_join_query("after restart");
 }
 
+TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReference) {
+    auto schema_json =
+            R"({
+                "name": "s1_child",
+                "fields": [
+                    {"name": "product_code", "type": "string", "reference": "s1_parent_alias.product_code", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "name": "s1_parent",
+                "fields": [
+                    {"name": "product_code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent = collection_create_op.get();
+
+    auto symlink_op = collectionManager.upsert_symlink("s1_parent_alias", "s1_parent");
+    ASSERT_TRUE(symlink_op.ok()) << symlink_op.error();
+
+    auto add_op = parent->add(R"({"id":"p-11","product_code":"p-11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = child->add(R"({"id":"c-1","product_code":"p-11","note":"x"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto run_join_query = [&](const std::string& stage) {
+        auto parent_coll = collectionManager.get_collection("s1_parent");
+        ASSERT_NE(nullptr, parent_coll) << stage;
+        auto async_refs = parent_coll->get_async_referenced_ins();
+        ASSERT_EQ(1, async_refs.size()) << stage;
+        ASSERT_EQ(1, async_refs.count("product_code")) << stage;
+        ASSERT_EQ(1, async_refs.at("product_code").count(reference_pair_t("s1_child", "product_code"))) << stage;
+
+        auto child_coll = collectionManager.get_collection("s1_child");
+        ASSERT_NE(nullptr, child_coll) << stage;
+        auto ref_fields = child_coll->get_reference_fields();
+        ASSERT_EQ(1, ref_fields.size()) << stage;
+        ASSERT_EQ("product_code", ref_fields.begin()->first);
+        ASSERT_EQ("s1_parent", ref_fields.begin()->second.collection) << stage;
+        ASSERT_EQ("product_code", ref_fields.begin()->second.field);
+        ASSERT_EQ("product_code", ref_fields.begin()->second.referenced_field.name);
+
+        std::map<std::string, std::string> req_params = {
+                {"collection", "s1_child"},
+                {"q", "*"},
+                {"query_by", "product_code"},
+                {"filter_by", "$s1_alias(product_code:=`p-11`)"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << stage << ": " << search_op.error();
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>()) << stage << ": " << json_res;
+        ASSERT_EQ(1, res_obj["hits"].size()) << stage << ": " << json_res;
+        ASSERT_EQ("c-1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+        ASSERT_EQ("p-11", res_obj["hits"][0]["document"]["product_code"].get<std::string>());
+        ASSERT_EQ("x", res_obj["hits"][0]["document"]["note"].get<std::string>());
+    };
+
+    run_join_query("before restart");
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    run_join_query("after restart");
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldAliasReferenceWithoutPersistedReferencedIns) {
     auto schema_json =
             R"({

@@ -1275,6 +1275,9 @@ public:
 
     void update_reference_field(const std::string& field_name, const field& ref_field);
 
+    void update_reference_info_with_lock(const std::string& field_name, const std::string& ref_collection_name,
+                                         const field& ref_field);
+
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,

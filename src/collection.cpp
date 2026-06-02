@@ -6690,9 +6690,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             auto ref_coll_name = ref_info_it->second.collection;
             auto ref_info = reference_info_t{name, f.name, f.is_async_reference, f.is_array(), ref_info_it->second.field};
             std::set<update_reference_info_t> update_ref_infos{};
-            auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name,
-                                                                           std::move(ref_info),
-                                                                           update_ref_infos);
+            auto op = CollectionManager::get_instance().add_referenced_ins_with_lock(ref_coll_name,
+                                                                                     std::move(ref_info),
+                                                                                     update_ref_infos);
             if (!op.ok()) {
                 return op;
             }
@@ -7818,8 +7818,8 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
             auto ref_field_name = field.reference.substr(dot_index + 1);
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
 
-            auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
-                                                                           update_ref_infos, is_live_request);
+            auto op = CollectionManager::get_instance().add_referenced_ins_with_lock(ref_coll_name, std::move(ref_info),
+                                                                                     update_ref_infos, is_live_request);
             if (!op.ok()) {
                 // Return an error in case the collection is not being loaded from disk.
                 if (is_live_request) {
@@ -8578,6 +8578,21 @@ void Collection::update_reference_field(const std::string& field_name, const fie
         return;
     }
 
+    it->second.referenced_field = ref_field;
+    rebuild_read_state_snapshot_unlocked();
+}
+
+void Collection::update_reference_info_with_lock(const std::string& field_name,
+                                                 const std::string& ref_collection_name,
+                                                 const field& ref_field) {
+    std::unique_lock lock(mutex);
+    auto it = reference_fields.find(field_name);
+    if (it == reference_fields.end()) {
+        return;
+    }
+
+    it->second.collection = ref_collection_name;
+    it->second.referenced_field_name = ref_field.name;
     it->second.referenced_field = ref_field;
     rebuild_read_state_snapshot_unlocked();
 }
