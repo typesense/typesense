@@ -806,6 +806,20 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         ref_info_maps.push_back(it->second);
     }
 
+    // Also bind references that were declared against an alias which already points
+    // at this newly-created collection (the alias was created before its target
+    // collection existed). Those pending references are recorded under the alias
+    // key in `referenced_ins`, so the lookup by concrete `name` above does not find
+    // them. See `upsert_symlink` for the complementary order.
+    for (const auto& symlink_pair: collection_symlinks) {
+        if (symlink_pair.second == name) {
+            auto alias_ref_it = referenced_ins.find(symlink_pair.first);
+            if (alias_ref_it != referenced_ins.end()) {
+                ref_info_maps.push_back(alias_ref_it->second);
+            }
+        }
+    }
+
     // Don't hold cm lock to prevent lock cycle inversion
     lock.unlock();
 
@@ -998,6 +1012,36 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
     }
 
     collection_symlinks[symlink_name] = collection_name;
+
+    // A reference field can be declared against an alias before that alias (or its
+    // target collection) exists. With `async_reference: true` the referencing
+    // collection is created anyway, and the pending reference is recorded in
+    // `referenced_ins` keyed by the alias name with an empty `referenced_field`.
+    // Nothing resolves it later, so every import into the referencing collection
+    // fails with "Referenced field ... not found in the collection `<alias>`".
+    // Now that the alias resolves to `collection_name`, bind those references if
+    // the target collection exists. This mirrors the back-fill in
+    // `create_collection`, and is done after releasing the cm mutex to avoid the
+    // same lock cycle inversion that path guards against.
+    std::vector<std::map<std::string, reference_info_t>> ref_info_maps;
+    auto ref_it = referenced_ins.find(symlink_name);
+    auto target = get_collection_unsafe(collection_name);
+    if (ref_it != referenced_ins.end() && target != nullptr) {
+        ref_info_maps.push_back(ref_it->second);
+    }
+
+    lock.unlock();
+
+    for (auto& ref_info_map: ref_info_maps) {
+        const auto& update_ref_infos = target->add_referenced_ins(ref_info_map);
+        for (auto& update_ref_info: update_ref_infos) {
+            auto coll = get_collection_unsafe(update_ref_info.collection);
+            if (coll) {
+                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+            }
+        }
+    }
+
     return Option<bool>(true);
 }
 

@@ -13668,3 +13668,148 @@ TEST_F(CollectionJoinTest, FilterByReference_UsesMaterializedReferenceCount) {
     ASSERT_EQ(0, res_obj["found"].get<size_t>());
     ASSERT_TRUE(res_obj["hits"].empty());
 }
+
+// ----------------------------------------------------------------------------
+// Regression tests for: an `async_reference` targeting an ALIAS is never resolved
+// when the referencing collection is created before the alias exists.
+// https://github.com/typesense/typesense/issues/2942
+// ----------------------------------------------------------------------------
+
+static Option<bool> join_search_2942(CollectionManager& cm, const std::string& collection,
+                                     const std::string& filter_by, nlohmann::json& res_out) {
+    std::map<std::string, std::string> req_params = {
+            {"collection", collection},
+            {"q", "*"},
+            {"query_by", "name"},
+            {"filter_by", filter_by},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto op = cm.do_search(req_params, embedded_params, json_res, now_ts);
+    if (op.ok()) {
+        res_out = nlohmann::json::parse(json_res);
+    }
+    return op;
+}
+
+static nlohmann::json parent_schema_2942(const std::string& name) {
+    nlohmann::json s;
+    s["name"] = name;
+    s["fields"] = nlohmann::json::array({
+        nlohmann::json{{"name", "ref_key"}, {"type", "string"}},
+        nlohmann::json{{"name", "name"}, {"type", "string"}}
+    });
+    return s;
+}
+
+static nlohmann::json child_schema_2942(const std::string& name, const std::string& reference_target) {
+    nlohmann::json s;
+    s["name"] = name;
+    s["fields"] = nlohmann::json::array({
+        nlohmann::json{{"name", "name"}, {"type", "string"}},
+        nlohmann::json{{"name", "ref_key"}, {"type", "string"},
+                       {"reference", reference_target + ".ref_key"}, {"async_reference", true}}
+    });
+    return s;
+}
+
+// create_collection takes a non-const json& (lvalue); pass schemas through this
+// by-value wrapper so the helper return values bind correctly.
+static Option<Collection*> mk_coll_2942(CollectionManager& cm, nlohmann::json schema) {
+    return cm.create_collection(schema);
+}
+
+// Core fix: referencing collection created FIRST against an alias that does not
+// exist yet; creating the alias afterwards must bind the reference.
+TEST_F(CollectionJoinTest, AsyncReferenceToAliasResolvedWhenAliasCreatedLater) {
+    auto child_op = mk_coll_2942(collectionManager, child_schema_2942("child", "parent_alias"));
+    ASSERT_TRUE(child_op.ok());
+    Collection* child = child_op.get();
+
+    auto parent_op = mk_coll_2942(collectionManager, parent_schema_2942("parent"));
+    ASSERT_TRUE(parent_op.ok());
+    ASSERT_TRUE(parent_op.get()->add(R"({"id": "p-11", "ref_key": "p-11", "name": "parent doc"})"_json.dump()).ok());
+
+    // Creating the alias must bind the pending reference (the fix). Without the
+    // fix, this import fails with "Referenced field ref_key not found in the
+    // collection parent_alias".
+    ASSERT_TRUE(collectionManager.upsert_symlink("parent_alias", "parent").ok());
+
+    auto add_op = child->add(R"({"id": "c-1", "ref_key": "p-11", "name": "child doc"})"_json.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    nlohmann::json res;
+    auto search_op = join_search_2942(collectionManager, "parent", "$child(ref_key:=p-11)", res);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    collectionManager.drop_collection("child");
+    collectionManager.drop_collection("parent");
+}
+
+// Reverse order: alias is created (pointing at a not-yet-existent target) before
+// the target collection; creating the target must bind the reference.
+TEST_F(CollectionJoinTest, AsyncReferenceToAliasResolvedWhenTargetCreatedLater) {
+    auto child_op = mk_coll_2942(collectionManager, child_schema_2942("child", "parent_alias"));
+    ASSERT_TRUE(child_op.ok());
+    Collection* child = child_op.get();
+
+    // Alias points at a collection that does not exist yet.
+    ASSERT_TRUE(collectionManager.upsert_symlink("parent_alias", "parent").ok());
+
+    // Creating the target collection should back-fill the alias-keyed reference.
+    auto parent_op = mk_coll_2942(collectionManager, parent_schema_2942("parent"));
+    ASSERT_TRUE(parent_op.ok());
+    ASSERT_TRUE(parent_op.get()->add(R"({"id": "p-11", "ref_key": "p-11", "name": "parent doc"})"_json.dump()).ok());
+
+    auto add_op = child->add(R"({"id": "c-1", "ref_key": "p-11", "name": "child doc"})"_json.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    nlohmann::json res;
+    ASSERT_TRUE(join_search_2942(collectionManager, "parent", "$child(ref_key:=p-11)", res).ok());
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    collectionManager.drop_collection("child");
+    collectionManager.drop_collection("parent");
+}
+
+// Multiple referencing collections share one alias; all must be bound.
+TEST_F(CollectionJoinTest, AsyncReferenceToAliasMultipleReferrers) {
+    ASSERT_TRUE(mk_coll_2942(collectionManager, child_schema_2942("child_a", "parent_alias")).ok());
+    ASSERT_TRUE(mk_coll_2942(collectionManager, child_schema_2942("child_b", "parent_alias")).ok());
+
+    auto parent_op = mk_coll_2942(collectionManager, parent_schema_2942("parent"));
+    ASSERT_TRUE(parent_op.ok());
+    ASSERT_TRUE(parent_op.get()->add(R"({"id": "p-11", "ref_key": "p-11", "name": "parent doc"})"_json.dump()).ok());
+
+    ASSERT_TRUE(collectionManager.upsert_symlink("parent_alias", "parent").ok());
+
+    auto a = collectionManager.get_collection("child_a")->add(R"({"id": "a-1", "ref_key": "p-11", "name": "a"})"_json.dump());
+    ASSERT_TRUE(a.ok()) << a.error();
+    auto b = collectionManager.get_collection("child_b")->add(R"({"id": "b-1", "ref_key": "p-11", "name": "b"})"_json.dump());
+    ASSERT_TRUE(b.ok()) << b.error();
+
+    collectionManager.drop_collection("child_a");
+    collectionManager.drop_collection("child_b");
+    collectionManager.drop_collection("parent");
+}
+
+// Regression guard: a CONCRETE-name async reference created before its target
+// already worked; the fix must not change that.
+TEST_F(CollectionJoinTest, AsyncReferenceToConcreteCreatedFirstStillWorks) {
+    auto child_op = mk_coll_2942(collectionManager, child_schema_2942("child", "parent"));
+    ASSERT_TRUE(child_op.ok());
+    Collection* child = child_op.get();
+
+    auto parent_op = mk_coll_2942(collectionManager, parent_schema_2942("parent"));
+    ASSERT_TRUE(parent_op.ok());
+    ASSERT_TRUE(parent_op.get()->add(R"({"id": "p-11", "ref_key": "p-11", "name": "parent doc"})"_json.dump()).ok());
+
+    auto add_op = child->add(R"({"id": "c-1", "ref_key": "p-11", "name": "child doc"})"_json.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    collectionManager.drop_collection("child");
+    collectionManager.drop_collection("parent");
+}
