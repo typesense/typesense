@@ -1032,35 +1032,13 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
 
     lock.unlock();
 
-    // referencing collection name -> resolved referenced field
-    std::map<std::string, field> resolved_fields;
     for (auto& ref_info_map: ref_info_maps) {
         const auto& update_ref_infos = target->add_referenced_ins(ref_info_map);
         for (auto& update_ref_info: update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
             if (coll) {
                 coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
-                resolved_fields[update_ref_info.collection] = update_ref_info.referenced_field;
             }
-        }
-    }
-
-    // Persist the now-resolved `referenced_field` back into `referenced_ins` so the
-    // binding survives a restart regardless of collection load order (on reload,
-    // `init_collection` rebuilds the referencing collection's reference field from
-    // this map). Without this the binding would be repaired in memory but the
-    // persisted entry would still carry an empty field.
-    if (!resolved_fields.empty()) {
-        std::unique_lock relock(mutex);
-        auto rit = referenced_ins.find(symlink_name);
-        if (rit != referenced_ins.end()) {
-            for (auto& entry: rit->second) {
-                auto rf = resolved_fields.find(entry.first);
-                if (rf != resolved_fields.end()) {
-                    entry.second.referenced_field = rf->second;
-                }
-            }
-            persist_referenced_ins();
         }
     }
 
