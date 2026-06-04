@@ -379,8 +379,11 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
     }
 
     const auto referencing_collection_name = referencing_coll->get_name();
+    const bool references_doc_id = referenced_field_name == "id";
     field referenced_field;
-    {
+    if (references_doc_id) {
+        referenced_field = field("id", field_types::STRING, false);
+    } else {
         std::shared_lock lock(mutex);
         auto it = search_schema.find(referenced_field_name);
         if (it == search_schema.end()) {
@@ -413,7 +416,18 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
         std::string ref_filter_value;
         std::string ref_display_value;
         std::set<std::string> values;
-        if (document.at(referenced_field_name).is_array()) {
+        if (references_doc_id) {
+            auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                referenced_field_type,
+                                                                                document.at(referenced_field_name),
+                                                                                ref_filter_value, ref_display_value,
+                                                                                values);
+            if (!filter_value_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " +
+                                         filter_value_op.error());
+            }
+        } else if (document.at(referenced_field_name).is_array()) {
             ref_filter_value = "[";
             ref_display_value = "[";
 
@@ -462,18 +476,20 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
             continue;
         }
 
-        filter_result_t filter_result;
-        auto referenced_filter = referenced_field_name + (referenced_field.is_string() ? ":= " : ": ");
-        referenced_filter += ref_filter_value;
-        auto filter_op = get_filter_ids_with_lock(referenced_filter, filter_result, false);
-        if (!filter_op.ok()) {
-            return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
-                                     "` of collection `" + referencing_collection_name + "`: " + filter_op.error());
-        } else if (filter_result.count > 1) {
-            return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
-                                     "` of collection `" + referencing_collection_name + "`: The value `" +
-                                     ref_display_value + "` of the field `" + referenced_field_name +
-                                     "` is not unique in `" + name + "` collection.");
+        if (!references_doc_id) {
+            filter_result_t filter_result;
+            auto referenced_filter = referenced_field_name + (referenced_field.is_string() ? ":= " : ": ");
+            referenced_filter += ref_filter_value;
+            auto filter_op = get_filter_ids_with_lock(referenced_filter, filter_result, false);
+            if (!filter_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " + filter_op.error());
+            } else if (filter_result.count > 1) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: The value `" +
+                                         ref_display_value + "` of the field `" + referenced_field_name +
+                                         "` is not unique in `" + name + "` collection.");
+            }
         }
 
         auto ref_filter = referencing_field_name + ":= ";
