@@ -7298,12 +7298,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             // NOTE: fields with type "auto" or "string*" will exist in both `search_schema` and `dynamic_fields`
             if(found_dyn_field) {
                 del_fields.push_back(dyn_field_it->second);
-                // we will also have to resolve the actual field names which match the dynamic field pattern
+                // only drop fields materialized by this exact pattern, leaving explicit declarations intact
+                const std::string& pattern = dyn_field_it->first;
                 for(auto& a_field: search_schema) {
-                    if(std::regex_match(a_field.name, std::regex(dyn_field_it->first))) {
+                    if(a_field.from_dynamic == pattern) {
                         del_fields.push_back(a_field);
-                        // if schema contains explicit fields that match dynamic field that're going to be removed,
-                        // we will have to remove them from the schema so that validation can occur properly
                         updated_search_schema.erase(a_field.name);
                     }
                 }
