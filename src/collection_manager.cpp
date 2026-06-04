@@ -1200,7 +1200,12 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
             resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
                     resolution.ref_info.collection, resolution.ref_info.field, resolution.ref_info.referenced_field_name,
                     resolution.ref_info.referenced_field);
-            if (!resolution.update_ref_infos.empty() && resolution.update_ref_infos.begin()->is_mutual_reference) {
+            if (resolution.update_ref_infos.empty()) {
+                return Option<bool>(400, "Referenced field `" + resolution.ref_info.referenced_field_name +
+                                         "` not found in the collection `" + resolution.referenced_collection_name + "`.");
+            }
+
+            if (resolution.update_ref_infos.begin()->is_mutual_reference) {
                 auto info = is_referenced_in_with_lock(resolution.ref_info.collection,
                                                        resolution.referenced_collection_name);
                 auto referenced_field = info.ok() ? info.get().field : resolution.update_ref_infos.begin()->field;

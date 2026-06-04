@@ -10248,6 +10248,88 @@ TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPropagatesFilterValueError
     ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["product_code_sequence_id"]);
 }
 
+TEST_F(CollectionJoinTest, FailedSymlinkUpsertMissingReferencedFieldPreservesDeferredReferences) {
+    const std::string parent_alias_name = "parent_alias_missing_code";
+    const std::string invalid_parent_collection_name = "parent_without_code";
+    const std::string valid_parent_collection_name = "parent_with_code";
+    const std::string child_collection_name = "child_referencing_parent_alias_missing_code";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "code", "type": "string", "reference": "parent_alias_missing_code.code"},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(child_collection_name));
+    ASSERT_EQ("code", referenced_ins.at(parent_alias_name).at(child_collection_name).field);
+    ASSERT_EQ("code", referenced_ins.at(parent_alias_name).at(child_collection_name).referenced_field_name);
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = invalid_parent_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, invalid_parent_collection_name);
+    ASSERT_FALSE(upsert_op.ok());
+    ASSERT_EQ("Referenced field `code` not found in the collection `parent_without_code`.",
+              upsert_op.error());
+    ASSERT_FALSE(collectionManager.resolve_symlink(parent_alias_name).ok());
+    ASSERT_FALSE(store->contains(CollectionManager::get_symlink_key(parent_alias_name)));
+
+    referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(0, referenced_ins.count(invalid_parent_collection_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(child_collection_name));
+    ASSERT_EQ("code", referenced_ins.at(parent_alias_name).at(child_collection_name).field);
+
+    auto ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_alias_name, ref_fields.begin()->second.collection);
+    ASSERT_TRUE(ref_fields.begin()->second.referenced_field.name.empty());
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = valid_parent_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto valid_parent = collection_create_op.get();
+
+    upsert_op = collectionManager.upsert_symlink(parent_alias_name, valid_parent_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(0, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.count(valid_parent_collection_name));
+    ASSERT_EQ(1, referenced_ins.at(valid_parent_collection_name).count(child_collection_name));
+
+    ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(valid_parent_collection_name, ref_fields.begin()->second.collection);
+    ASSERT_EQ("code", ref_fields.begin()->second.referenced_field.name);
+
+    auto add_op = valid_parent->add(R"({"id":"p-11","code":"p-11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = child->add(R"({"id":"c-1","code":"p-11","note":"ok"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+}
+
 TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPreservesDeferredReferences) {
     const std::string parent_alias_name = "parent_alias";
     const std::string parent_v1_collection_name = "parent_v1_duplicate_codes";
