@@ -231,7 +231,8 @@ inline std::string get_array_field_value(const nlohmann::json& doc, const std::s
 
 Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                            const std::set<std::string>& filter_values,
-                                                           const uint32_t ref_seq_id, const std::string& field_name) {
+                                                           const uint32_t ref_seq_id, const std::string& field_name,
+                                                           const bool apply_updates) {
     field field;
     {
         std::shared_lock lock(mutex);
@@ -318,8 +319,10 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
         }
     }
 
-    nlohmann::json dummy;
-    add_many(buffer, dummy, index_operation_t::UPDATE);
+    if (apply_updates && !buffer.empty()) {
+        nlohmann::json dummy;
+        add_many(buffer, dummy, index_operation_t::UPDATE);
+    }
 
     return Option<bool>(true);
 }
@@ -327,6 +330,19 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
 Option<bool> Collection::backfill_async_reference_helpers(const std::string& referenced_field_name,
                                                           Collection* referencing_coll,
                                                           const std::string& referencing_field_name) {
+    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, true);
+}
+
+Option<bool> Collection::validate_async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                                  Collection* referencing_coll,
+                                                                  const std::string& referencing_field_name) {
+    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, false);
+}
+
+Option<bool> Collection::async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                         Collection* referencing_coll,
+                                                         const std::string& referencing_field_name,
+                                                         const bool apply_updates) {
     if (referencing_coll == nullptr) {
         return Option<bool>(true);
     }
@@ -411,7 +427,7 @@ Option<bool> Collection::backfill_async_reference_helpers(const std::string& ref
 
         auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
         auto update_op = referencing_coll->update_async_references_with_lock(name, ref_filter, values, seq_id,
-                                                                             referencing_field_name);
+                                                                             referencing_field_name, apply_updates);
         if (!update_op.ok()) {
             return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
                                      "` of collection `" + referencing_collection_name + "`: " + update_op.error());

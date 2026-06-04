@@ -810,6 +810,11 @@ private:
 
     void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
 
+    Option<bool> async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                 Collection* referencing_coll,
+                                                 const std::string& referencing_field_name,
+                                                 const bool apply_updates);
+
     // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
     static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
                                             const std::vector<index_record>& docs);
@@ -1288,11 +1293,16 @@ public:
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                    const std::set<std::string>& filter_values,
-                                                   const uint32_t ref_seq_id, const std::string& field_name);
+                                                   const uint32_t ref_seq_id, const std::string& field_name,
+                                                   const bool apply_updates = true);
 
     Option<bool> backfill_async_reference_helpers(const std::string& referenced_field_name,
                                                   Collection* referencing_coll,
                                                   const std::string& referencing_field_name);
+
+    Option<bool> validate_async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                          Collection* referencing_coll,
+                                                          const std::string& referencing_field_name);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 

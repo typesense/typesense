@@ -1070,19 +1070,30 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
         auto ref_info = item.second;
         auto referencing_collection_name = ref_info.collection;
         auto referencing_field_name = ref_info.field;
+        auto referenced_field_name = ref_info.referenced_field_name;
+        auto is_async_reference = ref_info.is_async;
         std::set<update_reference_info_t> update_ref_infos;
+
+        auto referencing_coll = get_collection_unsafe(referencing_collection_name);
+        auto referenced_coll = get_collection_unsafe(referenced_collection_name);
+        if (is_async_reference && referencing_coll != nullptr && referenced_coll != nullptr) {
+            auto validate_backfill_op = referenced_coll->validate_async_reference_helper_backfill(referenced_field_name,
+                                                                                                  referencing_coll.get(),
+                                                                                                  referencing_field_name);
+            if (!validate_backfill_op.ok()) {
+                return validate_backfill_op;
+            }
+        }
 
         auto op = add_referenced_ins(referenced_collection_name, std::move(ref_info), update_ref_infos);
         if (!op.ok()) {
             return op;
         }
 
-        auto referencing_coll = get_collection_unsafe(referencing_collection_name);
         if (referencing_coll == nullptr) {
             continue;
         }
 
-        auto referenced_coll = get_collection_unsafe(referenced_collection_name);
         if (update_ref_infos.empty()) {
             referencing_coll->update_reference_info(referencing_field_name, referenced_collection_name, field{});
             continue;
@@ -1092,7 +1103,7 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
             referencing_coll->update_reference_info(update_ref_info.field, referenced_collection_name,
                                                     update_ref_info.referenced_field);
 
-            if (ref_info.is_async && referenced_coll != nullptr) {
+            if (is_async_reference && referenced_coll != nullptr) {
                 auto backfill_op = referenced_coll->backfill_async_reference_helpers(update_ref_info.referenced_field.name,
                                                                                      referencing_coll.get(),
                                                                                      update_ref_info.field);

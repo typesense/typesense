@@ -9882,6 +9882,93 @@ TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReferenceBackfillsPreAliasC
     ASSERT_EQ("x", res_obj["hits"][0]["document"]["note"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPreservesDeferredReferences) {
+    const std::string parent_alias_name = "parent_alias";
+    const std::string parent_v1_collection_name = "parent_v1_duplicate_codes";
+    const std::string parent_v2_collection_name = "parent_v2_unique_codes";
+    const std::string child_collection_name = "child_referencing_parent_alias";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "reference": "parent_alias.product_code", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v1_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v1 = collection_create_op.get();
+
+    auto add_op = parent_v1->add(R"({"id":"p-v1-1","product_code":"p-11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = parent_v1->add(R"({"id":"p-v1-2","product_code":"p-11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = child->add(R"({"id":"c-1","product_code":"p-11","note":"x"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto child_doc = child->get("c-1").get();
+    ASSERT_EQ("product_code_sequence_id", child_doc[".ref"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["product_code_sequence_id"]);
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v1_collection_name);
+    ASSERT_FALSE(upsert_op.ok());
+    ASSERT_EQ("Error while updating async reference field `product_code` of collection `" + child_collection_name +
+              "`: The value `p-11` of the field `product_code` is not unique in `" + parent_v1_collection_name +
+              "` collection.", upsert_op.error());
+    ASSERT_FALSE(collectionManager.resolve_symlink(parent_alias_name).ok());
+    ASSERT_FALSE(store->contains(CollectionManager::get_symlink_key(parent_alias_name)));
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(child_collection_name));
+    ASSERT_EQ("product_code", referenced_ins.at(parent_alias_name).at(child_collection_name).field);
+
+    auto ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_alias_name, ref_fields.begin()->second.collection);
+    ASSERT_EQ(0, parent_v1->get_async_referenced_ins().size());
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v2_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v2 = collection_create_op.get();
+
+    add_op = parent_v2->add(R"({"id":"p-v2","product_code":"p-11"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_v2_seq_id_op = parent_v2->doc_id_to_seq_id("p-v2");
+    ASSERT_TRUE(parent_v2_seq_id_op.ok()) << parent_v2_seq_id_op.error();
+
+    upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v2_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_v2_collection_name, ref_fields.begin()->second.collection);
+
+    child_doc = child->get("c-1").get();
+    ASSERT_EQ(parent_v2_seq_id_op.get(), child_doc["product_code_sequence_id"]);
+    ASSERT_EQ(0, collectionManager._get_referenced_ins().count(parent_alias_name));
+}
+
 TEST_F(CollectionJoinTest, FailedSymlinkUpsertPreservesDeferredReferences) {
     const std::string parent_alias_v1_name = "parent_alias_v1";
     const std::string parent_v1_collection_name = "parent_v1";
