@@ -816,6 +816,21 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     // Don't hold cm lock to prevent lock cycle inversion
     lock.unlock();
 
+    auto rollback_new_collection = [&]() {
+        auto drop_op = drop_collection(name, true, false);
+        if (!drop_op.ok()) {
+            LOG(ERROR) << "Failed to rollback collection `" << name << "`: " << drop_op.error();
+        }
+    };
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        auto validate_op = validate_deferred_references_for_symlink(symlink_name, name);
+        if (!validate_op.ok()) {
+            rollback_new_collection();
+            return Option<Collection*>(validate_op.code(), validate_op.error());
+        }
+    }
+
     for(auto& ref_info_map: ref_info_maps) {
         const auto& update_ref_infos = new_collection->add_referenced_ins(ref_info_map);
         for (auto& update_ref_info: update_ref_infos) {
@@ -832,6 +847,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     for (const auto& symlink_name: deferred_ref_symlinks) {
         auto resolve_op = resolve_deferred_references_for_symlink(symlink_name, name);
         if (!resolve_op.ok()) {
+            rollback_new_collection();
             return Option<Collection*>(resolve_op.code(), resolve_op.error());
         }
     }
