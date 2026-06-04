@@ -229,6 +229,34 @@ inline std::string get_array_field_value(const nlohmann::json& doc, const std::s
                 doc[field_name][index].dump();
 }
 
+inline bool is_supported_async_reference_backfill_value(const nlohmann::json& value) {
+    return value.is_number_integer() || value.is_string();
+}
+
+Option<bool> append_async_reference_backfill_filter_value(const std::string& referenced_field_name,
+                                                          const std::string& referenced_field_type,
+                                                          const nlohmann::json& value,
+                                                          std::string& ref_filter_value,
+                                                          std::string& ref_display_value,
+                                                          std::set<std::string>& values) {
+    nlohmann::json value_doc;
+    value_doc[referenced_field_name] = value;
+
+    std::string filter_value;
+    auto filter_value_op = Join::single_value_filter_query(value_doc, referenced_field_name, referenced_field_type,
+                                                           filter_value);
+    if (!filter_value_op.ok()) {
+        return filter_value_op;
+    }
+
+    auto display_value = get_field_value(value_doc, referenced_field_name);
+    ref_filter_value += filter_value;
+    ref_display_value += display_value;
+    values.insert(display_value);
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                            const std::set<std::string>& filter_values,
                                                            const uint32_t ref_seq_id, const std::string& field_name,
@@ -246,7 +274,10 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
 
     // Update reference helper field of the docs matching the filter.
     filter_result_t filter_result;
-    get_filter_ids_with_lock(filter, filter_result, false);
+    auto filter_op = get_filter_ids_with_lock(filter, filter_result, false);
+    if (!filter_op.ok()) {
+        return filter_op;
+    }
     if (filter_result.count == 0) {
         return Option<bool>(true);
     }
@@ -348,6 +379,16 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
     }
 
     const auto referencing_collection_name = referencing_coll->get_name();
+    field referenced_field;
+    {
+        std::shared_lock lock(mutex);
+        auto it = search_schema.find(referenced_field_name);
+        if (it == search_schema.end()) {
+            return Option<bool>(400, "Could not find field `" + referenced_field_name + "` in the schema.");
+        }
+        referenced_field = it.value();
+    }
+    const auto referenced_field_type = referenced_field.get_single_field_type();
     const auto seq_id_prefix = get_seq_id_collection_prefix();
     std::string iter_upper_bound_key = seq_id_prefix + "`";
     auto iter_upper_bound = std::make_unique<rocksdb::Slice>(iter_upper_bound_key);
@@ -370,42 +411,50 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
         }
 
         std::string ref_filter_value;
+        std::string ref_display_value;
         std::set<std::string> values;
         if (document.at(referenced_field_name).is_array()) {
             ref_filter_value = "[";
+            ref_display_value = "[";
 
             for (auto const& value: document[referenced_field_name]) {
-                if (value.is_number_integer()) {
-                    auto const& v = std::to_string(value.get<int64_t>());
-                    ref_filter_value += v;
-                    values.insert(v);
-                } else if (value.is_string()) {
-                    auto const& v = value.get<std::string>();
-                    ref_filter_value += ("`"+ v + "`");
-                    values.insert(v);
-                } else {
+                if (!is_supported_async_reference_backfill_value(value)) {
                     LOG(ERROR) << "Field `" + referenced_field_name + "` must only have string/int32/int64 values.";
                     continue;
                 }
+
+                auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                    referenced_field_type,
+                                                                                    value, ref_filter_value,
+                                                                                    ref_display_value, values);
+                if (!filter_value_op.ok()) {
+                    return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                             "` of collection `" + referencing_collection_name + "`: " +
+                                             filter_value_op.error());
+                }
                 ref_filter_value += ",";
+                ref_display_value += ",";
             }
 
             if (!values.empty()) {
                 ref_filter_value[ref_filter_value.size() - 1] = ']';
+                ref_display_value[ref_display_value.size() - 1] = ']';
             }
         } else {
             auto const& value = document[referenced_field_name];
-            if (value.is_number_integer()) {
-                auto const& v = std::to_string(value.get<int64_t>());
-                ref_filter_value += v;
-                values.insert(v);
-            } else if (value.is_string()) {
-                auto const& v = value.get<std::string>();
-                ref_filter_value += v;
-                values.insert(v);
-            } else {
+            if (!is_supported_async_reference_backfill_value(value)) {
                 LOG(ERROR) << "Field `" + referenced_field_name + "` must only have string/int32/int64 values.";
                 continue;
+            }
+
+            auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                referenced_field_type,
+                                                                                value, ref_filter_value,
+                                                                                ref_display_value, values);
+            if (!filter_value_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " +
+                                         filter_value_op.error());
             }
         }
 
@@ -414,18 +463,21 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
         }
 
         filter_result_t filter_result;
-        auto filter_op = get_filter_ids_with_lock(referenced_field_name + ":=" += ref_filter_value, filter_result,
-                                                  false);
+        auto referenced_filter = referenced_field_name + (referenced_field.is_string() ? ":= " : ": ");
+        referenced_filter += ref_filter_value;
+        auto filter_op = get_filter_ids_with_lock(referenced_filter, filter_result, false);
         if (!filter_op.ok()) {
-            continue;
+            return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                     "` of collection `" + referencing_collection_name + "`: " + filter_op.error());
         } else if (filter_result.count > 1) {
             return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
                                      "` of collection `" + referencing_collection_name + "`: The value `" +
-                                     ref_filter_value + "` of the field `" + referenced_field_name +
+                                     ref_display_value + "` of the field `" + referenced_field_name +
                                      "` is not unique in `" + name + "` collection.");
         }
 
-        auto const ref_filter = referencing_field_name + ":= " += ref_filter_value;
+        auto ref_filter = referencing_field_name + ":= ";
+        ref_filter += ref_filter_value;
         auto update_op = referencing_coll->update_async_references_with_lock(name, ref_filter, values, seq_id,
                                                                              referencing_field_name, apply_updates);
         if (!update_op.ok()) {

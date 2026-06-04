@@ -9882,6 +9882,122 @@ TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReferenceBackfillsPreAliasC
     ASSERT_EQ("x", res_obj["hits"][0]["document"]["note"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReferenceBackfillsFilterSyntaxValues) {
+    const std::string parent_alias_v1_name = "parent_alias_v1_filter_syntax";
+    const std::string parent_v1_collection_name = "parent_v1_filter_syntax_values";
+    const std::string child_collection_name = "child_referencing_parent_alias_v1_filter_syntax";
+    const std::string reference_value = "p-11 && (";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "reference": "parent_alias_v1_filter_syntax.product_code", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v1_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v1 = collection_create_op.get();
+
+    nlohmann::json parent_doc;
+    parent_doc["id"] = "p-v1";
+    parent_doc["product_code"] = reference_value;
+    auto add_op = parent_v1->add(parent_doc.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_v1_seq_id_op = parent_v1->doc_id_to_seq_id("p-v1");
+    ASSERT_TRUE(parent_v1_seq_id_op.ok()) << parent_v1_seq_id_op.error();
+
+    nlohmann::json child_doc;
+    child_doc["id"] = "c-1";
+    child_doc["product_code"] = reference_value;
+    child_doc["note"] = "x";
+    add_op = child->add(child_doc.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    child_doc = child->get("c-1").get();
+    ASSERT_EQ("product_code_sequence_id", child_doc[".ref"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["product_code_sequence_id"]);
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_v1_name, parent_v1_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    child_doc = child->get("c-1").get();
+    ASSERT_EQ(parent_v1_seq_id_op.get(), child_doc["product_code_sequence_id"]);
+
+    auto ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_v1_collection_name, ref_fields.begin()->second.collection);
+}
+
+TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPropagatesFilterValueErrors) {
+    const std::string parent_alias_v1_name = "parent_alias_v1_invalid_filter_value";
+    const std::string parent_v1_collection_name = "parent_v1_invalid_filter_values";
+    const std::string child_collection_name = "child_referencing_parent_alias_v1_invalid_filter_value";
+    const std::string reference_value = "`p-11` && (";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "reference": "parent_alias_v1_invalid_filter_value.product_code", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "product_code", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v1_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v1 = collection_create_op.get();
+
+    nlohmann::json parent_doc;
+    parent_doc["id"] = "p-v1";
+    parent_doc["product_code"] = reference_value;
+    auto add_op = parent_v1->add(parent_doc.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    nlohmann::json child_doc;
+    child_doc["id"] = "c-1";
+    child_doc["product_code"] = reference_value;
+    child_doc["note"] = "x";
+    add_op = child->add(child_doc.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_v1_name, parent_v1_collection_name);
+    ASSERT_FALSE(upsert_op.ok());
+    ASSERT_EQ("Error while updating async reference field `product_code` of collection `" + child_collection_name +
+              "`: Filter value `" + reference_value + "` cannot be parsed.", upsert_op.error());
+    ASSERT_FALSE(collectionManager.resolve_symlink(parent_alias_v1_name).ok());
+    ASSERT_FALSE(store->contains(CollectionManager::get_symlink_key(parent_alias_v1_name)));
+
+    auto ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_alias_v1_name, ref_fields.begin()->second.collection);
+
+    child_doc = child->get("c-1").get();
+    ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["product_code_sequence_id"]);
+}
+
 TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPreservesDeferredReferences) {
     const std::string parent_alias_name = "parent_alias";
     const std::string parent_v1_collection_name = "parent_v1_duplicate_codes";
