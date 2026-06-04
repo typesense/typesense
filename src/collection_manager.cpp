@@ -336,6 +336,10 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
+    if (ref_field_name == "id") {
+        return field("id", field_types::STRING, false);
+    }
+
     const auto& ref_coll_schema = nlohmann::json::parse(ref_schema);
     for (const auto &field: ref_coll_schema["fields"]) {
         auto it = field.find("name");
@@ -347,6 +351,52 @@ field get_referenced_field(const std::string& ref_schema, const std::string& ref
     }
 
     return field{};
+}
+
+bool hydrate_referenced_fields(const std::vector<std::string>& collection_meta_jsons,
+                               const spp::sparse_hash_map<std::string, std::string>& collection_symlinks,
+                               std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins) {
+    std::map<std::string, std::string> collection_meta_by_name;
+    for (const auto& collection_meta_json: collection_meta_jsons) {
+        const auto& collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if (collection_meta.is_discarded() || !collection_meta.is_object() || !collection_meta.contains("name") ||
+            !collection_meta["name"].is_string()) {
+            continue;
+        }
+
+        collection_meta_by_name[collection_meta["name"].get<std::string>()] = collection_meta_json;
+    }
+
+    bool hydrated = false;
+    for (auto& referenced_in: referenced_ins) {
+        auto referenced_coll_name = referenced_in.first;
+        auto symlink_it = collection_symlinks.find(referenced_coll_name);
+        if (symlink_it != collection_symlinks.end()) {
+            referenced_coll_name = symlink_it->second;
+        }
+
+        auto meta_it = collection_meta_by_name.find(referenced_coll_name);
+        if (meta_it == collection_meta_by_name.end()) {
+            continue;
+        }
+
+        for (auto& item: referenced_in.second) {
+            auto& ref_info = item.second;
+            if (!ref_info.referenced_field.name.empty() || ref_info.referenced_field_name.empty()) {
+                continue;
+            }
+
+            auto ref_field = get_referenced_field(meta_it->second, ref_info.referenced_field_name);
+            if (ref_field.name.empty()) {
+                continue;
+            }
+
+            ref_info.referenced_field = std::move(ref_field);
+            hydrated = true;
+        }
+    }
+
+    return hydrated;
 }
 
 void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
@@ -504,6 +554,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                 for (const auto& ref_info: referenced_infos_it.value()) {
                     referenced_ins[referenced_coll_it.value()].insert({ref_info["collection"], reference_info_t(ref_info)});
                 }
+            }
+
+            if (hydrate_referenced_fields(collection_meta_jsons, collection_symlinks, referenced_ins)) {
+                persist_referenced_ins();
             }
         }
     }
