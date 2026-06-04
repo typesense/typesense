@@ -449,6 +449,8 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
         field_json[fields::track_missing_values] = coll_field.track_missing_values;
 
+        field_json[fields::from_dynamic] = coll_field.from_dynamic;
+
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
         }
@@ -7709,6 +7711,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
 
                     new_field = dynamic_field;
                     new_field.name = fname;
+                    new_field.from_dynamic = dynamic_field.name;
                     found_dynamic_field = true;
 
                     if(kv->is_object() && dynamic_field.name.find(".*") == kv.key().size()) {

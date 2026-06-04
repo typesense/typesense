@@ -90,6 +90,8 @@ namespace fields {
     
     static const std::string hnsw_params = "hnsw_params";
     static const std::string track_missing_values = "track_missing_values";
+
+    static const std::string from_dynamic = "from_dynamic";
 }
 
 enum vector_distance_type_t {
@@ -152,6 +154,9 @@ struct field {
     bool stem = false;
     std::string stem_dictionary = "";
     std::shared_ptr<Stemmer> stemmer;
+
+    // name of the dynamic pattern that materialized this field, empty when declared explicitly
+    std::string from_dynamic;
   
     nlohmann::json hnsw_params;
 
@@ -167,10 +172,11 @@ struct field {
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
           const bool cascade_delete = true, const uint32_t truncate_len = 100,
-          const bool track_missing_values = false) :
+          const bool track_missing_values = false, const std::string& from_dynamic = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
             embed(embed), range_index(range_index), track_missing_values(track_missing_values), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            from_dynamic(from_dynamic),
             hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);
@@ -420,7 +426,8 @@ struct field {
                      json[fields::symbols_to_index].get<nlohmann::json>(),
                      json[fields::cascade_delete].get<bool>(),
                      json[fields::truncate_len].get<uint32_t>(),
-                     json[fields::track_missing_values].get<bool>());
+                     json[fields::track_missing_values].get<bool>(),
+                     json[fields::from_dynamic].get<std::string>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
