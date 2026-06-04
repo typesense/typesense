@@ -8695,6 +8695,28 @@ std::set<update_reference_info_t> Collection::add_referenced_in(const std::strin
     return update_ref_infos;
 }
 
+std::set<update_reference_info_t> Collection::validate_referenced_in(const std::string& collection_name,
+                                                                     const std::string& field_name,
+                                                                     const std::string& referenced_field_name,
+                                                                     field& referenced_field) {
+    std::shared_lock lock(mutex);
+
+    std::set<update_reference_info_t> update_ref_infos;
+    auto it = search_schema.find(referenced_field_name);
+    if (referenced_field_name != "id" && it == search_schema.end()) {
+        LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
+                   "` which is referenced in `" << collection_name << "." << field_name + "`.";
+        return update_ref_infos;
+    }
+
+    referenced_field = referenced_field_name == "id" ? field("id", "string", false) : *it;
+    auto ref_info = update_reference_info_t(collection_name, field_name, referenced_field);
+    ref_info.is_mutual_reference = references(collection_name);
+    update_ref_infos.insert(ref_info);
+
+    return update_ref_infos;
+}
+
 void Collection::remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                                       const bool& is_async, const std::string& referenced_field_name) {
     {

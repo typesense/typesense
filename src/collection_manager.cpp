@@ -1093,79 +1093,94 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
         return validate_op;
     }
 
-    for (const auto& item: deferred_ref_infos) {
-        auto referenced_collection_name = collection_name;
-        auto ref_info = item.second;
-        auto referencing_collection_name = ref_info.collection;
-        auto referencing_field_name = ref_info.field;
-        auto referenced_field_name = ref_info.referenced_field_name;
-        auto is_async_reference = ref_info.is_async;
-        auto referencing_coll = get_collection(referencing_collection_name);
-        auto referenced_coll = get_collection(referenced_collection_name);
-        if (is_async_reference && referencing_coll != nullptr && referenced_coll != nullptr) {
-            auto validate_backfill_op = referenced_coll->validate_async_reference_helper_backfill(referenced_field_name,
-                                                                                                  referencing_coll.get(),
-                                                                                                  referencing_field_name);
-            if (!validate_backfill_op.ok()) {
-                return validate_backfill_op;
-            }
-        }
-    }
-
-    std::unique_lock u_lock(mutex, std::defer_lock);
-    for (const auto& item: deferred_ref_infos) {
-        auto referenced_collection_name = collection_name;
-        auto ref_info = item.second;
-        auto referencing_collection_name = ref_info.collection;
-        auto referencing_field_name = ref_info.field;
-        auto is_async_reference = ref_info.is_async;
+    struct deferred_ref_resolution_t {
+        std::string referenced_collection_name;
+        reference_info_t ref_info;
+        std::shared_ptr<Collection> referencing_coll;
+        std::shared_ptr<Collection> referenced_coll;
         std::set<update_reference_info_t> update_ref_infos;
+    };
 
-        auto referencing_coll = get_collection(referencing_collection_name);
-        auto referenced_coll = get_collection(referenced_collection_name);
-        if (referenced_coll != nullptr) {
-            referenced_collection_name = referenced_coll->get_name();
-            update_ref_infos = referenced_coll->add_referenced_in(ref_info.collection, ref_info.field, ref_info.is_async,
-                                                                  ref_info.referenced_field_name,
-                                                                  ref_info.referenced_field);
-            if (!update_ref_infos.empty() && update_ref_infos.begin()->is_mutual_reference) {
-                auto info = is_referenced_in_with_lock(ref_info.collection, referenced_collection_name);
-                auto referenced_field = info.ok() ? info.get().field : update_ref_infos.begin()->field;
+    std::vector<deferred_ref_resolution_t> resolution_plan;
+    resolution_plan.reserve(deferred_ref_infos.size());
+
+    for (const auto& item: deferred_ref_infos) {
+        deferred_ref_resolution_t resolution;
+        resolution.referenced_collection_name = collection_name;
+        resolution.ref_info = item.second;
+        resolution.referencing_coll = get_collection(resolution.ref_info.collection);
+        resolution.referenced_coll = get_collection(resolution.referenced_collection_name);
+
+        if (resolution.referenced_coll != nullptr) {
+            resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+            resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
+                    resolution.ref_info.collection, resolution.ref_info.field, resolution.ref_info.referenced_field_name,
+                    resolution.ref_info.referenced_field);
+            if (!resolution.update_ref_infos.empty() && resolution.update_ref_infos.begin()->is_mutual_reference) {
+                auto info = is_referenced_in_with_lock(resolution.ref_info.collection,
+                                                       resolution.referenced_collection_name);
+                auto referenced_field = info.ok() ? info.get().field : resolution.update_ref_infos.begin()->field;
                 return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
-                                         ref_info.collection + "` collection is referenced by `" +=
-                                         referenced_collection_name + "` collection's `" +=
+                                         resolution.ref_info.collection + "` collection is referenced by `" +=
+                                         resolution.referenced_collection_name + "` collection's `" +=
                                          referenced_field + "` field.");
             }
         }
 
+        if (resolution.ref_info.is_async && resolution.referencing_coll != nullptr &&
+            resolution.referenced_coll != nullptr) {
+            auto validate_backfill_op = resolution.referenced_coll->validate_async_reference_helper_backfill(
+                    resolution.ref_info.referenced_field_name, resolution.referencing_coll.get(),
+                    resolution.ref_info.field);
+            if (!validate_backfill_op.ok()) {
+                return validate_backfill_op;
+            }
+        }
+
+        resolution_plan.emplace_back(std::move(resolution));
+    }
+
+    std::unique_lock u_lock(mutex, std::defer_lock);
+    for (const auto& resolution: resolution_plan) {
+        if (resolution.referenced_coll != nullptr) {
+            field referenced_field = resolution.ref_info.referenced_field;
+            resolution.referenced_coll->add_referenced_in(resolution.ref_info.collection, resolution.ref_info.field,
+                                                          resolution.ref_info.is_async,
+                                                          resolution.ref_info.referenced_field_name,
+                                                          referenced_field);
+        }
+
         u_lock.lock();
-        auto it = referenced_ins.find(referenced_collection_name);
+        auto it = referenced_ins.find(resolution.referenced_collection_name);
         if (it == referenced_ins.end()) {
-            referenced_ins[referenced_collection_name] = {{ref_info.collection, ref_info}};
+            referenced_ins[resolution.referenced_collection_name] = {
+                    {resolution.ref_info.collection, resolution.ref_info}};
         } else {
-            referenced_ins[referenced_collection_name].insert({ref_info.collection, ref_info});
+            referenced_ins[resolution.referenced_collection_name].insert({
+                    resolution.ref_info.collection, resolution.ref_info});
         }
         persist_referenced_ins();
         u_lock.unlock();
 
-        if (referencing_coll == nullptr) {
+        if (resolution.referencing_coll == nullptr) {
             continue;
         }
 
-        if (update_ref_infos.empty()) {
-            referencing_coll->update_reference_info_with_lock(referencing_field_name, referenced_collection_name,
-                                                              field{});
+        if (resolution.update_ref_infos.empty()) {
+            resolution.referencing_coll->update_reference_info_with_lock(resolution.ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         field{});
             continue;
         }
 
-        for (const auto& update_ref_info: update_ref_infos) {
-            referencing_coll->update_reference_info_with_lock(update_ref_info.field, referenced_collection_name,
-                                                              update_ref_info.referenced_field);
+        for (const auto& update_ref_info: resolution.update_ref_infos) {
+            resolution.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         update_ref_info.referenced_field);
 
-            if (is_async_reference && referenced_coll != nullptr) {
-                auto backfill_op = referenced_coll->backfill_async_reference_helpers(update_ref_info.referenced_field.name,
-                                                                                     referencing_coll.get(),
-                                                                                     update_ref_info.field);
+            if (resolution.ref_info.is_async && resolution.referenced_coll != nullptr) {
+                auto backfill_op = resolution.referenced_coll->backfill_async_reference_helpers(
+                        update_ref_info.referenced_field.name, resolution.referencing_coll.get(), update_ref_info.field);
                 if (!backfill_op.ok()) {
                     return backfill_op;
                 }

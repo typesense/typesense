@@ -1273,6 +1273,11 @@ public:
                                                                       const std::string& referenced_field_name,
                                                                       field& referenced_field);
 
+    [[nodiscard]] std::set<update_reference_info_t> validate_referenced_in(const std::string& collection_name,
+                                                                           const std::string& field_name,
+                                                                           const std::string& referenced_field_name,
+                                                                           field& referenced_field);
+
     void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                               const bool& is_async, const std::string& referenced_field_name);
 
