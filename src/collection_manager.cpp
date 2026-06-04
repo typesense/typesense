@@ -806,6 +806,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         ref_info_maps.push_back(it->second);
     }
 
+    std::vector<std::string> deferred_ref_symlinks;
+    for (const auto& symlink: collection_symlinks) {
+        if (symlink.second == name && referenced_ins.find(symlink.first) != referenced_ins.end()) {
+            deferred_ref_symlinks.push_back(symlink.first);
+        }
+    }
+
     // Don't hold cm lock to prevent lock cycle inversion
     lock.unlock();
 
@@ -819,6 +826,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                 // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
+        }
+    }
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        auto resolve_op = resolve_deferred_references_for_symlink(symlink_name, name);
+        if (!resolve_op.ok()) {
+            return Option<Collection*>(resolve_op.code(), resolve_op.error());
         }
     }
 

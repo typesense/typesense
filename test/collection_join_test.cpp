@@ -10020,6 +10020,90 @@ TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReferenceBackfillsIdReferen
     ASSERT_EQ("booking-11", res_obj["hits"][0]["document"]["bookingId"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, AsyncRefFieldExistingAliasReferenceResolvesWhenTargetCollectionIsCreated) {
+    const std::string parent_alias_name = "bookings_existing_alias";
+    const std::string parent_collection_name = "production.bookings_existing_alias";
+    const std::string child_collection_name = "production.booking_payments_existing_alias";
+
+    auto symlink_op = collectionManager.upsert_symlink(parent_alias_name, parent_collection_name);
+    ASSERT_TRUE(symlink_op.ok()) << symlink_op.error();
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "bookingId", "type": "string", "facet": true, "sort": true,
+                     "reference": "bookings_existing_alias.id", "async_reference": true},
+                    {"name": "amount", "type": "int32", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto booking_payments = collection_create_op.get();
+
+    auto add_op = booking_payments->add(R"({"id":"payment-1","bookingId":"booking-11","amount":100})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto child_doc = booking_payments->get("payment-1").get();
+    ASSERT_EQ("bookingId_sequence_id", child_doc[".ref"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["bookingId_sequence_id"]);
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(child_collection_name));
+    ASSERT_EQ("bookingId", referenced_ins.at(parent_alias_name).at(child_collection_name).field);
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "tenant", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto bookings = collection_create_op.get();
+
+    auto async_refs = bookings->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.size());
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(child_collection_name, "bookingId")));
+
+    auto ref_fields = booking_payments->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_collection_name, ref_fields.begin()->second.collection);
+    ASSERT_EQ("id", ref_fields.begin()->second.field);
+    ASSERT_EQ("id", ref_fields.begin()->second.referenced_field.name);
+
+    add_op = bookings->add(R"({"id":"booking-11","tenant":"prod"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto booking_seq_id_op = bookings->doc_id_to_seq_id("booking-11");
+    ASSERT_TRUE(booking_seq_id_op.ok()) << booking_seq_id_op.error();
+
+    child_doc = booking_payments->get("payment-1").get();
+    ASSERT_EQ(booking_seq_id_op.get(), child_doc["bookingId_sequence_id"]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", child_collection_name},
+            {"q", "*"},
+            {"query_by", "bookingId"},
+            {"filter_by", "$bookings_existing_alias(tenant:=`prod`)"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>()) << json_res;
+    ASSERT_EQ(1, res_obj["hits"].size()) << json_res;
+    ASSERT_EQ("payment-1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("booking-11", res_obj["hits"][0]["document"]["bookingId"].get<std::string>());
+}
+
 TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPropagatesFilterValueErrors) {
     const std::string parent_alias_v1_name = "parent_alias_v1_invalid_filter_value";
     const std::string parent_v1_collection_name = "parent_v1_invalid_filter_values";
