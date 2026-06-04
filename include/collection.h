@@ -1275,6 +1275,9 @@ public:
 
     void update_reference_field(const std::string& field_name, const field& ref_field);
 
+    void update_reference_info(const std::string& field_name, const std::string& ref_collection_name,
+                               const field& ref_field);
+
     void update_reference_info_with_lock(const std::string& field_name, const std::string& ref_collection_name,
                                          const field& ref_field);
 
@@ -1286,6 +1289,10 @@ public:
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                    const std::set<std::string>& filter_values,
                                                    const uint32_t ref_seq_id, const std::string& field_name);
+
+    Option<bool> backfill_async_reference_helpers(const std::string& referenced_field_name,
+                                                  Collection* referencing_coll,
+                                                  const std::string& referencing_field_name);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 

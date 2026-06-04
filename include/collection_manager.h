@@ -65,6 +65,9 @@ private:
 
     void persist_referenced_ins();
 
+    Option<bool> validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                          const std::string& collection_name) const;
+
     Option<bool> resolve_deferred_references_for_symlink(const std::string& symlink_name,
                                                          const std::string& collection_name);
 
