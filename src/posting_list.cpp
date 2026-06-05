@@ -1995,6 +1995,43 @@ void posting_list_t::iterator_t::next() {
     }
 }
 
+void posting_list_t::iterator_t::next_n(const uint32_t& n, uint32_t*& docs, uint32_t& count) {
+    if(!valid()) {
+        return;
+    }
+
+    if(docs == nullptr) {
+        docs = new uint32_t[n];
+    }
+
+    while(count < n && curr_block != end_block) {
+        const uint32_t remaining = n - count;
+        const uint32_t available_in_block = curr_block->size() - curr_index;
+        const uint32_t ids_to_copy = (remaining < available_in_block) ? remaining : available_in_block;
+
+        std::memcpy(docs + count, ids + curr_index, ids_to_copy * sizeof(uint32_t));
+        count += ids_to_copy;
+        curr_index += ids_to_copy;
+
+        if(curr_index == curr_block->size()) {
+            curr_index = 0;
+            curr_block = curr_block->next;
+
+            delete [] ids;
+            delete [] offset_index;
+            delete [] offsets;
+
+            ids = offset_index = offsets = nullptr;
+
+            if(curr_block != end_block) {
+                ids = curr_block->ids.uncompress();
+                offset_index = curr_block->offset_index.uncompress();
+                offsets = curr_block->offsets.uncompress();
+            }
+        }
+    }
+}
+
 uint32_t posting_list_t::iterator_t::last_block_id() const {
     auto size = curr_block->size();
     if(size == 0) {

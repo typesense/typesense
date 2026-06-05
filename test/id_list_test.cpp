@@ -50,3 +50,67 @@ TEST(IdListTest, IdListIntersectionTest) {
 
     delete [] res_ids;
 }
+
+TEST(IdListTest, IdListReverseNextNTest) {
+    id_list_t id_list(2);
+    for(uint32_t i = 1; i <= 6; i++) {
+        id_list.upsert(i * 2);
+    }
+
+    auto iter = id_list.new_rev_iterator();
+    uint32_t* docs = nullptr;
+    uint32_t count = 0;
+
+    iter.next_or_previous_n(3, docs, count);
+    ASSERT_EQ(3, count);
+    ASSERT_EQ(8, docs[0]);
+    ASSERT_EQ(10, docs[1]);
+    ASSERT_EQ(12, docs[2]);
+    ASSERT_TRUE(iter.valid());
+    ASSERT_EQ(6, iter.id());
+
+    delete [] docs;
+    docs = nullptr;
+    count = 0;
+
+    iter.next_or_previous_n(5, docs, count);
+    ASSERT_EQ(3, count);
+    ASSERT_EQ(2, docs[0]);
+    ASSERT_EQ(4, docs[1]);
+    ASSERT_EQ(6, docs[2]);
+    ASSERT_FALSE(iter.valid());
+
+    delete [] docs;
+}
+
+TEST(IdListTest, IdListForwardNextNTest) {
+    id_list_t id_list(2);
+    for(uint32_t i = 1; i <= 6; i++) {
+        id_list.upsert(i * 2);
+    }
+
+    auto iter = id_list.new_iterator();
+    uint32_t* docs = nullptr;
+    uint32_t count = 0;
+
+    iter.next_or_previous_n(4, docs, count);
+    ASSERT_EQ(4, count);
+    ASSERT_EQ(2, docs[0]);
+    ASSERT_EQ(4, docs[1]);
+    ASSERT_EQ(6, docs[2]);
+    ASSERT_EQ(8, docs[3]);
+    ASSERT_TRUE(iter.valid());
+    ASSERT_EQ(10, iter.id());
+
+    delete [] docs;
+    docs = nullptr;
+    count = 0;
+
+    iter.next_or_previous_n(5, docs, count);
+    ASSERT_EQ(2, count);
+    ASSERT_EQ(10, docs[0]);
+    ASSERT_EQ(12, docs[1]);
+    ASSERT_FALSE(iter.valid());
+
+    delete [] docs;
+}

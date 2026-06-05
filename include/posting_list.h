@@ -102,6 +102,7 @@ public:
         void reset_cache();
         [[nodiscard]] bool valid() const;
         void next();
+        void next_n(const uint32_t& n, uint32_t*& docs, uint32_t& count);
         void skip_to(uint32_t id);
         void skip_to_rev(uint32_t id);
         void set_index(uint32_t index);

@@ -3152,7 +3152,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata`, `curation_sets` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "symbols_to_index":[]
@@ -3160,7 +3160,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata`, `curation_sets` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
         "name": "collection_meta2",
@@ -3172,7 +3172,7 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
 
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
-    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata` and `synonym_sets` can be updated at the moment.\"}", res->body);
+    ASSERT_EQ("{\"message\":\"Only `fields`, `metadata`, `curation_sets` and `synonym_sets` can be updated at the moment.\"}", res->body);
 
     alter_schema = R"({
     })"_json;

@@ -22,6 +22,8 @@ private:
         return ids_t::contains(ids, id);
     }
 
+    friend class filter_result_iterator_t;
+
 public:
 
     ~num_tree_t();
@@ -96,6 +98,9 @@ public:
 
         /// Advances the iterator to get the next seq_id. The iterator may become invalid during this operation.
         void next();
+
+        /// Advances and returns next n document ids.
+        void next_n(const uint32_t& n, uint32_t*& docs, uint32_t& count);
 
         /// Advances the iterator until the seq_id reaches or just overshoots id. The iterator may become invalid during
         /// this operation.

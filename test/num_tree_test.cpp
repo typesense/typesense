@@ -168,3 +168,64 @@ TEST(NumTreeTest, Iterator) {
     iterator.skip_to(100);
     ASSERT_FALSE(iterator.is_valid);
 }
+
+TEST(NumTreeTest, IteratorNextNCompact) {
+    num_tree_t tree;
+    tree.insert(10, 2);
+    tree.insert(10, 4);
+    tree.insert(10, 6);
+
+    auto iterator = num_tree_t::iterator_t(&tree, EQUALS, 10);
+    ASSERT_TRUE(iterator.is_valid);
+    ASSERT_EQ(2, iterator.seq_id);
+
+    uint32_t* docs = nullptr;
+    uint32_t count = 0;
+
+    iterator.next_n(2, docs, count);
+    ASSERT_EQ(2, count);
+    ASSERT_EQ(2, docs[0]);
+    ASSERT_EQ(4, docs[1]);
+    ASSERT_TRUE(iterator.is_valid);
+    ASSERT_EQ(6, iterator.seq_id);
+
+    count = 0;
+    iterator.next_n(5, docs, count);
+    ASSERT_EQ(1, count);
+    ASSERT_EQ(6, docs[0]);
+    ASSERT_FALSE(iterator.is_valid);
+
+    delete [] docs;
+}
+
+TEST(NumTreeTest, IteratorNextNFullList) {
+    num_tree_t tree;
+    for (uint32_t i = 0; i < 100; i++) {
+        tree.insert(10, i);
+    }
+
+    auto iterator = num_tree_t::iterator_t(&tree, EQUALS, 10);
+    ASSERT_TRUE(iterator.is_valid);
+    ASSERT_EQ(0, iterator.seq_id);
+
+    uint32_t* docs = nullptr;
+    uint32_t count = 0;
+
+    iterator.next_n(70, docs, count);
+    ASSERT_EQ(70, count);
+    for (uint32_t i = 0; i < 70; i++) {
+        ASSERT_EQ(i, docs[i]);
+    }
+    ASSERT_TRUE(iterator.is_valid);
+    ASSERT_EQ(70, iterator.seq_id);
+
+    count = 0;
+    iterator.next_n(70, docs, count);
+    ASSERT_EQ(30, count);
+    for (uint32_t i = 0; i < 30; i++) {
+        ASSERT_EQ(i + 70, docs[i]);
+    }
+    ASSERT_FALSE(iterator.is_valid);
+
+    delete [] docs;
+}

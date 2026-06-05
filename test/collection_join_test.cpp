@@ -2794,6 +2794,42 @@ TEST_F(CollectionJoinTest, AndFilterResults_NoReference) {
     }
 }
 
+TEST_F(CollectionJoinTest, And_N_FilterResults_NoReference) {
+    constexpr uint32_t n = 3;
+
+    auto a = filter_result_t(n, new uint32_t[n] {1, 3, 4});
+    auto b = filter_result_t(n, new uint32_t[n] {1, 2, 3});
+
+    filter_result_t result;
+    filter_result_t::and_filter_results(n, a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    std::vector<uint32_t> expected = {1, 3};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], result.docs[i]);
+    }
+
+    a = filter_result_t(2, new uint32_t[2] {5, 7});
+    b = filter_result_t(2, new uint32_t[2] {4, 6});
+    filter_result_t::and_filter_results(n, a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], result.docs[i]);
+    }
+
+    // AND result gets aggregated.
+    a = filter_result_t(1, new uint32_t[1] {5});
+    b = filter_result_t(2, new uint32_t[2] {4, 5});
+    filter_result_t::and_filter_results(n, a, b, result);
+
+    ASSERT_EQ(3, result.count);
+    expected = {1, 3, 5};
+    for (size_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(expected[i], result.docs[i]);
+    }
+}
+
 TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     filter_result_t a;
     a.count = 9;
@@ -3020,6 +3056,33 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
         } else {
             ASSERT_EQ(0, result3.coll_to_references[i].count("baz"));
         }
+    }
+}
+
+TEST_F(CollectionJoinTest, SortFilterResults_WithReferences) {
+    filter_result_t result;
+    result.count = 6;
+    result.docs = new uint32_t[result.count]{4, 1, 5, 2, 3, 6};
+    result.coll_to_references = new std::map<std::string, reference_filter_result_t>[result.count] {};
+
+    for (uint32_t i = 0; i < result.count; i++) {
+        const auto doc = result.docs[i];
+        auto reference_docs = new uint32_t[1]{doc};
+        result.coll_to_references[i]["COLL_" + std::to_string(doc)] = reference_filter_result_t(1, reference_docs);
+    }
+
+    filter_result_t::sort(result);
+
+    const std::vector<uint32_t> expected_docs = {1, 2, 3, 4, 5, 6};
+    for (size_t i = 0; i < expected_docs.size(); i++) {
+        const auto expected_doc = expected_docs[i];
+        const auto expected_coll_name = "COLL_" + std::to_string(expected_doc);
+
+        ASSERT_EQ(expected_doc, result.docs[i]);
+        ASSERT_EQ(1, result.coll_to_references[i].size());
+        ASSERT_EQ(1, result.coll_to_references[i].count(expected_coll_name));
+        ASSERT_EQ(1, result.coll_to_references[i].at(expected_coll_name).count);
+        ASSERT_EQ(expected_doc, result.coll_to_references[i].at(expected_coll_name).docs[0]);
     }
 }
 
