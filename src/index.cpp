@@ -2015,7 +2015,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-    auto const is_nested_join = !ref_filter_result_iterator.reference.empty();
+    auto const is_nested_join = ref_filter_result->coll_to_references != nullptr;
 
     if (is_nested_join && negate_left_join_info.is_negate_join) {
         return Option<bool>(400, "Left negate join cannot contain a nested join.");

@@ -3023,6 +3023,110 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
     }
 }
 
+TEST_F(CollectionJoinTest, OrFilterResults_NullReferencesOnLeft) {
+    filter_result_t a, b, result;
+
+    a.count = 3;
+    a.docs = new uint32_t[a.count]{1, 2, 4};
+
+    b.count = 2;
+    b.docs = new uint32_t[b.count]{2, 3};
+    b.coll_to_references = new std::map<std::string, reference_filter_result_t>[b.count] {};
+
+    auto nested_references_0 = new std::map<std::string, reference_filter_result_t>[1] {};
+    nested_references_0[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{200});
+    auto foo_reference_input_0 = reference_filter_result_t(1, new uint32_t[1]{20}, false);
+    foo_reference_input_0.coll_to_references = nested_references_0;
+    b.coll_to_references[0]["foo"] = std::move(foo_reference_input_0);
+
+    auto nested_references_1 = new std::map<std::string, reference_filter_result_t>[1] {};
+    nested_references_1[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{300});
+    auto foo_reference_input_1 = reference_filter_result_t(1, new uint32_t[1]{30}, false);
+    foo_reference_input_1.coll_to_references = nested_references_1;
+    b.coll_to_references[1]["foo"] = std::move(foo_reference_input_1);
+
+    filter_result_t::or_filter_results(a, b, result);
+
+    ASSERT_EQ(4, result.count);
+    ASSERT_NE(nullptr, result.coll_to_references);
+
+    ASSERT_EQ(1, result.docs[0]);
+    ASSERT_TRUE(result.coll_to_references[0].empty());
+
+    ASSERT_EQ(2, result.docs[1]);
+    ASSERT_EQ(1, result.coll_to_references[1].count("foo"));
+    auto const& foo_reference_0 = result.coll_to_references[1].at("foo");
+    ASSERT_EQ(1, foo_reference_0.count);
+    ASSERT_EQ(20, foo_reference_0.docs[0]);
+    ASSERT_NE(nullptr, foo_reference_0.coll_to_references);
+    ASSERT_EQ(1, foo_reference_0.coll_to_references[0].count("bar"));
+    ASSERT_EQ(200, foo_reference_0.coll_to_references[0].at("bar").docs[0]);
+
+    ASSERT_EQ(3, result.docs[2]);
+    ASSERT_EQ(1, result.coll_to_references[2].count("foo"));
+    auto const& foo_reference_1 = result.coll_to_references[2].at("foo");
+    ASSERT_EQ(1, foo_reference_1.count);
+    ASSERT_EQ(30, foo_reference_1.docs[0]);
+    ASSERT_NE(nullptr, foo_reference_1.coll_to_references);
+    ASSERT_EQ(1, foo_reference_1.coll_to_references[0].count("bar"));
+    ASSERT_EQ(300, foo_reference_1.coll_to_references[0].at("bar").docs[0]);
+
+    ASSERT_EQ(4, result.docs[3]);
+    ASSERT_TRUE(result.coll_to_references[3].empty());
+}
+
+TEST_F(CollectionJoinTest, OrFilterResults_NullReferencesOnRight) {
+    filter_result_t a, b, result;
+
+    a.count = 2;
+    a.docs = new uint32_t[a.count]{2, 3};
+    a.coll_to_references = new std::map<std::string, reference_filter_result_t>[a.count] {};
+
+    auto nested_references_0 = new std::map<std::string, reference_filter_result_t>[1] {};
+    nested_references_0[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{200});
+    auto foo_reference_input_0 = reference_filter_result_t(1, new uint32_t[1]{20}, false);
+    foo_reference_input_0.coll_to_references = nested_references_0;
+    a.coll_to_references[0]["foo"] = std::move(foo_reference_input_0);
+
+    auto nested_references_1 = new std::map<std::string, reference_filter_result_t>[1] {};
+    nested_references_1[0]["bar"] = reference_filter_result_t(1, new uint32_t[1]{300});
+    auto foo_reference_input_1 = reference_filter_result_t(1, new uint32_t[1]{30}, false);
+    foo_reference_input_1.coll_to_references = nested_references_1;
+    a.coll_to_references[1]["foo"] = std::move(foo_reference_input_1);
+
+    b.count = 3;
+    b.docs = new uint32_t[b.count]{1, 2, 4};
+
+    filter_result_t::or_filter_results(a, b, result);
+
+    ASSERT_EQ(4, result.count);
+    ASSERT_NE(nullptr, result.coll_to_references);
+
+    ASSERT_EQ(1, result.docs[0]);
+    ASSERT_TRUE(result.coll_to_references[0].empty());
+
+    ASSERT_EQ(2, result.docs[1]);
+    ASSERT_EQ(1, result.coll_to_references[1].count("foo"));
+    auto const& foo_reference_0 = result.coll_to_references[1].at("foo");
+    ASSERT_EQ(1, foo_reference_0.count);
+    ASSERT_EQ(20, foo_reference_0.docs[0]);
+    ASSERT_NE(nullptr, foo_reference_0.coll_to_references);
+    ASSERT_EQ(1, foo_reference_0.coll_to_references[0].count("bar"));
+    ASSERT_EQ(200, foo_reference_0.coll_to_references[0].at("bar").docs[0]);
+
+    ASSERT_EQ(3, result.docs[2]);
+    ASSERT_EQ(1, result.coll_to_references[2].count("foo"));
+    auto const& foo_reference_1 = result.coll_to_references[2].at("foo");
+    ASSERT_EQ(1, foo_reference_1.count);
+    ASSERT_EQ(30, foo_reference_1.docs[0]);
+    ASSERT_NE(nullptr, foo_reference_1.coll_to_references);
+    ASSERT_EQ(1, foo_reference_1.coll_to_references[0].count("bar"));
+    ASSERT_EQ(300, foo_reference_1.coll_to_references[0].at("bar").docs[0]);
+
+    ASSERT_EQ(4, result.docs[3]);
+    ASSERT_TRUE(result.coll_to_references[3].empty());
+}
+
 TEST_F(CollectionJoinTest, AndFilterResults_WithNestedReferences) {
     bool is_reference_array_field = false, delete_docs = true;
     auto a = filter_result_t(2, new uint32_t[2]{1, 3},
@@ -4109,6 +4213,165 @@ TEST_F(CollectionJoinTest, FilterByNestedReferences) {
     ASSERT_EQ(5, res_obj["hits"][1]["document"]["product_variants"]["inventory"]["qty"]);
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["product_variants"]["inventory"]["retailers"].size());
     ASSERT_EQ("retailer 2", res_obj["hits"][1]["document"]["product_variants"]["inventory"]["retailers"]["title"]);
+}
+
+TEST_F(CollectionJoinTest, OrFilterWithWildcardPreservesNestedJoinReferences) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "product_without_variations",
+                "title": "standalone product"
+            })"_json,
+            R"({
+                "id": "product_with_variations",
+                "title": "product with variations"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "CategoryDiscounts",
+                "fields": [
+                    {"name": "label", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "discount_10",
+                "label": "ten percent"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Variations",
+                "fields": [
+                    {"name": "sku", "type": "string"},
+                    {"name": "product_id", "type": "string", "reference": "Products.id"}
+                ]
+            })"_json;
+    // The first Variation intentionally has no CategoryDiscounts, so nested join state cannot be inferred from it.
+    documents = {
+            R"({
+                "id": "variation_without_discount",
+                "sku": "plain",
+                "product_id": "product_with_variations"
+            })"_json,
+            R"({
+                "id": "variation_with_discount",
+                "sku": "discounted",
+                "product_id": "product_with_variations"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "CategoryDiscounts_Variations",
+                "fields": [
+                    {"name": "category_discount_id", "type": "string", "reference": "CategoryDiscounts.id"},
+                    {"name": "variation_id", "type": "string", "reference": "Variations.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "discount_variation_link",
+                "category_discount_id": "discount_10",
+                "variation_id": "variation_with_discount"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "id:* || $Variations(id:* || $CategoryDiscounts_Variations($CategoryDiscounts(id:*)))"},
+            {"include_fields", "id,title,$Variations(id,sku,$CategoryDiscounts_Variations(id,$CategoryDiscounts(id,label),strategy:nest_array),strategy:nest_array)"},
+            {"per_page", "10"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    std::map<std::string, nlohmann::json> products_by_id;
+    for (auto const& hit: res_obj["hits"]) {
+        products_by_id.emplace(hit["document"]["id"].get<std::string>(), hit["document"]);
+    }
+
+    ASSERT_EQ(1, products_by_id.count("product_without_variations"));
+    ASSERT_EQ(0, products_by_id.at("product_without_variations").count("Variations"));
+
+    ASSERT_EQ(1, products_by_id.count("product_with_variations"));
+    auto const& product = products_by_id.at("product_with_variations");
+    ASSERT_EQ(1, product.count("Variations"));
+    ASSERT_EQ(2, product["Variations"].size());
+
+    std::map<std::string, nlohmann::json> variations_by_id;
+    for (auto const& variation: product["Variations"]) {
+        variations_by_id.emplace(variation["id"].get<std::string>(), variation);
+    }
+
+    ASSERT_EQ(1, variations_by_id.count("variation_without_discount"));
+    ASSERT_EQ(1, variations_by_id.count("variation_with_discount"));
+
+    auto const& discounted_variation = variations_by_id.at("variation_with_discount");
+    ASSERT_EQ("discounted", discounted_variation["sku"]);
+    ASSERT_EQ(1, discounted_variation.count("CategoryDiscounts_Variations"));
+    ASSERT_EQ(1, discounted_variation["CategoryDiscounts_Variations"].size());
+
+    auto const& discount_link = discounted_variation["CategoryDiscounts_Variations"][0];
+    ASSERT_EQ("discount_variation_link", discount_link["id"]);
+    ASSERT_EQ(1, discount_link.count("CategoryDiscounts"));
+    ASSERT_EQ("discount_10", discount_link["CategoryDiscounts"]["id"]);
+    ASSERT_EQ("ten percent", discount_link["CategoryDiscounts"]["label"]);
 }
 
 class JoinIncludeExcludeFieldsTest : public ::testing::Test {
