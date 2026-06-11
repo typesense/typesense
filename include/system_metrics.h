@@ -48,6 +48,10 @@ private:
     std::atomic<uint64_t> mallctl_stats_last_access = 0;
     mallctl_stats_t mallctl_stats;
 
+#ifdef TEST_BUILD
+    size_t total_memory_bytes_override = 0;
+#endif
+
     mutable std::shared_mutex mutex;
 
     size_t _get_idle_time(const cpu_data_t &e) {
@@ -192,4 +196,11 @@ public:
     uint64_t get_memory_used_bytes();
 
     uint64_t get_cached_jemalloc_unused_memory();
+
+#ifdef TEST_BUILD
+    void set_total_memory_bytes_override(size_t bytes) {
+        std::unique_lock lock(mutex);
+        total_memory_bytes_override = bytes;
+    }
+#endif
 };

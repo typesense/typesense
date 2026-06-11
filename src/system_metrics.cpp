@@ -95,6 +95,15 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 uint64_t SystemMetrics::get_memory_total_bytes() {
     uint64_t memory_total_bytes = 0;
 
+#ifdef TEST_BUILD
+    {
+        std::shared_lock lock(mutex);
+        if (total_memory_bytes_override != 0) {
+            return total_memory_bytes_override;
+        }
+    }
+#endif
+
 #ifdef __APPLE__
     uint64_t pages = sysconf(_SC_PHYS_PAGES);
     uint64_t page_size = sysconf(_SC_PAGE_SIZE);

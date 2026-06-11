@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "system_metrics.h"
 
 class CollectionSchemaChangeTest : public ::testing::Test {
 protected:
@@ -2153,4 +2154,44 @@ TEST_F(CollectionSchemaChangeTest, DropObjectFieldWithSimilarPrefix) {
     ASSERT_EQ(1, schema_map.count("title"));
     ASSERT_EQ(1, schema_map.count("attributes_filter"));
     ASSERT_EQ(1, schema_map.count("attributes_nested_string"));
+}
+
+
+TEST_F(CollectionSchemaChangeTest, NotEnoughMemoryForEmbeddings) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // Add 100 documents
+    for (int i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["title"] = "Document " + std::to_string(i);
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Set available memory to a low value
+    SystemMetrics::get_instance().set_total_memory_bytes_override(1024); // 1 KB
+
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_FALSE(schema_change_op.ok());
+    ASSERT_EQ("Not enough memory to generate embedding for the field `embedding`.", schema_change_op.error());
+
+    // Reset memory override
+    SystemMetrics::get_instance().set_total_memory_bytes_override(0);
 }

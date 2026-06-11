@@ -7571,6 +7571,31 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     if(!validate_res.ok()) {
                         return validate_res;
                     }
+
+                    // check if the system has enough memory
+                    auto max_memory_perc = Config::get_instance().get_memory_used_max_percentage();
+                    size_t total_memory = SystemMetrics::get_instance().get_memory_total_bytes();
+                    size_t max_allowed_memory = (max_memory_perc * total_memory) / 100;
+                    size_t num_documents = get_num_documents();
+                    size_t M_ = 16;
+                    size_t ef_construction_ = 200;
+                    if(f.hnsw_params.count("M") != 0) {
+                        M_ = f.hnsw_params["M"].get<size_t>();
+                    }
+                    if(f.hnsw_params.count("ef_construction") != 0) {
+                        ef_construction_ = f.hnsw_params["ef_construction"].get<size_t>();
+                    }
+                    size_t estimated_embedding_memory = num_documents * f.num_dim * sizeof(float);
+                    size_t estimated_graph_memory = num_documents * (ef_construction_ * sizeof(uint32_t) + M_ * sizeof(uint32_t));
+                    if(estimated_embedding_memory + estimated_graph_memory > max_allowed_memory) {
+                        LOG(INFO) << "Estimated memory for embedding field `" << f.name << "`: "
+                              << (estimated_embedding_memory + estimated_graph_memory) / (1024 * 1024)
+                              << " MB (embedding: " << estimated_embedding_memory / (1024 * 1024)
+                              << " MB, graph: " << estimated_graph_memory / (1024 * 1024) << " MB). "
+                              << "Max allowed memory: " << max_allowed_memory / (1024 * 1024) << " MB.";
+                        LOG(ERROR) << "Not enough memory to generate embedding for the field `" << f.name << "`.";
+                        return Option<bool>(400, "Not enough memory to generate embedding for the field `" + f.name + "`.");
+                    }
                 }
 
                 if(is_reindex) {
