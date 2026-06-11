@@ -286,6 +286,14 @@ struct field {
         return !is_array();
     }
 
+    std::string get_single_field_type() const {
+        if (!field_types::is_array(type)) {
+            return type;
+        }
+
+        return type.substr(0, type.size() - 2);
+    }
+
     static bool is_dynamic(const std::string& name, const std::string& type) {
         return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
                (name != ".*" && name.find(".*") != std::string::npos);

@@ -336,6 +336,10 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
+    if (ref_field_name == "id") {
+        return field("id", field_types::STRING, false);
+    }
+
     const auto& ref_coll_schema = nlohmann::json::parse(ref_schema);
     for (const auto &field: ref_coll_schema["fields"]) {
         auto it = field.find("name");
@@ -347,6 +351,52 @@ field get_referenced_field(const std::string& ref_schema, const std::string& ref
     }
 
     return field{};
+}
+
+bool hydrate_referenced_fields(const std::vector<std::string>& collection_meta_jsons,
+                               const spp::sparse_hash_map<std::string, std::string>& collection_symlinks,
+                               std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins) {
+    std::map<std::string, std::string> collection_meta_by_name;
+    for (const auto& collection_meta_json: collection_meta_jsons) {
+        const auto& collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if (collection_meta.is_discarded() || !collection_meta.is_object() || !collection_meta.contains("name") ||
+            !collection_meta["name"].is_string()) {
+            continue;
+        }
+
+        collection_meta_by_name[collection_meta["name"].get<std::string>()] = collection_meta_json;
+    }
+
+    bool hydrated = false;
+    for (auto& referenced_in: referenced_ins) {
+        auto referenced_coll_name = referenced_in.first;
+        auto symlink_it = collection_symlinks.find(referenced_coll_name);
+        if (symlink_it != collection_symlinks.end()) {
+            referenced_coll_name = symlink_it->second;
+        }
+
+        auto meta_it = collection_meta_by_name.find(referenced_coll_name);
+        if (meta_it == collection_meta_by_name.end()) {
+            continue;
+        }
+
+        for (auto& item: referenced_in.second) {
+            auto& ref_info = item.second;
+            if (!ref_info.referenced_field.name.empty() || ref_info.referenced_field_name.empty()) {
+                continue;
+            }
+
+            auto ref_field = get_referenced_field(meta_it->second, ref_info.referenced_field_name);
+            if (ref_field.name.empty()) {
+                continue;
+            }
+
+            ref_info.referenced_field = std::move(ref_field);
+            hydrated = true;
+        }
+    }
+
+    return hydrated;
 }
 
 void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
@@ -504,6 +554,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                 for (const auto& ref_info: referenced_infos_it.value()) {
                     referenced_ins[referenced_coll_it.value()].insert({ref_info["collection"], reference_info_t(ref_info)});
                 }
+            }
+
+            if (hydrate_referenced_fields(collection_meta_jsons, collection_symlinks, referenced_ins)) {
+                persist_referenced_ins();
             }
         }
     }
@@ -806,18 +860,49 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         ref_info_maps.push_back(it->second);
     }
 
+    std::vector<std::string> deferred_ref_symlinks;
+    for (const auto& symlink: collection_symlinks) {
+        if (symlink.second == name && referenced_ins.find(symlink.first) != referenced_ins.end()) {
+            deferred_ref_symlinks.push_back(symlink.first);
+        }
+    }
+
     // Don't hold cm lock to prevent lock cycle inversion
     lock.unlock();
+
+    auto rollback_new_collection = [&]() {
+        auto drop_op = drop_collection(name, true, false);
+        if (!drop_op.ok()) {
+            LOG(ERROR) << "Failed to rollback collection `" << name << "`: " << drop_op.error();
+        }
+    };
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        auto validate_op = validate_deferred_references_for_symlink(symlink_name, name);
+        if (!validate_op.ok()) {
+            rollback_new_collection();
+            return Option<Collection*>(validate_op.code(), validate_op.error());
+        }
+    }
 
     for(auto& ref_info_map: ref_info_maps) {
         const auto& update_ref_infos = new_collection->add_referenced_ins(ref_info_map);
         for (auto& update_ref_info: update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
             if(coll) {
-                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+                coll->update_reference_info_with_lock(update_ref_info.field, new_collection->get_name(),
+                                                      update_ref_info.referenced_field);
                 // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
+        }
+    }
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        auto resolve_op = resolve_deferred_references_for_symlink(symlink_name, name);
+        if (!resolve_op.ok()) {
+            rollback_new_collection();
+            return Option<Collection*>(resolve_op.code(), resolve_op.error());
         }
     }
 
@@ -987,10 +1072,27 @@ Option<std::string> CollectionManager::resolve_symlink(const std::string & symli
 
 Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
     std::unique_lock lock(mutex);
-
     if(collections.count(symlink_name) != 0) {
         return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
     }
+
+    lock.unlock();
+    auto validate_op = validate_deferred_references_for_symlink(symlink_name, collection_name);
+    if (!validate_op.ok()) {
+        return validate_op;
+    }
+
+    bool had_existing_symlink = false;
+    std::string existing_collection_name;
+
+    lock.lock();
+    if(collections.count(symlink_name) != 0) {
+        return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
+    }
+
+    auto existing_symlink_it = collection_symlinks.find(symlink_name);
+    had_existing_symlink = existing_symlink_it != collection_symlinks.end();
+    existing_collection_name = had_existing_symlink ? existing_symlink_it->second : std::string();
 
     bool inserted = store->insert(get_symlink_key(symlink_name), collection_name);
     if(!inserted) {
@@ -998,6 +1100,190 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
     }
 
     collection_symlinks[symlink_name] = collection_name;
+    lock.unlock();
+
+    auto resolve_op = resolve_deferred_references_for_symlink(symlink_name, collection_name);
+    if (!resolve_op.ok()) {
+        lock.lock();
+        if (had_existing_symlink) {
+            if (!store->insert(get_symlink_key(symlink_name), existing_collection_name)) {
+                LOG(ERROR) << "Unable to rollback symlink `" << symlink_name << "` in store.";
+            }
+            collection_symlinks[symlink_name] = existing_collection_name;
+        } else {
+            if (!store->remove(get_symlink_key(symlink_name))) {
+                LOG(ERROR) << "Unable to rollback symlink `" << symlink_name << "` from store.";
+            }
+            collection_symlinks.erase(symlink_name);
+        }
+        lock.unlock();
+    }
+
+    return resolve_op;
+}
+
+Option<bool> CollectionManager::validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                                         const std::string& collection_name) const {
+    std::map<std::string, reference_info_t> deferred_ref_infos;
+    std::shared_ptr<Collection> ref_coll;
+
+    std::shared_lock lock(mutex);
+    auto ref_infos_it = referenced_ins.find(symlink_name);
+    if (ref_infos_it != referenced_ins.end()) {
+        deferred_ref_infos = ref_infos_it->second;
+    }
+    ref_coll = get_collection_unsafe(collection_name);
+    lock.unlock();
+
+    if (deferred_ref_infos.empty() || ref_coll == nullptr) {
+        return Option<bool>(true);
+    }
+
+    auto referenced_collection_name = ref_coll->get_name();
+    auto ref_collection_reference_fields = ref_coll->get_reference_fields();
+
+    for (const auto& item: deferred_ref_infos) {
+        const auto& ref_info = item.second;
+        for (const auto& ref_field: ref_collection_reference_fields) {
+            if (ref_field.second.collection == ref_info.collection) {
+                return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                         ref_info.collection + "` collection is referenced by `" +
+                                         referenced_collection_name + "` collection's `" + ref_field.first +
+                                         "` field.");
+            }
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                                        const std::string& collection_name) {
+    std::map<std::string, reference_info_t> deferred_ref_infos;
+
+    std::shared_lock lock(mutex);
+    auto ref_infos_it = referenced_ins.find(symlink_name);
+    if (ref_infos_it != referenced_ins.end()) {
+        deferred_ref_infos = ref_infos_it->second;
+    }
+    lock.unlock();
+
+    if (deferred_ref_infos.empty()) {
+        return Option<bool>(true);
+    }
+
+    auto validate_op = validate_deferred_references_for_symlink(symlink_name, collection_name);
+    if (!validate_op.ok()) {
+        return validate_op;
+    }
+
+    struct deferred_ref_resolution_t {
+        std::string referenced_collection_name;
+        reference_info_t ref_info;
+        std::shared_ptr<Collection> referencing_coll;
+        std::shared_ptr<Collection> referenced_coll;
+        std::set<update_reference_info_t> update_ref_infos;
+    };
+
+    std::vector<deferred_ref_resolution_t> resolution_plan;
+    resolution_plan.reserve(deferred_ref_infos.size());
+
+    for (const auto& item: deferred_ref_infos) {
+        deferred_ref_resolution_t resolution;
+        resolution.referenced_collection_name = collection_name;
+        resolution.ref_info = item.second;
+        resolution.referencing_coll = get_collection(resolution.ref_info.collection);
+        resolution.referenced_coll = get_collection(resolution.referenced_collection_name);
+
+        if (resolution.referenced_coll != nullptr) {
+            resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+            resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
+                    resolution.ref_info.collection, resolution.ref_info.field, resolution.ref_info.referenced_field_name,
+                    resolution.ref_info.referenced_field);
+            if (resolution.update_ref_infos.empty()) {
+                return Option<bool>(400, "Referenced field `" + resolution.ref_info.referenced_field_name +
+                                         "` not found in the collection `" + resolution.referenced_collection_name + "`.");
+            }
+
+            if (resolution.update_ref_infos.begin()->is_mutual_reference) {
+                auto info = is_referenced_in_with_lock(resolution.ref_info.collection,
+                                                       resolution.referenced_collection_name);
+                auto referenced_field = info.ok() ? info.get().field : resolution.update_ref_infos.begin()->field;
+                return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                         resolution.ref_info.collection + "` collection is referenced by `" +=
+                                         resolution.referenced_collection_name + "` collection's `" +=
+                                         referenced_field + "` field.");
+            }
+        }
+
+        if (resolution.ref_info.is_async && resolution.referencing_coll != nullptr &&
+            resolution.referenced_coll != nullptr) {
+            auto validate_backfill_op = resolution.referenced_coll->validate_async_reference_helper_backfill(
+                    resolution.ref_info.referenced_field_name, resolution.referencing_coll.get(),
+                    resolution.ref_info.field);
+            if (!validate_backfill_op.ok()) {
+                return validate_backfill_op;
+            }
+        }
+
+        resolution_plan.emplace_back(std::move(resolution));
+    }
+
+    std::unique_lock u_lock(mutex, std::defer_lock);
+    for (const auto& resolution: resolution_plan) {
+        if (resolution.referenced_coll != nullptr) {
+            field referenced_field = resolution.ref_info.referenced_field;
+            resolution.referenced_coll->add_referenced_in(resolution.ref_info.collection, resolution.ref_info.field,
+                                                          resolution.ref_info.is_async,
+                                                          resolution.ref_info.referenced_field_name,
+                                                          referenced_field);
+        }
+
+        u_lock.lock();
+        auto it = referenced_ins.find(resolution.referenced_collection_name);
+        if (it == referenced_ins.end()) {
+            referenced_ins[resolution.referenced_collection_name] = {
+                    {resolution.ref_info.collection, resolution.ref_info}};
+        } else {
+            referenced_ins[resolution.referenced_collection_name].insert({
+                    resolution.ref_info.collection, resolution.ref_info});
+        }
+        persist_referenced_ins();
+        u_lock.unlock();
+
+        if (resolution.referencing_coll == nullptr) {
+            continue;
+        }
+
+        if (resolution.update_ref_infos.empty()) {
+            resolution.referencing_coll->update_reference_info_with_lock(resolution.ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         field{});
+            continue;
+        }
+
+        for (const auto& update_ref_info: resolution.update_ref_infos) {
+            resolution.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         update_ref_info.referenced_field);
+
+            if (resolution.ref_info.is_async && resolution.referenced_coll != nullptr) {
+                auto backfill_op = resolution.referenced_coll->backfill_async_reference_helpers(
+                        update_ref_info.referenced_field.name, resolution.referencing_coll.get(), update_ref_info.field);
+                if (!backfill_op.ok()) {
+                    return backfill_op;
+                }
+            }
+        }
+    }
+
+    if (!deferred_ref_infos.empty() && collection_name != symlink_name) {
+        u_lock.lock();
+        referenced_ins.erase(symlink_name);
+        persist_referenced_ins();
+        u_lock.unlock();
+    }
+
     return Option<bool>(true);
 }
 
@@ -2407,11 +2693,16 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
+Option<bool> CollectionManager::add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                             std::set<update_reference_info_t>& update_ref_infos,
+                                                             bool is_live_request) {
+    std::unique_lock lock(mutex);
+    return add_referenced_ins(referenced_collection_name, std::move(ref_info), update_ref_infos, is_live_request);
+}
+
 Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
                                                    std::set<update_reference_info_t>& update_ref_infos,
                                                    bool is_live_request) {
-    std::unique_lock lock(mutex);
-
     auto ref_coll = get_collection_unsafe(referenced_collection_name);
     std::set<update_reference_info_t> _update_ref_infos{};
     if (ref_coll != nullptr) {

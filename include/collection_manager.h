@@ -65,6 +65,12 @@ private:
 
     void persist_referenced_ins();
 
+    Option<bool> validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                          const std::string& collection_name) const;
+
+    Option<bool> resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                         const std::string& collection_name);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
@@ -191,6 +197,10 @@ public:
     Option<bool> upsert_preset(const std::string & preset_name, const nlohmann::json& preset_config);
 
     Option<bool> delete_preset(const std::string & preset_name);
+
+    Option<bool> add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                              std::set<update_reference_info_t>& update_ref_infos,
+                                              bool is_live_request = true);
 
     Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
                                     std::set<update_reference_info_t>& update_ref_infos,

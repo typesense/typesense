@@ -810,6 +810,11 @@ private:
 
     void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
 
+    Option<bool> async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                 Collection* referencing_coll,
+                                                 const std::string& referencing_field_name,
+                                                 const bool apply_updates);
+
     // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
     static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
                                             const std::vector<index_record>& docs);
@@ -1268,12 +1273,23 @@ public:
                                                                       const std::string& referenced_field_name,
                                                                       field& referenced_field);
 
+    [[nodiscard]] std::set<update_reference_info_t> validate_referenced_in(const std::string& collection_name,
+                                                                           const std::string& field_name,
+                                                                           const std::string& referenced_field_name,
+                                                                           field& referenced_field);
+
     void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                               const bool& is_async, const std::string& referenced_field_name);
 
     void update_reference_field_with_lock(const std::string& field_name, const field& ref_field);
 
     void update_reference_field(const std::string& field_name, const field& ref_field);
+
+    void update_reference_info(const std::string& field_name, const std::string& ref_collection_name,
+                               const field& ref_field);
+
+    void update_reference_info_with_lock(const std::string& field_name, const std::string& ref_collection_name,
+                                         const field& ref_field);
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
@@ -1282,7 +1298,16 @@ public:
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                    const std::set<std::string>& filter_values,
-                                                   const uint32_t ref_seq_id, const std::string& field_name);
+                                                   const uint32_t ref_seq_id, const std::string& field_name,
+                                                   const bool apply_updates = true);
+
+    Option<bool> backfill_async_reference_helpers(const std::string& referenced_field_name,
+                                                  Collection* referencing_coll,
+                                                  const std::string& referencing_field_name);
+
+    Option<bool> validate_async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                          Collection* referencing_coll,
+                                                          const std::string& referencing_field_name);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
