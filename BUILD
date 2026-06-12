@@ -149,6 +149,7 @@ filegroup(
         "test/**/*.ini",
         "test/**/*.jsonl",
         "test/**/*.gz",
+        "test/resources/**",
     ]),
 )
 
