@@ -4560,3 +4560,79 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInNumericOverlapDeepPagination) {
 
     delete req_params;
 }
+
+TEST_F(CollectionFilteringTest, LazyNotInArrayFiltersPaginatePastOverlapApproximation) {
+    auto schema = R"({
+        "name": "coll_lazy_not_in_overlap",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "app_id", "type": "string", "facet": true},
+            {"name": "tags", "type": "string[]", "facet": true},
+            {"name": "numbers", "type": "int32[]", "facet": true},
+            {"name": "is_active", "type": "bool", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    // The four excluded docs contain both excluded values, so a lazy OR-sum estimate
+    // undercounts the NOT side as 12 even though 14 active docs match.
+    for (int i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        doc["app_id"] = "myapp";
+        doc["score"] = 1000 - i;
+
+        if (i < 14) {
+            doc["tags"] = nlohmann::json::array({"safe"});
+            doc["numbers"] = nlohmann::json::array({10});
+            doc["is_active"] = true;
+        } else if (i < 18) {
+            doc["tags"] = nlohmann::json::array({"tag_a", "tag_b"});
+            doc["numbers"] = nlohmann::json::array({1, 2});
+            doc["is_active"] = true;
+        } else {
+            doc["tags"] = nlohmann::json::array({"safe"});
+            doc["numbers"] = nlohmann::json::array({10});
+            doc["is_active"] = false;
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto assert_deep_page = [&](const std::string& filter_by) {
+        SCOPED_TRACE(filter_by);
+        std::map<std::string, std::string> req_params = {
+            {"collection", "coll_lazy_not_in_overlap"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", filter_by},
+            {"sort_by", "score:desc"},
+            {"enable_lazy_filter", "true"},
+            {"per_page", "4"},
+            {"page", "4"},
+            {"include_fields", "id"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+
+        ASSERT_EQ(14, res_obj["found"].get<size_t>());
+        ASSERT_EQ(2, res_obj["hits"].size());
+        ASSERT_EQ("12", res_obj["hits"][0]["document"]["id"].get<std::string>());
+        ASSERT_EQ("13", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    };
+
+    assert_deep_page("app_id:=myapp && tags:!=[tag_a,tag_b] && is_active:true");
+    assert_deep_page("app_id:=myapp && numbers: !=[1,2] && is_active:true");
+}
