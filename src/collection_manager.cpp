@@ -892,6 +892,17 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
             if(coll) {
                 coll->update_reference_info_with_lock(update_ref_info.field, new_collection->get_name(),
                                                       update_ref_info.referenced_field);
+
+                const auto ref_info_it = ref_info_map.find(update_ref_info.collection);
+                if (ref_info_it != ref_info_map.end() && ref_info_it->second.is_async) {
+                    auto backfill_op = new_collection->backfill_async_reference_helpers(
+                            update_ref_info.referenced_field.name, coll.get(), update_ref_info.field);
+                    if (!backfill_op.ok()) {
+                        rollback_new_collection();
+                        return Option<Collection*>(backfill_op.code(), backfill_op.error());
+                    }
+                }
+
                 // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
@@ -1309,17 +1320,6 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
         return Option<bool>(true);
     }
 
-    auto old_coll = get_collection(old_collection_name);
-    auto new_coll = get_collection(new_collection_name);
-    if (new_coll == nullptr) {
-        return Option<bool>(true);
-    }
-
-    auto resolved_new_collection_name = new_coll->get_name();
-    if (old_collection_name == resolved_new_collection_name) {
-        return Option<bool>(true);
-    }
-
     struct symlink_ref_rebind_t {
         reference_info_t ref_info;
         std::shared_ptr<Collection> referencing_coll;
@@ -1356,6 +1356,50 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
         symlink_ref_rebind_t rebind;
         rebind.ref_info = old_ref_info;
         rebind.referencing_coll = referencing_coll;
+        rebind_plan.emplace_back(std::move(rebind));
+    }
+
+    if (rebind_plan.empty()) {
+        return Option<bool>(true);
+    }
+
+    auto old_coll = get_collection(old_collection_name);
+    auto new_coll = get_collection(new_collection_name);
+    if (new_coll == nullptr) {
+        for (const auto& rebind: rebind_plan) {
+            if (old_coll != nullptr) {
+                old_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                               rebind.ref_info.is_async, rebind.ref_info.referenced_field_name);
+            }
+
+            rebind.referencing_coll->update_reference_info_with_lock(rebind.ref_info.field, new_collection_name, field{});
+        }
+
+        std::unique_lock lock(mutex);
+        for (const auto& rebind: rebind_plan) {
+            auto old_ref_infos_it = referenced_ins.find(old_collection_name);
+            if (old_ref_infos_it != referenced_ins.end()) {
+                old_ref_infos_it->second.erase(rebind.ref_info.collection);
+                if (old_ref_infos_it->second.empty()) {
+                    referenced_ins.erase(old_ref_infos_it);
+                }
+            }
+
+            auto deferred_ref_info = rebind.ref_info;
+            deferred_ref_info.referenced_field = field{};
+            referenced_ins[new_collection_name][deferred_ref_info.collection] = std::move(deferred_ref_info);
+        }
+        persist_referenced_ins();
+
+        return Option<bool>(true);
+    }
+
+    auto resolved_new_collection_name = new_coll->get_name();
+    if (old_collection_name == resolved_new_collection_name) {
+        return Option<bool>(true);
+    }
+
+    for (auto& rebind: rebind_plan) {
         rebind.update_ref_infos = new_coll->validate_referenced_in(rebind.ref_info.collection,
                                                                    rebind.ref_info.field,
                                                                    rebind.ref_info.referenced_field_name,
@@ -1381,11 +1425,6 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
             }
         }
 
-        rebind_plan.emplace_back(std::move(rebind));
-    }
-
-    if (rebind_plan.empty()) {
-        return Option<bool>(true);
     }
 
     for (const auto& rebind: rebind_plan) {
