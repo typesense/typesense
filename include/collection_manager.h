@@ -71,6 +71,10 @@ private:
     Option<bool> resolve_deferred_references_for_symlink(const std::string& symlink_name,
                                                          const std::string& collection_name);
 
+    Option<bool> rebind_references_for_symlink_target_swap(const std::string& symlink_name,
+                                                           const std::string& old_collection_name,
+                                                           const std::string& new_collection_name);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 

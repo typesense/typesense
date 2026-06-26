@@ -9981,6 +9981,166 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasReference) {
     run_join_query("after restart");
 }
 
+TEST_F(CollectionJoinTest, AsyncRefFieldReverseJoinSurvivesAliasTargetSwap) {
+    const std::string parent_alias_name = "postgresql";
+    const std::string parent_v1_collection_name = "postgresql_v1";
+    const std::string parent_v2_collection_name = "postgresql_v2";
+    const std::string child_collection_name = "include";
+
+    auto create_parent_collection = [&](const std::string& collection_name,
+                                        const std::string& matching_doc_id,
+                                        bool add_dummy_first,
+                                        Collection*& parent) {
+        nlohmann::json schema_json;
+        schema_json["name"] = collection_name;
+        schema_json["fields"] = nlohmann::json::array({
+                {{"name", "variant_pack_uuid"}, {"type", "string"}, {"facet", true}},
+                {{"name", "display_name"}, {"type", "string"}}
+        });
+
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+        parent = collection_create_op.get();
+
+        if (add_dummy_first) {
+            auto add_op = parent->add(R"({
+                "id": "dummy-v2",
+                "variant_pack_uuid": "dummy",
+                "display_name": "placeholder"
+            })");
+            ASSERT_TRUE(add_op.ok()) << add_op.error();
+        }
+
+        nlohmann::json matching_doc;
+        matching_doc["id"] = matching_doc_id;
+        matching_doc["variant_pack_uuid"] = "vp-11";
+        matching_doc["display_name"] = "coconut water";
+        auto add_op = parent->add(matching_doc.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+        add_op = parent->add(R"({
+            "id": "vp-12",
+            "variant_pack_uuid": "vp-12",
+            "display_name": "coconut milk"
+        })");
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    };
+
+    Collection* parent_v1 = nullptr;
+    create_parent_collection(parent_v1_collection_name, "vp-11-v1", false, parent_v1);
+    ASSERT_NE(nullptr, parent_v1);
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v1_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    nlohmann::json child_schema;
+    child_schema["name"] = child_collection_name;
+    child_schema["fields"] = nlohmann::json::array({
+            {{"name", "variant_pack_uuid"},
+             {"type", "string"},
+             {"facet", true},
+             {"reference", parent_alias_name + ".variant_pack_uuid"},
+             {"async_reference", true}},
+            {{"name", "restaurant_uuid"}, {"type", "string"}, {"facet", true}}
+    });
+
+    auto collection_create_op = collectionManager.create_collection(child_schema);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    auto add_op = child->add(R"({
+        "id": "inc-1",
+        "variant_pack_uuid": "vp-11",
+        "restaurant_uuid": "r1"
+    })");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = child->add(R"({
+        "id": "inc-2",
+        "variant_pack_uuid": "vp-12",
+        "restaurant_uuid": "r2"
+    })");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto run_reverse_join_query = [&](const std::string& stage,
+                                      const std::string& expected_doc_id) -> ::testing::AssertionResult {
+        std::map<std::string, std::string> req_params = {
+                {"collection", parent_alias_name},
+                {"q", "water"},
+                {"query_by", "display_name"},
+                {"filter_by", "$include(restaurant_uuid:=`r1`)"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        if (!search_op.ok()) {
+            return ::testing::AssertionFailure() << stage << ": " << search_op.error();
+        }
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        if (res_obj["found"].get<size_t>() != 1 || res_obj["hits"].size() != 1) {
+            return ::testing::AssertionFailure() << stage << ": " << json_res;
+        }
+
+        auto actual_doc_id = res_obj["hits"][0]["document"]["id"].get<std::string>();
+        if (actual_doc_id != expected_doc_id) {
+            return ::testing::AssertionFailure() << stage << ": expected " << expected_doc_id
+                                                 << ", got " << actual_doc_id << ". Response: " << json_res;
+        }
+
+        return ::testing::AssertionSuccess();
+    };
+
+    ASSERT_TRUE(run_reverse_join_query("before alias swap", "vp-11-v1"));
+
+    auto parent_v1_seq_id_op = parent_v1->doc_id_to_seq_id("vp-11-v1");
+    ASSERT_TRUE(parent_v1_seq_id_op.ok()) << parent_v1_seq_id_op.error();
+    auto child_doc = child->get("inc-1").get();
+    ASSERT_EQ(parent_v1_seq_id_op.get(), child_doc["variant_pack_uuid_sequence_id"].get<uint32_t>());
+
+    Collection* parent_v2 = nullptr;
+    create_parent_collection(parent_v2_collection_name, "vp-11-v2", true, parent_v2);
+    ASSERT_NE(nullptr, parent_v2);
+    auto parent_v2_seq_id_op = parent_v2->doc_id_to_seq_id("vp-11-v2");
+    ASSERT_TRUE(parent_v2_seq_id_op.ok()) << parent_v2_seq_id_op.error();
+    ASSERT_NE(parent_v1_seq_id_op.get(), parent_v2_seq_id_op.get());
+
+    upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v2_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    ASSERT_TRUE(run_reverse_join_query("after alias swap", "vp-11-v2"));
+
+    auto referenced_in_op = collectionManager.is_referenced_in_with_lock(parent_v2_collection_name,
+                                                                         child_collection_name);
+    ASSERT_TRUE(referenced_in_op.ok()) << referenced_in_op.error();
+    ASSERT_EQ("variant_pack_uuid", referenced_in_op.get().field);
+    ASSERT_EQ("variant_pack_uuid", referenced_in_op.get().referenced_field_name);
+
+    auto async_refs = parent_v2->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.size());
+    ASSERT_EQ(1, async_refs.count("variant_pack_uuid"));
+    ASSERT_EQ(1, async_refs.at("variant_pack_uuid").count(reference_pair_t(child_collection_name,
+                                                                            "variant_pack_uuid")));
+
+    auto old_async_refs = parent_v1->get_async_referenced_ins();
+    ASSERT_TRUE(old_async_refs.empty());
+    auto old_referenced_in_op = collectionManager.is_referenced_in_with_lock(parent_v1_collection_name,
+                                                                             child_collection_name);
+    ASSERT_FALSE(old_referenced_in_op.ok());
+
+    auto ref_fields = child->get_reference_fields();
+    ASSERT_EQ(1, ref_fields.size());
+    ASSERT_EQ(parent_v2_collection_name, ref_fields.begin()->second.collection);
+    ASSERT_EQ("variant_pack_uuid", ref_fields.begin()->second.field);
+    ASSERT_EQ("variant_pack_uuid", ref_fields.begin()->second.referenced_field.name);
+
+    child_doc = child->get("inc-1").get();
+    ASSERT_EQ(parent_v2_seq_id_op.get(), child_doc["variant_pack_uuid_sequence_id"].get<uint32_t>());
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReference) {
     auto schema_json =
             R"({
