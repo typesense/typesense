@@ -1427,6 +1427,30 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
 
     }
 
+    std::vector<const symlink_ref_rebind_t*> applied_rebinds;
+    applied_rebinds.reserve(rebind_plan.size());
+    auto rollback_applied_rebinds = [&]() {
+        for (auto it = applied_rebinds.rbegin(); it != applied_rebinds.rend(); ++it) {
+            const auto& rebind = **it;
+
+            new_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                           rebind.ref_info.is_async, rebind.ref_info.referenced_field_name);
+
+            if (old_coll != nullptr) {
+                field referenced_field = rebind.ref_info.referenced_field;
+                old_coll->add_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                            rebind.ref_info.is_async, rebind.ref_info.referenced_field_name,
+                                            referenced_field);
+            }
+
+            for (const auto& update_ref_info: rebind.update_ref_infos) {
+                rebind.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         old_collection_name,
+                                                                         rebind.ref_info.referenced_field);
+            }
+        }
+    };
+
     for (const auto& rebind: rebind_plan) {
         if (old_coll != nullptr) {
             old_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
@@ -1434,12 +1458,9 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
         }
 
         field referenced_field = rebind.ref_info.referenced_field;
-        auto added_update_ref_infos = new_coll->add_referenced_in(rebind.ref_info.collection,
-                                                                  rebind.ref_info.field,
-                                                                  rebind.ref_info.is_async,
-                                                                  rebind.ref_info.referenced_field_name,
-                                                                  referenced_field);
-        (void) added_update_ref_infos;
+        new_coll->add_referenced_in(rebind.ref_info.collection, rebind.ref_info.field, rebind.ref_info.is_async,
+                                    rebind.ref_info.referenced_field_name, referenced_field);
+        applied_rebinds.emplace_back(&rebind);
 
         for (const auto& update_ref_info: rebind.update_ref_infos) {
             rebind.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
@@ -1451,6 +1472,7 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
                                                                               rebind.referencing_coll.get(),
                                                                               update_ref_info.field);
                 if (!backfill_op.ok()) {
+                    rollback_applied_rebinds();
                     return backfill_op;
                 }
             }

@@ -1266,12 +1266,12 @@ public:
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.
-    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
+    std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
 
-    [[nodiscard]] std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
-                                                                      const std::string& field_name, const bool& is_async,
-                                                                      const std::string& referenced_field_name,
-                                                                      field& referenced_field);
+    std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
+                                                        const std::string& field_name, const bool& is_async,
+                                                        const std::string& referenced_field_name,
+                                                        field& referenced_field);
 
     [[nodiscard]] std::set<update_reference_info_t> validate_referenced_in(const std::string& collection_name,
                                                                            const std::string& field_name,
