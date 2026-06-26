@@ -525,6 +525,26 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
+    struct async_reference_backfill_update_t {
+        uint32_t seq_id;
+        nlohmann::json old_doc;
+        nlohmann::json new_doc;
+    };
+
+    using async_reference_backfill_update_map_t = std::map<uint32_t, async_reference_backfill_update_t>;
+
+    Option<bool> stage_async_reference_update(Collection* referencing_coll,
+                                              const std::string& referencing_collection_name,
+                                              const std::string& referencing_field_name,
+                                              const std::string& filter,
+                                              const std::set<std::string>& filter_values,
+                                              const uint32_t ref_seq_id,
+                                              async_reference_backfill_update_map_t& staged_updates);
+
+    Option<bool> apply_staged_async_reference_updates(Collection* referencing_coll,
+                                                      const std::string& referencing_collection_name,
+                                                      async_reference_backfill_update_map_t& staged_updates);
+
     static bool handle_highlight_text(std::string& text, const bool& normalise, const field& search_field,
                                       const bool& is_arr_obj_ele,
                                       const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
