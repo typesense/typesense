@@ -11551,6 +11551,102 @@ TEST_F(CollectionJoinTest, FailedTargetCollectionCreateForExistingAliasRollsBack
     ASSERT_EQ(parent_collection_name, ref_fields.begin()->second.collection);
 }
 
+TEST_F(CollectionJoinTest, FailedTargetCollectionCreateRollsBackDirectAsyncBackfillAndMetadata) {
+    const std::string parent_alias_name = "parent_alias_create_rollback_missing_field";
+    const std::string parent_collection_name = "parent_collection_create_rollback";
+    const std::string direct_child_collection_name = "child_direct_referencing_create_rollback_parent";
+    const std::string alias_child_collection_name = "child_alias_referencing_create_rollback_parent";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "parent_id", "type": "string", "reference": "parent_collection_create_rollback.id", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = direct_child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto direct_child = collection_create_op.get();
+
+    auto add_op = direct_child->add(R"({"id":"direct-child-1","parent_id":"parent-1","note":"direct"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto direct_child_doc = direct_child->get("direct-child-1").get();
+    ASSERT_EQ("parent_id_sequence_id", direct_child_doc[".ref"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, direct_child_doc["parent_id_sequence_id"]);
+
+    auto direct_ref_fields = direct_child->get_reference_fields();
+    ASSERT_EQ(1, direct_ref_fields.size());
+    ASSERT_EQ(parent_collection_name, direct_ref_fields.begin()->second.collection);
+    ASSERT_TRUE(direct_ref_fields.begin()->second.referenced_field.name.empty());
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "missing_code", "type": "string", "reference": "parent_alias_create_rollback_missing_field.missing_code", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = alias_child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto alias_child = collection_create_op.get();
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_collection_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_collection_name).count(direct_child_collection_name));
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(alias_child_collection_name));
+
+    const auto future_collection_id = collectionManager.get_next_collection_id();
+    const auto future_parent_seq_id = 0;
+    const auto future_parent_seq_id_key = std::to_string(future_collection_id) + "_" +
+                                          std::string(Collection::SEQ_ID_PREFIX) + "_" +
+                                          StringUtils::serialize_uint32_t(future_parent_seq_id);
+    ASSERT_TRUE(store->insert(future_parent_seq_id_key, R"({"id":"parent-1","name":"Parent One"})"));
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Referenced field `missing_code` not found in the collection `" + parent_collection_name + "`.",
+              collection_create_op.error());
+
+    ASSERT_EQ(nullptr, collectionManager.get_collection(parent_collection_name));
+    ASSERT_EQ(nullptr, collectionManager.get_collection(parent_alias_name));
+    ASSERT_FALSE(store->contains(Collection::get_meta_key(parent_collection_name)));
+    ASSERT_FALSE(store->contains(Collection::get_next_seq_id_key(parent_collection_name)));
+    ASSERT_FALSE(store->contains(future_parent_seq_id_key));
+
+    referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count(parent_collection_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_collection_name).count(direct_child_collection_name));
+    ASSERT_EQ(1, referenced_ins.count(parent_alias_name));
+    ASSERT_EQ(1, referenced_ins.at(parent_alias_name).count(alias_child_collection_name));
+
+    direct_ref_fields = direct_child->get_reference_fields();
+    ASSERT_EQ(1, direct_ref_fields.size());
+    ASSERT_EQ(parent_collection_name, direct_ref_fields.begin()->second.collection);
+    ASSERT_TRUE(direct_ref_fields.begin()->second.referenced_field.name.empty());
+
+    direct_child_doc = direct_child->get("direct-child-1").get();
+    ASSERT_EQ(Join::reference_helper_sentinel_value, direct_child_doc["parent_id_sequence_id"]);
+
+    auto alias_ref_fields = alias_child->get_reference_fields();
+    ASSERT_EQ(1, alias_ref_fields.size());
+    ASSERT_EQ(parent_alias_name, alias_ref_fields.begin()->second.collection);
+    ASSERT_TRUE(alias_ref_fields.begin()->second.referenced_field.name.empty());
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldAliasReferenceWithoutPersistedReferencedIns) {
     auto schema_json =
             R"({
@@ -11628,18 +11724,18 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasReferenceWithoutPersistedReferenced
                                                                          "production.booking-payments");
     ASSERT_TRUE(referenced_in_op.ok()) << referenced_in_op.error();
     auto referenced_in = referenced_in_op.get();
-    EXPECT_EQ("bookingId", referenced_in.field);
-    EXPECT_EQ("id", referenced_in.referenced_field_name);
-    EXPECT_TRUE(referenced_in.is_async);
+    ASSERT_EQ("bookingId", referenced_in.field);
+    ASSERT_EQ("id", referenced_in.referenced_field_name);
+    ASSERT_TRUE(referenced_in.is_async);
 
     auto reloaded_bookings = collectionManager.get_collection("production.bookings");
     ASSERT_NE(nullptr, reloaded_bookings);
     auto async_refs = reloaded_bookings->get_async_referenced_ins();
-    EXPECT_EQ(1, async_refs.size());
-    EXPECT_EQ(1, async_refs.count("id"));
-    EXPECT_EQ(0, async_refs.count(""));
+    ASSERT_EQ(1, async_refs.size());
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(0, async_refs.count(""));
     if (async_refs.count("id") == 1) {
-        EXPECT_EQ(1, async_refs.at("id").count(reference_pair_t("production.booking-payments", "bookingId")));
+        ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t("production.booking-payments", "bookingId")));
     }
 
     run_join_query(collectionManager, "after restart without $REFERENCED_INS key in store");
