@@ -10393,6 +10393,156 @@ TEST_F(CollectionJoinTest, FailedAliasTargetSwapAsyncBackfillDoesNotLeaveNewTarg
     ASSERT_NE(parent_v2_author_1_seq_id_op.get(), book_1_doc["author_ids_sequence_id"][0]);
 }
 
+TEST_F(CollectionJoinTest, FailedAliasTargetSwapAsyncBackfillRollbackRestoresPreviouslyBackfilledChildren) {
+    const std::string parent_alias_name = "authors_multi_backfill_alias";
+    const std::string parent_v1_collection_name = "authors_multi_backfill_v1";
+    const std::string parent_v2_collection_name = "authors_multi_backfill_v2";
+    const std::string first_child_collection_name = "a_books_referencing_authors_multi_backfill_alias";
+    const std::string second_child_collection_name = "b_books_referencing_authors_multi_backfill_alias";
+    const std::string reference_field_name = "author_ids";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v1_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v1 = collection_create_op.get();
+
+    auto add_op = parent_v1->add(R"({"id":"author-1","name":"Author One v1"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_v1_author_1_seq_id_op = parent_v1->doc_id_to_seq_id("author-1");
+    ASSERT_TRUE(parent_v1_author_1_seq_id_op.ok()) << parent_v1_author_1_seq_id_op.error();
+
+    add_op = parent_v1->add(R"({"id":"author-2","name":"Author Two v1"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_v1_author_2_seq_id_op = parent_v1->doc_id_to_seq_id("author-2");
+    ASSERT_TRUE(parent_v1_author_2_seq_id_op.ok()) << parent_v1_author_2_seq_id_op.error();
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v1_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "author_ids", "type": "string[]", "reference": "authors_multi_backfill_alias.id", "async_reference": true},
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = first_child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto first_child = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "author_ids", "type": "string[]", "reference": "authors_multi_backfill_alias.id", "async_reference": true},
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = second_child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto second_child = collection_create_op.get();
+
+    add_op = first_child->add(R"({"id":"book-a","author_ids":["author-1"],"title":"First Alias Book"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = second_child->add(R"({"id":"book-b","author_ids":["author-2"],"title":"Second Alias Book"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto first_child_doc = first_child->get("book-a").get();
+    ASSERT_EQ(1, first_child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(parent_v1_author_1_seq_id_op.get(), first_child_doc["author_ids_sequence_id"][0]);
+
+    auto second_child_doc = second_child->get("book-b").get();
+    ASSERT_EQ(1, second_child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(parent_v1_author_2_seq_id_op.get(), second_child_doc["author_ids_sequence_id"][0]);
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    schema_json["name"] = parent_v2_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v2 = collection_create_op.get();
+
+    add_op = parent_v2->add(R"({"id":"dummy-before-author-1","name":"Dummy Before Author One"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    add_op = parent_v2->add(R"({"id":"author-1","name":"Author One v2"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_v2_author_1_seq_id_op = parent_v2->doc_id_to_seq_id("author-1");
+    ASSERT_TRUE(parent_v2_author_1_seq_id_op.ok()) << parent_v2_author_1_seq_id_op.error();
+    ASSERT_NE(parent_v1_author_1_seq_id_op.get(), parent_v2_author_1_seq_id_op.get());
+
+    for (size_t i = 0; i < 5000; i++) {
+        nlohmann::json doc;
+        doc["id"] = "dummy-" + std::to_string(i);
+        doc["name"] = "Dummy " + std::to_string(i);
+        add_op = parent_v2->add(doc.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    add_op = parent_v2->add(R"({"id":"author-2","name":"Author Two v2"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    std::atomic<bool> stop_corruptor{false};
+    std::atomic<bool> corruption_done{false};
+    std::thread corruptor([&]() {
+        while (!stop_corruptor.load() && !corruption_done.load()) {
+            auto ref_fields = second_child->get_reference_fields();
+            auto ref_field_it = ref_fields.find(reference_field_name);
+            if (ref_field_it != ref_fields.end() && ref_field_it->second.collection == parent_v2_collection_name) {
+                auto child_seq_id_op = second_child->doc_id_to_seq_id("book-b");
+                if (child_seq_id_op.ok()) {
+                    auto stored_doc = second_child->get("book-b").get();
+                    stored_doc["author_ids_sequence_id"] = Join::reference_helper_sentinel_value;
+                    auto child_seq_id_key = second_child->get_seq_id_collection_prefix() + "_" +
+                                            StringUtils::serialize_uint32_t(child_seq_id_op.get());
+                    store->insert(child_seq_id_key, stored_doc.dump());
+                    corruption_done.store(true);
+                }
+                break;
+            }
+
+            std::this_thread::yield();
+        }
+    });
+
+    upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v2_collection_name);
+    stop_corruptor.store(true);
+    corruptor.join();
+
+    ASSERT_TRUE(corruption_done.load()) << "Test did not reach the second child async backfill failure window.";
+    ASSERT_FALSE(upsert_op.ok());
+    ASSERT_NE(std::string::npos, upsert_op.error().find("author_ids_sequence_id"));
+
+    auto alias_op = collectionManager.resolve_symlink(parent_alias_name);
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+    ASSERT_EQ(parent_v1_collection_name, alias_op.get());
+
+    auto first_child_ref_fields = first_child->get_reference_fields();
+    ASSERT_EQ(1, first_child_ref_fields.size());
+    ASSERT_EQ(parent_v1_collection_name, first_child_ref_fields.begin()->second.collection);
+
+    auto second_child_ref_fields = second_child->get_reference_fields();
+    ASSERT_EQ(1, second_child_ref_fields.size());
+    ASSERT_EQ(parent_v1_collection_name, second_child_ref_fields.begin()->second.collection);
+
+    first_child_doc = first_child->get("book-a").get();
+    ASSERT_EQ(1, first_child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(parent_v1_author_1_seq_id_op.get(), first_child_doc["author_ids_sequence_id"][0]);
+    ASSERT_NE(parent_v2_author_1_seq_id_op.get(), first_child_doc["author_ids_sequence_id"][0]);
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldAliasTargetSwapToFutureCollectionRebindsAliasReferencesOnly) {
     const std::string parent_alias_name = "authors_alias";
     const std::string parent_v1_collection_name = "authors_v1";

@@ -358,16 +358,13 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
     return Option<bool>(true);
 }
 
-Option<bool> Collection::backfill_async_reference_helpers(const std::string& referenced_field_name,
-                                                          Collection* referencing_coll,
-                                                          const std::string& referencing_field_name) {
-    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, true);
-}
-
-Option<bool> Collection::validate_async_reference_helper_backfill(const std::string& referenced_field_name,
-                                                                  Collection* referencing_coll,
-                                                                  const std::string& referencing_field_name) {
-    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, false);
+Option<bool> Collection::stage_async_reference_helper_backfill(
+        const std::string& referenced_field_name,
+        Collection* referencing_coll,
+        const std::string& referencing_field_name,
+        async_reference_backfill_update_map_t& staged_updates) {
+    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, true,
+                                           &staged_updates);
 }
 
 Option<bool> Collection::stage_async_reference_update(Collection* referencing_coll,
@@ -582,7 +579,8 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 Option<bool> Collection::async_reference_helper_backfill(const std::string& referenced_field_name,
                                                          Collection* referencing_coll,
                                                          const std::string& referencing_field_name,
-                                                         const bool apply_updates) {
+                                                         const bool apply_updates,
+                                                         async_reference_backfill_update_map_t* staged_updates) {
     if (referencing_coll == nullptr) {
         return Option<bool>(true);
     }
@@ -602,7 +600,8 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
     }
     const auto referenced_field_type = referenced_field.get_single_field_type();
 
-    async_reference_backfill_update_map_t staged_updates;
+    async_reference_backfill_update_map_t local_staged_updates;
+    auto& pending_staged_updates = staged_updates == nullptr ? local_staged_updates : *staged_updates;
 
     const auto seq_id_prefix = get_seq_id_collection_prefix();
     std::string iter_upper_bound_key = seq_id_prefix + "`";
@@ -709,7 +708,7 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
         auto update_op = apply_updates ?
                          stage_async_reference_update(referencing_coll, referencing_collection_name,
                                                       referencing_field_name, ref_filter, values, seq_id,
-                                                      staged_updates) :
+                                                      pending_staged_updates) :
                          referencing_coll->update_async_references_with_lock(name, ref_filter, values, seq_id,
                                                                              referencing_field_name, false);
         if (!update_op.ok()) {
@@ -718,9 +717,9 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
         }
     }
 
-    if (apply_updates) {
+    if (apply_updates && staged_updates == nullptr) {
         auto apply_op = apply_staged_async_reference_updates(referencing_coll, referencing_collection_name,
-                                                             staged_updates);
+                                                             pending_staged_updates);
         if (!apply_op.ok()) {
             return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
                                      "` of collection `" + referencing_collection_name + "`: " + apply_op.error());

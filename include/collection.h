@@ -525,6 +525,7 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
+public:
     struct async_reference_backfill_update_t {
         uint32_t seq_id;
         nlohmann::json old_doc;
@@ -533,6 +534,11 @@ private:
 
     using async_reference_backfill_update_map_t = std::map<uint32_t, async_reference_backfill_update_t>;
 
+    Option<bool> apply_staged_async_reference_updates(Collection* referencing_coll,
+                                                      const std::string& referencing_collection_name,
+                                                      async_reference_backfill_update_map_t& staged_updates);
+
+private:
     Option<bool> stage_async_reference_update(Collection* referencing_coll,
                                               const std::string& referencing_collection_name,
                                               const std::string& referencing_field_name,
@@ -540,10 +546,6 @@ private:
                                               const std::set<std::string>& filter_values,
                                               const uint32_t ref_seq_id,
                                               async_reference_backfill_update_map_t& staged_updates);
-
-    Option<bool> apply_staged_async_reference_updates(Collection* referencing_coll,
-                                                      const std::string& referencing_collection_name,
-                                                      async_reference_backfill_update_map_t& staged_updates);
 
     static bool handle_highlight_text(std::string& text, const bool& normalise, const field& search_field,
                                       const bool& is_arr_obj_ele,
@@ -833,7 +835,8 @@ private:
     Option<bool> async_reference_helper_backfill(const std::string& referenced_field_name,
                                                  Collection* referencing_coll,
                                                  const std::string& referencing_field_name,
-                                                 const bool apply_updates);
+                                                 const bool apply_updates,
+                                                 async_reference_backfill_update_map_t* staged_updates);
 
     // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
     static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
@@ -1321,13 +1324,10 @@ public:
                                                    const uint32_t ref_seq_id, const std::string& field_name,
                                                    const bool apply_updates = true);
 
-    Option<bool> backfill_async_reference_helpers(const std::string& referenced_field_name,
-                                                  Collection* referencing_coll,
-                                                  const std::string& referencing_field_name);
-
-    Option<bool> validate_async_reference_helper_backfill(const std::string& referenced_field_name,
-                                                          Collection* referencing_coll,
-                                                          const std::string& referencing_field_name);
+    Option<bool> stage_async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                       Collection* referencing_coll,
+                                                       const std::string& referencing_field_name,
+                                                       async_reference_backfill_update_map_t& staged_updates);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
