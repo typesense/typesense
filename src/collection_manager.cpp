@@ -20,16 +20,20 @@
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
+#ifdef TEST_BUILD
+std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply = nullptr;
+#endif
+
 struct staged_async_reference_backfill_t {
-    Collection* referenced_coll = nullptr;
-    Collection* referencing_coll = nullptr;
+    std::shared_ptr<Collection> referenced_coll;
+    std::shared_ptr<Collection> referencing_coll;
     std::string referencing_collection_name;
     Collection::async_reference_backfill_update_map_t updates;
 };
 
 Option<bool> stage_async_reference_helper_backfill(
-        Collection* referenced_coll,
-        Collection* referencing_coll,
+        std::shared_ptr<Collection> referenced_coll,
+        std::shared_ptr<Collection> referencing_coll,
         const std::string& referenced_field_name,
         const std::string& referencing_field_name,
         std::vector<staged_async_reference_backfill_t>& staged_backfills) {
@@ -38,13 +42,13 @@ Option<bool> stage_async_reference_helper_backfill(
     }
 
     staged_async_reference_backfill_t staged_backfill;
-    staged_backfill.referenced_coll = referenced_coll;
-    staged_backfill.referencing_coll = referencing_coll;
     staged_backfill.referencing_collection_name = referencing_coll->get_name();
+    staged_backfill.referenced_coll = std::move(referenced_coll);
+    staged_backfill.referencing_coll = std::move(referencing_coll);
 
-    auto stage_op = referenced_coll->stage_async_reference_helper_backfill(referenced_field_name, referencing_coll,
-                                                                           referencing_field_name,
-                                                                           staged_backfill.updates);
+    auto stage_op = staged_backfill.referenced_coll->stage_async_reference_helper_backfill(
+            referenced_field_name, staged_backfill.referencing_coll.get(), referencing_field_name,
+            staged_backfill.updates);
     if (!stage_op.ok()) {
         return stage_op;
     }
@@ -75,7 +79,7 @@ void rollback_applied_async_reference_helper_backfills(
         const auto& staged_backfill = staged_backfills[*it];
         auto reversed_updates = reverse_async_reference_helper_backfill(staged_backfill.updates);
         auto rollback_op = staged_backfill.referenced_coll->apply_staged_async_reference_updates(
-                staged_backfill.referencing_coll, staged_backfill.referencing_collection_name, reversed_updates);
+                staged_backfill.referencing_coll.get(), staged_backfill.referencing_collection_name, reversed_updates);
         if (!rollback_op.ok()) {
             LOG(ERROR) << "Failed to rollback async reference helper backfill for collection `"
                        << staged_backfill.referencing_collection_name << "`: " << rollback_op.error();
@@ -85,13 +89,22 @@ void rollback_applied_async_reference_helper_backfills(
 
 Option<bool> apply_staged_async_reference_helper_backfills(
         std::vector<staged_async_reference_backfill_t>& staged_backfills) {
+#ifdef TEST_BUILD
+    if (collection_manager_before_async_reference_backfill_apply != nullptr) {
+        auto hook_op = collection_manager_before_async_reference_backfill_apply();
+        if (!hook_op.ok()) {
+            return hook_op;
+        }
+    }
+#endif
+
     std::vector<size_t> applied_backfill_indices;
     applied_backfill_indices.reserve(staged_backfills.size());
 
     for (size_t i = 0; i < staged_backfills.size(); i++) {
         auto& staged_backfill = staged_backfills[i];
         auto apply_op = staged_backfill.referenced_coll->apply_staged_async_reference_updates(
-                staged_backfill.referencing_coll, staged_backfill.referencing_collection_name,
+                staged_backfill.referencing_coll.get(), staged_backfill.referencing_collection_name,
                 staged_backfill.updates);
         if (!apply_op.ok()) {
             rollback_applied_async_reference_helper_backfills(staged_backfills, applied_backfill_indices);
@@ -386,12 +399,13 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
     return Option<Collection*>(collection);
 }
 
-void CollectionManager::add_to_collections(Collection* collection) {
+std::shared_ptr<Collection> CollectionManager::add_to_collections(Collection* collection) {
     const std::string& collection_name = collection->get_name();
     const uint32_t collection_id = collection->get_collection_id();
     std::unique_lock lock(mutex);
-    collections.emplace(collection_name, collection);
+    auto emplace_result = collections.emplace(collection_name, collection);
     collection_id_names.emplace(collection_id, collection_name);
+    return emplace_result.first->second;
 }
 
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
@@ -949,7 +963,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     auto new_collection = collection_op.get();
-    add_to_collections(new_collection);
+    auto new_collection_shared = add_to_collections(new_collection);
     lock.lock();
 
     std::vector<std::map<std::string, reference_info_t>> ref_info_maps;
@@ -1002,7 +1016,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
             if(coll) {
                 const auto ref_info_it = ref_info_map.find(update_ref_info.collection);
                 if (ref_info_it != ref_info_map.end() && ref_info_it->second.is_async) {
-                    auto stage_op = stage_async_reference_helper_backfill(new_collection, coll.get(),
+                    auto stage_op = stage_async_reference_helper_backfill(new_collection_shared, coll,
                                                                           update_ref_info.referenced_field.name,
                                                                           update_ref_info.field, staged_backfills);
                     if (!stage_op.ok()) {
@@ -1061,8 +1075,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
             if (resolution.ref_info.is_async && resolution.referencing_coll != nullptr &&
                 resolution.referenced_coll != nullptr) {
                 for (const auto& update_ref_info: resolution.update_ref_infos) {
-                    auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll.get(),
-                                                                          resolution.referencing_coll.get(),
+                    auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll,
+                                                                          resolution.referencing_coll,
                                                                           update_ref_info.referenced_field.name,
                                                                           update_ref_info.field, staged_backfills);
                     if (!stage_op.ok()) {
@@ -1475,8 +1489,8 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
         }
 
         for (const auto& update_ref_info: resolution.update_ref_infos) {
-            auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll.get(),
-                                                                  resolution.referencing_coll.get(),
+            auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll,
+                                                                  resolution.referencing_coll,
                                                                   update_ref_info.referenced_field.name,
                                                                   update_ref_info.field, staged_backfills);
             if (!stage_op.ok()) {
@@ -1703,7 +1717,7 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
         }
 
         for (const auto& update_ref_info: rebind.update_ref_infos) {
-            auto stage_op = stage_async_reference_helper_backfill(new_coll.get(), rebind.referencing_coll.get(),
+            auto stage_op = stage_async_reference_helper_backfill(new_coll, rebind.referencing_coll,
                                                                   update_ref_info.referenced_field.name,
                                                                   update_ref_info.field, staged_backfills);
             if (!stage_op.ok()) {

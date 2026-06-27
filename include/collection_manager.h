@@ -2,6 +2,9 @@
 
 #include <iostream>
 #include <string>
+#ifdef TEST_BUILD
+#include <functional>
+#endif
 #include <sparsepp.h>
 #include "store.h"
 #include "field.h"
@@ -11,6 +14,10 @@
 #include "batched_indexer.h"
 
 const std::string ERROR_could_not_locate_document_in_store = "Could not locate the JSON document for sequence ID: ";
+
+#ifdef TEST_BUILD
+extern std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply;
+#endif
 
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
@@ -108,7 +115,7 @@ public:
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json,
                                          const bool copy_documents = false);
 
-    void add_to_collections(Collection* collection);
+    std::shared_ptr<Collection> add_to_collections(Collection* collection);
 
     Option<std::vector<std::shared_ptr<Collection>>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
                                                      const std::vector<std::string>& api_key_collections = {}) const;

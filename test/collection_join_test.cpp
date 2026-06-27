@@ -11035,6 +11035,75 @@ TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteChildUpda
     ASSERT_EQ(0, child_doc["parent_id_sequence_id"].get<uint32_t>());
 }
 
+TEST_F(CollectionJoinTest, CreateTimeAsyncBackfillRetainsReferencingCollectionUntilApply) {
+    const std::string parent_collection_name = "create_backfill_lifetime_parent";
+    const std::string child_collection_name = "create_backfill_lifetime_child";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "parent_id", "type": "string", "reference": "create_backfill_lifetime_parent.id", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    auto add_op = child->add(R"({"id":"child-1","parent_id":"parent-1","note":"before parent"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto child_doc = child->get("child-1").get();
+    ASSERT_EQ(Join::reference_helper_sentinel_value, child_doc["parent_id_sequence_id"]);
+
+    std::weak_ptr<Collection> child_weak = collectionManager.get_collection(child_collection_name);
+
+    const auto future_collection_id = collectionManager.get_next_collection_id();
+    const auto future_parent_seq_id = 0;
+    const auto future_parent_seq_id_key = std::to_string(future_collection_id) + "_" +
+                                          std::string(Collection::SEQ_ID_PREFIX) + "_" +
+                                          StringUtils::serialize_uint32_t(future_parent_seq_id);
+    ASSERT_TRUE(store->insert(future_parent_seq_id_key, R"({"id":"parent-1","name":"Parent One"})"));
+
+    bool hook_ran = false;
+    collection_manager_before_async_reference_backfill_apply = [&]() {
+        if (hook_ran) {
+            return Option<bool>(true);
+        }
+        hook_ran = true;
+
+        auto drop_op = collectionManager.drop_collection(child_collection_name);
+        if (!drop_op.ok()) {
+            return Option<bool>(drop_op.code(), drop_op.error());
+        }
+
+        if (child_weak.expired()) {
+            return Option<bool>(500, "Staged async reference backfill did not retain the referencing collection.");
+        }
+
+        return Option<bool>(true);
+    };
+
+    struct reset_backfill_hook_t {
+        ~reset_backfill_hook_t() {
+            collection_manager_before_async_reference_backfill_apply = nullptr;
+        }
+    } reset_backfill_hook;
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    ASSERT_TRUE(hook_ran);
+    ASSERT_EQ(nullptr, collectionManager.get_collection(child_collection_name));
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldExistingAliasReferenceResolvesWhenTargetCollectionIsCreated) {
     const std::string parent_alias_name = "bookings_existing_alias";
     const std::string parent_collection_name = "production.bookings_existing_alias";
