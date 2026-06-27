@@ -10981,6 +10981,60 @@ TEST_F(CollectionJoinTest, AsyncRefFieldDeferredAliasReferenceBackfillsIdReferen
     ASSERT_EQ("booking-11", res_obj["hits"][0]["document"]["bookingId"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteChildUpdateBetweenStageAndApply) {
+    const std::string parent_collection_name = "staged_backfill_parent";
+    const std::string child_collection_name = "staged_backfill_child";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent = collection_create_op.get();
+
+    auto add_op = parent->add(R"({"id":"parent-1","name":"Parent One"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "parent_id", "type": "string", "reference": "staged_backfill_parent.id", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    add_op = child->add(R"({"id":"child-1","parent_id":"parent-1","note":"before stage"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    Collection::async_reference_backfill_update_map_t staged_updates;
+    auto stage_op = parent->stage_async_reference_helper_backfill("id", child, "parent_id", staged_updates);
+    ASSERT_TRUE(stage_op.ok()) << stage_op.error();
+    ASSERT_EQ(1, staged_updates.size());
+
+    std::string dirty_values = "REJECT";
+    auto update_op = child->update_matching_filter("id:=child-1", R"({"note":"updated after stage"})", dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"].get<size_t>());
+
+    auto child_doc = child->get("child-1").get();
+    ASSERT_EQ("updated after stage", child_doc["note"].get<std::string>());
+
+    auto apply_op = parent->apply_staged_async_reference_updates(child, child_collection_name, staged_updates);
+    ASSERT_TRUE(apply_op.ok()) << apply_op.error();
+
+    child_doc = child->get("child-1").get();
+    ASSERT_EQ("updated after stage", child_doc["note"].get<std::string>());
+    ASSERT_EQ(0, child_doc["parent_id_sequence_id"].get<uint32_t>());
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldExistingAliasReferenceResolvesWhenTargetCollectionIsCreated) {
     const std::string parent_alias_name = "bookings_existing_alias";
     const std::string parent_collection_name = "production.bookings_existing_alias";

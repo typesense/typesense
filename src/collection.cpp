@@ -399,21 +399,23 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
 
         nlohmann::json existing_document;
         auto staged_update_it = staged_updates.find(referencing_seq_id);
-        if (staged_update_it == staged_updates.end()) {
-            auto get_doc_op = referencing_coll->get_document_from_store(referencing_coll->get_seq_id_key(referencing_seq_id),
-                                                                        existing_document);
-            if (!get_doc_op.ok()) {
-                if (get_doc_op.code() == 404) {
-                    LOG(ERROR) << "`" << referencing_collection_name << "` collection: Sequence ID `" <<
-                               referencing_seq_id << "` exists, but document is missing.";
-                    continue;
-                }
-
-                LOG(ERROR) << "`" << referencing_collection_name << "` collection: " << get_doc_op.error();
+        auto get_doc_op = referencing_coll->get_document_from_store(referencing_coll->get_seq_id_key(referencing_seq_id),
+                                                                    existing_document);
+        if (!get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << referencing_collection_name << "` collection: Sequence ID `" <<
+                           referencing_seq_id << "` exists, but document is missing.";
                 continue;
             }
-        } else {
-            existing_document = staged_update_it->second.new_doc;
+
+            LOG(ERROR) << "`" << referencing_collection_name << "` collection: " << get_doc_op.error();
+            continue;
+        }
+
+        if (staged_update_it != staged_updates.end()) {
+            for (const auto& helper_field: staged_update_it->second.new_helper_fields) {
+                existing_document[helper_field.first] = helper_field.second;
+            }
         }
 
         auto const id = existing_document["id"].get<std::string>();
@@ -421,12 +423,16 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
 
         if (referencing_field.is_singular()) {
             if (staged_update_it == staged_updates.end()) {
-                auto update = async_reference_backfill_update_t{referencing_seq_id, existing_document,
-                                                                existing_document};
+                auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
                 staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
             }
 
-            staged_update_it->second.new_doc[reference_helper_field_name] = ref_seq_id;
+            if (staged_update_it->second.old_helper_fields.count(reference_helper_field_name) == 0) {
+                staged_update_it->second.old_helper_fields[reference_helper_field_name] =
+                        existing_document.contains(reference_helper_field_name) ?
+                        existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
+            }
+            staged_update_it->second.new_helper_fields[reference_helper_field_name] = ref_seq_id;
             continue;
         }
 
@@ -463,11 +469,16 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
         }
 
         if (staged_update_it == staged_updates.end()) {
-            auto update = async_reference_backfill_update_t{referencing_seq_id, existing_document,
-                                                            existing_document};
+            auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
             staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
         }
-        staged_update_it->second.new_doc[reference_helper_field_name] = std::move(helper_field);
+
+        if (staged_update_it->second.old_helper_fields.count(reference_helper_field_name) == 0) {
+            staged_update_it->second.old_helper_fields[reference_helper_field_name] =
+                    existing_document.contains(reference_helper_field_name) ?
+                    existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
+        }
+        staged_update_it->second.new_helper_fields[reference_helper_field_name] = std::move(helper_field);
     }
 
     return Option<bool>(true);
@@ -485,11 +496,40 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
     size_t document_index = 0;
     for (const auto& staged_update_item: staged_updates) {
         const auto& staged_update = staged_update_item.second;
-        index_record record(document_index++, staged_update.seq_id, staged_update.new_doc,
+
+        nlohmann::json existing_document;
+        auto get_doc_op = referencing_coll->get_document_from_store(
+                referencing_coll->get_seq_id_key(staged_update.seq_id), existing_document);
+        if (!get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << referencing_collection_name << "` collection: Sequence ID `" <<
+                           staged_update.seq_id << "` exists, but document is missing.";
+                continue;
+            }
+
+            return Option<bool>(get_doc_op.code(), get_doc_op.error());
+        }
+
+        if (!existing_document.contains("id")) {
+            return Option<bool>(400, "`" + referencing_collection_name + "` collection: Sequence ID `" +
+                                     std::to_string(staged_update.seq_id) + "` document is missing `id` field.");
+        }
+
+        nlohmann::json update_document;
+        update_document["id"] = existing_document["id"].get<std::string>();
+        for (const auto& helper_field: staged_update.new_helper_fields) {
+            update_document[helper_field.first] = helper_field.second;
+        }
+
+        index_record record(document_index++, staged_update.seq_id, update_document,
                             index_operation_t::UPDATE, DIRTY_VALUES::COERCE_OR_REJECT);
-        record.old_doc = staged_update.old_doc;
+        record.old_doc = std::move(existing_document);
         record.is_update = true;
         index_records.emplace_back(std::move(record));
+    }
+
+    if (index_records.empty()) {
+        return Option<bool>(true);
     }
 
     std::shared_lock alter_shlock(referencing_coll->alter_mutex);

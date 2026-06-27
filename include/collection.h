@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <map>
 #include <thread>
 #include <memory>
 #include <atomic>
@@ -528,8 +529,8 @@ private:
 public:
     struct async_reference_backfill_update_t {
         uint32_t seq_id;
-        nlohmann::json old_doc;
-        nlohmann::json new_doc;
+        std::map<std::string, nlohmann::json> old_helper_fields;
+        std::map<std::string, nlohmann::json> new_helper_fields;
     };
 
     using async_reference_backfill_update_map_t = std::map<uint32_t, async_reference_backfill_update_t>;
