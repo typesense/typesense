@@ -66,7 +66,7 @@ Collection::async_reference_backfill_update_map_t reverse_async_reference_helper
     for (const auto& update_item: updates) {
         const auto& update = update_item.second;
         reversed_updates.emplace(update_item.first, Collection::async_reference_backfill_update_t{
-                update.seq_id, update.new_helper_fields, update.old_helper_fields});
+                update.seq_id, update.new_helper_fields, update.old_helper_fields, update.expected_reference_fields});
     }
 
     return reversed_updates;

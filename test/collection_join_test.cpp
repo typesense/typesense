@@ -11035,6 +11035,141 @@ TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteChildUpda
     ASSERT_EQ(0, child_doc["parent_id_sequence_id"].get<uint32_t>());
 }
 
+TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteReferenceFieldUpdateBetweenStageAndApply) {
+    const std::string parent_collection_name = "staged_backfill_reference_update_parent";
+    const std::string child_collection_name = "staged_backfill_reference_update_child";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent = collection_create_op.get();
+
+    auto add_op = parent->add(R"({"id":"parent-1","name":"Parent One"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = parent->add(R"({"id":"parent-2","name":"Parent Two"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto parent_1_seq_id_op = parent->doc_id_to_seq_id("parent-1");
+    ASSERT_TRUE(parent_1_seq_id_op.ok()) << parent_1_seq_id_op.error();
+    auto parent_2_seq_id_op = parent->doc_id_to_seq_id("parent-2");
+    ASSERT_TRUE(parent_2_seq_id_op.ok()) << parent_2_seq_id_op.error();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "parent_id", "type": "string", "reference": "staged_backfill_reference_update_parent.id", "async_reference": true},
+                    {"name": "note", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    add_op = child->add(R"({"id":"child-1","parent_id":"parent-1","note":"before stage"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto child_doc = child->get("child-1").get();
+    ASSERT_EQ(parent_1_seq_id_op.get(), child_doc["parent_id_sequence_id"].get<uint32_t>());
+
+    Collection::async_reference_backfill_update_map_t staged_updates;
+    auto stage_op = parent->stage_async_reference_helper_backfill("id", child, "parent_id", staged_updates);
+    ASSERT_TRUE(stage_op.ok()) << stage_op.error();
+    ASSERT_EQ(1, staged_updates.size());
+
+    std::string dirty_values = "REJECT";
+    auto update_op = child->update_matching_filter("id:=child-1", R"({"parent_id":"parent-2"})", dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"].get<size_t>());
+
+    child_doc = child->get("child-1").get();
+    ASSERT_EQ("parent-2", child_doc["parent_id"].get<std::string>());
+    ASSERT_EQ(parent_2_seq_id_op.get(), child_doc["parent_id_sequence_id"].get<uint32_t>());
+
+    auto apply_op = parent->apply_staged_async_reference_updates(child, child_collection_name, staged_updates);
+    ASSERT_TRUE(apply_op.ok()) << apply_op.error();
+
+    child_doc = child->get("child-1").get();
+    ASSERT_EQ("parent-2", child_doc["parent_id"].get<std::string>());
+    ASSERT_EQ(parent_2_seq_id_op.get(), child_doc["parent_id_sequence_id"].get<uint32_t>());
+}
+
+TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteReferenceArrayUpdateBetweenStageAndApply) {
+    const std::string parent_collection_name = "staged_backfill_reference_array_update_parent";
+    const std::string child_collection_name = "staged_backfill_reference_array_update_child";
+
+    auto schema_json =
+            R"({
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = parent_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent = collection_create_op.get();
+
+    auto add_op = parent->add(R"({"id":"author-1","name":"Author One"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = parent->add(R"({"id":"author-2","name":"Author Two"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto author_1_seq_id_op = parent->doc_id_to_seq_id("author-1");
+    ASSERT_TRUE(author_1_seq_id_op.ok()) << author_1_seq_id_op.error();
+    auto author_2_seq_id_op = parent->doc_id_to_seq_id("author-2");
+    ASSERT_TRUE(author_2_seq_id_op.ok()) << author_2_seq_id_op.error();
+
+    schema_json =
+            R"({
+                "fields": [
+                    {"name": "author_ids", "type": "string[]", "reference": "staged_backfill_reference_array_update_parent.id", "async_reference": true},
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    schema_json["name"] = child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    add_op = child->add(R"({"id":"book-1","author_ids":["author-1"],"title":"Before stage"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto child_doc = child->get("book-1").get();
+    ASSERT_EQ(1, child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(author_1_seq_id_op.get(), child_doc["author_ids_sequence_id"][0].get<uint32_t>());
+
+    Collection::async_reference_backfill_update_map_t staged_updates;
+    auto stage_op = parent->stage_async_reference_helper_backfill("id", child, "author_ids", staged_updates);
+    ASSERT_TRUE(stage_op.ok()) << stage_op.error();
+    ASSERT_EQ(1, staged_updates.size());
+
+    std::string dirty_values = "REJECT";
+    auto update_op = child->update_matching_filter("id:=book-1", R"({"author_ids":["author-2"]})", dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"].get<size_t>());
+
+    child_doc = child->get("book-1").get();
+    ASSERT_EQ(1, child_doc["author_ids"].size());
+    ASSERT_EQ("author-2", child_doc["author_ids"][0].get<std::string>());
+    ASSERT_EQ(1, child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(author_2_seq_id_op.get(), child_doc["author_ids_sequence_id"][0].get<uint32_t>());
+
+    auto apply_op = parent->apply_staged_async_reference_updates(child, child_collection_name, staged_updates);
+    ASSERT_TRUE(apply_op.ok()) << apply_op.error();
+
+    child_doc = child->get("book-1").get();
+    ASSERT_EQ(1, child_doc["author_ids"].size());
+    ASSERT_EQ("author-2", child_doc["author_ids"][0].get<std::string>());
+    ASSERT_EQ(1, child_doc["author_ids_sequence_id"].size());
+    ASSERT_EQ(author_2_seq_id_op.get(), child_doc["author_ids_sequence_id"][0].get<uint32_t>());
+}
+
 TEST_F(CollectionJoinTest, CreateTimeAsyncBackfillRetainsReferencingCollectionUntilApply) {
     const std::string parent_collection_name = "create_backfill_lifetime_parent";
     const std::string child_collection_name = "create_backfill_lifetime_child";

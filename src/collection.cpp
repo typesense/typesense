@@ -432,6 +432,11 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
                         existing_document.contains(reference_helper_field_name) ?
                         existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
             }
+            staged_update_it->second.expected_reference_fields[reference_helper_field_name] = {
+                    referencing_field_name,
+                    existing_document.contains(referencing_field_name) ?
+                    existing_document[referencing_field_name] : nlohmann::json(nullptr)
+            };
             staged_update_it->second.new_helper_fields[reference_helper_field_name] = ref_seq_id;
             continue;
         }
@@ -478,6 +483,11 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
                     existing_document.contains(reference_helper_field_name) ?
                     existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
         }
+        staged_update_it->second.expected_reference_fields[reference_helper_field_name] = {
+                referencing_field_name,
+                existing_document.contains(referencing_field_name) ?
+                existing_document[referencing_field_name] : nlohmann::json(nullptr)
+        };
         staged_update_it->second.new_helper_fields[reference_helper_field_name] = std::move(helper_field);
     }
 
@@ -518,7 +528,22 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
         nlohmann::json update_document;
         update_document["id"] = existing_document["id"].get<std::string>();
         for (const auto& helper_field: staged_update.new_helper_fields) {
+            auto expected_reference_it = staged_update.expected_reference_fields.find(helper_field.first);
+            if (expected_reference_it != staged_update.expected_reference_fields.end()) {
+                const auto& expected_reference = expected_reference_it->second;
+                const auto current_reference_value = existing_document.contains(expected_reference.name) ?
+                                                     existing_document[expected_reference.name] :
+                                                     nlohmann::json(nullptr);
+                if (current_reference_value != expected_reference.value) {
+                    continue;
+                }
+            }
+
             update_document[helper_field.first] = helper_field.second;
+        }
+
+        if (update_document.size() == 1) {
+            continue;
         }
 
         index_record record(document_index++, staged_update.seq_id, update_document,

@@ -528,9 +528,15 @@ private:
 
 public:
     struct async_reference_backfill_update_t {
+        struct expected_reference_field_t {
+            std::string name;
+            nlohmann::json value;
+        };
+
         uint32_t seq_id;
         std::map<std::string, nlohmann::json> old_helper_fields;
         std::map<std::string, nlohmann::json> new_helper_fields;
+        std::map<std::string, expected_reference_field_t> expected_reference_fields;
     };
 
     using async_reference_backfill_update_map_t = std::map<uint32_t, async_reference_backfill_update_t>;
