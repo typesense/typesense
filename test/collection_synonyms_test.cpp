@@ -1621,12 +1621,12 @@ TEST_F(CollectionSynonymsTest, AddDuplicateIndexRemovesOld) {
     // Add first index
     auto add_op1 = mgr.add_synonym_index("dup_index");
     ASSERT_TRUE(add_op1.ok());
-    SynonymIndex* idx1 = add_op1.get();
+    auto idx1 = add_op1.get();
 
     // Add again, should remove old and create new
     auto add_op2 = mgr.add_synonym_index("dup_index");
     ASSERT_TRUE(add_op2.ok());
-    SynonymIndex* idx2 = add_op2.get();
+    auto idx2 = add_op2.get();
 
     ASSERT_NE(idx1, idx2);
     // Should only be one in map

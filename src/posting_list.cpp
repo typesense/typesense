@@ -1,5 +1,6 @@
 #include "posting_list.h"
 #include <bitset>
+#include <limits>
 #include "for.h"
 #include "array_utils.h"
 #include "filter_result_iterator.h"
@@ -1896,7 +1897,7 @@ bool posting_list_t::all_ended2(const std::vector<posting_list_t::iterator_t>& i
     return !its[0].valid() && !its[1].valid();
 }
 
-size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array) {
+size_t posting_list_t::get_first_offset(const posting_list_t::iterator_t& it, bool field_is_array) {
     block_t* curr_block = it.block();
     uint32_t curr_index = it.index();
     uint32_t* offsets = it.offsets;
@@ -1909,17 +1910,18 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
                           curr_block->offsets.getLength() :
                           it.offset_index[curr_index + 1];
 
+    uint32_t start_offset = it.offset_index[curr_index];
+
     if(field_is_array) {
-        uint32_t start_offset = it.offset_index[curr_index];
         int prev_pos = -1;
-        size_t max_offset = 0;
+        size_t min_offset = std::numeric_limits<size_t>::max();
 
         while(start_offset < end_offset) {
             int pos = offsets[start_offset];
             start_offset++;
 
-            if(pos > max_offset) {
-                max_offset = pos;
+            if(pos < min_offset) {
+                min_offset = pos;
             }
 
             if(pos == prev_pos) {  // indicates end of array index
@@ -1941,10 +1943,10 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
             prev_pos = pos;
         }
 
-        return max_offset;
+        return min_offset;
 
     } else {
-        return offsets[end_offset-1] == 0 ? offsets[end_offset-2] : offsets[end_offset-1];
+        return offsets[start_offset];
     }
 
     return 0;

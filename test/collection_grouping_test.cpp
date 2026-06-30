@@ -299,6 +299,26 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_STREQ(("Value of `group_limit` must be between 1 and " + std::to_string(Config::get_instance().get_max_group_limit()) + ".").c_str(), res_op.error().c_str());
 }
 
+TEST_F(CollectionGroupingTest, UnresolvedReferenceStyleGroupByShouldReturnError) {
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll_group"},
+            {"q", "*"},
+            {"group_by", "$foo"},
+            {"group_limit", "1"}
+    };
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    Option<bool> search_op(false);
+    EXPECT_NO_THROW(search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts));
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(404, search_op.code());
+    ASSERT_EQ("Could not find a field named `$foo` in the schema.", search_op.error());
+}
+
 TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     Collection *coll1;
 

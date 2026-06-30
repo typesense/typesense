@@ -2,6 +2,9 @@
 
 #include <iostream>
 #include <string>
+#ifdef TEST_BUILD
+#include <functional>
+#endif
 #include <sparsepp.h>
 #include "store.h"
 #include "field.h"
@@ -11,6 +14,10 @@
 #include "batched_indexer.h"
 
 const std::string ERROR_could_not_locate_document_in_store = "Could not locate the JSON document for sequence ID: ";
+
+#ifdef TEST_BUILD
+extern std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply;
+#endif
 
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
@@ -60,7 +67,20 @@ private:
         return "";
     }
 
-    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches);
+    static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches,
+                                              const std::vector<std::shared_ptr<Collection>>& collections);
+
+    void persist_referenced_ins();
+
+    Option<bool> validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                          const std::string& collection_name) const;
+
+    Option<bool> resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                         const std::string& collection_name);
+
+    Option<bool> rebind_references_for_symlink_target_swap(const std::string& symlink_name,
+                                                           const std::string& old_collection_name,
+                                                           const std::string& new_collection_name);
 
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
@@ -95,7 +115,7 @@ public:
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json,
                                          const bool copy_documents = false);
 
-    void add_to_collections(Collection* collection);
+    std::shared_ptr<Collection> add_to_collections(Collection* collection);
 
     Option<std::vector<std::shared_ptr<Collection>>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
                                                      const std::vector<std::string>& api_key_collections = {}) const;
@@ -189,10 +209,15 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
-    Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
-                                    std::set<update_reference_info_t>& update_ref_infos);
+    Option<bool> add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                              std::set<update_reference_info_t>& update_ref_infos,
+                                              bool is_live_request = true);
 
-    void remove_referenced_ins(const std::string& referenced_coll_name, const std::string& referring_coll_name = "");
+    Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                    std::set<update_reference_info_t>& update_ref_infos,
+                                    bool is_live_request = true);
+
+    void remove_referenced_ins_with_lock(const std::string& referencing_coll_name, const reference_info_t& ref_info);
 
     std::map<std::string, std::map<std::string, reference_info_t>> _get_referenced_ins() const;
 
@@ -202,6 +227,8 @@ public:
                                          std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins);
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
+
+    std::unordered_set<std::string> get_nested_referencing_collections(const std::string& coll_name);
 
     bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, std::shared_ptr<Collection> coll) const;
 
@@ -223,6 +250,10 @@ public:
     static Option<bool> get_filter_ids(const std::string collection, const std::string & filter_query,
                                        filter_result_t& filter_result,
                                        const bool& should_timeout = true, const bool& validate_field_names = true);
+
+    static nlohmann::json preprocess_union_hits_for_conversation(const nlohmann::json& hits);
+
+    bool is_referenced_in_any(const std::string& referenced_coll_name) const;
 
     Option<reference_info_t> is_referenced_in(const std::string& referenced_coll_name,
                                               const std::string& referring_coll_name) const;
@@ -252,4 +283,11 @@ public:
     static Option<bool> process_ref_include_fields_sort(const std::string& collection_name,
                                                         const std::string& sort_by_str, size_t limit,
                                                         std::vector<uint32_t>& doc_ids);
+
+    void lock_nested_referencing_collections_helper(const std::string& coll_name,
+                                                    cascade_remove_node_t* cascade_node,
+                                                    std::set<std::string>& referencing_collections);
+
+    void lock_nested_referencing_collections(const std::string& coll_name,
+                                             cascade_remove_node_t*& cascade_tree);
 };

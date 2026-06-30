@@ -48,6 +48,7 @@ Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch
         for(auto& doc: removed_docs_batch) {
             if(deletion_state->return_doc) {
                 Collection::remove_flat_fields(doc);
+                Collection::remove_reference_helper_fields(doc);
                 deletion_state->removed_docs.push_back(doc);
             }
 
@@ -151,8 +152,10 @@ Option<bool> multi_search_validate_and_add_params(std::map<std::string, std::str
                                      " parameter in the request, instead of inside the POST body");
         }
 
-        // overwrite = false since req params will contain embedded params and so has higher priority
-        bool populated = AuthManager::add_item_to_params(req_params, search_item, false);
+        // Embedded params are applied later, but an explicit per-search collection must still win over any
+        // top-level multi-search collection so auth and execution resolve the same target collection.
+        const bool overwrite = (search_item.key() == "collection");
+        bool populated = AuthManager::add_item_to_params(req_params, search_item, overwrite);
         if(!populated) {
             return Option<bool>(400, "One or more search parameters are malformed.");
         }

@@ -36,6 +36,7 @@ private:
     std::string ssl_certificate;
     std::string ssl_certificate_key;
     uint32_t ssl_refresh_interval_seconds;
+    std::string http_client_ca_certificate;
 
     bool enable_cors;
     std::set<std::string> cors_domains;
@@ -261,6 +262,10 @@ public:
         this->ssl_certificate_key = ssl_cert_key;
     }
 
+    void set_http_client_ca_certificate(const std::string& ca_certificate) {
+        this->http_client_ca_certificate = ca_certificate;
+    }
+
     void set_enable_cors(bool enable_cors) {
         this->enable_cors = enable_cors;
     }
@@ -375,6 +380,10 @@ public:
 
     std::string get_ssl_cert_key() const {
         return this->ssl_certificate_key;
+    }
+
+    std::string get_http_client_ca_certificate() const {
+        return this->http_client_ca_certificate;
     }
 
     std::string get_config_file() const {

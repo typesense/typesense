@@ -2,6 +2,7 @@
 #include <thread>
 #include <app_metrics.h>
 #include <regex>
+#include <algorithm>
 #include <analytics_manager.h>
 #include "analytics_manager.h"
 #include <housekeeper.h>
@@ -71,6 +72,19 @@ void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
 
+bool use_response_cache(const std::map<std::string, std::string>& params) {
+    const auto use_cache_it = params.find("use_cache");
+    bool use_cache = (use_cache_it != params.end()) &&
+                     (use_cache_it->second == "1" || use_cache_it->second == "true");
+
+    const auto conversation_it = params.find("conversation");
+    if(conversation_it != params.end() && conversation_it->second == "true") {
+        use_cache = false;
+    }
+
+    return use_cache;
+}
+
 bool get_alter_in_progress(const std::string& collection) {
     std::shared_lock lock(alter_mutex);
     return alters_in_progress.count(collection) != 0;
@@ -80,7 +94,11 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body,
                            const route_path& rpath,
-                           const std::string& req_auth_key) {
+                           const std::string& req_auth_key,
+                           std::string* api_key_prefix) {
+    if(api_key_prefix != nullptr) {
+        api_key_prefix->clear();
+    }
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
@@ -89,10 +107,14 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
 
     if(rpath.handler == get_health_with_resource_usage) {
         // health_rusage end-point will be authenticated via pre-determined keys
-        return !req_auth_key.empty() && (
+        bool authenticated = !req_auth_key.empty() && (
                 req_auth_key == Config::get_instance().get_api_key() ||
                 req_auth_key == Config::get_instance().get_health_rusage_api_key()
                 );
+        if(authenticated && api_key_prefix != nullptr) {
+            *api_key_prefix = req_auth_key.substr(0, api_key_t::PREFIX_LEN);
+        }
+        return authenticated;
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -106,7 +128,36 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
         return false;
     }
 
-    return collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params, embedded_params_vec);
+    if(api_key_prefix != nullptr) {
+        AuthManager& auth_manager = collectionManager.getAuthManager();
+        std::vector<std::string> api_key_prefixes;
+        for(const auto& collection: collections) {
+            auto prefix = auth_manager.get_api_key_prefix(collection.api_key);
+            if(!prefix.empty() && std::find(api_key_prefixes.begin(), api_key_prefixes.end(), prefix) == api_key_prefixes.end()) {
+                api_key_prefixes.push_back(prefix);
+            }
+        }
+        auto req_auth_key_prefix = auth_manager.get_api_key_prefix(req_auth_key);
+        if(api_key_prefixes.empty() && !req_auth_key_prefix.empty()) {
+            api_key_prefixes.push_back(req_auth_key_prefix);
+        }
+        *api_key_prefix = StringUtils::join(api_key_prefixes, ",");
+    }
+
+    const bool authenticated = collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params,
+                                                                  embedded_params_vec);
+    if(!authenticated) {
+        return false;
+    }
+
+    // Carry the auth-resolved collection forward so later request merging cannot change the search target.
+    for(size_t i = 0; i < collections.size(); i++) {
+        if(embedded_params_vec[i].count(AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) == 0) {
+            embedded_params_vec[i][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM] = collections[i].collection;
+        }
+    }
+
+    return true;
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -158,7 +209,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                         coll_name = req_params["collection"];
                     } else {
                         // if preset exists, that should be the lowest priority
-                        if(el.count("preset") != 0) {
+                        if(el.count("preset") != 0 && el["preset"].is_string()) {
                             nlohmann::json preset_obj;
                             auto preset_op = CollectionManager::get_instance().
                                     get_preset(el["preset"].get<std::string>(), preset_obj);
@@ -550,23 +601,44 @@ bool get_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 uint64_t hash_request(const std::shared_ptr<http_req>& req) {
-    std::stringstream ss;
-    ss << req->route_hash << req->body;
+    auto append_component = [](std::string& req_str, const std::string& value) {
+        req_str.append(std::to_string(value.size()));
+        req_str.push_back(':');
+        req_str.append(value);
+    };
 
-    for(auto& kv: req->params) {
+    std::string req_str;
+    req_str.reserve(req->body.size() + (req->params.size() * 32) + (req->embedded_params_vec.size() * 72) + 64);
+
+    append_component(req_str, std::to_string(req->route_hash));
+    append_component(req_str, req->body);
+
+    for(const auto& kv : req->params) {
         const auto& param_name = kv.first;
         if(param_name != "use_cache" && param_name != http_req::USER_HEADER) {
-            ss << kv.second;
+            append_component(req_str, param_name);
+            append_component(req_str, kv.second);
         }
     }
 
-    const std::string& req_str = ss.str();
+    for(const auto& embedded_params_item : req->embedded_params_vec) {
+        req_str.push_back(';');
+        for(const auto& item : embedded_params_item.items()) {
+            if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
+                continue;
+            }
+
+            append_component(req_str, item.key());
+            append_component(req_str, item.value().dump());
+        }
+    }
+
     return StringUtils::hash_wy(req_str.c_str(), req_str.size());
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -619,7 +691,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         conversation = true;
     }
 
-    if(req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
+    if(conversation && req->params.find("conversation_stream") != req->params.end() && req->params["conversation_stream"] == "true") {
         conversation_stream = true;
     }
 
@@ -708,10 +780,17 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         results_json["conversation"] = nlohmann::json::object();
         results_json["conversation"]["query"] = query;
 
+        auto collection = CollectionManager::get_instance().get_collection(req->params["collection"]);
         nlohmann::json docs_array = nlohmann::json::array();
-
-        if(results_json.count("hits") != 0 && results_json["hits"].is_array()) {
-            docs_array = results_json["hits"];
+        if(collection != nullptr) {
+            if(results_json.contains("grouped_hits")) {
+                for(const auto& grouped_hit : results_json["grouped_hits"]) {
+                    auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+                    docs_array.insert(docs_array.end(), group_docs.begin(), group_docs.end());
+                }
+            } else {
+                docs_array = collection->preprocess_result_docs_for_conversation(results_json["hits"]);
+            }
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
@@ -853,8 +932,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto use_cache_it = req->params.find("use_cache");
-    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
+    bool use_cache = use_response_cache(req->params);
+
     uint64_t req_hash = 0;
 
     in_flight_req_guard_t in_flight_req_guard(req);
@@ -999,7 +1078,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     bool conversation = orig_req_params["conversation"] == "true";
-    bool conversation_stream = orig_req_params["conversation_stream"] == "true";
+    bool conversation_stream = conversation && orig_req_params["conversation_stream"] == "true";
     bool conversation_history = orig_req_params.find("conversation_id") != orig_req_params.end();
     std::string common_query;
 
@@ -1133,51 +1212,65 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
-        int res_index = 0;
-        for(const auto& result : response["results"]) {
-            if(result.count("code") != 0) {
-                continue;
-            }
-
+        if(is_union && ((response.contains("hits") && response["hits"].is_array()) ||
+                        (response.contains("grouped_hits") && response["grouped_hits"].is_array()))) {
             nlohmann::json result_docs = nlohmann::json::array();
-
-            std::vector<std::string> vector_fields;
-
-            auto collection = CollectionManager::get_instance().get_collection(searches[res_index]["collection"].get<std::string>());
-            auto search_schema = collection->get_schema();
-
-            for(const auto& field : search_schema) {
-                if(field.type == field_types::FLOAT_ARRAY) {
-                    vector_fields.push_back(field.name);
-                }
-            }
-
-            if(result.contains("grouped_hits")) {
-                for(const auto& grouped_hit : result["grouped_hits"]) {
-                    for(const auto& hit : grouped_hit["hits"]) {
-                        auto doc = hit["document"];
-                        for(const auto& vector_field : vector_fields) {
-                            if(doc.contains(vector_field)) {
-                                doc.erase(vector_field);
-                            }
-                        }
-                        result_docs.push_back(doc);
+            if(response.contains("grouped_hits") && response["grouped_hits"].is_array()) {
+                for(const auto& grouped_hit : response["grouped_hits"]) {
+                    if(!grouped_hit.is_object() || !grouped_hit.contains("hits") || !grouped_hit["hits"].is_array()) {
+                        continue;
                     }
+
+                    auto group_docs = CollectionManager::preprocess_union_hits_for_conversation(grouped_hit["hits"]);
+                    result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
                 }
-            }
-            else {
-                for(const auto& hit : result["hits"]) {
-                    auto doc = hit["document"];
-                    for(const auto& vector_field : vector_fields) {
-                        if(doc.contains(vector_field)) {
-                            doc.erase(vector_field);
-                        }
-                    }
-                    result_docs.push_back(doc);
-                }
+            } else {
+                result_docs = CollectionManager::preprocess_union_hits_for_conversation(response["hits"]);
             }
 
             result_docs_arr.push_back(result_docs);
+
+        } else if(!is_union && response.contains("results") && response["results"].is_array()) {
+            for(const auto& result : response["results"]) {
+                if(result.count("code") != 0) {
+                    continue;
+                }
+
+                auto collection_name_it = result["request_params"].find("collection_name");
+                auto collection = (collection_name_it == result["request_params"].end() || !collection_name_it->is_string())
+                                  ? nullptr
+                                  : CollectionManager::get_instance().get_collection(collection_name_it->get<std::string>());
+                if(collection == nullptr) {
+                    continue;
+                }
+
+                nlohmann::json result_docs = nlohmann::json::array();
+                if(result.contains("grouped_hits")) {
+                    for(const auto& grouped_hit : result["grouped_hits"]) {
+                        auto group_docs = collection->preprocess_result_docs_for_conversation(grouped_hit["hits"]);
+                        result_docs.insert(result_docs.end(), group_docs.begin(), group_docs.end());
+                    }
+                } else {
+                    result_docs = collection->preprocess_result_docs_for_conversation(result["hits"]);
+                }
+
+                result_docs_arr.push_back(result_docs);
+            }
+        }
+
+        // If all searches failed (no successful search results), skip the model call entirely.
+        // Successful searches with zero hits should still follow the normal conversation path.
+        if(result_docs_arr.empty()) {
+            // No successful search results — skip conversation model call
+            // and return the response with just the error results
+            std::string response_str = response.dump();
+            if(res->content_type_header.find("event-stream") != std::string::npos) {
+                response_str = "data: " + response_str + "\n\n";
+            }
+            res->set_200(response_str);
+            res->final = true;
+            stream_response(req, res);
+            return true;
         }
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
@@ -1208,6 +1301,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             // pop the last element from first array
             if(result_docs_arr.size() > 0 && result_docs_arr[0].size() > 0) {
                 result_docs_arr[0].erase(result_docs_arr[0].size() - 1);
+            } else {
+                break;
             }
         }
 
@@ -1256,7 +1351,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         auto conversation_history = conversation_history_op.get();
 
         std::vector<std::string> exclude_fields;
-        StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
+        StringUtils::split(orig_req_params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
         auto new_conversation_op = ConversationManager::get_last_n_messages(conversation_history["conversation"], 2);
@@ -1280,7 +1375,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             response["conversation"]["conversation_history"] = conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
-
     }
 
     std::string response_str = response.dump();
@@ -1427,8 +1521,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 validate_field_names = false;
             }
 
-            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result, false,
-                                                            validate_field_names);
+            auto filter_ids_op = collection->get_filter_ids_with_lock(filter_query, export_state->filter_result, false,
+                                                                      validate_field_names);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2098,8 +2192,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         filter_result_t filter_result;
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result, false,
-                                                        validate_field_names);
+        auto filter_ids_op = collection->get_filter_ids_with_lock(simple_filter_query, filter_result, false,
+                                                                  validate_field_names);
 
         if (!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -2324,6 +2418,74 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
     }
 
     res->set_201(api_key_op.get().to_json().dump());
+    return true;
+}
+
+bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    const std::string& key_id_str = req->params["id"];
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto get_key_op = auth_manager.get_key(key_id, false);
+    if(!get_key_op.ok()) {
+        res->set(get_key_op.code(), get_key_op.error());
+        return false;
+    }
+
+    const api_key_t& existing_key = get_key_op.get();
+
+    // Merge: start from existing key's JSON representation, then overlay request fields
+    nlohmann::json merged_json = existing_key.to_json();
+    for(auto it = req_json.begin(); it != req_json.end(); ++it) {
+        merged_json[it.key()] = it.value();
+    }
+
+    const Option<uint32_t>& validate_op = api_key_t::validate(merged_json);
+    if(!validate_op.ok()) {
+        res->set(validate_op.code(), validate_op.error());
+        return false;
+    }
+
+    if(merged_json.count("expires_at") == 0) {
+        merged_json["expires_at"] = api_key_t::FAR_FUTURE_TIMESTAMP;
+    }
+
+    if(merged_json.count("autodelete") == 0) {
+        merged_json["autodelete"] = false;
+    }
+
+    api_key_t api_key(
+        existing_key.value,
+        merged_json["description"].get<std::string>(),
+        merged_json["actions"].get<std::vector<std::string>>(),
+        merged_json["collections"].get<std::vector<std::string>>(),
+        merged_json["expires_at"].get<uint64_t>(),
+        merged_json["autodelete"].get<bool>()
+    );
+    api_key.id = existing_key.id; // ensure the id remains the same
+
+    const Option<api_key_t>& update_op = auth_manager.update_key(key_id, std::move(api_key));
+    if(!update_op.ok()) {
+        res->set(update_op.code(), update_op.error());
+        return false;
+    }
+    auto updated_key_obj = update_op.get().to_json();
+    updated_key_obj["value_prefix"] = updated_key_obj["value"];
+    updated_key_obj.erase("value");
+
+    res->set_200(updated_key_obj.dump());
     return true;
 }
 
@@ -3014,6 +3176,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     }
 
     std::string body, url, method;
+    bool ssl_verify = false;
     std::unordered_map<std::string, std::string> headers;
 
     if(req_json.count("url") == 0 || req_json.count("method") == 0) {
@@ -3035,6 +3198,10 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             res->set_400("Headers must be a JSON object.");
             return false;
         }
+        if(req_json.count("ssl_verify") != 0 && !req_json["ssl_verify"].is_boolean()) {
+            res->set_400("SSL verify must be a boolean.");
+            return false;
+        }
         if(req_json.count("body")) {
             body = req_json["body"].get<std::string>();
         }
@@ -3042,6 +3209,9 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         method = req_json["method"].get<std::string>();
         if(req_json.count("headers")) {
             headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+        if(req_json.count("ssl_verify")) {
+            ssl_verify = req_json["ssl_verify"].get<bool>();
         }
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
@@ -3058,7 +3228,8 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         return false;
     }
 
-    auto response = proxy.send(url, method, body, headers);
+    auto response = proxy.send(url, method, body, headers,
+                               ssl_verify ? HttpClient::SSLVerifyMode::VERIFY : HttpClient::SSLVerifyMode::NO_VERIFY);
 
     if(response.status_code != 200) {
         int code = response.status_code;
@@ -3325,6 +3496,7 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     std::string body, url, method;
+    bool ssl_verify = false;
     std::unordered_map<std::string, std::string> headers;
 
     if(req_json.count("url") == 0 || req_json.count("method") == 0) {
@@ -3354,6 +3526,12 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
             stream_response(req, res);
             return false;
         }
+        if(req_json.count("ssl_verify") != 0 && !req_json["ssl_verify"].is_boolean()) {
+            res->set_400("SSL verify must be a boolean.");
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
         if(req_json.count("body")) {
             body = req_json["body"].get<std::string>();
         }
@@ -3361,6 +3539,9 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         method = req_json["method"].get<std::string>();
         if(req_json.count("headers")) {
             headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+        if(req_json.count("ssl_verify")) {
+            ssl_verify = req_json["ssl_verify"].get<bool>();
         }
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
@@ -3381,7 +3562,8 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         return false;
     }
 
-    return proxy.call_sse(url, method, body, headers, req, res);
+    return proxy.call_sse(url, method, body, headers, req, res, HttpProxy::default_timeout_ms,
+                          ssl_verify ? HttpClient::SSLVerifyMode::VERIFY : HttpClient::SSLVerifyMode::NO_VERIFY);
 }
 
 bool get_nl_search_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -3748,7 +3930,7 @@ bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     const std::string & set_name = req->params["name"];
     nlohmann::json res_json;
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
@@ -3763,7 +3945,7 @@ bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     const std::string & set_name = req->params["name"];
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
@@ -4059,7 +4241,12 @@ bool put_curation_set_item(const std::shared_ptr<http_req>& req, const std::shar
         res->set(add_op.code(), add_op.error());
         return false;
     }
-    res->set_200(ov_json.dump());
+    auto get_op = manager.get_curation_item(set_name, id);
+    if(!get_op.ok()) {
+        res->set(get_op.code(), get_op.error());
+        return false;
+    }
+    res->set_200(get_op.get().dump());
     return true;
 }
 

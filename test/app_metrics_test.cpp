@@ -44,6 +44,17 @@ TEST_F(AppMetricsTest, StatefulRemoveDocs) {
     ASSERT_EQ(result["rps"]["GET /operations/vote"].get<double>(), 0.1);
 }
 
+TEST_F(AppMetricsTest, FormatsAccessLogWithApiKeyPrefix) {
+    ASSERT_EQ("123456\t1.2.3.4\tGET /collections\tabcd\n",
+              AppMetrics::format_access_log(123456, "1.2.3.4", "GET /collections", "abcd"));
+
+    ASSERT_EQ("123456\t1.2.3.4\tGET /health\t\n",
+              AppMetrics::format_access_log(123456, "1.2.3.4", "GET /health", ""));
+
+    ASSERT_EQ("123456\t1.2.3.4\tGET /collections\tab__\n",
+              AppMetrics::format_access_log(123456, "1.2.3.4", "GET /collections", "ab\t\n"));
+}
+
 TEST_F(AppMetricsTest, EstimateQuantileDuration) {
     //add 100 random durations
     std::mt19937 rng;

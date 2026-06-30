@@ -345,6 +345,36 @@ TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
     ASSERT_EQ("math", ttokens[8]);
 }
 
+TEST(TokenizerTest, ShouldKeepByteOffsetsForGreekLocaleTokens) {
+    const std::string text =
+        "Λύσανδρος Κατραφούρης & Θεόφιλος Σαμουραΐτης προσκαλούν τους Alex Stone & Nina Vale "
+        "στο Tegan Gang Jazz Club της Αθήνας";
+
+    Tokenizer tokenizer(text, true, false, "el");
+
+    std::string token;
+    size_t token_index = 0;
+    size_t start_index = 0;
+    size_t end_index = 0;
+    bool found_jazz = false;
+    bool found_club = false;
+
+    while(tokenizer.next(token, token_index, start_index, end_index)) {
+        if(token == "jazz") {
+            found_jazz = true;
+            ASSERT_EQ("Jazz", text.substr(start_index, end_index - start_index + 1));
+        }
+
+        if(token == "club") {
+            found_club = true;
+            ASSERT_EQ("Club", text.substr(start_index, end_index - start_index + 1));
+        }
+    }
+
+    ASSERT_TRUE(found_jazz);
+    ASSERT_TRUE(found_club);
+}
+
 TEST(TokenizerTest, ShouldRemoveGenericPunctuationFromThaiText) {
     std::string tstr = "f’’b";
     std::vector<std::string> ttokens;

@@ -99,32 +99,19 @@ Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym,
 
     synonym_definitions[synonym_index] = synonym;
     synonym_ids_index_map[synonym.id] = synonym_index;
-
-    std::vector<std::string> keys;
-
-    if(!synonym.root.empty()) {
-        auto root_tokens_str = StringUtils::join(synonym.root, " ");
-        keys.push_back(root_tokens_str);
-    } else {
-        for(const auto & syn_tokens : synonym.synonyms) {
-            auto synonyms_str = StringUtils::join(syn_tokens, " ");
-            keys.push_back(synonyms_str);
-        }
-    }
-
-
     ++synonym_index;
+
+    synonym_trie_root.add(synonym);
 
     write_lock.unlock();
 
+    // Persistence is intentionally done outside the lock
     if(write_to_store) {
         bool inserted = store->insert(get_synonym_key(name, synonym.id), synonym.to_view_json().dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the synonym on disk.");
         }
     }
-
-    synonym_trie_root.add(synonym);
 
     return Option<bool>(true);
 }
@@ -174,15 +161,15 @@ Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
     return Option<bool>(404, "Could not find that `id`.");
 }
 
-Option<std::map<uint32_t, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit, uint32_t offset) {
+Option<std::map<uint32_t, synonym_t>> SynonymIndex::get_synonyms(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
-    std::map<uint32_t, synonym_t*> synonyms_map;
+    std::map<uint32_t, synonym_t> synonyms_map;
 
     auto synonym_it = synonym_definitions.begin();
 
     if(offset > 0) {
         if(offset >= synonym_definitions.size()) {
-            return Option<std::map<uint32_t, synonym_t*>>(400, "Invalid offset param.");
+            return Option<std::map<uint32_t, synonym_t>>(400, "Invalid offset param.");
         }
 
         std::advance(synonym_it, offset);
@@ -196,11 +183,11 @@ Option<std::map<uint32_t, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit
     }
 
     while (synonym_it != synonym_end) {
-        synonyms_map[synonym_it->first] = &synonym_it->second;
+        synonyms_map[synonym_it->first] = synonym_it->second;
         synonym_it++;
     }
 
-    return Option<std::map<uint32_t, synonym_t*>>(synonyms_map);
+    return Option<std::map<uint32_t, synonym_t>>(synonyms_map);
 }
 
 std::string SynonymIndex::get_synonym_key(const std::string & index_name, const std::string & synonym_id) {
@@ -516,6 +503,7 @@ bool synonym_node_t::cleanup(synonym_node_t* node, synonym_node_t* parent) {
 }
 
 nlohmann::json SynonymIndex::to_view_json() const {
+    std::shared_lock lock(mutex);
     nlohmann::json obj;
     obj["items"] = nlohmann::json::array();
     for (const auto& [index, synonym] : synonym_definitions) {

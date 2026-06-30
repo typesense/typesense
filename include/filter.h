@@ -23,7 +23,8 @@ enum NUM_COMPARATOR {
     GREATER_THAN,
     GREATER_THAN_EQUALS,
     RANGE_INCLUSIVE,
-    CONTAINS_PHRASE
+    CONTAINS_PHRASE,
+    MISSING
 };
 
 enum FILTER_OPERATOR {
@@ -57,6 +58,7 @@ struct filter {
     /// Radius threshold beyond which exact filtering on geo_result_ids will not be done.
     static constexpr const char* EXACT_GEO_FILTER_RADIUS_KEY = "exact_filter_radius";
     static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000; // meters
+    static constexpr const char* MISSING_FILTER_KEY = "_missing";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -81,7 +83,8 @@ struct filter {
                                            const std::string& doc_id_prefix,
                                            filter_node_t*& root,
                                            const bool& validate_field_names = true,
-                                           const std::string& object_field_prefix = "");
+                                           const std::string& object_field_prefix = "",
+                                           const bool& validate_max_ops = true);
 
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 

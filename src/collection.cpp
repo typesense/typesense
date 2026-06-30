@@ -40,6 +40,18 @@ const std::string curation_t::MATCH_CONTAINS = "contains";
 
 const int ALTER_STATUS_MSG_COUNT = 5; // we keep track of last 5 status of alter op
 
+namespace {
+bool is_dynamic_alter_type(const field& f) {
+    return f.is_dynamic() || f.is_auto() || f.is_string_star();
+}
+
+bool is_allowed_alter_type_transition(const std::string& from_type, const std::string& to_type) {
+    return from_type == to_type ||
+           (from_type == field_types::INT32 && to_type == field_types::INT64) ||
+           (from_type == field_types::INT32_ARRAY && to_type == field_types::INT64_ARRAY);
+}
+}
+
 struct sort_fields_guard_t {
     std::vector<sort_by> sort_fields_std;
 
@@ -217,9 +229,38 @@ inline std::string get_array_field_value(const nlohmann::json& doc, const std::s
                 doc[field_name][index].dump();
 }
 
+inline bool is_supported_async_reference_backfill_value(const nlohmann::json& value) {
+    return value.is_number_integer() || value.is_string();
+}
+
+Option<bool> append_async_reference_backfill_filter_value(const std::string& referenced_field_name,
+                                                          const std::string& referenced_field_type,
+                                                          const nlohmann::json& value,
+                                                          std::string& ref_filter_value,
+                                                          std::string& ref_display_value,
+                                                          std::set<std::string>& values) {
+    nlohmann::json value_doc;
+    value_doc[referenced_field_name] = value;
+
+    std::string filter_value;
+    auto filter_value_op = Join::single_value_filter_query(value_doc, referenced_field_name, referenced_field_type,
+                                                           filter_value);
+    if (!filter_value_op.ok()) {
+        return filter_value_op;
+    }
+
+    auto display_value = get_field_value(value_doc, referenced_field_name);
+    ref_filter_value += filter_value;
+    ref_display_value += display_value;
+    values.insert(display_value);
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                            const std::set<std::string>& filter_values,
-                                                           const uint32_t ref_seq_id, const std::string& field_name) {
+                                                           const uint32_t ref_seq_id, const std::string& field_name,
+                                                           const bool apply_updates) {
     field field;
     {
         std::shared_lock lock(mutex);
@@ -233,7 +274,10 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
 
     // Update reference helper field of the docs matching the filter.
     filter_result_t filter_result;
-    get_filter_ids(filter, filter_result, false);
+    auto filter_op = get_filter_ids_with_lock(filter, filter_result, false);
+    if (!filter_op.ok()) {
+        return filter_op;
+    }
     if (filter_result.count == 0) {
         return Option<bool>(true);
     }
@@ -306,8 +350,446 @@ Option<bool> Collection::update_async_references_with_lock(const std::string& re
         }
     }
 
-    nlohmann::json dummy;
-    add_many(buffer, dummy, index_operation_t::UPDATE);
+    if (apply_updates && !buffer.empty()) {
+        nlohmann::json dummy;
+        add_many(buffer, dummy, index_operation_t::UPDATE);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::stage_async_reference_helper_backfill(
+        const std::string& referenced_field_name,
+        Collection* referencing_coll,
+        const std::string& referencing_field_name,
+        async_reference_backfill_update_map_t& staged_updates) {
+    return async_reference_helper_backfill(referenced_field_name, referencing_coll, referencing_field_name, true,
+                                           &staged_updates);
+}
+
+Option<bool> Collection::stage_async_reference_update(Collection* referencing_coll,
+                                                      const std::string& referencing_collection_name,
+                                                      const std::string& referencing_field_name,
+                                                      const std::string& filter,
+                                                      const std::set<std::string>& filter_values,
+                                                      const uint32_t ref_seq_id,
+                                                      async_reference_backfill_update_map_t& staged_updates) {
+    field referencing_field;
+    {
+        std::shared_lock lock(referencing_coll->mutex);
+
+        auto ref_field_it = referencing_coll->search_schema.find(referencing_field_name);
+        if (ref_field_it == referencing_coll->search_schema.end()) {
+            return Option<bool>(400, "Could not find field `" + referencing_field_name + "` in the schema.");
+        }
+        referencing_field = ref_field_it.value();
+    }
+
+    filter_result_t filter_result;
+    auto filter_op = referencing_coll->get_filter_ids_with_lock(filter, filter_result, false);
+    if (!filter_op.ok()) {
+        return filter_op;
+    }
+    if (filter_result.count == 0) {
+        return Option<bool>(true);
+    }
+
+    for (uint32_t i = 0; i < filter_result.count; i++) {
+        auto const& referencing_seq_id = filter_result.docs[i];
+
+        nlohmann::json existing_document;
+        auto staged_update_it = staged_updates.find(referencing_seq_id);
+        auto get_doc_op = referencing_coll->get_document_from_store(referencing_coll->get_seq_id_key(referencing_seq_id),
+                                                                    existing_document);
+        if (!get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << referencing_collection_name << "` collection: Sequence ID `" <<
+                           referencing_seq_id << "` exists, but document is missing.";
+                continue;
+            }
+
+            LOG(ERROR) << "`" << referencing_collection_name << "` collection: " << get_doc_op.error();
+            continue;
+        }
+
+        if (staged_update_it != staged_updates.end()) {
+            for (const auto& helper_field: staged_update_it->second.new_helper_fields) {
+                existing_document[helper_field.first] = helper_field.second;
+            }
+        }
+
+        auto const id = existing_document["id"].get<std::string>();
+        auto const reference_helper_field_name = referencing_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+        if (referencing_field.is_singular()) {
+            if (staged_update_it == staged_updates.end()) {
+                auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
+                staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
+            }
+
+            if (staged_update_it->second.old_helper_fields.count(reference_helper_field_name) == 0) {
+                staged_update_it->second.old_helper_fields[reference_helper_field_name] =
+                        existing_document.contains(reference_helper_field_name) ?
+                        existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
+            }
+            staged_update_it->second.expected_reference_fields[reference_helper_field_name] = {
+                    referencing_field_name,
+                    existing_document.contains(referencing_field_name) ?
+                    existing_document[referencing_field_name] : nlohmann::json(nullptr)
+            };
+            staged_update_it->second.new_helper_fields[reference_helper_field_name] = ref_seq_id;
+            continue;
+        }
+
+        if (!existing_document.contains(referencing_field_name) || !existing_document[referencing_field_name].is_array()) {
+            return Option<bool>(400, "Expected document `id: " + id + "` to have `" += referencing_field_name +
+                                     "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
+                                     "` instead.");
+        } else if (!existing_document.contains(reference_helper_field_name) ||
+                   !existing_document[reference_helper_field_name].is_array()) {
+            return Option<bool>(400, "Expected document `id: " + id + "` to have `" += reference_helper_field_name +
+                                     "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
+                                     "` instead.");
+        } else if (existing_document[referencing_field_name].size() != existing_document[reference_helper_field_name].size()) {
+            return Option<bool>(400, "Expected document `id: " + id + "` to have equal count of elements in `" +=
+                                     referencing_field_name + ": " += get_field_value(existing_document, referencing_field_name) +
+                                     "` field and `" += reference_helper_field_name + ": " +=
+                                     get_field_value(existing_document, reference_helper_field_name) + "` field.");
+        }
+
+        auto should_update = false;
+        nlohmann::json helper_field = existing_document[reference_helper_field_name];
+        for (uint32_t j = 0; j < existing_document[referencing_field_name].size(); j++) {
+            auto const& ref_value = get_array_field_value(existing_document, referencing_field_name, j);
+            if (filter_values.count(ref_value) == 0) {
+                continue;
+            }
+
+            should_update = true;
+            helper_field[j] = ref_seq_id;
+        }
+
+        if (!should_update) {
+            continue;
+        }
+
+        if (staged_update_it == staged_updates.end()) {
+            auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
+            staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
+        }
+
+        if (staged_update_it->second.old_helper_fields.count(reference_helper_field_name) == 0) {
+            staged_update_it->second.old_helper_fields[reference_helper_field_name] =
+                    existing_document.contains(reference_helper_field_name) ?
+                    existing_document[reference_helper_field_name] : nlohmann::json(nullptr);
+        }
+        staged_update_it->second.expected_reference_fields[reference_helper_field_name] = {
+                referencing_field_name,
+                existing_document.contains(referencing_field_name) ?
+                existing_document[referencing_field_name] : nlohmann::json(nullptr)
+        };
+        staged_update_it->second.new_helper_fields[reference_helper_field_name] = std::move(helper_field);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::apply_staged_async_reference_updates(Collection* referencing_coll,
+                                                              const std::string& referencing_collection_name,
+                                                              async_reference_backfill_update_map_t& staged_updates) {
+    if (staged_updates.empty()) {
+        return Option<bool>(true);
+    }
+
+    std::vector<index_record> index_records;
+    index_records.reserve(staged_updates.size());
+    size_t document_index = 0;
+    for (const auto& staged_update_item: staged_updates) {
+        const auto& staged_update = staged_update_item.second;
+
+        nlohmann::json existing_document;
+        auto get_doc_op = referencing_coll->get_document_from_store(
+                referencing_coll->get_seq_id_key(staged_update.seq_id), existing_document);
+        if (!get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << referencing_collection_name << "` collection: Sequence ID `" <<
+                           staged_update.seq_id << "` exists, but document is missing.";
+                continue;
+            }
+
+            return Option<bool>(get_doc_op.code(), get_doc_op.error());
+        }
+
+        if (!existing_document.contains("id")) {
+            return Option<bool>(400, "`" + referencing_collection_name + "` collection: Sequence ID `" +
+                                     std::to_string(staged_update.seq_id) + "` document is missing `id` field.");
+        }
+
+        nlohmann::json update_document;
+        update_document["id"] = existing_document["id"].get<std::string>();
+        for (const auto& helper_field: staged_update.new_helper_fields) {
+            auto expected_reference_it = staged_update.expected_reference_fields.find(helper_field.first);
+            if (expected_reference_it != staged_update.expected_reference_fields.end()) {
+                const auto& expected_reference = expected_reference_it->second;
+                const auto current_reference_value = existing_document.contains(expected_reference.name) ?
+                                                     existing_document[expected_reference.name] :
+                                                     nlohmann::json(nullptr);
+                if (current_reference_value != expected_reference.value) {
+                    continue;
+                }
+            }
+
+            update_document[helper_field.first] = helper_field.second;
+        }
+
+        if (update_document.size() == 1) {
+            continue;
+        }
+
+        index_record record(document_index++, staged_update.seq_id, update_document,
+                            index_operation_t::UPDATE, DIRTY_VALUES::COERCE_OR_REJECT);
+        record.old_doc = std::move(existing_document);
+        record.is_update = true;
+        index_records.emplace_back(std::move(record));
+    }
+
+    if (index_records.empty()) {
+        return Option<bool>(true);
+    }
+
+    std::shared_lock alter_shlock(referencing_coll->alter_mutex);
+    {
+        std::shared_lock schema_lock(referencing_coll->mutex);
+        Index::batch_validate_and_preprocess(referencing_coll->index, index_records,
+                                             referencing_coll->default_sorting_field,
+                                             referencing_coll->search_schema,
+                                             referencing_coll->embedding_fields,
+                                             referencing_coll->fallback_field_type,
+                                             referencing_coll->token_separators,
+                                             referencing_coll->symbols_to_index,
+                                             true);
+    }
+
+    std::unordered_set<std::string> dummy_set;
+    {
+        std::unique_lock index_lock(referencing_coll->mutex);
+        Index::batch_memory_index(referencing_coll->index, index_records, referencing_coll->default_sorting_field,
+                                  referencing_coll->search_schema, referencing_coll->embedding_fields,
+                                  referencing_coll->fallback_field_type, referencing_coll->token_separators,
+                                  referencing_coll->symbols_to_index, dummy_set);
+    }
+
+    auto rollback_indexed_updates = [&]() {
+        for (auto& record: index_records) {
+            if (!record.indexed.ok()) {
+                continue;
+            }
+
+            auto new_doc = record.new_doc;
+            referencing_coll->remove_document(new_doc, record.seq_id, false, false);
+
+            auto old_doc_for_index = record.old_doc;
+            auto restore_index_op = referencing_coll->index_in_memory(old_doc_for_index, record.seq_id,
+                                                                      record.operation, record.dirty_values);
+            if (!restore_index_op.ok()) {
+                LOG(ERROR) << "Failed to restore async reference helper backfill index state for document `" <<
+                           record.old_doc.value("id", "") << "` in collection `" << referencing_collection_name <<
+                           "`: " << restore_index_op.error();
+            }
+
+            auto old_doc_for_store = record.old_doc;
+            remove_flat_fields(old_doc_for_store);
+            for (auto& f: referencing_coll->fields) {
+                if(!f.store) {
+                    old_doc_for_store.erase(f.name);
+                }
+            }
+
+            const std::string& serialized_json = old_doc_for_store.dump(-1, ' ', false,
+                                                                        nlohmann::detail::error_handler_t::ignore);
+            if (!referencing_coll->store->insert(referencing_coll->get_seq_id_key(record.seq_id), serialized_json)) {
+                LOG(ERROR) << "Failed to restore async reference helper backfill store state for document `" <<
+                           record.old_doc.value("id", "") << "` in collection `" << referencing_collection_name << "`.";
+            }
+        }
+    };
+
+    for (const auto& record: index_records) {
+        if (!record.indexed.ok()) {
+            rollback_indexed_updates();
+            return Option<bool>(record.indexed.code(), record.indexed.error());
+        }
+    }
+
+    for (auto& record: index_records) {
+        auto new_doc_for_store = record.new_doc;
+        remove_flat_fields(new_doc_for_store);
+        for (auto& f: referencing_coll->fields) {
+            if(!f.store) {
+                new_doc_for_store.erase(f.name);
+            }
+        }
+
+        const std::string& serialized_json = new_doc_for_store.dump(-1, ' ', false,
+                                                                    nlohmann::detail::error_handler_t::ignore);
+        if (!referencing_coll->store->insert(referencing_coll->get_seq_id_key(record.seq_id), serialized_json)) {
+            rollback_indexed_updates();
+            return Option<bool>(500, "Could not write async reference helper backfill to on-disk storage.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                         Collection* referencing_coll,
+                                                         const std::string& referencing_field_name,
+                                                         const bool apply_updates,
+                                                         async_reference_backfill_update_map_t* staged_updates) {
+    if (referencing_coll == nullptr) {
+        return Option<bool>(true);
+    }
+
+    const auto referencing_collection_name = referencing_coll->get_name();
+    const bool references_doc_id = referenced_field_name == "id";
+    field referenced_field;
+    if (references_doc_id) {
+        referenced_field = field("id", field_types::STRING, false);
+    } else {
+        std::shared_lock lock(mutex);
+        auto it = search_schema.find(referenced_field_name);
+        if (it == search_schema.end()) {
+            return Option<bool>(400, "Could not find field `" + referenced_field_name + "` in the schema.");
+        }
+        referenced_field = it.value();
+    }
+    const auto referenced_field_type = referenced_field.get_single_field_type();
+
+    async_reference_backfill_update_map_t local_staged_updates;
+    auto& pending_staged_updates = staged_updates == nullptr ? local_staged_updates : *staged_updates;
+
+    const auto seq_id_prefix = get_seq_id_collection_prefix();
+    std::string iter_upper_bound_key = seq_id_prefix + "`";
+    auto iter_upper_bound = std::make_unique<rocksdb::Slice>(iter_upper_bound_key);
+    std::unique_ptr<rocksdb::Iterator> it(store->scan(seq_id_prefix, iter_upper_bound.get()));
+
+    while (it->Valid() && it->key().starts_with(seq_id_prefix)) {
+        auto seq_id = get_seq_id_from_key(it->key().ToString());
+        auto json_doc_str = it->value().ToString();
+        it->Next();
+
+        nlohmann::json document;
+        try {
+            document = nlohmann::json::parse(json_doc_str);
+        } catch (...) {
+            continue;
+        }
+
+        if (document.count(referenced_field_name) != 1) {
+            continue;
+        }
+
+        std::string ref_filter_value;
+        std::string ref_display_value;
+        std::set<std::string> values;
+        if (references_doc_id) {
+            auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                referenced_field_type,
+                                                                                document.at(referenced_field_name),
+                                                                                ref_filter_value, ref_display_value,
+                                                                                values);
+            if (!filter_value_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " +
+                                         filter_value_op.error());
+            }
+        } else if (document.at(referenced_field_name).is_array()) {
+            ref_filter_value = "[";
+            ref_display_value = "[";
+
+            for (auto const& value: document[referenced_field_name]) {
+                if (!is_supported_async_reference_backfill_value(value)) {
+                    LOG(ERROR) << "Field `" + referenced_field_name + "` must only have string/int32/int64 values.";
+                    continue;
+                }
+
+                auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                    referenced_field_type,
+                                                                                    value, ref_filter_value,
+                                                                                    ref_display_value, values);
+                if (!filter_value_op.ok()) {
+                    return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                             "` of collection `" + referencing_collection_name + "`: " +
+                                             filter_value_op.error());
+                }
+                ref_filter_value += ",";
+                ref_display_value += ",";
+            }
+
+            if (!values.empty()) {
+                ref_filter_value[ref_filter_value.size() - 1] = ']';
+                ref_display_value[ref_display_value.size() - 1] = ']';
+            }
+        } else {
+            auto const& value = document[referenced_field_name];
+            if (!is_supported_async_reference_backfill_value(value)) {
+                LOG(ERROR) << "Field `" + referenced_field_name + "` must only have string/int32/int64 values.";
+                continue;
+            }
+
+            auto filter_value_op = append_async_reference_backfill_filter_value(referenced_field_name,
+                                                                                referenced_field_type,
+                                                                                value, ref_filter_value,
+                                                                                ref_display_value, values);
+            if (!filter_value_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " +
+                                         filter_value_op.error());
+            }
+        }
+
+        if (values.empty()) {
+            continue;
+        }
+
+        if (!references_doc_id) {
+            filter_result_t filter_result;
+            auto referenced_filter = referenced_field_name + (referenced_field.is_string() ? ":= " : ": ");
+            referenced_filter += ref_filter_value;
+            auto filter_op = get_filter_ids_with_lock(referenced_filter, filter_result, false);
+            if (!filter_op.ok()) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: " + filter_op.error());
+            } else if (filter_result.count > 1) {
+                return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                         "` of collection `" + referencing_collection_name + "`: The value `" +
+                                         ref_display_value + "` of the field `" + referenced_field_name +
+                                         "` is not unique in `" + name + "` collection.");
+            }
+        }
+
+        auto ref_filter = referencing_field_name + ":= ";
+        ref_filter += ref_filter_value;
+        auto update_op = apply_updates ?
+                         stage_async_reference_update(referencing_coll, referencing_collection_name,
+                                                      referencing_field_name, ref_filter, values, seq_id,
+                                                      pending_staged_updates) :
+                         referencing_coll->update_async_references_with_lock(name, ref_filter, values, seq_id,
+                                                                             referencing_field_name, false);
+        if (!update_op.ok()) {
+            return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                     "` of collection `" + referencing_collection_name + "`: " + update_op.error());
+        }
+    }
+
+    if (apply_updates && staged_updates == nullptr) {
+        auto apply_op = apply_staged_async_reference_updates(referencing_coll, referencing_collection_name,
+                                                             pending_staged_updates);
+        if (!apply_op.ok()) {
+            return Option<bool>(400, "Error while updating async reference field `" + referencing_field_name +
+                                     "` of collection `" + referencing_collection_name + "`: " + apply_op.error());
+        }
+    }
 
     return Option<bool>(true);
 }
@@ -435,6 +917,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::store] = coll_field.store;
         field_json[fields::truncate_len] = coll_field.truncate_len;
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
+        field_json[fields::track_missing_values] = coll_field.track_missing_values;
 
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
@@ -637,7 +1120,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             std::unordered_map<std::string, field> dynamic_fields_copy;
             tsl::htrie_map<char, field> nested_fields_copy;
             spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
-            spp::sparse_hash_map<std::string, std::set<reference_pair_t>> async_referenced_ins_copy;
+
             tsl::htrie_map<char, field> search_schema_copy;
             tsl::htrie_set<char> object_reference_fields_copy;
             {
@@ -646,14 +1129,13 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 dynamic_fields_copy = dynamic_fields;
                 nested_fields_copy = nested_fields;
                 reference_fields_copy = reference_fields;
-                async_referenced_ins_copy = async_referenced_ins;
                 search_schema_copy = search_schema;
                 object_reference_fields_copy = object_reference_fields;
             }
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type_copy.empty() || !dynamic_fields_copy.empty() || !nested_fields_copy.empty() ||
-                !reference_fields_copy.empty() || !async_referenced_ins_copy.empty()) {
+                !reference_fields_copy.empty()) {
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
                                                                search_schema_copy, dynamic_fields_copy,
@@ -784,7 +1266,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
         delete it;
     } else {
         filter_result_t filter_result;
-        auto filter_ids_op = get_filter_ids(_filter_query, filter_result, false, validate_field_names);
+        auto filter_ids_op = get_filter_ids_with_lock(_filter_query, filter_result, false, validate_field_names);
         if(!filter_ids_op.ok()) {
             return Option<nlohmann::json>(filter_ids_op.code(), filter_ids_op.error());
         }
@@ -814,11 +1296,28 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     resp_summary["num_updated"] = docs_updated_count;
     return Option(resp_summary);
 }
+
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::unordered_set<std::string> found_fields;
+    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                          remote_embedding_num_tries, true, found_fields);
 
-    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, true);
+    // Only update the referencing collections for the documents that have successfully been indexed in-memory and on disk.
+    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
+    {
+        std::shared_lock lock(mutex);
+        for (const auto& field_name: found_fields) {
+            // We will update all the referencing collections that have referenced `field_name`.
+            auto it = async_referenced_ins.find(field_name);
+            if (it != async_referenced_ins.end()) {
+                found_async_referenced_ins.insert(std::make_pair(it->first, it->second));
+            }
+        }
+    }
+    // We will remove all references to a document that has failed to index.
+    std::vector<index_record> remove_async_reference_docs;
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -839,12 +1338,9 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 if(!write_ok) {
                     // we will attempt to reindex the old doc on a best-effort basis
                     LOG(ERROR) << "Update to disk failed. Will restore old document";
-                    remove_document(index_record.new_doc, index_record.seq_id, false);
+                    remove_document(index_record.new_doc, index_record.seq_id, false, false);
                     index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
                     index_record.index_failure(500, "Could not write to on-disk storage.");
-                } else {
-                    num_indexed++;
-                    index_record.index_success();
                 }
 
             } else {
@@ -866,36 +1362,54 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
 
                 if(!write_ok) {
                     // remove from in-memory store to keep the state synced
-                    LOG(ERROR) << "Write to disk failed. Will restore old document";
-                    remove_document(index_record.doc, index_record.seq_id, false);
+                    LOG(ERROR) << "Write to disk failed, removing the document from in-memory index.";
+                    remove_document(index_record.doc, index_record.seq_id, false, false);
                     index_record.index_failure(500, "Could not write to on-disk storage.");
-                } else {
-                    num_indexed++;
-                    index_record.index_success();
+                }
+
+                if (!found_async_referenced_ins.empty() && index_record.indexed.ok()) {
+                    auto async_update_op = Index::update_async_references(name, return_doc, return_id,
+                                                                          found_async_referenced_ins,  index_record,
+                                                                          json_out);
+                    if (!async_update_op.ok()) {
+                        // remove from in-memory store to keep the state synced
+                        LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
+
+                        remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
+                                                                 index_record.doc, index_record.operation,
+                                                                 index_record.dirty_values);
+                        remove_document(index_record.doc, index_record.seq_id, false, false);
+                    }
                 }
             }
 
             res["success"] = index_record.indexed.ok();
 
-            if (return_doc & index_record.indexed.ok()) {
-                res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
-            }
+            if (index_record.indexed.ok()) {
+                num_indexed++;
+                index_record.index_success();
 
-            if (return_id & index_record.indexed.ok()) {
-                res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
-            }
+                if (return_doc) {
+                    res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
+                }
+                if (return_id) {
+                    res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
+                }
+            } else {
+                res["error"] = index_record.indexed.error();
+                res["code"] = index_record.indexed.code();
 
-          if(!index_record.indexed.ok()) {
                 if(return_doc) {
                     res["document"] = json_out[index_record.position];
                 }
-                res["error"] = index_record.indexed.error();
+                if (return_id && index_record.doc.contains("id")) {
+                    res["id"] = index_record.doc["id"];
+                }
                 if (!index_record.embedding_res.empty()) {
                     res["embedding_error"] = nlohmann::json::object();
                     res["embedding_error"] = index_record.embedding_res;
                     res["error"] = index_record.embedding_res["error"];
                 }
-                res["code"] = index_record.indexed.code();
             }
         } else {
             res["success"] = false;
@@ -920,6 +1434,8 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
         json_out[index_record.position] = res.dump(-1, ' ', false,
                                                    nlohmann::detail::error_handler_t::ignore);
     }
+
+    Collection::reset_referencing_documents(found_async_referenced_ins, remove_async_reference_docs);
 }
 
 Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
@@ -953,7 +1469,8 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 }
 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
-                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
+                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                         const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
     std::shared_lock alter_shlock(alter_mutex);
     std::shared_lock shlock(mutex);
     Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
@@ -962,25 +1479,13 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     shlock.unlock();
     std::unique_lock lock(mutex);
     const auto collection_name = name;
-    std::unordered_set<std::string> found_fields;
+
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
                                                    token_separators, symbols_to_index, found_fields,
-                                                   false, tsl::htrie_map<char, field>(), collection_name);
+                                                   false, tsl::htrie_map<char, field>());
     num_documents += num_indexed;
 
-    spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
-    for (const auto& field_name: found_fields) {
-        // We will update all the referencing collections that have referenced `field_name`.
-        auto it = async_referenced_ins.find(field_name);
-        if (it != async_referenced_ins.end()) {
-            found_async_referenced_ins.insert(std::make_pair(it->first, it->second));
-        }
-    }
-
-    lock.unlock();
-
-    Index::update_async_references(collection_name, index_records, found_async_referenced_ins);
     return num_indexed;
 }
 
@@ -1166,13 +1671,12 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         };
 
         if(!curation_set_curations.empty()) {
-          std::string query;
+          auto compute_base_query = [&]() -> std::string {
+              return actual_query == "*" ? "*" : tokenize_query();
+          };
 
-          if(actual_query == "*") {
-              query = "*";
-          } else {
-              query = tokenize_query();
-          }
+          std::string base_query = compute_base_query();
+          std::string query;
 
           if(!tags.empty()) {
               bool all_tags_found = false;
@@ -1180,6 +1684,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                   // exact AND match only when multiple tags are sent
                   for(const auto* ov : curation_set_curations) {
                       if(ov->rule.tags == tags) {
+                          query = base_query;
+
                           if(ov->rule.stem) {
                             query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
                           }
@@ -1192,6 +1698,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                                 curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                                 synonym_prefix, synonym_num_typos);
                           if(match_found) {
+                              base_query = compute_base_query();
                               all_tags_found = true;
                               if(ov->stop_processing) { break; }
                           }
@@ -1207,6 +1714,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                             tags.begin(), tags.end(),
                                             std::inserter(matching_tags, matching_tags.begin()));
                       if(matching_tags.empty()) { continue; }
+                      query = base_query;
 
                       if(ov->rule.stem) {
                           query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
@@ -1220,6 +1728,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                             curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                             synonym_prefix, synonym_num_typos);
                       if(match_found) {
+                        base_query = compute_base_query();
                         if (!ov->diversity.similarity_equation.empty()) {
                             diversity = std::move(ov->diversity);
                             for (auto& item: diversity.similarity_equation) {
@@ -1244,6 +1753,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
           } else {
               // no curation tags given
               for(const auto* ov : curation_set_curations) {
+                  query = base_query;
+
                   bool wildcard_tag = ov->rule.tags.size() == 1 && *ov->rule.tags.begin() == "*";
                   if(ov->rule.stem) {
                       query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
@@ -1255,7 +1766,10 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
                                                         synonym_num_typos);
-                  if(match_found && ov->stop_processing) { break; }
+                  if(match_found) {
+                      base_query = compute_base_query();
+                      if(ov->stop_processing) { break; }
+                  }
               }
           }
         }
@@ -2450,6 +2964,15 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(400, error);
         }
 
+        if(search_schema.count(field_name) == 0) {
+            if(!validate_field_names) {
+                skipped_invalid_group_field = true;
+                continue;
+            }
+
+            return Option<bool>(404, "Could not find a field named `" + field_name + "` in the schema.");
+        }
+
         field search_field = search_schema.at(field_name);
 
         // must be a facet field
@@ -2676,18 +3199,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         LOG(INFO) << "----";
     }
     */
-
-    // Set query to * if it is semantic search
-    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
-        query = "*";
-    }
+    const bool changed_to_wildcard = !vector_query.field_name.empty() && processed_search_fields.empty();
 
     // validate sort fields and standardize
 
     sort_fields_guard_t sort_fields_guard;
     std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
-    bool is_wildcard_query = (query == "*");
     bool is_group_by_query = group_by_fields.size() > 0;
     bool is_vector_query = !vector_query.field_name.empty();
 
@@ -2698,7 +3216,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     if(weighted_search_fields.size() == 0) {
         if(!ignored_missing_fields) {
-            // has to be a wildcard query
+            // Semantic-only search still needs the pre-wildcard tokens for curation matching.
             field_query_tokens.emplace_back(query_tokens_t{});
             parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
@@ -2707,6 +3225,14 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
+
+            if(changed_to_wildcard) {
+                query = "*";
+                q_include_tokens = {"*"};
+                q_unstemmed_tokens.clear();
+                field_query_tokens[0].q_exclude_tokens.clear();
+                field_query_tokens[0].q_phrases.clear();
+            }
 
             for(size_t i = 0; i < q_include_tokens.size(); i++) {
                 auto& q_include_token = q_include_tokens[i];
@@ -2736,7 +3262,9 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         // included_ids, excluded_ids
         process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
-                                 enable_typos_for_alpha_numerical_tokens, validate_field_names);
+                                 enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
+                                 most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
+                                 most_weighted_field.token_separators);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2762,6 +3290,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             field_query_tokens[i] = field_query_tokens[0];
         }
     }
+
+    bool is_wildcard_query = (query == "*");
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
@@ -2827,7 +3357,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                facet_index_types, enable_typos_for_numerical_tokens,
                                                enable_synonyms, demote_synonym_match, synonym_prefix, synonyms_num_typos,
                                                enable_typos_for_alpha_numerical_tokens, rerank_hybrid_matches,
-                                               validate_field_names, this, all_synonym_sets, std::move(diversity),
+                                               validate_field_names, nullptr, this, all_synonym_sets, std::move(diversity),
                                                coll_args.group_max_candidates);
 
     return Option<bool>(true);
@@ -2914,7 +3444,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                           const std::vector<std::string>& search_synonym_sets,
                                           float diversity_lamda,
                                           size_t group_max_candidates,
-                                          size_t diversity_limit) {
+                                          size_t diversity_limit,
+                                          const float facet_min_occurrence_ratio) {
     auto args = collection_search_args_t(query, search_fields, filter_query,
                                          facet_fields, sort_fields,
                                          num_typos, per_page, page, token_order,
@@ -2932,7 +3463,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                          max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                          filter_curated_hits_option, prioritize_token_position, vector_query_str,
                                          enable_highlight_v1, search_time_start_us, match_type,
-                                         facet_sample_percent, facet_sample_threshold, facet_sample_slope, page_offset,
+                                         facet_sample_percent, facet_sample_threshold, facet_sample_slope,
+                                         facet_min_occurrence_ratio, page_offset,
                                          facet_index_type, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                          stopwords_set, facet_return_parent,
                                          ref_include_exclude_fields_vec,
@@ -3403,7 +3935,9 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     populate_facets(search_params->facets, coll_args.max_facet_values, coll_args.facet_return_parent,
                     search_params->facet_query, coll_args.highlight_affix_num_tokens,
                     coll_args.snippet_threshold,
-                    coll_args.highlight_start_tag, coll_args.highlight_end_tag, raw_query, result["facet_counts"]);
+                    coll_args.highlight_start_tag, coll_args.highlight_end_tag, raw_query,
+                    result["facet_counts"]);
+    filter_dynamic_facets_by_occurrence(result["facet_counts"], total, coll_args.facet_min_occurrence_ratio);
 
     result["search_cutoff"] = search_cutoff;
 
@@ -3430,6 +3964,37 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return Option<nlohmann::json>(result);
+}
+
+nlohmann::json Collection::preprocess_result_docs_for_conversation(const nlohmann::json& result_hits) const {
+    nlohmann::json result_docs = nlohmann::json::array();
+    if(!result_hits.is_array()) {
+        return result_docs;
+    }
+
+    std::shared_lock lock(mutex);
+    std::vector<std::string> vector_fields;
+
+    for(const auto& schema_field : search_schema) {
+        if(schema_field.type == field_types::FLOAT_ARRAY) {
+            vector_fields.push_back(schema_field.name);
+        }
+    }
+    for(const auto& hit : result_hits) {
+        if(!hit.is_object() || !hit.contains("document")) {
+            continue;
+        }
+
+        auto doc = hit["document"];
+        for(const auto& vector_field : vector_fields) {
+            if(doc.contains(vector_field)) {
+                doc.erase(vector_field);
+            }
+        }
+        result_docs.push_back(std::move(doc));
+    }
+
+    return result_docs;
 }
 
 void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
@@ -3604,7 +4169,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     spp::sparse_hash_set<uint32_t> unique_collection_ids;
     long totalSearchTime = 0;
     auto group_limit = searches[0].group_limit;
+    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
     auto found_docs = 0;
+    std::unordered_map<uint32_t, std::unique_ptr<id_list_t>> union_result_seq_ids_by_collection;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
@@ -3640,6 +4207,16 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                                                                       true, search_index);
         if (!init_index_search_args_op.ok()) {
             return init_index_search_args_op;
+        }
+
+        if(should_remove_duplicates) {
+            auto [it, inserted] = union_result_seq_ids_by_collection.try_emplace(coll_id);
+            if(inserted) {
+                it->second = std::make_unique<id_list_t>(ids_t::MAX_BLOCK_ELEMENTS);
+            }
+            search_params_guard->union_result_seq_ids = it->second.get();
+        } else {
+            search_params_guard->union_result_seq_ids = nullptr;
         }
 
         const auto search_op = coll->run_search_with_lock(search_params_guard.get());
@@ -3777,26 +4354,25 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto curations_topster = std::make_unique<Topster<Union_KV, Union_KV::get_key, Union_KV::get_distinct_key,
             Union_KV::is_greater, Union_KV::is_smaller>>(std::max<size_t>(union_params.fetch_size, Index::DEFAULT_TOPSTER_SIZE));
 
-    auto should_remove_duplicates = group_limit ? false : remove_duplicates;
+    if(should_remove_duplicates) {
+        total = 0;
+        for(const auto& entry : union_result_seq_ids_by_collection) {
+            total += entry.second->num_ids();
+        }
+    }
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
         for (auto& kvs: search_param->raw_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
-            auto ret = union_topster->add(&kv);
-            if(should_remove_duplicates && ret == 0) { //duplicate doc
-                total--;
-            }
+            union_topster->add(&kv);
         }
 
         //populate curations
         for(auto& kvs : search_param->curation_result_kvs) {
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
-            auto ret = curations_topster->add(&kv);
-            if(should_remove_duplicates && ret == 0) { //duplicate doc
-                total--;
-            }
+            curations_topster->add(&kv);
         }
     }
 
@@ -3816,6 +4392,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     std::vector<std::vector<Union_KV*>> merged_result_kvs;
     size_t curation_kv_index = 0;
     size_t raw_results_index = 0;
+    std::unordered_set<uint64_t> curated_union_keys;
+
+    if(should_remove_duplicates) {
+        curated_union_keys.reserve(curation_result_kvs.size());
+        for(const auto& kvs : curation_result_kvs) {
+            const auto* kv = kvs[0];
+            curated_union_keys.insert(StringUtils::hash_combine(kv->collection_id, kv->distinct_key));
+        }
+    }
 
     // merge raw results and curation results
     while(raw_results_index < raw_result_kvs.size()) {
@@ -3827,6 +4412,15 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 curation_kv->match_score_index = CURATED_RECORD_IDENTIFIER;
                 merged_result_kvs.push_back(curation_result_kvs[curation_kv_index]);
                 curation_kv_index++;
+                continue;
+            }
+        }
+
+        if(should_remove_duplicates) {
+            const auto* raw_kv = raw_result_kvs[raw_results_index][0];
+            const auto raw_union_key = StringUtils::hash_combine(raw_kv->collection_id, raw_kv->distinct_key);
+            if(curated_union_keys.count(raw_union_key) != 0) {
+                raw_results_index++;
                 continue;
             }
         }
@@ -4081,6 +4675,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     }
 
     merge_facet_results(result);
+    filter_dynamic_facets_by_occurrence(result["facet_counts"], total,
+                                        searches.empty() ? 0.0f : searches[0].facet_min_occurrence_ratio);
 
     for (auto& request: request_json_list) {
         result["union_request_params"] += std::move(request);
@@ -4099,7 +4695,7 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
         return ;
     }
 
-    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_queries.empty() &&
+    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_query_tokens.empty() &&
         total != 0 && !result_group_kvs.empty()) {
         // we have to map raw_query (which could contain a prefix) back to expanded version
         auto search_field_it = search_schema.find(raw_search_fields[0]);
@@ -4109,26 +4705,25 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
 
         first_q = "";
         auto q_index = result_group_kvs[0][0]->query_index;
-        if(q_index >= search_params->searched_queries.size()) {
+        if(q_index >= search_params->searched_query_tokens.size()) {
             return ;
         }
 
-        const auto& qleaves = search_params->searched_queries[q_index];
+        const auto& qtokens = search_params->searched_query_tokens[q_index];
         Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-            if(raw_token_index < qleaves.size()) {
-                auto leaf = qleaves[raw_token_index];
-                std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+            if(raw_token_index < qtokens.size()) {
+                const auto& tok = qtokens[raw_token_index];
                 if(StringUtils::begins_with(tok, raw_token)) {
                     first_q += tok + " ";
                 }
             }
         }
 
-        if(qleaves.size() != raw_token_index+1) {
+        if(qtokens.size() != raw_token_index+1) {
             first_q = raw_query;
         }
 
@@ -4463,18 +5058,26 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
                                           std::string& sort_by_clause,
                                           bool enable_typos_for_numerical_tokens,
                                           bool enable_typos_for_alpha_numerical_tokens,
-                                          const bool& validate_field_names) const {
+                                          const bool& validate_field_names,
+                                          const std::string& query_locale,
+                                          std::shared_ptr<Stemmer> stemmer,
+                                          const std::vector<char>& query_symbols_to_index,
+                                          const std::vector<char>& query_token_separators) const {
 
     std::vector<const curation_t*> matched_dynamic_curations;
-    auto compute_normalized_query = [this](const std::string& query) {
-      auto symbols = symbols_to_index;
+    auto compute_normalized_query = [&](const curation_t& curation) {
+      auto symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
       symbols.push_back('{');
       symbols.push_back('}');
       symbols.push_back('*');
       symbols.push_back('.');
 
+      const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
+      const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
+
       std::vector<std::string> tokens;
-      Tokenizer tokenizer(query, true, false, "", symbols, token_separators, nullptr, true);
+      Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
+                          use_search_field_stemmer ? stemmer : nullptr, true);
       tokenizer.tokenize(tokens);
       auto query_normalized = StringUtils::join(tokens, " ");
       size_t i = 0;
@@ -4495,13 +5098,19 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       return query_normalized;
     };
     std::vector<std::string> curation_normalized_queries;
+    std::vector<std::set<std::string>> curation_rule_token_sets;
     for(const auto* ov : filter_sort_curations) {
-      curation_normalized_queries.push_back(compute_normalized_query(ov->rule.query));
+      auto query_normalized = compute_normalized_query(*ov);
+      curation_normalized_queries.push_back(query_normalized);
+
+      std::vector<std::string> rule_tokens;
+      StringUtils::split(query_normalized, rule_tokens, " ");
+      curation_rule_token_sets.emplace_back(rule_tokens.begin(), rule_tokens.end());
     }
-    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, q_include_tokens, token_order,
-                                    filter_tree_root, matched_dynamic_curations, curation_metadata,
-                                    sort_by_clause, enable_typos_for_numerical_tokens,
-                                    enable_typos_for_alpha_numerical_tokens);
+    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, curation_rule_token_sets,
+                                    q_include_tokens, token_order, filter_tree_root, matched_dynamic_curations,
+                                    curation_metadata, sort_by_clause, enable_typos_for_numerical_tokens,
+                                    enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
     // we will check the dynamic curations to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
@@ -4623,12 +5232,12 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
     }
 
     if(q_include_tokens.empty()) {
-        if(!stopwords_set.empty() && q_phrases.empty()) {
-            // this can happen when all tokens in the include are stopwords
-            q_include_tokens.emplace_back("##hrhdh##");
-        } else {
-            // this can happen if the only query token is an exclusion token
+        if(!q_exclude_tokens.empty() || !q_phrases.empty()) {
+            // phrase-only and exclusion-only queries use wildcard filtering internally.
             q_include_tokens.emplace_back("*");
+        } else {
+            // this can happen when the query is empty after tokenization, e.g. stopwords or punctuation only
+            q_include_tokens.emplace_back("##hrhdh##");
         }
     }
 }
@@ -4642,6 +5251,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
+    } else if(query.empty()) {
+        q_exclude_tokens = {};
+        q_include_tokens = {"*"};
     } else {
         std::vector<std::string> tokens;
         std::vector<std::string> tokens_non_stemmed;
@@ -4712,8 +5324,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
 Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_result_t& filter_result,
                                         const bool& should_timeout, const bool& validate_field_names) const {
-    std::shared_lock lock(mutex);
-
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
@@ -4723,9 +5333,14 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     if(!filter_op.ok()) {
         return filter_op;
     }
-    lock.unlock();
 
     return index->do_filtering_with_lock(filter_tree_root, filter_result, name, should_timeout, validate_field_names);
+}
+
+Option<bool> Collection::get_filter_ids_with_lock(const std::string& filter_query, filter_result_t& filter_result,
+                                                  const bool& should_timeout, const bool& validate_field_names) const {
+    std::shared_lock lock(mutex);
+    return get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
 Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
@@ -4844,17 +5459,31 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
                                  const std::vector<std::string>& field_path, size_t field_index,
                                  const std::string& val) {
     if(field_index == field_path.size()) {
-        std::string str_val;
+        auto json_to_facet_str = [](const nlohmann::json& value) -> std::string {
+            if(value.is_string()) {
+                return value.get<std::string>();
+            }
 
-        if(child.is_string()) {
-            str_val = child.get<std::string>();
-        } else if(child.is_number_integer()) {
-            str_val = std::to_string(child.get<int>());
-        } else if(child.is_number_float()) {
-            str_val = std::to_string(child.get<float>());
-        }  else if(child.is_boolean()) {
-            str_val = std::to_string(child.get<bool>());
-        }
+            if(value.is_number_integer()) {
+                return std::to_string(value.get<int64_t>());
+            }
+
+            if(value.is_number_unsigned()) {
+                return std::to_string(value.get<uint64_t>());
+            }
+
+            if(value.is_number_float()) {
+                return StringUtils::float_to_str(value.get<float>());
+            }
+
+            if(value.is_boolean()) {
+                return value.get<bool>() ? "true" : "false";
+            }
+
+            return "";
+        };
+
+        const auto str_val = json_to_facet_str(child);
 
         if(str_val == val) {
             return parent;
@@ -4862,7 +5491,7 @@ nlohmann::json Collection::get_parent_object(const nlohmann::json& parent, const
 
         if(child.is_array()) {
             for(const auto& ele: child) {
-                if(ele.is_string() && ele == val) {
+                if(json_to_facet_str(ele) == val) {
                     return parent;
                 }
             }
@@ -5266,19 +5895,23 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         text = string_utils.unicode_nfkd(text);
     }
 
+    bool is_phrase_query = !q_phrases.empty();
+    bool use_exact_phrase_highlight = is_phrase_query && is_arr_obj_ele && match.offsets.empty();
+    std::map<size_t, size_t> phrase_token_offsets;
+    std::vector<std::pair<size_t, size_t>> phrase_text_token_positions;
+    bool found_phrase_match = false;
+    size_t first_phrase_token_idx = 0;
     // special handling for phrase queries in nested array fields (array of objects)
     // when is_arr_obj_ele is true, match.offsets is empty, so we need to manually check for phrase matches
-    bool is_phrase_query = !q_phrases.empty();
-    if (is_phrase_query && is_arr_obj_ele && match.offsets.empty() && !text.empty()) {
+    if(is_phrase_query && !text.empty()) {
         struct TextToken {
             std::string token;
             size_t token_index;
             size_t tok_start;
             size_t tok_end;
         };
-        std::vector<TextToken> text_tokens;
-        std::vector<std::pair<size_t, size_t>> text_token_positions; // (start, end) offsets
 
+        std::vector<TextToken> text_tokens;
         Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
         Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
@@ -5294,30 +5927,27 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
             }
             text_tokens.push_back({token, token_index, tok_start, tok_end});
-            text_token_positions.push_back({tok_start, tok_end});
+            phrase_text_token_positions.push_back({tok_start, tok_end});
         }
 
         std::unordered_map<std::string, std::vector<std::vector<std::string>>> phrases_by_first_token;
-        
         for(const auto& phrase : q_phrases) {
-            if(!phrase.empty()) {
-                std::vector<std::string> phrase_lower;
-                phrase_lower.reserve(phrase.size());
-                for(const auto& token : phrase) {
-                    std::string token_lower = token;
-                    StringUtils::tolowercase(token_lower);
-                    phrase_lower.push_back(token_lower);
-                }
-                
-                std::string first_lower = phrase_lower[0];
-                phrases_by_first_token[first_lower].push_back(phrase_lower);
+            if(phrase.empty()) {
+                continue;
             }
-        }
-        
-        // Single pass through text tokens to find phrase matches (track all matches)
-        bool found_phrase_match = false;
-        std::map<size_t, size_t> phrase_token_offsets;
 
+            std::vector<std::string> phrase_lower;
+            phrase_lower.reserve(phrase.size());
+            for(const auto& phrase_token : phrase) {
+                std::string token_lower = phrase_token;
+                StringUtils::tolowercase(token_lower);
+                phrase_lower.push_back(token_lower);
+            }
+
+            phrases_by_first_token[phrase_lower[0]].push_back(phrase_lower);
+        }
+
+        // Single pass through text tokens to find phrase matches (track all matches)
         for(size_t i = 0; i < text_tokens.size(); i++) {
             std::string first_token_lower = text_tokens[i].token;
             StringUtils::tolowercase(first_token_lower);
@@ -5347,21 +5977,32 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                 }
                 
                 if(phrase_matches) {
+                    if(!found_phrase_match) {
+                        first_phrase_token_idx = i;
+                    }
                     found_phrase_match = true;
                     // Record ALL matches, not just first
                     for(size_t j = 0; j < phrase.size(); j++) {
-                        const auto& pos = text_token_positions[i + j];
+                        const auto& pos = phrase_text_token_positions[i + j];
                         phrase_token_offsets[pos.first] = pos.second;
                     }
                 }
             }
         }
 
+        if(!use_exact_phrase_highlight && !match.offsets.empty() && found_phrase_match &&
+           first_phrase_token_idx != match.offsets.front().offset) {
+            use_exact_phrase_highlight = true;
+        }
+    }
+
+    if(use_exact_phrase_highlight && !text.empty()) {
         if(!found_phrase_match) {
             return false;
         }
 
         std::map<size_t, size_t> token_offsets = phrase_token_offsets;
+        const std::vector<std::pair<size_t, size_t>>& text_token_positions = phrase_text_token_positions;
 
         // set snippet boundaries with context around matched tokens
         size_t snippet_start_offset = 0;
@@ -5802,22 +6443,18 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
     return Option<nlohmann::json>(document);
 }
 
-void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store,
+                                 const bool& cascade_remove) {
     spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
     {
         std::unique_lock lock(mutex);
         referenced_in_copy = referenced_in;
     }
 
-    // Cascade delete all the references.
-    if (!referenced_in_copy.empty()) {
-        CollectionManager& collectionManager = CollectionManager::get_instance();
-        for (const auto &item: referenced_in_copy) {
-            auto coll = collectionManager.get_collection(item.first);
-            if (coll != nullptr) {
-                coll->cascade_remove_docs(item.second, seq_id, document, remove_from_store);
-            }
-        }
+    if (cascade_remove) {
+        std::vector<index_record> records;
+        records.emplace_back(0, seq_id, document, index_operation_t::DELETE, DIRTY_VALUES::COERCE_OR_REJECT);
+        Collection::cascade_remove(name, records, remove_from_store);
     }
 
     {
@@ -5837,201 +6474,195 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     }
 }
 
-void Collection::cascade_remove_docs(const std::string& field_name, const uint32_t& ref_seq_id,
-                                     const nlohmann::json& ref_doc, bool remove_from_store) {
-    bool is_field_singular, is_field_optional, cascade_delete;
-    {
-        std::unique_lock lock(mutex);
-
-        auto it = search_schema.find(field_name);
-        if (it == search_schema.end()) {
-            return;
-        }
-        auto& field = it.value();
-
-        is_field_singular = field.is_singular();
-        is_field_optional = field.optional;
-        cascade_delete = field.cascade_delete;
-    }
-
-    auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-
-    filter_result_t filter_result;
-    get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
-
-    if (filter_result.count == 0) {
+void Collection::reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& async_referenced_ins,
+                                             const std::vector<index_record>& docs) {
+    if (docs.empty()) {
         return;
     }
 
-    std::vector<std::string> buffer;
-    buffer.reserve(filter_result.count);
+    // Lock all collections which reference the document that failed to index.
+    std::vector<std::unique_lock<std::shared_mutex>> collection_locks;
+    std::vector<std::pair<std::shared_ptr<Collection>, reference_pair_t>> collections;
+    for (const auto& pair: async_referenced_ins) {
+        for (const auto& ref_info: pair.second) {
+            auto const& referencing_collection_name = ref_info.collection;
 
-    if (is_field_singular) {
-        // Delete all the docs where reference helper field has value `seq_id`.
-        for (uint32_t i = 0; i < filter_result.count; i++) {
-            auto const& seq_id = filter_result.docs[i];
-
-            nlohmann::json existing_document;
-            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
-
-            if (!get_doc_op.ok()) {
-                if (get_doc_op.code() == 404) {
-                    LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
-                    continue;
-                }
-
-                LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+            auto& cm = CollectionManager::get_instance();
+            auto referencing_coll = cm.get_collection(referencing_collection_name);
+            if (referencing_coll == nullptr) {
                 continue;
             }
-
-            bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
-                                       existing_document[fields::reference_helper_fields].size() > 1;
-
-            // If `cascade_delete` is false, only update the reference helper field to sentinel value.
-            // If there are other references present and the reference of an optional field is removed, don't delete the
-            // document.
-            if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
-                auto const id = existing_document["id"].get<std::string>();
-
-                nlohmann::json update_document;
-                update_document["id"] = id;
-                if (cascade_delete) {
-                    update_document[field_name] = nullptr;
-                } else {
-                    update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
-                }
-
-                buffer.push_back(update_document.dump());
-            } else {
-                remove_document(existing_document, seq_id, remove_from_store);
-            }
+            collection_locks.emplace_back(referencing_coll->mutex);
+            collections.emplace_back(referencing_coll, ref_info);
         }
-    } else {
-        std::string ref_coll_name, ref_field_name;
-        {
-            std::unique_lock lock(mutex);
+    }
 
-            auto ref_it = reference_fields.find(field_name);
-            if (ref_it == reference_fields.end()) {
-                return;
-            }
-            ref_coll_name = ref_it->second.collection;
-            ref_field_name = ref_it->second.field;
-        }
+    if (collections.empty()) {
+        return;
+    }
 
+    for (const auto& [coll_ptr, ref_info]: collections) {
+        coll_ptr->reset_referencing_documents(ref_info.field, docs);
+    }
+}
+
+void Collection::reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& ref_docs) {
+    const auto it = search_schema.find(field_name);
+    if (it == search_schema.end()) {
+        return;
+    }
+    auto& field = it.value();
+    const auto is_field_singular = field.is_singular();
+    const auto is_field_optional = field.optional;
+
+    const auto ref_it = reference_fields.find(field_name);
+    if (ref_it == reference_fields.end()) {
+        return;
+    }
+    std::string ref_coll_name = ref_it->second.collection;
+    std::string ref_field_name = ref_it->second.field;
+
+    auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+    nlohmann::json dummy;
+    const auto operation = index_operation_t::UPDATE;
+    const auto dirty_values = DIRTY_VALUES::COERCE_OR_REJECT;
+    size_t document_index = 0;
+    std::vector<index_record> index_records;
+
+    for (const auto& ref_record: ref_docs) {
+        const auto& ref_seq_id = ref_record.seq_id;
+
+        const auto& ref_doc = ref_record.doc;
         if (ref_doc.count(ref_field_name) == 0) {
             LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` is missing `" <<
                        ref_field_name << "` field.";
-            return;
+            continue;
         } else if (ref_doc.at(ref_field_name).is_array()) {
             LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` field `" <<
-                                 ref_field_name << "` is an array.";
-            return;
+                       ref_field_name << "` is an array.";
+            continue;
         }
 
-        // If `cascade_delete` is false, update the reference helper field to sentinel value.
-        // Otherwise, delete all references to `seq_id` in the docs.
-        for (uint32_t i = 0; i < filter_result.count; i++) {
-            auto const& seq_id = filter_result.docs[i];
+        filter_result_t filter_result;
+        get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
 
-            nlohmann::json existing_document;
-            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+        if (filter_result.count == 0) {
+            continue;
+        }
 
-            if (!get_doc_op.ok()) {
-                if (get_doc_op.code() == 404) {
-                    LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
-                    continue;
-                }
+        if (is_field_singular) {
+            // Reset the value of the reference helper field of every document having value `seq_id`.
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                auto const& seq_id = filter_result.docs[i];
 
-                LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
-                continue;
-            }
+                nlohmann::json existing_document;
+                auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
 
-            if (existing_document.count("id") == 0) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `id` field.";
-            } else if (existing_document.count(field_name) == 0) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
-                                field_name << "` field.";
-            } else if (!existing_document.at(field_name).is_array()) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
-                                field_name << "` is not an array.";
-            } else if (existing_document.at(field_name).empty()) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
-                                field_name << "` is empty.";
-            } else if (existing_document.at(field_name)[0].type() != ref_doc.at(ref_field_name).type()) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() <<
-                                "` at field `" << field_name << "` elements do not match the type of `" << ref_coll_name <<
-                                "` collection doc `"<< ref_doc.dump() << "` at field `" << ref_field_name << "`.";
-            } else if (existing_document.count(ref_helper_field_name) == 0) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
-                                ref_helper_field_name << "` field.";
-            } else if (!existing_document.at(ref_helper_field_name).is_array()) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
-                                ref_helper_field_name << "` is not an array.";
-            } else if (existing_document[field_name].size() != existing_document[ref_helper_field_name].size()) {
-                LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` reference field `" <<
-                           field_name << "` values and its reference helper field `" << ref_helper_field_name <<
-                           "` values differ in count.";
-            }
-            // If there are more than one references present in this document, we cannot delete the whole doc. Only remove
-            // `ref_seq_id` from reference helper field or update it to sentinel value if `cascade_delete` is false.
-            else if (existing_document.at(field_name).size() > 1) {
-                nlohmann::json update_document;
-                update_document["id"] = existing_document["id"].get<std::string>();
-                update_document[field_name] = nlohmann::json::array();
-
-                auto removed_ref_value_found = false;
-
-                // We assume here that the value in reference field at a particular index corresponds to the value
-                // present at the same index in the reference helper field.
-                for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
-                    auto const& ref_value = existing_document[field_name][j];
-                    if (ref_value == ref_doc.at(ref_field_name)) {
-                        removed_ref_value_found = true;
-
-                        if (!cascade_delete) {
-                            update_document[field_name] += ref_value;
-                            update_document[ref_helper_field_name] += Join::reference_helper_sentinel_value;
-                        }
+                if (!get_doc_op.ok()) {
+                    if (get_doc_op.code() == 404) {
+                        LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
                         continue;
                     }
 
-                    update_document[field_name] += ref_value;
-                    update_document[ref_helper_field_name] += existing_document[ref_helper_field_name][j];
+                    LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+                    continue;
                 }
 
-                if (removed_ref_value_found) {
-                    buffer.push_back(update_document.dump());
-                }
-                continue;
-            }
-
-            bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
-                                       existing_document[fields::reference_helper_fields].size() > 1;
-
-            // If `cascade_delete` is false, only update the reference helper field to sentinel value.
-            // If there are other references present and the reference of an optional field is removed, don't delete the
-            // document.
-            if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
-                auto const id = existing_document["id"].get<std::string>();
-
+                // Only set reference helper fields to sentinel value.
                 nlohmann::json update_document;
-                update_document["id"] = id;
-                if (cascade_delete) {
-                    update_document[field_name] = nullptr;
-                } else {
-                    update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+                update_document["id"] = existing_document["id"].get<std::string>();;
+                update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+
+                index_record record(document_index++, seq_id, update_document, operation, dirty_values);
+                record.old_doc = existing_document;
+                index_records.emplace_back(std::move(record));
+            }
+        } else {
+            // Only update the reference helper field to sentinel value.
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                auto const& seq_id = filter_result.docs[i];
+
+                nlohmann::json existing_document;
+                auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+
+                if (!get_doc_op.ok()) {
+                    if (get_doc_op.code() == 404) {
+                        LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                        continue;
+                    }
+
+                    LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+                    continue;
                 }
 
-                buffer.push_back(update_document.dump());
-            } else {
-                remove_document(existing_document, seq_id, remove_from_store);
+                if (existing_document.count("id") == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `id` field.";
+                } else if (existing_document.count(field_name) == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                               field_name << "` field.";
+                } else if (!existing_document.at(field_name).is_array()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               field_name << "` is not an array.";
+                } else if (existing_document.at(field_name).empty()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               field_name << "` is empty.";
+                } else if (existing_document.at(field_name)[0].type() != ref_doc.at(ref_field_name).type()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() <<
+                               "` at field `" << field_name << "` elements do not match the type of `" << ref_coll_name <<
+                               "` collection doc `"<< ref_doc.dump() << "` at field `" << ref_field_name << "`.";
+                } else if (existing_document.count(ref_helper_field_name) == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                               ref_helper_field_name << "` field.";
+                } else if (!existing_document.at(ref_helper_field_name).is_array()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               ref_helper_field_name << "` is not an array.";
+                } else if (existing_document[field_name].size() != existing_document[ref_helper_field_name].size()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` reference field `" <<
+                               field_name << "` values and its reference helper field `" << ref_helper_field_name <<
+                               "` values differ in count.";
+                } else {
+                    nlohmann::json update_document;
+                    update_document["id"] = existing_document["id"].get<std::string>();
+                    update_document[field_name] = nlohmann::json::array();
+
+                    auto removed_ref_value_found = false;
+
+                    // We assume here that the value in reference field at a particular index corresponds to the value
+                    // present at the same index in the reference helper field.
+                    for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
+                        auto const& ref_value = existing_document[field_name][j];
+                        if (ref_value == ref_doc.at(ref_field_name)) {
+                            removed_ref_value_found = true;
+                            update_document[field_name] += ref_value;
+                            update_document[ref_helper_field_name] += Join::reference_helper_sentinel_value;
+                            continue;
+                        }
+
+                        update_document[field_name] += ref_value;
+                        update_document[ref_helper_field_name] += existing_document[ref_helper_field_name][j];
+                    }
+
+                    if (removed_ref_value_found) {
+                        index_record record(document_index++, seq_id, update_document, operation, dirty_values);
+                        record.old_doc = existing_document;
+                        index_records.emplace_back(std::move(record));
+                    }
+                }
             }
         }
     }
 
-    nlohmann::json dummy;
-    add_many(buffer, dummy, index_operation_t::UPDATE);
+    if (index_records.empty()) {
+        return;
+    }
+
+    std::shared_lock alter_shlock(alter_mutex);
+
+    std::unordered_set<std::string> dummy_set;
+    size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
+                                                   search_schema, embedding_fields, fallback_field_type,
+                                                   token_separators, symbols_to_index, dummy_set);
 }
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
@@ -6092,43 +6723,9 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
         return Option<size_t>(0);
     }
 
-    bool has_referenced_in = false;
-    {
-        std::shared_lock lock(mutex);
-        has_referenced_in = !referenced_in.empty();
-    }
-
-    // If this collection is referenced by another collection, keep per-doc semantics
-    // so cascaded deletes can short-circuit subsequent IDs safely.
-    if(has_referenced_in) {
-        size_t removed_count = 0;
-
-        for(const auto seq_id: seq_ids) {
-            nlohmann::json document;
-            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
-            if(!get_doc_op.ok()) {
-                if(get_doc_op.code() == 404) {
-                    continue;
-                }
-                return Option<size_t>(500, "Error while fetching the document with seq id: " +
-                                           std::to_string(seq_id));
-            }
-
-            remove_document(document, seq_id, remove_from_store);
-            removed_count++;
-
-            if(removed_docs != nullptr) {
-                removed_docs->emplace_back(std::move(document));
-            }
-        }
-
-        return Option<size_t>(removed_count);
-    }
-
-    std::vector<uint32_t> found_seq_ids;
-    std::vector<nlohmann::json> found_documents;
-    found_seq_ids.reserve(seq_ids.size());
-    found_documents.reserve(seq_ids.size());
+    std::vector<index_record> records;
+    records.reserve(seq_ids.size());
+    size_t record_index = 0;
 
     for(const auto seq_id: seq_ids) {
         nlohmann::json document;
@@ -6141,18 +6738,20 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
                                        std::to_string(seq_id));
         }
 
-        found_seq_ids.emplace_back(seq_id);
-        found_documents.emplace_back(std::move(document));
+        records.emplace_back(record_index++, seq_id, std::move(document), index_operation_t::DELETE,
+                             DIRTY_VALUES::COERCE_OR_REJECT);
     }
 
-    if(found_seq_ids.empty()) {
+    if(records.empty()) {
         return Option<size_t>(0);
     }
 
+    Collection::cascade_remove(name, records, remove_from_store);
+
     {
         std::unique_lock lock(mutex);
-        for(size_t i = 0; i < found_seq_ids.size(); i++) {
-            index->remove(found_seq_ids[i], found_documents[i], {}, false);
+        for(auto& record: records) {
+            index->remove(record.seq_id, record.doc, {}, false);
             if (num_documents != 0) {
                 num_documents -= 1;
             }
@@ -6160,20 +6759,20 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     }
 
     if(remove_from_store) {
-        for(size_t i = 0; i < found_seq_ids.size(); i++) {
-            const auto id = found_documents[i]["id"].get<std::string>();
+        for(auto& record: records) {
+            const auto id = record.doc["id"].get<std::string>();
             store->remove(get_doc_id_key(id));
-            store->remove(get_seq_id_key(found_seq_ids[i]));
+            store->remove(get_seq_id_key(record.seq_id));
         }
     }
 
     if(removed_docs != nullptr) {
-        for(auto& document: found_documents) {
-            removed_docs->emplace_back(std::move(document));
+        for(auto& record: records) {
+            removed_docs->emplace_back(std::move(record.doc));
         }
     }
 
-    return Option<size_t>(found_seq_ids.size());
+    return Option<size_t>(records.size());
 }
 
 uint32_t Collection::get_seq_id_from_key(const std::string & key) {
@@ -6539,17 +7138,46 @@ Option<bool> Collection::persist_collection_meta() {
 
 Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields,
                                           const std::vector<field>& del_fields,
+                                          const spp::sparse_hash_map<std::string, reference_info_t>& updated_reference_fields,
                                           const std::string& this_fallback_field_type) {
     // Update schema with additions (deletions can only be made later)
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
     bool found_embedding_field = false;
-    bool found_reference_field = false;
+    std::unordered_set<std::string> altered_reference_helper_fields;
 
-  std::unique_lock alter_ulock(alter_mutex);
-  std::unique_lock ulock(mutex);
+    std::unique_lock alter_ulock(alter_mutex);
+    std::unique_lock ulock(mutex);
 
     for(auto& f: alter_fields) {
+        if(!f.reference.empty()) {
+            altered_reference_helper_fields.insert(f.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
+            const auto ref_info_it = updated_reference_fields.find(f.name);
+            if (ref_info_it == updated_reference_fields.end()) {
+                return Option<bool>(400, "`" + f.name + "` not present in updated_reference_fields map.");
+            }
+
+            auto ref_coll_name = ref_info_it->second.collection;
+            auto ref_info = reference_info_t{name, f.name, f.is_async_reference, f.is_array(), ref_info_it->second.field};
+            std::set<update_reference_info_t> update_ref_infos{};
+            auto op = CollectionManager::get_instance().add_referenced_ins_with_lock(ref_coll_name,
+                                                                                     std::move(ref_info),
+                                                                                     update_ref_infos);
+            if (!op.ok()) {
+                return op;
+            }
+
+            reference_fields[f.name] = ref_info_it->second;
+            if (f.nested) {
+                object_reference_fields.emplace(f.name);
+            }
+
+            reference_fields.at(f.name).collection = ref_coll_name;
+            for (auto& update_ref_info: update_ref_infos) {
+                update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
+            }
+        }
+
         if(f.name == ".*") {
             fields.push_back(f);
             continue;
@@ -6567,10 +7195,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             check_and_add_nested_field(nested_fields, f);
         }
 
-        if(!f.reference.empty()) {
-            found_reference_field = true;
-        }
-
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
             const auto& text_embedders = EmbedderManager::get_instance()._get_text_embedders();
@@ -6586,6 +7210,33 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         fields.push_back(f);
+    }
+
+    // Only reference helper field should be removed from the document when a reference field is dropped in the schema.
+    for (auto& f: del_fields) {
+        if (f.reference.empty()) {
+            continue;
+        }
+
+        auto erase_it = reference_fields.find(f.name);
+        if (erase_it == reference_fields.end()) {
+            continue;
+        }
+
+        auto it = updated_reference_fields.find(f.name);
+        if (it != updated_reference_fields.end() && f.reference != (it->second.collection + it->second.field)) {
+            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
+            // No need to remove the field from reference index if it still references the same field.
+            continue;
+        }
+
+        // Removing the dropped field from the reference index now so reference helper field is not populated again when
+        // Join::populate_reference_helper_fields() is called downstream.
+        reference_fields.erase(erase_it);
+        if (f.nested) {
+            object_reference_fields.erase(f.name);
+        }
+        altered_reference_helper_fields.insert(f.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
     }
 
     rebuild_read_state_snapshot_unlocked();
@@ -6627,8 +7278,12 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
+        for(const auto& helper_field_name: altered_reference_helper_fields) {
+            document.erase(helper_field_name);
+        }
         document.erase(fields::reference_helper_fields); // Avoid duplication of fields in `.ref[]`
-        auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema, reference_fields,
+        auto populate_reference_helper_fields_op = Join::populate_reference_helper_fields(document, search_schema,
+                                                                                          reference_fields,
                                                                                           object_reference_fields,
                                                                                           true);
         if (!populate_reference_helper_fields_op.ok()) {
@@ -6647,7 +7302,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             // put delete first because a field could be deleted and added in the same change set
             if(!del_fields.empty()) {
                 for(auto& rec: iter_batch) {
-                    index->remove(seq_id, rec.doc, del_fields, true);
+                    index->remove(rec.seq_id, rec.doc, del_fields, true);
                 }
             }
 
@@ -6660,31 +7315,19 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                                       fallback_field_type, token_separators, symbols_to_index, dummy, true, schema_additions);
             ulock.unlock();
             shlock.lock();
-            if(found_embedding_field) {
+            if(found_embedding_field || !altered_reference_helper_fields.empty()) {
                 for(auto& index_record : iter_batch) {
-                    if(index_record.indexed.ok()) {
-                        remove_flat_fields(index_record.doc);
-                        const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-                        bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
-
-                        if(!write_ok) {
-                            LOG(ERROR) << "Inserting doc with new embedding field failed for seq id: " << index_record.seq_id;
-                            index_record.index_failure(500, "Could not write to on-disk storage.");
-                        } else {
-                            index_record.index_success();
-                        }
+                    if(!index_record.indexed.ok()) {
+                        continue;
                     }
-                }
-            }
 
-            if(found_reference_field) {
-                //if alter operation contains adding, reindexing reference field then need to update on disk too
-                for(auto& index_record : iter_batch) {
+                    remove_flat_fields(index_record.doc);
                     const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                     bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
                     if(!write_ok) {
-                        LOG(ERROR) << "Inserting doc with new reference field failed for seq id: " << index_record.seq_id;
+                        LOG(ERROR) << "Inserting doc with " << (found_embedding_field ? "new embedding" : "reference")
+                                    << " field failed for seq id: " << index_record.seq_id;
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
                         index_record.index_success();
@@ -6771,11 +7414,13 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::vector<field> addition_fields;
     std::vector<field> reindex_fields;
     std::vector<field> update_fields;
+    spp::sparse_hash_map<std::string, reference_info_t> updated_reference_fields;
 
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
-                                              del_fields, update_fields, this_fallback_field_type);
+                                              del_fields, update_fields, updated_reference_fields,
+                                              this_fallback_field_type);
     if(!validate_op.ok()) {
         auto error = "Alter failed validation: " + validate_op.error();
         LOG(INFO) << error;
@@ -6804,7 +7449,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
 
-    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
+    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, updated_reference_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
         auto error = "Alter failed during alter data: " + batch_alter_op.error();
         LOG(INFO) << error;
@@ -6815,7 +7460,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field modifications now...";
-        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
+        batch_alter_op = batch_alter_data(reindex_fields, {}, updated_reference_fields, fallback_field_type);
         if(!batch_alter_op.ok()) {
             auto error = "Alter failed during alter data: " + batch_alter_op.error();
             LOG(INFO) << error;
@@ -6970,11 +7615,13 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
     return Join::include_references(doc, seq_id, collection_name, reference_filter_results,
                                     ref_include_exclude_fields_vec, original_doc);
 }
+
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
                                                 std::vector<field>& del_fields,
                                                 std::vector<field>& update_fields,
+                                                spp::sparse_hash_map<std::string, reference_info_t>& updated_reference_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
         return Option<bool>(400, "Bad JSON.");
@@ -6999,6 +7646,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     tsl::htrie_map<char, field> updated_search_schema = search_schema;
     tsl::htrie_map<char, field> updated_nested_fields = nested_fields;
     tsl::htrie_map<char, field> updated_embedding_fields = embedding_fields;
+    updated_reference_fields = reference_fields;
+    auto updated_object_reference_fields = object_reference_fields;
     size_t num_auto_detect_fields = 0;
 
     // since fields can be deleted and added in the same change set,
@@ -7070,21 +7719,16 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 return Option<bool>(400, "Field `" + field_name + "` is not part of collection schema.");
             }
 
-            if(found_field && field_it.value().embed.count(fields::from) != 0) {
-                updated_embedding_fields.erase(field_it.key());
-            }
-
             if(found_field) {
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
 
                 if(!field_it->reference.empty()) {
-                    reference_fields.erase(field_name);
+                    updated_reference_fields.erase(field_name);
                     if (field_it->nested) {
-                        object_reference_fields.erase(field_name);
+                        updated_object_reference_fields.erase(field_name);
                     }
-                    rebuild_read_state_snapshot_unlocked();
 
                     //validated before only, so directly add to fields to delete
                     const auto ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
@@ -7104,6 +7748,13 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         del_fields.push_back(prefix_kv.value());
                         updated_search_schema.erase(prefix_kv.key());
                         updated_nested_fields.erase(prefix_kv.key());
+
+                        if (!prefix_kv.value().reference.empty()) {
+                            updated_reference_fields.erase(prefix_kv.key());
+                            updated_object_reference_fields.erase(prefix_kv.key());
+                            // Reference helper field will also be removed since we're looping through all the fields
+                            // of an object.
+                        }
 
                         if(prefix_kv.value().embed.count(fields::from) != 0) {
                             updated_embedding_fields.erase(prefix_kv.key());
@@ -7144,10 +7795,30 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 auto& f = diff_fields.back();
+                const field& new_field = (f.is_reference_helper && diff_fields.size() > 1)
+                                         ? diff_fields[diff_fields.size() - 2]
+                                         : f;
+
+                if(!new_field.has_valid_type()) {
+                    return Option<bool>(400, "Field `" + new_field.name +
+                                        "` has an invalid data type `" + new_field.type +
+                                        "`, see docs for supported data types.");
+                }
+
+                if(is_reindex) {
+                    const field& old_field = found_field ? field_it.value() : dyn_field_it->second;
+                    if(!is_dynamic_alter_type(old_field) &&
+                       !is_dynamic_alter_type(new_field) &&
+                       !is_allowed_alter_type_transition(old_field.type, new_field.type)) {
+                        return Option<bool>(400, "Field `" + field_name + "` cannot be altered from `"
+                                            + old_field.type + "` to `" + new_field.type +
+                                            "`: only widening or same-meaning type changes are allowed.");
+                    }
+                }
 
                 if (f.is_reference_helper && diff_fields.size() > 1 &&
                             !diff_fields[diff_fields.size() - 2].reference.empty()) {
-                    const auto& field = diff_fields[diff_fields.size() - 2];
+                    const auto& field = new_field;
 
                     updated_search_schema[field.name] = field;
 
@@ -7157,23 +7828,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(),
                                                      ref_field_name};
 
-                    std::set<update_reference_info_t> update_ref_infos{};
-                    auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
-                                                                                   update_ref_infos);
-                    if (!op.ok()) {
-                        return op;
-                    }
-
-                    reference_fields.emplace(field.name,
-                                             reference_info_t(ref_coll_name, ref_field_name, field.is_async_reference,
-                                                              field.is_array()));
+                    updated_reference_fields.emplace(field.name,
+                                                     reference_info_t(ref_coll_name, ref_field_name,
+                                                                      field.is_async_reference, field.is_array()));
                     if (field.nested) {
-                        object_reference_fields.insert(field.name);
-                    }
-                    rebuild_read_state_snapshot_unlocked();
-
-                    for (auto& update_ref_info: update_ref_infos) {
-                        update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
+                        updated_object_reference_fields.insert(field.name);
                     }
 
                     if (is_reindex) {
@@ -7210,7 +7869,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(f.embed.count(fields::from) != 0) {
-                    embedding_fields.emplace(f.name, f);
+                    updated_embedding_fields.emplace(f.name, f);
                 }
 
 
@@ -7224,7 +7883,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         check_and_add_nested_field(updated_nested_fields, prefix_kv.value());
 
                         if(prefix_kv.value().embed.count(fields::from) != 0) {
-                            embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
+                            updated_embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
                         }
 
                         if(is_reindex) {
@@ -7304,7 +7963,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                                                 nlohmann::detail::error_handler_t::ignore));
         }
 
-        if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !updated_nested_fields.empty()) {
+        if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !updated_nested_fields.empty() ||
+            !updated_reference_fields.empty()) {
             std::vector<field> new_fields;
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
@@ -7312,7 +7972,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            fallback_field_type, false,
                                                            new_fields,
                                                            enable_nested_fields,
-                                                           reference_fields, object_reference_fields);
+                                                           updated_reference_fields, updated_object_reference_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
@@ -7628,8 +8288,8 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
             auto ref_field_name = field.reference.substr(dot_index + 1);
             auto ref_info = reference_info_t{name, field.name, field.is_async_reference, field.is_array(), ref_field_name};
 
-            auto op = CollectionManager::get_instance().add_referenced_ins(ref_coll_name, std::move(ref_info),
-                                                                           update_ref_infos);
+            auto op = CollectionManager::get_instance().add_referenced_ins_with_lock(ref_coll_name, std::move(ref_info),
+                                                                                     update_ref_infos, is_live_request);
             if (!op.ok()) {
                 // Return an error in case the collection is not being loaded from disk.
                 if (is_live_request) {
@@ -7787,6 +8447,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         } else if (facet_field[i] == '*') {
             if (i == facet_field.size() - 1) {
                 auto prefix = facet_field.substr(0, facet_field.size() - 1);
+                const bool is_dynamic_facet = prefix.empty();
                 auto pair = search_schema.equal_prefix_range(prefix);
 
                 if (pair.first == pair.second) {
@@ -7800,6 +8461,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                     if (field->facet) {
                         facets.emplace_back(facet(field->name, facets.size()));
                         facets.back().is_wildcard_match = true;
+                        facets.back().is_dynamic = is_dynamic_facet;
                     }
                 }
                 i++;
@@ -8338,6 +9000,28 @@ std::set<update_reference_info_t> Collection::add_referenced_in(const std::strin
     return update_ref_infos;
 }
 
+std::set<update_reference_info_t> Collection::validate_referenced_in(const std::string& collection_name,
+                                                                     const std::string& field_name,
+                                                                     const std::string& referenced_field_name,
+                                                                     field& referenced_field) {
+    std::shared_lock lock(mutex);
+
+    std::set<update_reference_info_t> update_ref_infos;
+    auto it = search_schema.find(referenced_field_name);
+    if (referenced_field_name != "id" && it == search_schema.end()) {
+        LOG(ERROR) << "Field `" << referenced_field_name << "` not found in the collection `" << name <<
+                   "` which is referenced in `" << collection_name << "." << field_name + "`.";
+        return update_ref_infos;
+    }
+
+    referenced_field = referenced_field_name == "id" ? field("id", "string", false) : *it;
+    auto ref_info = update_reference_info_t(collection_name, field_name, referenced_field);
+    ref_info.is_mutual_reference = references(collection_name);
+    update_ref_infos.insert(ref_info);
+
+    return update_ref_infos;
+}
+
 void Collection::remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                                       const bool& is_async, const std::string& referenced_field_name) {
     {
@@ -8355,6 +9039,9 @@ void Collection::remove_referenced_in(const std::string& collection_name, const 
     referenced_in.erase(collection_name);
     if (is_async) {
         async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
+        if (async_referenced_ins[referenced_field_name].empty()) {
+            async_referenced_ins.erase(referenced_field_name);
+        }
     }
 }
 
@@ -8383,6 +9070,27 @@ void Collection::update_reference_field(const std::string& field_name, const fie
         return;
     }
 
+    it->second.referenced_field = ref_field;
+    rebuild_read_state_snapshot_unlocked();
+}
+
+void Collection::update_reference_info_with_lock(const std::string& field_name,
+                                                 const std::string& ref_collection_name,
+                                                 const field& ref_field) {
+    std::unique_lock lock(mutex);
+    return update_reference_info(field_name, ref_collection_name, ref_field);
+}
+
+void Collection::update_reference_info(const std::string& field_name,
+                                       const std::string& ref_collection_name,
+                                       const field& ref_field) {
+    auto it = reference_fields.find(field_name);
+    if (it == reference_fields.end()) {
+        return;
+    }
+
+    it->second.collection = ref_collection_name;
+    it->second.referenced_field_name = ref_field.name;
     it->second.referenced_field = ref_field;
     rebuild_read_state_snapshot_unlocked();
 }
@@ -8872,6 +9580,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
     size_t facet_sample_slope = 0;
+    float facet_min_occurrence_ratio = 0.5f;
 
     bool conversation = false;
     std::string conversation_id;
@@ -8991,7 +9700,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     };
 
     std::unordered_map<std::string, float*> float_values = {
-            {DIVERSITY_LAMBDA, &diversity_lamda}
+            {DIVERSITY_LAMBDA, &diversity_lamda},
+            {FACET_MIN_OCCURRENCE_RATIO, &facet_min_occurrence_ratio}
     };
 
     for(const auto& kv: req_params) {
@@ -9153,6 +9863,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
         diversity_lamda = diversity_t::DEFAULT_LAMDA_VALUE;
     }
 
+    if (facet_min_occurrence_ratio < 0.0f || facet_min_occurrence_ratio > 1.0f) {
+        return Option<bool>(400, "Parameter `" + std::string(FACET_MIN_OCCURRENCE_RATIO) + "` must be between 0.0 and 1.0.");
+    }
+
     args = collection_search_args_t(raw_query, search_fields, filter_query,
                                     facet_fields, sort_fields,
                                     num_typos, per_page, page, token_order,
@@ -9170,7 +9884,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                     filter_curated_hits_option, prioritize_token_position, vector_query,
                                     enable_highlight_v1, start_ts, match_type,
-                                    facet_sample_percent, facet_sample_threshold, facet_sample_slope, offset,
+                                    facet_sample_percent, facet_sample_threshold, facet_sample_slope,
+                                    facet_min_occurrence_ratio, offset,
                                     facet_strategy, remote_embedding_timeout_ms, remote_embedding_num_tries,
                                     stopwords_set, facet_return_parent,
                                     ref_include_exclude_fields_vec,
@@ -9283,6 +9998,10 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
             facet_result["field_name"] = "$" + a_facet.reference_collection_alias_name + "(" + a_facet.field_name + ")";
         } else if(!a_facet.reference_collection_name.empty()) {
             facet_result["field_name"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+        }
+
+        if(is_union && !a_facet.reference_collection_name.empty()) {
+            facet_result["merge_key"] = "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
         }
 
         std::vector<facet_value_t> facet_values;
@@ -9466,15 +10185,17 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                 }
 
                 nlohmann::json parent;
-                if(the_field.nested && should_return_parent) {
+                const bool is_reference_facet = !a_facet.reference_collection_name.empty();
+                if(should_return_parent && (the_field.nested || is_reference_facet)) {
+                    const Collection* parent_collection = is_reference_facet ? ref_collection.get() : this;
                     nlohmann::json document;
-                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    const std::string& seq_id_key = parent_collection->get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool>& document_op = parent_collection->get_document_from_store(seq_id_key, document);
                     if (!document_op.ok()) {
                         LOG(ERROR) << "Facet fetch error. " << document_op.error();
                         continue;
                     }
-                    parent = get_facet_parent(the_field.name, document, value, the_field.is_array());
+                    parent = parent_collection->get_facet_parent(the_field.name, document, value, the_field.is_array());
                 }
 
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
@@ -9555,6 +10276,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
         facet_result["stats"]["total_values"] = facet_counts.size();
 
+        facet_result["is_dynamic"] = a_facet.is_dynamic;
+
         if(is_union) {
             facet_result["is_sortby_alpha"] = a_facet.is_sort_by_alpha;
             facet_result["sort_order"] = a_facet.sort_order;
@@ -9572,18 +10295,23 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
 
         //first pass : merge all results by field
         for(const auto& facet_count : result["facet_counts"]) {
+            const auto merge_key = facet_count.value("merge_key", facet_count["field_name"]).get<std::string>();
+            const auto field_name = facet_count["field_name"].get<std::string>();
             for(const auto& count : facet_count["counts"]) {
-                const auto& field_name = facet_count["field_name"];
-
-                if(field_to_facet_counts.find(field_name) == field_to_facet_counts.end()) {
-                    field_to_facet_counts[field_name]["counts"] = nlohmann::json::array();
-                    field_to_facet_counts[field_name]["field_name"] = field_name;
-                    field_to_facet_counts[field_name]["sampled"] = facet_count["sampled"];
-                    field_to_facet_counts[field_name]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
-                    field_to_facet_counts[field_name]["sort_order"] = facet_count["sort_order"];
+                if(field_to_facet_counts.find(merge_key) == field_to_facet_counts.end()) {
+                    field_to_facet_counts[merge_key]["counts"] = nlohmann::json::array();
+                    field_to_facet_counts[merge_key]["field_name"] = field_name;
+                    field_to_facet_counts[merge_key]["sampled"] = facet_count["sampled"];
+                    field_to_facet_counts[merge_key]["is_sortby_alpha"] = facet_count["is_sortby_alpha"];
+                    field_to_facet_counts[merge_key]["sort_order"] = facet_count["sort_order"];
+                    field_to_facet_counts[merge_key]["is_dynamic"] = facet_count.value("is_dynamic", false);
+                } else {
+                    field_to_facet_counts[merge_key]["is_dynamic"] =
+                        field_to_facet_counts[merge_key]["is_dynamic"].get<bool>() &&
+                        facet_count.value("is_dynamic", false);
                 }
 
-                field_to_facet_counts[field_name]["counts"].push_back(count);
+                field_to_facet_counts[merge_key]["counts"].push_back(count);
             }
         }
 
@@ -9638,12 +10366,56 @@ Option<bool> Collection::merge_facet_results(nlohmann::json& result) {
                                  });
             }
 
-            result["facet_counts"].clear();
-            for (const auto& kv: field_to_facet_counts) {
-                result["facet_counts"].push_back(kv.second);
-            }
+        }
+
+        result["facet_counts"].clear();
+        for (const auto& kv: field_to_facet_counts) {
+            result["facet_counts"].push_back(kv.second);
         }
     }
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::filter_dynamic_facets_by_occurrence(nlohmann::json& facet_counts, size_t found_docs,
+                                                             float facet_min_occurrence_ratio) {
+    if (!facet_counts.is_array()) {
+        return Option<bool>(true);
+    }
+
+    nlohmann::json filtered_facet_counts = nlohmann::json::array();
+
+    for (auto& facet_count : facet_counts) {
+        const bool is_dynamic = facet_count.value("is_dynamic", false);
+        if (!is_dynamic) {
+            facet_count.erase("is_dynamic");
+            filtered_facet_counts.push_back(facet_count);
+            continue;
+        }
+
+        if (facet_min_occurrence_ratio <= 0.0f || found_docs == 0) {
+            facet_count.erase("is_dynamic");
+            filtered_facet_counts.push_back(facet_count);
+            continue;
+        }
+
+        nlohmann::json filtered_counts = nlohmann::json::array();
+        for (const auto& count : facet_count["counts"]) {
+            const auto occurrence_ratio =
+                static_cast<float>(count["count"].get<size_t>()) / static_cast<float>(found_docs);
+            if (occurrence_ratio >= facet_min_occurrence_ratio) {
+                filtered_counts.push_back(count);
+            }
+        }
+
+        if (!filtered_counts.empty()) {
+            facet_count["counts"] = std::move(filtered_counts);
+            facet_count["stats"]["total_values"] = facet_count["counts"].size();
+            facet_count.erase("is_dynamic");
+            filtered_facet_counts.push_back(facet_count);
+        }
+    }
+
+    facet_counts = std::move(filtered_facet_counts);
     return Option<bool>(true);
 }
 
@@ -9799,4 +10571,286 @@ Option<bool> Collection::fix_broken_reference(const std::string& seq_id_key, con
                      field_order_kv->reference_filter_results,
                      get_name(), seq_id,
                      ref_include_exclude_fields_vec);
+}
+
+void Collection::cascade_remove_helper(const std::vector<index_record>& records, cascade_remove_node_t* cascade_node,
+                                       const bool remove_from_store) {
+    if (cascade_node == nullptr) {
+        return;
+    }
+
+    for (size_t i = 0; i < cascade_node->ref_infos.size(); i++) {
+        auto& nested_reference = cascade_node->nested_references[i];
+        if (nested_reference == nullptr) {
+            continue;
+        }
+
+        std::vector<index_record> nested_records;
+        nested_reference->coll_ptr->cascade_remove(records, cascade_node->ref_infos[i], cascade_node->coll_ptr->name,
+                                                   nested_records, remove_from_store);
+        cascade_remove_helper(nested_records, nested_reference, remove_from_store);
+
+        // Eagerly release the locks.
+        delete nested_reference;
+        nested_reference = nullptr;
+    }
+}
+
+void Collection::cascade_remove(const string& coll_name, const std::vector<index_record>& records,
+                                const bool remove_from_store) {
+    cascade_remove_node_t* cascade_tree = nullptr;
+    CollectionManager::get_instance().lock_nested_referencing_collections(coll_name, cascade_tree);
+    if (cascade_tree == nullptr) {
+        return;
+    }
+
+    cascade_remove_helper(records, cascade_tree, remove_from_store);
+    delete cascade_tree;
+}
+
+void Collection::cascade_remove(const std::vector<index_record>& records, const reference_info_t& ref_info,
+                                const std::string& ref_coll_name, std::vector<index_record>& removed_records,
+                                const bool remove_from_store) {
+    const auto& field_name = ref_info.field;
+    auto it = search_schema.find(field_name);
+    if (it == search_schema.end()) {
+        return;
+    }
+    auto& field = it.value();
+
+    const bool is_field_singular = field.is_singular();
+    const bool is_field_optional = field.optional;
+    const bool cascade_delete = field.cascade_delete;
+
+    auto const ref_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+    const auto& ref_field_name = ref_info.referenced_field_name;
+
+    const auto dirty_values = DIRTY_VALUES::COERCE_OR_REJECT;
+    // In case the document has multiple reference fields or `cascade_delete` option is false, we will only update its
+    // reference helper field to sentinel value otherwise we will remove the document from the index.
+    std::vector<index_record> update_records;
+    size_t remove_index = 0, update_index = 0;
+    for (const auto& ref_record: records) {
+        const auto& ref_seq_id = ref_record.seq_id;
+        const auto& ref_doc = ref_record.doc;
+
+        if (ref_doc.count(ref_field_name) == 0) {
+            LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` is missing `" <<
+                       ref_field_name << "` field.";
+            continue;
+        } else if (ref_doc.at(ref_field_name).is_array()) {
+            LOG(ERROR) << "`" << ref_coll_name << "` collection doc `" << ref_doc.dump() << "` field `" <<
+                       ref_field_name << "` is an array.";
+            continue;
+        }
+
+        filter_result_t filter_result;
+        get_filter_ids(ref_helper_field_name + ":" + std::to_string(ref_seq_id), filter_result, false);
+
+        if (filter_result.count == 0) {
+            continue;
+        }
+
+        if (is_field_singular) {
+            // Delete all the docs where reference helper field has value `seq_id`.
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                auto const& seq_id = filter_result.docs[i];
+
+                nlohmann::json existing_document;
+                auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+
+                if (!get_doc_op.ok()) {
+                    if (get_doc_op.code() == 404) {
+                        LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                        continue;
+                    }
+
+                    LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+                    continue;
+                }
+
+                bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
+                                           existing_document[fields::reference_helper_fields].size() > 1;
+
+                // If `cascade_delete` is false, only update the reference helper field to sentinel value.
+                // If there are other references present and the reference of an optional field is removed, don't delete the
+                // document.
+                if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
+                    auto const id = existing_document["id"].get<std::string>();
+
+                    nlohmann::json update_document;
+                    update_document["id"] = id;
+                    if (cascade_delete) {
+                        update_document[field_name] = nullptr;
+                    } else {
+                        update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+                    }
+
+                    index_record record(update_index++, seq_id, update_document, index_operation_t::UPDATE,
+                                        dirty_values);
+                    record.old_doc = existing_document;
+                    record.is_update = true;
+                    update_records.emplace_back(std::move(record));
+                } else {
+                    removed_records.emplace_back(remove_index++, seq_id, existing_document, index_operation_t::DELETE,
+                                                 dirty_values);
+                }
+            }
+        } else {
+            // If `cascade_delete` is false, update the reference helper field to sentinel value.
+            // Otherwise, delete all references to `seq_id` in the docs.
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                auto const& seq_id = filter_result.docs[i];
+
+                nlohmann::json existing_document;
+                auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+
+                if (!get_doc_op.ok()) {
+                    if (get_doc_op.code() == 404) {
+                        LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                        continue;
+                    }
+
+                    LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+                    continue;
+                }
+
+                if (existing_document.count("id") == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `id` field.";
+                } else if (existing_document.count(field_name) == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                               field_name << "` field.";
+                } else if (!existing_document.at(field_name).is_array()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               field_name << "` is not an array.";
+                } else if (existing_document.at(field_name).empty()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               field_name << "` is empty.";
+                } else if (existing_document.at(field_name)[0].type() != ref_doc.at(ref_field_name).type()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() <<
+                               "` at field `" << field_name << "` elements do not match the type of `" << ref_coll_name <<
+                               "` collection doc `"<< ref_doc.dump() << "` at field `" << ref_field_name << "`.";
+                } else if (existing_document.count(ref_helper_field_name) == 0) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` is missing `" <<
+                               ref_helper_field_name << "` field.";
+                } else if (!existing_document.at(ref_helper_field_name).is_array()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` field `" <<
+                               ref_helper_field_name << "` is not an array.";
+                } else if (existing_document[field_name].size() != existing_document[ref_helper_field_name].size()) {
+                    LOG(ERROR) << "`" << name << "` collection doc `" << existing_document.dump() << "` reference field `" <<
+                               field_name << "` values and its reference helper field `" << ref_helper_field_name <<
+                               "` values differ in count.";
+                }
+                // If there are more than one references present in this document, we cannot delete the whole doc. Only remove
+                // `ref_seq_id` from reference helper field or update it to sentinel value if `cascade_delete` is false.
+                else if (existing_document.at(field_name).size() > 1) {
+                    nlohmann::json update_document;
+                    update_document["id"] = existing_document["id"].get<std::string>();
+                    update_document[field_name] = nlohmann::json::array();
+
+                    auto removed_ref_value_found = false;
+
+                    // We assume here that the value in reference field at a particular index corresponds to the value
+                    // present at the same index in the reference helper field.
+                    for (uint32_t j = 0; j < existing_document[field_name].size(); j++) {
+                        auto const& ref_value = existing_document[field_name][j];
+                        if (ref_value == ref_doc.at(ref_field_name)) {
+                            removed_ref_value_found = true;
+
+                            if (!cascade_delete) {
+                                update_document[field_name] += ref_value;
+                                update_document[ref_helper_field_name] += Join::reference_helper_sentinel_value;
+                            }
+                            continue;
+                        }
+
+                        update_document[field_name] += ref_value;
+                        update_document[ref_helper_field_name] += existing_document[ref_helper_field_name][j];
+                    }
+
+                    if (removed_ref_value_found) {
+                        index_record record(update_index++, seq_id, update_document, index_operation_t::UPDATE,
+                                            dirty_values);
+                        record.old_doc = existing_document;
+                        record.is_update = true;
+                        update_records.emplace_back(std::move(record));
+                    }
+                } else {
+                    bool multiple_ref_fields = existing_document.contains(fields::reference_helper_fields) &&
+                                               existing_document[fields::reference_helper_fields].size() > 1;
+
+                    // If `cascade_delete` is false, only update the reference helper field to sentinel value.
+                    // If there are other references present and the reference of an optional field is removed, don't delete the
+                    // document.
+                    if (!cascade_delete || (multiple_ref_fields && is_field_optional)) {
+                        auto const id = existing_document["id"].get<std::string>();
+
+                        nlohmann::json update_document;
+                        update_document["id"] = id;
+                        if (cascade_delete) {
+                            update_document[field_name] = nullptr;
+                        } else {
+                            update_document[ref_helper_field_name] = Join::reference_helper_sentinel_value;
+                        }
+
+                        index_record record(update_index++, seq_id, update_document, index_operation_t::UPDATE,
+                                            dirty_values);
+                        record.old_doc = existing_document;
+                        record.is_update = true;
+                        update_records.emplace_back(std::move(record));
+                    } else {
+                        removed_records.emplace_back(remove_index++, seq_id, existing_document, index_operation_t::DELETE,
+                                                     dirty_values);
+                    }
+                }
+            }
+        }
+    }
+
+    std::shared_lock alter_shlock(alter_mutex);
+    if (!update_records.empty()) {
+        for (auto& update_record: update_records) {
+            Join::populate_reference_helper_fields(update_record.doc, search_schema, reference_fields,
+                                                   object_reference_fields, true);
+        }
+        Index::batch_validate_and_preprocess(index, update_records, default_sorting_field, search_schema, embedding_fields,
+                                             fallback_field_type, token_separators, symbols_to_index, true);
+
+        std::unordered_set<std::string> dummy_set;
+        size_t num_indexed = Index::batch_memory_index(index, update_records, default_sorting_field,
+                                                       search_schema, embedding_fields, fallback_field_type,
+                                                       token_separators, symbols_to_index, dummy_set);
+        for (auto& update_record: update_records) {
+            remove_flat_fields(update_record.new_doc);
+            for(auto& f: fields) {
+                if(!f.store) {
+                    update_record.new_doc.erase(f.name);
+                }
+            }
+            const std::string& serialized_json = update_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+
+            bool write_ok = store->insert(get_seq_id_key(update_record.seq_id), serialized_json);
+
+            if(!write_ok) {
+                // we will attempt to reindex the old doc on a best-effort basis
+                LOG(ERROR) << "Update to disk failed. Will restore old document";
+                remove_document(update_record.new_doc, update_record.seq_id, false, false);
+                index_in_memory(update_record.old_doc, update_record.seq_id, update_record.operation, update_record.dirty_values);
+                update_record.index_failure(500, "Could not write to on-disk storage.");
+            }
+        }
+    }
+
+    for(auto& record: removed_records) {
+        index->remove(record.seq_id, record.doc, {}, false);
+        if (num_documents != 0) {
+            num_documents -= 1;
+        }
+
+        if (remove_from_store) {
+            const auto id = record.doc["id"].get<std::string>();
+            store->remove(get_doc_id_key(id));
+            store->remove(get_seq_id_key(record.seq_id));
+        }
+    }
 }

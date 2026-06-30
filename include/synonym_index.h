@@ -160,7 +160,9 @@ public:
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix, uint32_t synonym_num_typos) const;
 
-    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
+    // Returns copies (not pointers into synonym_definitions): the shared lock is released when this
+    // returns, so a concurrent remove/upsert must not be able to free what the caller still holds.
+    Option<std::map<uint32_t, synonym_t>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
