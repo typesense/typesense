@@ -2020,7 +2020,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
-
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
 
