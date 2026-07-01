@@ -2926,9 +2926,17 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         auto dirty_values = DIRTY_VALUES::COERCE_OR_DROP;
 
-        num_valid_docs++;
+        // skip stale orphan seq_id keys so they are neither re-indexed nor counted
+        bool is_orphan = false;
+        if(document.count("id") != 0 && document["id"].is_string()) {
+            is_orphan = collection->reconcile_seq_id_mapping(document["id"].get<std::string>(), seq_id) ==
+                        Collection::seq_id_reconcile_t::ORPHAN;
+        }
 
-        index_records.emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+        if(!is_orphan) {
+            num_valid_docs++;
+            index_records.emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+        }
 
         // Peek and check for last record right here so that we handle batched indexing correctly
         // Without doing this, the "last batch" would have to be indexed outside the loop.
@@ -2939,7 +2947,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1014 * 1024));
 
         // batch must match atleast the number of shards
-         if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
+         if(!index_records.empty() && (exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record)) {
             size_t num_records = index_records.size();
             std::unordered_set<std::string> dummy;
             size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false, dummy);
