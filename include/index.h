@@ -967,7 +967,7 @@ public:
 
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
-    Option<bool> compute_facet_infos_with_lock(const std::vector<facet>& facets, facet_query_t& facet_query,
+    Option<bool> compute_facet_infos_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
                                                const uint32_t facet_query_num_typos,
                                                uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                                const std::vector<std::string>& group_by_fields,
@@ -982,9 +982,9 @@ public:
     void get_reference_facet_ids(const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                  const std::string& collection_name, Collection const *const ref_collection,
                                  filter_result_iterator_t& filter_result_iterator,
-                                 std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
+                                 reference_filter_result_t& reference_facet_result) const;
 
-    Option<bool> compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
+    Option<bool> compute_facet_infos(std::vector<facet>& facets, facet_query_t& facet_query,
                                      const uint32_t facet_query_num_typos,
                                      uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                      const std::vector<std::string>& group_by_fields,
@@ -995,8 +995,7 @@ public:
                                      bool is_group_by_first_pass,
                                      std::set<uint32_t>& group_by_missing_value_ids,
                                      Collection const *const collection,
-                                     filter_result_iterator_t& filter_result_iterator,
-                                     std::unordered_map<std::string, reference_filter_result_t>& reference_facet_ids) const;
+                                     filter_result_iterator_t& filter_result_iterator) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;

@@ -1407,16 +1407,19 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
         coll1->parse_facet(facet_field, range_facets);
     }
     ASSERT_EQ(2, range_facets.size());
+    auto get_reference_collection_name = [](const facet& a_facet) -> std::string {
+        return a_facet.reference_facet == nullptr ? "" : a_facet.reference_facet->collection_name;
+    };
 
     ASSERT_EQ("ref_score", range_facets[0].field_name);
     ASSERT_TRUE(range_facets[0].is_range_query);
     ASSERT_EQ(2, range_facets[0].facet_range_map.size());
-    ASSERT_EQ("ref_coll", range_facets[0].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(range_facets[0]));
 
     ASSERT_EQ("ref_grade", range_facets[1].field_name);
     ASSERT_TRUE(range_facets[1].is_range_query);
     ASSERT_EQ(3, range_facets[1].facet_range_map.size());
-    ASSERT_EQ("ref_coll", range_facets[1].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(range_facets[1]));
 
     normal_facet_fields = {
             "$ref_coll(ref_score, ref_grade)"
@@ -1428,9 +1431,9 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_EQ(2, normal_facets.size());
 
     ASSERT_EQ("ref_score", normal_facets[0].field_name);
-    ASSERT_EQ("ref_coll", normal_facets[0].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(normal_facets[0]));
     ASSERT_EQ("ref_grade", normal_facets[1].field_name);
-    ASSERT_EQ("ref_coll", normal_facets[1].reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(normal_facets[1]));
 
     wildcard_facet_fields = {
             "$ref_coll(ref_ran*, ref_sc*)",
@@ -1445,7 +1448,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     expected = {"ref_range", "ref_rank", "ref_score"};
     for (size_t i = 0; i < wildcard_facets.size(); i++) {
         ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
-        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+        ASSERT_EQ("ref_coll", get_reference_collection_name(wildcard_facets[i]));
     }
 
     wildcard_facets.clear();
@@ -1461,7 +1464,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     for (size_t i = 0; i < wildcard_facets.size(); i++) {
         ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
-        ASSERT_EQ("ref_coll", wildcard_facets[i].reference_collection_name);
+        ASSERT_EQ("ref_coll", get_reference_collection_name(wildcard_facets[i]));
     }
 
     mixed_facet_fields = {
@@ -1484,17 +1487,17 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     });
 
     ASSERT_EQ("ref_score", mixed_facets_ptr[3]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[3]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[3]));
 
     ASSERT_EQ("ref_grade", mixed_facets_ptr[0]->field_name);
     ASSERT_TRUE(mixed_facets_ptr[0]->is_range_query);
     ASSERT_GT(mixed_facets_ptr[0]->facet_range_map.size(), 0);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[0]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[0]));
 
     ASSERT_EQ("ref_rank", mixed_facets_ptr[2]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[2]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[2]));
     ASSERT_EQ("ref_range", mixed_facets_ptr[1]->field_name);
-    ASSERT_EQ("ref_coll", mixed_facets_ptr[1]->reference_collection_name);
+    ASSERT_EQ("ref_coll", get_reference_collection_name(*mixed_facets_ptr[1]));
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
@@ -4230,4 +4233,87 @@ TEST_F(CollectionFacetingTest, FacetMinOccurrenceRatioValidation) {
     ASSERT_EQ("Parameter `facet_min_occurrence_ratio` must be between 0.0 and 1.0.", search_op.error());
 
     collectionManager.drop_collection("dynamic_facet_ratio_validation_coll");
+}
+
+TEST_F(CollectionFacetingTest, ParseFacetNestedReferences) {
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false),
+    };
+    auto base_coll = collectionManager.create_collection("base_coll", 1, fields, "points").get();
+
+    fields = {
+        field("variant_name", field_types::STRING, false),
+    };
+    auto variants_coll = collectionManager.create_collection("variants", 1, fields).get();
+
+    fields = {
+        field("rating", field_types::INT32, true),
+        field("inStock", field_types::BOOL, true),
+    };
+    auto stock_coll = collectionManager.create_collection("stock", 1, fields).get();
+
+    auto symlink_op = collectionManager.upsert_symlink("variantsalias", "variants");
+    ASSERT_TRUE(symlink_op.ok());
+    symlink_op = collectionManager.upsert_symlink("stockalias", "stock");
+    ASSERT_TRUE(symlink_op.ok());
+
+    std::string facet_expr = "$variantsalias($stockalias(rating(Average:[0, 3], Good:[3, 4], Great:[4, 5])))";
+    std::vector<facet> facets;
+    auto res = base_coll->parse_facet(facet_expr, facets);
+    ASSERT_TRUE(res.ok()) << res.error();
+    ASSERT_EQ(1, facets.size());
+
+    auto& f = facets[0];
+    ASSERT_EQ("rating", f.field_name);
+    ASSERT_TRUE(f.is_range_query);
+    ASSERT_EQ(3, f.facet_range_map.size());
+
+    ASSERT_NE(nullptr, f.reference_facet);
+    ASSERT_EQ("variants", f.reference_facet->collection_name);
+    ASSERT_EQ("variantsalias", f.reference_facet->alias);
+
+    ASSERT_NE(nullptr, f.reference_facet->nested_reference_facet);
+    ASSERT_EQ("stock", f.reference_facet->nested_reference_facet->collection_name);
+    ASSERT_EQ("stockalias", f.reference_facet->nested_reference_facet->alias);
+
+    ASSERT_EQ(nullptr, f.reference_facet->nested_reference_facet->nested_reference_facet);
+
+    // nested reference with multiple facet fields
+    facet_expr = "$variantsalias($stockalias(rating(Average:[0, 3], Good:[3, 4], Great:[4, 5]), inStock))";
+    facets.clear();
+    res = base_coll->parse_facet(facet_expr, facets);
+    ASSERT_TRUE(res.ok()) << res.error();
+    ASSERT_EQ(2, facets.size());
+
+    auto& f_rating = facets[0];
+    ASSERT_EQ("rating", f_rating.field_name);
+    ASSERT_TRUE(f_rating.is_range_query);
+    ASSERT_EQ(3, f_rating.facet_range_map.size());
+
+    ASSERT_NE(nullptr, f_rating.reference_facet);
+    ASSERT_EQ("variants", f_rating.reference_facet->collection_name);
+    ASSERT_EQ("variantsalias", f_rating.reference_facet->alias);
+
+    ASSERT_NE(nullptr, f_rating.reference_facet->nested_reference_facet);
+    ASSERT_EQ("stock", f_rating.reference_facet->nested_reference_facet->collection_name);
+    ASSERT_EQ("stockalias", f_rating.reference_facet->nested_reference_facet->alias);
+    ASSERT_EQ(nullptr, f_rating.reference_facet->nested_reference_facet->nested_reference_facet);
+
+    auto& f_inStock = facets[1];
+    ASSERT_EQ("inStock", f_inStock.field_name);
+    ASSERT_FALSE(f_inStock.is_range_query);
+
+    ASSERT_NE(nullptr, f_inStock.reference_facet);
+    ASSERT_EQ("variants", f_inStock.reference_facet->collection_name);
+    ASSERT_EQ("variantsalias", f_inStock.reference_facet->alias);
+
+    ASSERT_NE(nullptr, f_inStock.reference_facet->nested_reference_facet);
+    ASSERT_EQ("stock", f_inStock.reference_facet->nested_reference_facet->collection_name);
+    ASSERT_EQ("stockalias", f_inStock.reference_facet->nested_reference_facet->alias);
+    ASSERT_EQ(nullptr, f_inStock.reference_facet->nested_reference_facet->nested_reference_facet);
+
+    collectionManager.drop_collection("stock");
+    collectionManager.drop_collection("variants");
+    collectionManager.drop_collection("base_coll");
 }

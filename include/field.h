@@ -798,6 +798,51 @@ struct range_specs_t {
     }
 };
 
+struct reference_facet_t {
+    std::string collection_name;
+    std::string alias{};
+    reference_facet_t* nested_reference_facet = nullptr;
+
+    reference_facet_t() = default;
+
+    ~reference_facet_t() {
+        delete nested_reference_facet;
+    }
+
+    reference_facet_t(const reference_facet_t& other)
+        : collection_name(other.collection_name), alias(other.alias),
+          nested_reference_facet(other.nested_reference_facet
+                                ? new reference_facet_t(*other.nested_reference_facet) : nullptr) {}
+
+    reference_facet_t(reference_facet_t&& other) noexcept
+        : collection_name(std::move(other.collection_name)), alias(std::move(other.alias)),
+          nested_reference_facet(other.nested_reference_facet) {
+        other.nested_reference_facet = nullptr;
+    }
+
+    reference_facet_t& operator=(const reference_facet_t& other) {
+        if (this != &other) {
+            collection_name = other.collection_name;
+            alias = other.alias;
+            delete nested_reference_facet;
+            nested_reference_facet = other.nested_reference_facet
+                                     ? new reference_facet_t(*other.nested_reference_facet) : nullptr;
+        }
+        return *this;
+    }
+
+    reference_facet_t& operator=(reference_facet_t&& other) noexcept {
+        if (this != &other) {
+            collection_name = std::move(other.collection_name);
+            alias = std::move(other.alias);
+            delete nested_reference_facet;
+            nested_reference_facet = other.nested_reference_facet;
+            other.nested_reference_facet = nullptr;
+        }
+        return *this;
+    }
+};
+
 struct facet {
     std::string field_name;
     spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
@@ -833,8 +878,7 @@ struct facet {
 
     uint32_t orig_index;
 
-    std::string reference_collection_name;
-    std::string reference_collection_alias_name{};
+    reference_facet_t* reference_facet = nullptr;
 
     reference_filter_result_t references{};
 
@@ -862,13 +906,115 @@ struct facet {
 
     explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="", const std::string& reference_collection_name = "",
-                   const std::string& reference_collection_alias_name = "")
+                   const std::string& sort_by_field="")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k),
-                   reference_collection_name(reference_collection_name),
-                   reference_collection_alias_name(reference_collection_alias_name) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k) {
+    }
+
+    ~facet() {
+        delete reference_facet;
+    }
+
+    facet(const facet& other)
+        : field_name(other.field_name),
+          result_map(other.result_map),
+          value_result_map(other.value_result_map),
+          fvalue_tokens(other.fvalue_tokens),
+          hash_tokens(other.hash_tokens),
+          hash_groups(other.hash_groups),
+          stats(other.stats),
+          facet_range_map(other.facet_range_map),
+          is_range_query(other.is_range_query),
+          sampled(other.sampled),
+          is_wildcard_match(other.is_wildcard_match),
+          is_dynamic(other.is_dynamic),
+          is_intersected(other.is_intersected),
+          is_sort_by_alpha(other.is_sort_by_alpha),
+          sort_order(other.sort_order),
+          sort_field(other.sort_field),
+          orig_index(other.orig_index),
+          reference_facet(other.reference_facet ? new reference_facet_t(*other.reference_facet) : nullptr),
+          references(other.references),
+          is_top_k(other.is_top_k) {}
+
+    facet(facet&& other) noexcept
+        : field_name(std::move(other.field_name)),
+          result_map(std::move(other.result_map)),
+          value_result_map(std::move(other.value_result_map)),
+          fvalue_tokens(std::move(other.fvalue_tokens)),
+          hash_tokens(std::move(other.hash_tokens)),
+          hash_groups(std::move(other.hash_groups)),
+          stats(std::move(other.stats)),
+          facet_range_map(std::move(other.facet_range_map)),
+          is_range_query(other.is_range_query),
+          sampled(other.sampled),
+          is_wildcard_match(other.is_wildcard_match),
+          is_dynamic(other.is_dynamic),
+          is_intersected(other.is_intersected),
+          is_sort_by_alpha(other.is_sort_by_alpha),
+          sort_order(std::move(other.sort_order)),
+          sort_field(std::move(other.sort_field)),
+          orig_index(other.orig_index),
+          reference_facet(other.reference_facet),
+          references(std::move(other.references)),
+          is_top_k(other.is_top_k) {
+        other.reference_facet = nullptr;
+    }
+
+    facet& operator=(const facet& other) {
+        if (this != &other) {
+            field_name = other.field_name;
+            result_map = other.result_map;
+            value_result_map = other.value_result_map;
+            fvalue_tokens = other.fvalue_tokens;
+            hash_tokens = other.hash_tokens;
+            hash_groups = other.hash_groups;
+            stats = other.stats;
+            facet_range_map = other.facet_range_map;
+            is_range_query = other.is_range_query;
+            sampled = other.sampled;
+            is_wildcard_match = other.is_wildcard_match;
+            is_dynamic = other.is_dynamic;
+            is_intersected = other.is_intersected;
+            is_sort_by_alpha = other.is_sort_by_alpha;
+            sort_order = other.sort_order;
+            sort_field = other.sort_field;
+            orig_index = other.orig_index;
+            delete reference_facet;
+            reference_facet = other.reference_facet ? new reference_facet_t(*other.reference_facet) : nullptr;
+            references = other.references;
+            is_top_k = other.is_top_k;
+        }
+        return *this;
+    }
+
+    facet& operator=(facet&& other) noexcept {
+        if (this != &other) {
+            field_name = std::move(other.field_name);
+            result_map = std::move(other.result_map);
+            value_result_map = std::move(other.value_result_map);
+            fvalue_tokens = std::move(other.fvalue_tokens);
+            hash_tokens = std::move(other.hash_tokens);
+            hash_groups = std::move(other.hash_groups);
+            stats = std::move(other.stats);
+            facet_range_map = std::move(other.facet_range_map);
+            is_range_query = other.is_range_query;
+            sampled = other.sampled;
+            is_wildcard_match = other.is_wildcard_match;
+            is_dynamic = other.is_dynamic;
+            is_intersected = other.is_intersected;
+            is_sort_by_alpha = other.is_sort_by_alpha;
+            sort_order = std::move(other.sort_order);
+            sort_field = std::move(other.sort_field);
+            orig_index = other.orig_index;
+            delete reference_facet;
+            reference_facet = other.reference_facet;
+            other.reference_facet = nullptr;
+            references = std::move(other.references);
+            is_top_k = other.is_top_k;
+        }
+        return *this;
     }
 };
 
