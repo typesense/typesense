@@ -5498,6 +5498,7 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
     (*req_params)["sort_by"] = "score:desc";
     (*req_params)["per_page"] = "10";
     (*req_params)["page"] = "1";
+    (*req_params)["enable_lazy_filter"] = "true";
 
     nlohmann::json embedded_params;
     std::string json_res;
@@ -5525,6 +5526,7 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
         (*req_params)["sort_by"] = "score:desc";
         (*req_params)["per_page"] = std::to_string(per_page);
         (*req_params)["page"] = std::to_string(page);
+        (*req_params)["enable_lazy_filter"] = "true";
 
         json_res.clear();
         now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -5550,10 +5552,18 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
 }
 
 TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
-    // Keep the lazy approximation <= 20 so TEST_BUILD does not eagerly materialize
-    // the iterator before topster sizing. The exact NOT result is 21, but the
-    // current approximation drops below that because each multi-token filter value
-    // is estimated from token-level minima instead of exact phrase/value matches.
+    // Regression: multi-token NOT-IN on a string field with --enable-lazy-filter.
+    // Each multi-token filter value is estimated from token-level posting-list
+    // minima, which overcounts the excluded side (docs that merely share a token,
+    // e.g. "red apple pie", inflate the "red apple" estimate). The OR-sum across
+    // values overcounts further, so num_ids - OR_sum undercounts the NOT result and
+    // sizes the topster too small for deep pages.
+    //
+    // num_ids = 20. OR-sum = min(red=8, apple=10) + min(blue=2, apple=10) = 8 + 2 = 10,
+    // so the old approx = 20 - 10 = 10, while 14 docs actually match. The undersized
+    // topster (10) drops results past offset 10. The approx (10) stays >= the
+    // TEST_BUILD threshold (3), so the iterator is not eagerly materialized and the
+    // bug surfaces on the lazy path. With the fix the topster is sized at num_ids.
     nlohmann::json schema = R"({
         "name": "lazy_not_in_multi_token_test",
         "fields": [
@@ -5566,55 +5576,31 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
     ASSERT_TRUE(op.ok());
     Collection* coll = op.get();
 
-    for (int i = 0; i < 30; i++) {
+    // 14 matching docs (ids 0-13), 6 excluded by exact NOT value (ids 14-19).
+    for (int i = 0; i < 20; i++) {
         nlohmann::json doc;
-        doc["score"] = 30 - i;
+        doc["id"] = std::to_string(i);
+        doc["score"] = 1000 - i; // deterministic descending scores
 
-        if (i < 5) {
-            doc["title"] = "alpha beta";
-        } else if (i < 9) {
-            doc["title"] = "alpha gamma";
-        } else if (i < 19) {
-            doc["title"] = "alpha beta delta";
+        if (i < 4) {
+            doc["title"] = "red apple pie"; // shares tokens with "red apple" but is not an exact match
+        } else if (i < 14) {
+            doc["title"] = "green pear";
+        } else if (i < 18) {
+            doc["title"] = "red apple"; // excluded (exact)
         } else {
-            doc["title"] = "alpha gamma delta";
+            doc["title"] = "blue apple"; // excluded (exact)
         }
 
         auto add_op = coll->add(doc.dump());
         ASSERT_TRUE(add_op.ok());
     }
 
-    const std::string filter = "title:!=[alpha beta,alpha gamma]";
+    const std::string filter = "title:!=[red apple,blue apple]";
+    const size_t per_page = 4;
 
-    auto req_params = new std::map<std::string, std::string>();
-    (*req_params)["collection"] = "lazy_not_in_multi_token_test";
-    (*req_params)["q"] = "*";
-    (*req_params)["filter_by"] = filter;
-    (*req_params)["sort_by"] = "score:desc";
-    (*req_params)["per_page"] = "10";
-    (*req_params)["page"] = "1";
-    (*req_params)["enable_lazy_filter"] = "true";
-
-    nlohmann::json embedded_params;
-    std::string json_res;
-    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-    auto result = nlohmann::json::parse(json_res);
-
-    size_t found = result["found"].get<size_t>();
-    ASSERT_EQ(21, found);
-    ASSERT_EQ(10, result["hits"].size());
-
-    size_t total_retrieved = result["hits"].size();
-    size_t per_page = 10;
-    size_t total_pages = (found / per_page) + 1;
-
-    for (size_t page = 2; page <= total_pages; page++) {
-        delete req_params;
-        req_params = new std::map<std::string, std::string>();
+    auto run_page = [&](size_t page) {
+        auto req_params = new std::map<std::string, std::string>();
         (*req_params)["collection"] = "lazy_not_in_multi_token_test";
         (*req_params)["q"] = "*";
         (*req_params)["filter_by"] = filter;
@@ -5622,27 +5608,37 @@ TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
         (*req_params)["per_page"] = std::to_string(per_page);
         (*req_params)["page"] = std::to_string(page);
         (*req_params)["enable_lazy_filter"] = "true";
+        (*req_params)["include_fields"] = "id";
 
-        json_res.clear();
-        now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
-        ASSERT_TRUE(search_op.ok());
-        result = nlohmann::json::parse(json_res);
+        auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+        delete req_params;
+        EXPECT_TRUE(search_op.ok());
+        return nlohmann::json::parse(json_res);
+    };
 
-        size_t hits = result["hits"].size();
-        total_retrieved += hits;
+    auto first = run_page(1);
+    size_t found = first["found"].get<size_t>();
+    ASSERT_EQ(14, found);
 
-        if (page == 2) {
-            ASSERT_EQ(10, hits);
-        } else {
-            ASSERT_EQ(1, hits);
-        }
+    // Paginate through every page; all 14 matches must be retrievable.
+    size_t total_retrieved = 0;
+    size_t total_pages = (found + per_page - 1) / per_page;
+    for (size_t page = 1; page <= total_pages; page++) {
+        auto result = run_page(page);
+        total_retrieved += result["hits"].size();
     }
-
-    delete req_params;
     ASSERT_EQ(found, total_retrieved);
+
+    // Deep page (offset 12) must return the two lowest-scoring matches.
+    auto deep = run_page(4);
+    ASSERT_EQ(2, deep["hits"].size());
+    ASSERT_EQ("12", deep["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("13", deep["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionFilteringTest, LazyFilterNotInNumericOverlapDeepPagination) {
