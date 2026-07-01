@@ -175,6 +175,18 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Query field `vec` must have 4 dimensions.", res_op.error());
 
+    // wrong dimensions must also be rejected on a hybrid (non-wildcard) query, not just wildcard
+    res_op = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                          spp::sparse_hash_set<std::string>(),
+                                          spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                          "", 10, {}, {}, {}, 0,
+                                          "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                          4, {off}, 32767, 32767, 2,
+                                          false, true, "vec:([0.96826, 0.94, 0.39557])");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Query field `vec` must have 4 dimensions.", res_op.error());
+
     // validate bad vector query field name
     res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                           spp::sparse_hash_set<std::string>(),

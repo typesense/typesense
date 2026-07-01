@@ -9213,19 +9213,19 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
         }
     }
 
-    if(is_wildcard_query) {
-        if(vector_query.values.empty() && !vector_query.query_doc_given) {
-            // for usability we will treat this as non-vector query
-            vector_query.field_name.clear();
-            if(vector_query.k != 0) {
-                per_page = std::min(per_page, vector_query.k);
-            }
+    if(is_wildcard_query && vector_query.values.empty() && !vector_query.query_doc_given) {
+        // for usability we will treat this as non-vector query
+        vector_query.field_name.clear();
+        if(vector_query.k != 0) {
+            per_page = std::min(per_page, vector_query.k);
         }
+    }
 
-        else if(vector_field_it.value().num_dim != vector_query.values.size()) {
-            return Option<bool>(400, "Query field `" + vector_query.field_name + "` must have " +
-                                                std::to_string(vector_field_it.value().num_dim) + " dimensions.");
-        }
+    // validate query vector dimensions on every path that reaches the search (incl. hybrid/non-wildcard),
+    // otherwise an under/over-sized client vector is read against the field's num_dim in the distance function
+    else if(vector_field_it.value().num_dim != vector_query.values.size()) {
+        return Option<bool>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                            std::to_string(vector_field_it.value().num_dim) + " dimensions.");
     }
 
     return Option<bool>(true);
