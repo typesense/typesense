@@ -856,9 +856,20 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     thread_pool->enqueue([rpath, message_dispatcher, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
-        (rpath->handler)(request, response);
+        bool should_dispatch = !rpath->async_res;
+        try {
+            (rpath->handler)(request, response);
+        } catch(const std::exception& e) {
+            // log the raw error but return a fixed message to avoid leaking implementation details
+            LOG(ERROR) << "Handler for " << rpath->action << " threw an exception.";
+            LOG(ERROR) << "Raw error: " << e.what();
+            response->set_500("Internal server error.");
+            response->final = true;
+            // async handlers won't stream a response after throwing, so dispatch here
+            should_dispatch = true;
+        }
 
-        if(!rpath->async_res) {
+        if(should_dispatch) {
             // lifecycle of non async res will be owned by stream responder
             auto req_res = new async_req_res_t(request, response, true);
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
