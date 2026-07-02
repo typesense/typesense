@@ -6724,3 +6724,145 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
     const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
     ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
 }
+
+// A contains rule with stem enabled must apply filter_by for both the plural query
+// that matches the rule token verbatim ("pink tops") and the singular query that
+// matches only via stemming ("pink top"). Fields have no stemming and only the rule
+// does, so docs match "pink top" literally.
+TEST_F(CollectionCurationTest, ContainsRuleStemmedMatchAppliesFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_stem_filter",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"},
+              {"name": "target_demographic", "type": "string"},
+              {"name": "gender", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // adult women's tops, kept by filter_by
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Pink Summer Top","category_l2":"tops","target_demographic":"Adult","gender":"female"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Pink Casual Top","category_l2":"tops","target_demographic":"Adult","gender":"female"})").ok());
+    // kids item, must be excluded by filter_by
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Pink Kids Top","category_l2":"girls clothing","target_demographic":"Teen","gender":"female"})").ok());
+
+    // contains rule on "tops" with stemming, scoped to adult women's tops
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-tops",
+          "rule": {
+              "query": "tops",
+              "match": "contains",
+              "stem": true
+          },
+          "filter_curated_hits": true,
+          "remove_matched_tokens": false,
+          "stop_processing": true,
+          "filter_by": "category_l2:=`tops` && target_demographic:=`Adult` && gender:=`female`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-tops", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    // plural matches the rule token verbatim
+    auto res_op = coll1->search("pink tops", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    for (const auto& hit : results["hits"]) {
+        ASSERT_NE("3", hit["document"]["id"].get<std::string>()) << "kids item leaked into 'pink tops'";
+    }
+
+    // singular matches the rule only via stemming, filter_by must still apply
+    results.clear();
+    res_op = coll1->search("pink top", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>()) << "stemmed rule match dropped filter_by";
+    for (const auto& hit : results["hits"]) {
+        ASSERT_NE("3", hit["document"]["id"].get<std::string>()) << "kids item leaked into 'pink top'";
+    }
+}
+
+// Same as above but the plural is resolved through a stemming dictionary
+// (people to person) instead of the built-in stemmer. Both the singular and plural
+// queries must apply the rule filter_by.
+TEST_F(CollectionCurationTest, ContainsRuleDictionaryStemmedMatchAppliesFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dict_stem_filter",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"},
+              {"name": "target_demographic", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    // maps the plural "people" to "person"
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"people\", \"root\":\"person\"}");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("people_set", json_lines).ok());
+
+    // each title holds both literal forms so both queries match every doc with field
+    // stemming off, leaving filter_by as the only thing that drops the kids item
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"People Person Tee","category_l2":"tops","target_demographic":"Adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Person People Hoodie","category_l2":"tops","target_demographic":"Adult"})").ok());
+    // kids item, must be excluded by filter_by
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"People Person Onesie","category_l2":"girls clothing","target_demographic":"Teen"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-people",
+          "rule": {
+              "query": "people",
+              "match": "contains",
+              "stem": true,
+              "stemming_dictionary": "people_set"
+          },
+          "filter_curated_hits": true,
+          "remove_matched_tokens": false,
+          "stop_processing": true,
+          "filter_by": "category_l2:=`tops` && target_demographic:=`Adult`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-people", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    // plural matches the rule token verbatim
+    auto res_op = coll1->search("people", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    for (const auto& hit : results["hits"]) {
+        ASSERT_NE("3", hit["document"]["id"].get<std::string>()) << "kids item leaked into 'people'";
+    }
+
+    // singular matches only through the dictionary, filter_by must still apply
+    results.clear();
+    res_op = coll1->search("person", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>()) << "dictionary-stemmed rule match dropped filter_by";
+    for (const auto& hit : results["hits"]) {
+        ASSERT_NE("3", hit["document"]["id"].get<std::string>()) << "kids item leaked into 'person'";
+    }
+}
