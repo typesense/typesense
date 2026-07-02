@@ -4874,3 +4874,99 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatF
 
     collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
 }
+
+TEST_F(CollectionSpecificMoreTest, PerFieldQueryRetokenization) {
+    // When fields have different tokenization configs, each field should be searched
+    // using its own symbols_to_index / token_separators rather than the first field's rules.
+    // Issue #2828: query_by=sku,title with sku having symbols_to_index:["-"] caused
+    // the query to not be split on "-" even when searching title (which has token_separators:["-"]).
+    nlohmann::json schema = R"({
+        "name": "retokenize_test",
+        "fields": [
+            {"name": "sku",   "type": "string", "symbols_to_index": ["-"]},
+            {"name": "title", "type": "string", "token_separators": ["-"]}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"]    = "1";
+    doc1["sku"]   = "ABC-1234";
+    doc1["title"] = "Wooden Desk";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"]    = "2";
+    doc2["sku"]   = "DEF-5678";
+    doc2["title"] = "Wooden Chair";
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    // Baseline: searching title alone should split on "-" and find "Wooden Desk"
+    auto res = coll1->search("wooden-desk", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // Core regression: searching sku,title must re-tokenize the query for title
+    // using title's token_separators:["-"], not sku's symbols_to_index:["-"].
+    // Previously returned 0 results because "wooden-desk" was never split for title.
+    res = coll1->search("wooden-desk", {"sku", "title"}, "", {}, {}, {0, 0}, 10, 1, FREQUENCY, {true, true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // sku exact match should still work when sku is not the first field
+    res = coll1->search("ABC-1234", {"title", "sku"}, "", {}, {}, {0, 0}, 10, 1, FREQUENCY, {true, true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // sku exact match with sku as first field
+    res = coll1->search("ABC-1234", {"sku", "title"}, "", {}, {}, {0, 0}, 10, 1, FREQUENCY, {true, true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // Both fields match different documents: "wooden-chair" matches title of doc2 only.
+    // "wooden-chair" is not a valid sku value so only the title match should fire.
+    res = coll1->search("wooden-chair", {"sku", "title"}, "", {}, {}, {0, 0}, 10, 1, FREQUENCY, {true, true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("retokenize_test");
+
+    // Three-field test with three distinct tokenization configs
+    nlohmann::json schema3 = R"({
+        "name": "retokenize_3field",
+        "fields": [
+            {"name": "code",  "type": "string", "symbols_to_index": ["-"]},
+            {"name": "title", "type": "string", "token_separators": ["-"]},
+            {"name": "desc",  "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll3 = collectionManager.create_collection(schema3).get();
+
+    nlohmann::json d1;
+    d1["id"]    = "1";
+    d1["code"]  = "ABC-XYZ";
+    d1["title"] = "Red-Widget";
+    d1["desc"]  = "A red widget";
+    ASSERT_TRUE(coll3->add(d1.dump()).ok());
+
+    nlohmann::json d2;
+    d2["id"]    = "2";
+    d2["code"]  = "DEF-GHI";
+    d2["title"] = "Blue-Widget";
+    d2["desc"]  = "A blue widget";
+    ASSERT_TRUE(coll3->add(d2.dump()).ok());
+
+    // Searching "red-widget" across all three fields: title should match doc1 via token_separators.
+    res = coll3->search("red-widget", {"code", "title", "desc"}, "", {}, {}, {0, 0, 0}, 10, 1, FREQUENCY, {true, true, true}, 0).get();
+    ASSERT_GE(res["hits"].size(), 1);
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // Searching "blue-widget" across all three fields: title should match doc2.
+    res = coll3->search("blue-widget", {"code", "title", "desc"}, "", {}, {}, {0, 0, 0}, 10, 1, FREQUENCY, {true, true, true}, 0).get();
+    ASSERT_GE(res["hits"].size(), 1);
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("retokenize_3field");
+}

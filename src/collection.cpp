@@ -3287,7 +3287,29 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
         for(size_t i = 1; i < weighted_search_fields.size(); i++) {
             field_query_tokens.emplace_back(query_tokens_t{});
-            field_query_tokens[i] = field_query_tokens[0];
+            auto search_field_i = search_schema.at(weighted_search_fields[i].name);
+            std::vector<std::string> field_q_include_tokens;
+            std::vector<std::string> field_q_unstemmed_tokens;
+
+            parse_search_query(query, field_q_include_tokens, field_q_unstemmed_tokens,
+                               field_query_tokens[i].q_exclude_tokens,
+                               field_query_tokens[i].q_phrases,
+                               search_field_i.locale, pre_segmented_query, stopwords_set,
+                               search_field_i.get_stemmer(),
+                               search_field_i.symbols_to_index,
+                               search_field_i.token_separators);
+
+            for(size_t j = 0; j < field_q_include_tokens.size(); j++) {
+                auto& token = field_q_include_tokens[j];
+                field_query_tokens[i].q_include_tokens.emplace_back(
+                    j, token, (j == field_q_include_tokens.size() - 1), token.size(), 0);
+            }
+
+            for(size_t j = 0; j < field_q_unstemmed_tokens.size(); j++) {
+                auto& token = field_q_unstemmed_tokens[j];
+                field_query_tokens[i].q_unstemmed_tokens.emplace_back(
+                    j, token, (j == field_q_include_tokens.size() - 1), token.size(), 0);
+            }
         }
     }
 
