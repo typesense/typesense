@@ -1195,12 +1195,14 @@ public:
                                        const uint32_t facet_query_num_typos,
                                        uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                        const std::vector<std::string>& group_by_fields,
-                                       size_t group_limit, bool is_wildcard_no_filter_query,
+                                       size_t group_limit, bool group_missing_values,
+                                       bool is_wildcard_no_filter_query,
                                        size_t max_candidates,
                                        std::vector<facet_info_t>& facet_infos,
                                        const std::vector<facet_index_type_t>& facet_index_types,
                                        bool is_group_by_first_pass,
-                                       std::set<uint32_t>& group_by_missing_value_ids) const;
+                                       std::set<uint32_t>& group_by_missing_value_ids,
+                                       reference_facet_contexts_t* grouped_reference_facet_contexts = nullptr) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
                                      bool estimate_facets, size_t facet_sample_percent,
@@ -1211,7 +1213,9 @@ public:
                                      int max_facet_count, bool is_wildcard_query,
                                      const std::vector<facet_index_type_t>& facet_index_types,
                                      bool is_group_by_first_pass,
-                                     std::set<uint32_t>& group_by_missing_value_ids) const;
+                                     std::set<uint32_t>& group_by_missing_value_ids,
+                                     const reference_facet_contexts_t* reference_facet_contexts = nullptr,
+                                     const reference_facet_context_t* reference_facet_context = nullptr) const;
 
     Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
 

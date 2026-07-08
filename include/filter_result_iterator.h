@@ -19,72 +19,142 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
     bool is_reference_array_field = true;
-    bool delete_docs = true;
 
-    // In case of nested join, references can further have references.
+    // Non-owning compatibility view into `doc_ids`.
     std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
 
-    explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr,
-                                       bool is_reference_array_field = true, bool delete_docs = true,
-                                       std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr) :
-                                       count(count), docs(docs),
-                                       is_reference_array_field(is_reference_array_field),
-                                       delete_docs(delete_docs), coll_to_references(coll_to_references) {}
+    std::vector<uint32_t> doc_ids{};
+    std::vector<std::map<std::string, reference_filter_result_t>> nested_references{};
 
-    reference_filter_result_t(const reference_filter_result_t& obj) {
-        if (&obj == this || obj.count == 0) {
-            return;
-        }
+    explicit reference_filter_result_t(uint32_t count = 0, const uint32_t* docs = nullptr,
+                                       bool is_reference_array_field = true,
+                                       const std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr) :
+                                       is_reference_array_field(is_reference_array_field) {
+        assign(docs, count, coll_to_references);
+    }
 
-        count = obj.count;
-        docs = new uint32_t[count];
-        memcpy(docs, obj.docs, count * sizeof(uint32_t));
-        is_reference_array_field = obj.is_reference_array_field;
-        delete_docs = obj.delete_docs;
+    explicit reference_filter_result_t(uint32_t count, const uint32_t* docs,
+                                       bool is_reference_array_field, bool,
+                                       const std::map<std::string, reference_filter_result_t>* coll_to_references) :
+                                       is_reference_array_field(is_reference_array_field) {
+        assign(docs, count, coll_to_references);
+    }
 
-        copy_references(obj, *this);
+    explicit reference_filter_result_t(std::vector<uint32_t> docs, bool is_reference_array_field = true) :
+                                       doc_ids(std::move(docs)),
+                                       is_reference_array_field(is_reference_array_field) {
+        sync_views();
+    }
+
+    reference_filter_result_t(const reference_filter_result_t& obj) :
+        is_reference_array_field(obj.is_reference_array_field),
+        doc_ids(obj.copy_doc_ids_view()),
+        nested_references(obj.copy_nested_references_view()) {
+        sync_views();
     }
 
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
-        if (&obj == this || obj.count == 0) {
+        if (&obj == this) {
             return *this;
         }
 
-        count = obj.count;
-        docs = new uint32_t[count];
-        memcpy(docs, obj.docs, count * sizeof(uint32_t));
         is_reference_array_field = obj.is_reference_array_field;
-        delete_docs = obj.delete_docs;
-
-        copy_references(obj, *this);
+        doc_ids = obj.copy_doc_ids_view();
+        nested_references = obj.copy_nested_references_view();
+        sync_views();
         return *this;
+    }
+
+    reference_filter_result_t(reference_filter_result_t&& obj) noexcept :
+        is_reference_array_field(obj.is_reference_array_field),
+        doc_ids(obj.doc_ids.empty() ? obj.copy_doc_ids_view() : std::move(obj.doc_ids)),
+        nested_references(obj.nested_references.empty() ? obj.copy_nested_references_view()
+                                                        : std::move(obj.nested_references)) {
+        sync_views();
+        obj.reset_views();
     }
 
     reference_filter_result_t& operator=(reference_filter_result_t&& obj) noexcept {
-        if (&obj == this || obj.count == 0) {
+        if (&obj == this) {
             return *this;
         }
 
-        count = obj.count;
-        docs = obj.docs;
-        coll_to_references = obj.coll_to_references;
         is_reference_array_field = obj.is_reference_array_field;
-        delete_docs = obj.delete_docs;
-
-        // Set default values in obj.
-        obj.count = 0;
-        obj.docs = nullptr;
-        obj.coll_to_references = nullptr;
-        obj.is_reference_array_field = true;
-
+        doc_ids = obj.doc_ids.empty() ? obj.copy_doc_ids_view() : std::move(obj.doc_ids);
+        nested_references = obj.nested_references.empty() ? obj.copy_nested_references_view()
+                                                          : std::move(obj.nested_references);
+        sync_views();
+        obj.reset_views();
         return *this;
     }
 
-    ~reference_filter_result_t() {
-        if (delete_docs) {
-            delete[] docs;
+    std::vector<uint32_t> copy_doc_ids_view() const {
+        if (!doc_ids.empty() || docs == nullptr || count == 0) {
+            return doc_ids;
         }
-        delete[] coll_to_references;
+
+        return std::vector<uint32_t>(docs, docs + count);
+    }
+
+    std::vector<std::map<std::string, reference_filter_result_t>> copy_nested_references_view() const {
+        if (!nested_references.empty() || coll_to_references == nullptr || count == 0) {
+            return nested_references;
+        }
+
+        return std::vector<std::map<std::string, reference_filter_result_t>>(coll_to_references,
+                                                                             coll_to_references + count);
+    }
+
+    void assign(const uint32_t* source_docs, size_t source_count,
+                const std::map<std::string, reference_filter_result_t>* source_references = nullptr) {
+        if (source_docs == nullptr || source_count == 0) {
+            doc_ids.clear();
+        } else {
+            doc_ids.assign(source_docs, source_docs + source_count);
+        }
+
+        if (source_references == nullptr || source_count == 0) {
+            nested_references.clear();
+        } else {
+            nested_references.assign(source_references, source_references + source_count);
+        }
+
+        sync_views();
+    }
+
+    void assign(std::vector<uint32_t> source_docs,
+                std::vector<std::map<std::string, reference_filter_result_t>> source_references = {}) {
+        doc_ids = std::move(source_docs);
+        nested_references = std::move(source_references);
+        sync_views();
+    }
+
+    void append_doc(uint32_t doc_id) {
+        doc_ids.push_back(doc_id);
+        sync_views();
+    }
+
+    void clear() {
+        doc_ids.clear();
+        nested_references.clear();
+        sync_views();
+    }
+
+    void resize_nested_references(size_t size) {
+        nested_references.resize(size);
+        sync_views();
+    }
+
+    void sync_views() {
+        count = doc_ids.size();
+        docs = doc_ids.empty() ? nullptr : doc_ids.data();
+        coll_to_references = nested_references.empty() ? nullptr : nested_references.data();
+    }
+
+    void reset_views() {
+        count = 0;
+        docs = nullptr;
+        coll_to_references = nullptr;
     }
 
     static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);

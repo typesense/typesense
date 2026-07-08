@@ -655,12 +655,9 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                 continue;
             }
 
-            reference_filter_result_t result;
-            result.count = ids.size();
-            result.docs = &ids[0];
+            reference_filter_result_t result(ids.size(), ids.data());
             prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
                                          ref_info.is_array, ref_include_exclude);
-            result.docs = nullptr;
         }
 
         if (!prune_doc_op.ok()) {

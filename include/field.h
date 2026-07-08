@@ -885,7 +885,28 @@ struct facet_info_t {
 struct facet_query_t {
     std::string field_name;
     std::string query;
+    std::string reference_collection_name{};
+    std::string reference_collection_alias_name{};
+    bool is_reference_query = false;
 };
+
+inline std::string get_facet_full_name(const facet& a_facet, bool use_alias = true) {
+    if (use_alias && !a_facet.reference_collection_alias_name.empty()) {
+        return "$" + a_facet.reference_collection_alias_name + "(" + a_facet.field_name + ")";
+    }
+
+    if (!a_facet.reference_collection_name.empty()) {
+        return "$" + a_facet.reference_collection_name + "(" + a_facet.field_name + ")";
+    }
+
+    return a_facet.field_name;
+}
+
+inline bool facet_matches_query(const facet& a_facet, const facet_query_t& facet_query) {
+    return a_facet.field_name == facet_query.field_name &&
+           a_facet.reference_collection_name == facet_query.reference_collection_name &&
+           a_facet.reference_collection_alias_name == facet_query.reference_collection_alias_name;
+}
 
 struct facet_value_t {
     std::string value;
