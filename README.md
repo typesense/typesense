@@ -54,21 +54,28 @@
 
 ## Quick Links
 
+- [Quick Links](#quick-links)
 - [Features](#features)
-- [Benchmarks](#benchmarks)
 - [Roadmap](#roadmap)
-- [Who's using this](#whos-using-this)
+- [Benchmarks](#benchmarks)
+- [Who's using this?](#whos-using-this)
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Step-by-step Walk-through](#step-by-step-walk-through)
 - [API Documentation](#api-documentation)
 - [API Clients](#api-clients)
+  - [Framework Integrations](#framework-integrations)
+  - [Postman Collection](#postman-collection)
 - [Search UI Components](#search-ui-components)
 - [FAQ](#faq)
+  - [How does this differ from Elasticsearch?](#how-does-this-differ-from-elasticsearch)
+  - [How does this differ from Algolia?](#how-does-this-differ-from-algolia)
+  - [Speed is great, but what about the memory footprint?](#speed-is-great-but-what-about-the-memory-footprint)
+  - [Why the GPL license?](#why-the-gpl-license)
 - [Support](#support)
 - [Contributing](#contributing)
 - [Getting Latest Updates](#getting-latest-updates)
-- [Build from Source](#build-from-source)
+- [Build from source](#build-from-source)
 
 ## Features
 
@@ -101,7 +108,7 @@
 
 Here's Typesense's public roadmap: [https://typesense.link/roadmap](https://typesense.link/roadmap).
 
-The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
+The first column also explains how we prioritize features, how you can influence prioritization and our release cadence.
 
 ## Benchmarks
 
@@ -115,7 +122,7 @@ The first column also explains how we prioritize features, how you can influence
   - On a server with 4vCPUs, Typesense was able to handle a concurrency of **46 concurrent search queries per second**, with an average search processing time of **28ms**.
 - With a dataset containing **3 Million products** (Amazon product data), Typesense was able to handle a throughput of **250 concurrent search queries per second** on an 8-vCPU 3-node Highly Available Typesense cluster.
 
-We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
+We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR!
 
 ## Who's using this?
 
@@ -130,19 +137,19 @@ You'll also see a list of user logos on the [Typesense Cloud](https://cloud.type
 
 ## Install
 
-**Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for 
+**Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for
 Linux (x86_64 & arm64) and Mac (x86_64).
 
 **Option 2:** You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense).
 
 **Option 3:** Spin up a managed cluster with [Typesense Cloud](https://cloud.typesense.org):
 
-<a href="https://cloud.typesense.org"><img src="assets/deploy_with_typesense_cloud.svg?raw=true" alt="Deploy with Typesense Cloud" height="60" /></a> 
+<a href="https://cloud.typesense.org"><img src="assets/deploy_with_typesense_cloud.svg?raw=true" alt="Deploy with Typesense Cloud" height="60" /></a>
 
 ## Quick Start
 
 Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense.
- 
+
 Let's begin by starting the Typesense server via Docker:
 
 ```
@@ -152,7 +159,7 @@ docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:29.0 --data-dir /d
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
 
 Install the Python client for Typesense:
- 
+
 ```
 pip install typesense
 ```
@@ -213,9 +220,9 @@ client.collections['companies'].documents.search(search_parameters)
 
 ## Step-by-step Walk-through
 
-A step-by-step walk-through is available on our website [here](https://typesense.org/guide). 
+A step-by-step walk-through is available on our website [here](https://typesense.org/guide).
 
-This will guide you through the process of starting up a Typesense server, indexing data in it and querying the data set. 
+This will guide you through the process of starting up a Typesense server, indexing data in it and querying the data set.
 
 ## API Documentation
 
@@ -232,7 +239,7 @@ While you can definitely use CURL to interact with Typesense Server directly, we
 - [Python](https://github.com/typesense/typesense-python)
 - [Ruby](https://github.com/typesense/typesense-ruby)
 
-If we don't offer an API client in your language, you can still use any popular HTTP client library to access Typesense's APIs directly. 
+If we don't offer an API client in your language, you can still use any popular HTTP client library to access Typesense's APIs directly.
 
 Here are some community-contributed clients and integrations:
 
@@ -277,25 +284,25 @@ The Postman Collection above gives you template requests that you can import int
 
 ## Search UI Components
 
-You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
+You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter)
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/guide/search-ui-components.html](https://typesense.org/docs/guide/search-ui-components.html) 
+Here's how: [https://typesense.org/docs/guide/search-ui-components.html](https://typesense.org/docs/guide/search-ui-components.html)
 
 ## FAQ
 
 ### How does this differ from Elasticsearch?
 
-Elasticsearch is a large piece of software, that takes non-trivial amount of effort to setup, administer, scale and fine-tune. 
-It offers you a few thousand configuration parameters to get to your ideal configuration. So it's better suited for large teams 
-who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store 
+Elasticsearch is a large piece of software, that takes non-trivial amount of effort to setup, administer, scale and fine-tune.
+It offers you a few thousand configuration parameters to get to your ideal configuration. So it's better suited for large teams
+who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store
 billions of documents and petabytes of data (eg: logs).
 
 Typesense is built specifically for decreasing the "time to market" for a delightful search experience. It's a light-weight
-yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics 
+yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics
 and smart defaults so it just works well out-of-the-box, without you having to turn many knobs.
 
-Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand, 
+Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand,
 is a single light-weight self-contained native binary, so it's simple to setup and operate.
 
 See a side-by-side feature comparison [here](https://typesense.org/typesense-vs-algolia-vs-elasticsearch-vs-meilisearch/).
@@ -306,42 +313,42 @@ Algolia is a proprietary, hosted, search-as-a-service product that works well, w
 fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
 
 Typesense on the other hand is an open-source product that you can run on your own infrastructure or
-use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org). 
-The open source version is free to use (besides of course your own infra costs). 
+use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org).
+The open source version is free to use (besides of course your own infra costs).
 With Typesense Cloud we don't charge by records or search operations. Instead, you get a dedicated cluster
-and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges 
-for it, depending on the configuration your choose, similar to most modern cloud platforms. 
+and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges
+for it, depending on the configuration your choose, similar to most modern cloud platforms.
 
-From a product perspective, Typesense is closer in spirit to Algolia than Elasticsearch. 
-However, we've addressed some important limitations with Algolia: 
+From a product perspective, Typesense is closer in spirit to Algolia than Elasticsearch.
+However, we've addressed some important limitations with Algolia:
 
-Algolia requires separate indices for each sort order, which counts towards your plan limits. Most of the index settings like 
-fields to search, fields to facet, fields to group by, ranking settings, etc 
+Algolia requires separate indices for each sort order, which counts towards your plan limits. Most of the index settings like
+fields to search, fields to facet, fields to group by, ranking settings, etc
 are defined upfront when the index is created vs being able to set them on the fly at query time.
 
 With Typesense, these settings can be configured at search time via query parameters which makes it very flexible
 and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
 This helps reduce memory consumption.
 
-Algolia offers the following features that Typesense does not have currently: personalization & server-based search analytics. For analytics, you can still instrument your search on the client-side and send search metrics to your web analytics tool of choice. 
+Algolia offers the following features that Typesense does not have currently: personalization & server-based search analytics. For analytics, you can still instrument your search on the client-side and send search metrics to your web analytics tool of choice.
 
 We intend to bridge this gap in Typesense, but in the meantime, please let us know
-if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
+if any of these are a show stopper for your use case by creating a feature request in our issue tracker.
 
 See a side-by-side feature comparison [here](https://typesense.org/typesense-vs-algolia-vs-elasticsearch-vs-meilisearch/).
 
 ### Speed is great, but what about the memory footprint?
 
-A fresh Typesense server will consume about 30 MB of memory. As you start indexing documents, the memory use will 
-increase correspondingly. How much it increases depends on the number and type of fields you index. 
+A fresh Typesense server will consume about 30 MB of memory. As you start indexing documents, the memory use will
+increase correspondingly. How much it increases depends on the number and type of fields you index.
 
-We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million 
-Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data 
+We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million
+Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data
 on disk in JSON format is 88 MB. If you have any numbers from your own datasets that we can add to this section, please send us a PR!
 
 ### Why the GPL license?
 
-From our experience companies are generally concerned when **libraries** they use are GPL licensed, since library code is directly integrated into their code and will lead to derivative work and trigger GPL compliance. However, Typesense Server is **server software** and we expect users to typically run it as a separate daemon, and not integrate it with their own code. GPL covers and allows for this use case generously **(eg: Linux is GPL licensed)**. Now, AGPL is what makes server software accessed over a network result in derivative work and not GPL. And for that reason we’ve opted to not use AGPL for Typesense. 
+From our experience companies are generally concerned when **libraries** they use are GPL licensed, since library code is directly integrated into their code and will lead to derivative work and trigger GPL compliance. However, Typesense Server is **server software** and we expect users to typically run it as a separate daemon, and not integrate it with their own code. GPL covers and allows for this use case generously **(eg: Linux is GPL licensed)**. Now, AGPL is what makes server software accessed over a network result in derivative work and not GPL. And for that reason we’ve opted to not use AGPL for Typesense.
 
 Now, if someone makes modifications to Typesense server, GPL actually allows you to still keep the modifications to yourself as long as you don't distribute the modified code. So a company can for example modify Typesense server and run the modified code internally and still not have to open source their modifications, as long as they make the modified code available to everyone who has access to the modified software.
 
@@ -357,7 +364,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://typesense.link/slack-community). 
+👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://typesense.link/slack-community).
 
 If you run into any problems or issues, please create a GitHub issue and we'll try our best to help.
 
@@ -372,8 +379,7 @@ We strive to provide good support through our issue trackers on GitHub. However,
 We offer Paid Support options described [here](https://typesense.org/support/).
 
 ## Contributing
-
-We are a lean team on a mission to democratize search and we'll take all the help we can get! If you'd like to get involved, here's information on where we could use your help: [Contributing.md](https://github.com/typesense/typesense/blob/master/CONTRIBUTING.md)
+If you'd like to get involved, here's information on where we could use your help: [Contributing.md](CONTRIBUTING.md)
 
 ## Getting Latest Updates
 
@@ -381,20 +387,20 @@ If you'd like to get updates when we release new versions, click on the "Watch" 
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
 
-👋 🌐 We'll also post updates on our [Slack Community](https://typesense.link/slack-community). 
+👋 🌐 We'll also post updates on our [Slack Community](https://typesense.link/slack-community).
 
 ## Build from source
 
 We use [Bazel](https://bazel.build) to build Typesense.
 
-Typesense requires the following dependencies: 
+Typesense requires the following dependencies:
 
-* C++11 compatible compiler (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
-* Snappy
-* zlib
-* OpenSSL (>=1.0.2)
-* curl
-* ICU
+- C++11 compatible compiler (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
+- Snappy
+- zlib
+- OpenSSL (>=1.0.2)
+- curl
+- ICU
 
 Please refer to the [CI build steps](.github/workflows/tests.yml) for the latest set of dependencies.
 
@@ -407,4 +413,5 @@ bazel build //:typesense-server
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
 ---
+
 &copy; 2016-present Typesense Inc.
