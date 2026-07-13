@@ -1142,7 +1142,12 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     if (filter_node->isOperator) {
         if (filter_node->filter_operator == AND) {
             approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
-            if (approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+            // materialize eagerly only when the larger side is also small.
+            // a tiny AND huge filter would otherwise materialize the huge side in full,
+            // so fall through to the lazy skip-probe iterator that leads with the small side.
+            auto const larger_side_length = std::max(left_it->approx_filter_ids_length,
+                                                     right_it->approx_filter_ids_length);
+            if (larger_side_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
                 compute_iterators();
             } else {
                 and_filter_iterators();
