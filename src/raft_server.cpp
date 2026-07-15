@@ -150,6 +150,31 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     return 0;
 }
 
+int ReplicationState::start_standalone(int api_port) {
+    // No Raft. The document store was already opened with its own RocksDB WAL, so any writes from
+    // a previous run have already been recovered by DB::Open. We just load the collections from
+    // the store into memory. We deliberately do NOT call store->reload(true, ...) here: that
+    // clears the state dir, which the Raft path does so the replayed log can rebuild the store —
+    // there is no log to replay in standalone, and clearing the state dir would throw away
+    // exactly the data we want to recover.
+    int init_db_status = init_db();
+    if(init_db_status != 0) {
+        LOG(ERROR) << "Failed to initialize DB in standalone mode.";
+        return init_db_status;
+    }
+
+    // Present as a healthy, caught-up leader so reads, /health, and the leader-only code paths
+    // (analytics, conversations, …) behave exactly as on a normal single node.
+    read_caught_up = true;
+    write_caught_up = true;
+    leader_term.store(1, butil::memory_order_release);
+
+    notify();
+
+    LOG(INFO) << "Standalone state machine ready (api_port " << api_port << ").";
+    return 0;
+}
+
 // can return empty string if DNS resolution fails on all nodes
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
@@ -338,6 +363,86 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         }
     }
 
+    if(config->get_standalone()) {
+        // STANDALONE: no Raft, apply the write directly. Chunked (async_req) requests stream
+        // their body in via async_req_cb, which appends each chunk to `request->body`; unlike the
+        // Raft path nothing consumes the body between chunks here, so it aggregates and only the
+        // final chunk carries the complete body.
+        if(!request->last_chunk_aggregate) {
+            // tell the http library to read more input; the next chunk re-enters write()
+            if(request->_req != nullptr && request->_req->proceed_req != nullptr) {
+                deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, true);
+                HttpServer::deliver_request_proceed(req_res);
+            }
+            return ;
+        }
+
+        // The aggregated body holds the entire gzip stream, so it can be inflated in one call.
+        // NOTE: the magic bytes must be compared as unsigned char: plain char is unsigned on
+        // aarch64, where a signed comparison against 0x8b (-117) would never match.
+        if(((request->body.size() > 2) &&
+            (0x1f == (unsigned char)request->body[0] && 0x8b == (unsigned char)request->body[1])) ||
+           request->zstream_initialized) {
+            auto res = handle_gzip(request);
+
+            if(!res.ok()) {
+                response->set_422(res.error());
+                response->final = true;
+                auto req_res = new async_req_res_t(request, response, true);
+                return HttpServer::deliver_stream_response(req_res);
+            }
+        }
+
+        request->log_index = standalone_seq.fetch_add(1, std::memory_order_relaxed);
+        pending_writes++;
+
+        // Serialize writes per collection: same collection -> same stripe -> never concurrent;
+        // different collections -> (almost always) different stripes -> run in parallel across
+        // the pool. Same queue keying as BatchedIndexer, so e.g. a collection's creation is
+        // ordered before writes to it.
+        const std::string& coll_name = batched_indexer->get_collection_name(request);
+        const size_t stripe = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % NUM_WRITE_STRIPES;
+
+        bool read_more_input = (request->_req != nullptr && request->_req->proceed_req != nullptr);
+
+        thread_pool->enqueue([this, request, response, rpath, route_found, stripe]() {
+            bool async_res = false;
+
+            if(route_found) {
+                std::lock_guard<std::mutex> lk(write_stripes[stripe]);
+                async_res = rpath->async_res;
+                try {
+                    rpath->handler(request, response);
+                } catch(const std::exception& e) {
+                    const std::string& api_action = rpath->_get_action();
+                    LOG(ERROR) << "Exception while calling handler " << api_action;
+                    LOG(ERROR) << "Raw error: " << e.what();
+                    response->set_400("Bad request.");
+                    response->final = true;
+                    async_res = false;
+                }
+            } else {
+                response->set_404();
+            }
+
+            if(response->is_alive && !async_res) {
+                // sync request gets a response immediately; async handlers stream it themselves
+                async_req_res_t* req_res = new async_req_res_t(request, response, true);
+                HttpServer::deliver_stream_response(req_res);
+            }
+
+            pending_writes--;
+        });
+
+        if(read_more_input) {
+            // lets the http library finish reading the request stream (mirrors BatchedIndexer::enqueue)
+            deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, true);
+            HttpServer::deliver_request_proceed(req_res);
+        }
+
+        return ;
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(!node) {
@@ -348,9 +453,12 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return write_to_leader(request, response);
     }
 
-    //check if it's first gzip chunk or is gzip stream initialized
+    // Check if it's the first gzip chunk or the gzip stream is already initialized.
+    // The magic bytes must be compared as unsigned char: plain char is unsigned on aarch64,
+    // where a signed comparison against 0x8b (-117) would never match.
     if(((request->body.size() > 2) &&
-        (31 == (int)request->body[0] && -117 == (int)request->body[1])) || request->zstream_initialized) {
+        (0x1f == (unsigned char)request->body[0] && 0x8b == (unsigned char)request->body[1])) ||
+       request->zstream_initialized) {
         auto res = handle_gzip(request);
 
         if(!res.ok()) {
@@ -1013,6 +1121,11 @@ bool ReplicationState::is_alive() const {
 }
 
 uint64_t ReplicationState::node_state() const {
+    if(config->get_standalone()) {
+        // braft::State LEADER == 1; report it so health/status endpoints treat us as a healthy leader
+        return 1;
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(node == nullptr) {
@@ -1184,6 +1297,11 @@ int64_t ReplicationState::get_num_queued_writes() {
 }
 
 bool ReplicationState::is_leader() {
+    if(config->get_standalone()) {
+        // single node, no Raft: always the leader
+        return true;
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(!node) {
