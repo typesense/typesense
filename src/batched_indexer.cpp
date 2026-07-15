@@ -156,7 +156,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     if(read_more_input) {
         // Tell the http library to read more input data
         deferred_req_res_t* req_res = new deferred_req_res_t(req, res, server, true);
-        server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
+        HttpServer::deliver_request_proceed(req_res);
     }
 }
 
@@ -304,7 +304,7 @@ void BatchedIndexer::run() {
                             orig_res->set_422(err_msg);
                             orig_res->final = true;
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
-                            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                            HttpServer::deliver_stream_response(async_req_res);
                             goto end;
                         }
 
@@ -313,7 +313,7 @@ void BatchedIndexer::run() {
                                 orig_res->set(422, "Skipping write.");
                                 orig_res->final = true;
                                 async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
-                                server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                                HttpServer::deliver_stream_response(async_req_res);
                                 goto end;
                             }
 
@@ -337,7 +337,7 @@ void BatchedIndexer::run() {
                         if(is_live_req && (!route_found ||!async_res)) {
                             // sync request gets a response immediately
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
-                            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                            HttpServer::deliver_stream_response(async_req_res);
                         }
 
                         if(!route_found) {
@@ -432,7 +432,7 @@ void BatchedIndexer::run() {
                     if(it->second.res->is_alive) {
                         it->second.res->final = true;
                         async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
-                        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                        HttpServer::deliver_stream_response(async_req_res);
                     }
 
                     it = req_res_map.erase(it);
@@ -630,7 +630,7 @@ void BatchedIndexer::clear_state_unlocked(const bool cancel_live_requests) {
 
         if(server != nullptr) {
             auto* async_req_res = new async_req_res_t(req, res, true);
-            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+            HttpServer::deliver_stream_response(async_req_res);
         } else {
             req->notify();
             res->notify();
