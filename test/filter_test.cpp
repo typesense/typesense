@@ -3026,3 +3026,254 @@ TEST_F(FilterTest, InfixLazyEvaluation) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 }
+
+TEST_F(FilterTest, AndComputeWithSmallAndLargeOperands) {
+    nlohmann::json schema =
+            R"({
+                "name": "AndProbeCollection",
+                "fields": [
+                    {"name": "brand", "type": "string"},
+                    {"name": "tag", "type": "string"},
+                    {"name": "views", "type": "int32"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    for (size_t i = 0; i < 12; i++) {
+        nlohmann::json doc;
+        doc["brand"] = (i == 3 || i == 7) ? "rare" : ("brand " + std::to_string(i));
+        doc["tag"] = (i == 7 || i == 11) ? "other" : "common";
+        doc["views"] = static_cast<int32_t>(i * 10);
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query("brand:= rare && tag:= common", coll->get_schema(), store,
+                                                doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto const enable_lazy_evaluation = true;
+    auto and_probe_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                   enable_lazy_evaluation);
+    ASSERT_TRUE(and_probe_test.init_status().ok());
+    // brand matches 2 docs and tag matches 10, the larger side crosses the threshold so init stays lazy.
+    ASSERT_FALSE(and_probe_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, and_probe_test.approx_filter_ids_length);
+
+    // compute intersects by probing the large side with the small side's ids, doc 7 has a different tag.
+    and_probe_test.compute_iterators();
+    ASSERT_TRUE(and_probe_test._get_is_filter_result_initialized());
+    ASSERT_EQ(1, and_probe_test.approx_filter_ids_length);
+    ASSERT_EQ(filter_result_iterator_t::valid, and_probe_test.validity);
+    ASSERT_EQ(3, and_probe_test.seq_id);
+    and_probe_test.next();
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_probe_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // a zero-match side short-circuits the AND on init without computing the large side.
+    filter_op = filter::parse_filter_query("brand:= nonexistent && tag:= common", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_zero_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                  enable_lazy_evaluation);
+    ASSERT_TRUE(and_zero_test.init_status().ok());
+    ASSERT_TRUE(and_zero_test._get_is_filter_result_initialized());
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_zero_test.validity);
+    ASSERT_EQ(0, and_zero_test.approx_filter_ids_length);
+    ASSERT_EQ(nullptr, and_zero_test._get_left_it());
+    ASSERT_EQ(nullptr, and_zero_test._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // same with the zero-match side on the right, the constructor only short-circuits an invalid
+    // left child so this exercises the init gate instead.
+    filter_op = filter::parse_filter_query("tag:= common && brand:= nonexistent", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_zero_right_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                        enable_lazy_evaluation);
+    ASSERT_TRUE(and_zero_right_test.init_status().ok());
+    ASSERT_TRUE(and_zero_right_test._get_is_filter_result_initialized());
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_zero_right_test.validity);
+    ASSERT_EQ(0, and_zero_right_test.approx_filter_ids_length);
+    ASSERT_EQ(nullptr, and_zero_right_test._get_left_it());
+    ASSERT_EQ(nullptr, and_zero_right_test._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // numeric leaf as the large side, doc 3 has views 30 so only doc 7 survives the probe.
+    filter_op = filter::parse_filter_query("brand:= rare && views:> 30", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_numeric_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                     enable_lazy_evaluation);
+    ASSERT_TRUE(and_numeric_test.init_status().ok());
+    ASSERT_FALSE(and_numeric_test._get_is_filter_result_initialized());
+
+    and_numeric_test.compute_iterators();
+    ASSERT_TRUE(and_numeric_test._get_is_filter_result_initialized());
+    ASSERT_EQ(1, and_numeric_test.approx_filter_ids_length);
+    ASSERT_EQ(filter_result_iterator_t::valid, and_numeric_test.validity);
+    ASSERT_EQ(7, and_numeric_test.seq_id);
+    and_numeric_test.next();
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_numeric_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // not equals leaf as the large side, doc 7 is excluded by tag:!= other.
+    filter_op = filter::parse_filter_query("brand:= rare && tag:!= other", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                        enable_lazy_evaluation);
+    ASSERT_TRUE(and_not_equals_test.init_status().ok());
+    ASSERT_FALSE(and_not_equals_test._get_is_filter_result_initialized());
+
+    and_not_equals_test.compute_iterators();
+    ASSERT_TRUE(and_not_equals_test._get_is_filter_result_initialized());
+    ASSERT_EQ(1, and_not_equals_test.approx_filter_ids_length);
+    ASSERT_EQ(filter_result_iterator_t::valid, and_not_equals_test.validity);
+    ASSERT_EQ(3, and_not_equals_test.seq_id);
+    and_not_equals_test.next();
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_not_equals_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // operator subtree as the large side, the OR matches every doc so both brand docs survive.
+    filter_op = filter::parse_filter_query("brand:= rare && (tag:= common || tag:= other)", coll->get_schema(),
+                                           store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_subtree_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                     enable_lazy_evaluation);
+    ASSERT_TRUE(and_subtree_test.init_status().ok());
+    ASSERT_FALSE(and_subtree_test._get_is_filter_result_initialized());
+
+    and_subtree_test.compute_iterators();
+    ASSERT_TRUE(and_subtree_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, and_subtree_test.approx_filter_ids_length);
+    std::vector<uint32_t> expected_subtree_ids = {3, 7};
+    for (auto const& id : expected_subtree_ids) {
+        ASSERT_EQ(filter_result_iterator_t::valid, and_subtree_test.validity);
+        ASSERT_EQ(id, and_subtree_test.seq_id);
+        and_subtree_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_subtree_test.validity);
+
+    delete filter_tree_root;
+}
+
+TEST_F(FilterTest, AndComputeWithReferenceOperands) {
+    nlohmann::json products_schema =
+            R"({
+                "name": "ProbeProducts",
+                "fields": [
+                    {"name": "product_id", "type": "string", "index": true},
+                    {"name": "brand", "type": "string"},
+                    {"name": "tag", "type": "string"}
+                ]
+            })"_json;
+    Collection* products = collectionManager.create_collection(products_schema).get();
+
+    for (size_t i = 0; i < 12; i++) {
+        nlohmann::json doc;
+        doc["product_id"] = "product_" + std::to_string(i);
+        doc["brand"] = (i == 3 || i == 7) ? "rare" : ("brand " + std::to_string(i));
+        doc["tag"] = "common";
+        ASSERT_TRUE(products->add(doc.dump()).ok());
+    }
+
+    nlohmann::json customers_schema =
+            R"({
+                "name": "ProbeCustomers",
+                "fields": [
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "int32"},
+                    {"name": "product_id", "type": "string", "reference": "ProbeProducts.product_id"}
+                ]
+            })"_json;
+    Collection* customers = collectionManager.create_collection(customers_schema).get();
+
+    std::vector<std::pair<std::string, int32_t>> customer_docs = {
+        {"product_3", 100}, {"product_5", 50}, {"product_7", 10},
+    };
+    for (auto const& c : customer_docs) {
+        nlohmann::json doc;
+        doc["customer_name"] = "customer";
+        doc["product_price"] = c.second;
+        doc["product_id"] = c.first;
+        ASSERT_TRUE(customers->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(products->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+    auto const enable_lazy_evaluation = true;
+
+    // reference leaf as the large side gets materialized with references on init,
+    // the probe path is skipped upfront and the references survive the full computation.
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query("brand:= rare && $ProbeCustomers(product_price:> 0)",
+                                                products->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_reference_test = filter_result_iterator_t(products->get_name(), products->_get_index(),
+                                                       filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(and_reference_test.init_status().ok());
+
+    and_reference_test.compute_iterators();
+    ASSERT_TRUE(and_reference_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, and_reference_test.approx_filter_ids_length);
+
+    std::vector<uint32_t> expected_ids = {3, 7};
+    for (auto const& id : expected_ids) {
+        ASSERT_EQ(filter_result_iterator_t::valid, and_reference_test.validity);
+        ASSERT_EQ(id, and_reference_test.seq_id);
+        ASSERT_EQ(1, and_reference_test.reference.count("ProbeCustomers"));
+        ASSERT_EQ(1, and_reference_test.reference["ProbeCustomers"].count);
+        and_reference_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_reference_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // reference leaf nested in a lazy OR subtree, the probe bails out on the first match
+    // that carries references and falls back to the full computation.
+    filter_op = filter::parse_filter_query("brand:= rare && ($ProbeCustomers(product_price:> 0) || tag:= common)",
+                                           products->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto and_reference_subtree_test = filter_result_iterator_t(products->get_name(), products->_get_index(),
+                                                               filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(and_reference_subtree_test.init_status().ok());
+    ASSERT_FALSE(and_reference_subtree_test._get_is_filter_result_initialized());
+
+    and_reference_subtree_test.compute_iterators();
+    ASSERT_TRUE(and_reference_subtree_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, and_reference_subtree_test.approx_filter_ids_length);
+
+    for (auto const& id : expected_ids) {
+        ASSERT_EQ(filter_result_iterator_t::valid, and_reference_subtree_test.validity);
+        ASSERT_EQ(id, and_reference_subtree_test.seq_id);
+        ASSERT_EQ(1, and_reference_subtree_test.reference.count("ProbeCustomers"));
+        ASSERT_EQ(1, and_reference_subtree_test.reference["ProbeCustomers"].count);
+        and_reference_subtree_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, and_reference_subtree_test.validity);
+
+    delete filter_tree_root;
+    collectionManager.drop_collection("ProbeCustomers");
+    collectionManager.drop_collection("ProbeProducts");
+}

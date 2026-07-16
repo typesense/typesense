@@ -1145,9 +1145,11 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             // materialize eagerly only when the larger side is also small.
             // a tiny AND huge filter would otherwise materialize the huge side in full,
             // so fall through to the lazy skip-probe iterator that leads with the small side.
+            // a zero-match side is always computed eagerly, compute_iterators() short-circuits it
+            // without touching the other side and the whole subtree gets freed early.
             auto const larger_side_length = std::max(left_it->approx_filter_ids_length,
                                                      right_it->approx_filter_ids_length);
-            if (larger_side_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+            if (larger_side_length < COMPUTE_FILTER_ITERATOR_THRESHOLD || approx_filter_ids_length == 0) {
                 compute_iterators();
             } else {
                 and_filter_iterators();
@@ -3186,13 +3188,66 @@ void filter_result_iterator_t::compute_iterators() {
             left_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
             right_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
         }
-        left_it->compute_iterators();
-        right_it->compute_iterators();
 
-        if (filter_node->filter_operator == AND) {
-            filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
-        } else {
-            filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+        bool is_result_computed = false;
+        if (filter_node->filter_operator == AND && !filter_node->is_object_filter_root) {
+            // when one side is small and the other is large, materializing the large side in full is
+            // wasteful. instead, compute the small side and probe the large side with its ids.
+            auto* small_it = left_it->approx_filter_ids_length <= right_it->approx_filter_ids_length ? left_it
+                                                                                                     : right_it;
+            auto* large_it = small_it == left_it ? right_it : left_it;
+
+            if (small_it->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD &&
+                    large_it->approx_filter_ids_length >= COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+                small_it->compute_iterators();
+
+                // references need merging of both sides, handled only by the full computation below.
+                if (small_it->filter_result.coll_to_references == nullptr &&
+                        (!large_it->is_filter_result_initialized ||
+                            large_it->filter_result.coll_to_references == nullptr)) {
+                    std::vector<uint32_t> matched_ids;
+                    matched_ids.reserve(small_it->filter_result.count);
+                    bool found_references = false;
+
+                    for (uint32_t i = 0; i < small_it->filter_result.count; i++) {
+                        auto const& id = small_it->filter_result.docs[i];
+                        auto const& id_validity = large_it->is_valid(id);
+
+                        if (id_validity == 1) {
+                            if (!large_it->reference.empty()) {
+                                // a subtree of the large side matched via a reference filter,
+                                // bail out to the full computation that merges references.
+                                found_references = true;
+                                break;
+                            }
+                            matched_ids.push_back(id);
+                        } else if (id_validity == -1) {
+                            break;
+                        }
+                    }
+
+                    if (!found_references) {
+                        filter_result.count = matched_ids.size();
+                        if (filter_result.count > 0) {
+                            filter_result.docs = new uint32_t[matched_ids.size()];
+                            std::copy(matched_ids.begin(), matched_ids.end(), filter_result.docs);
+                        }
+
+                        is_result_computed = true;
+                    }
+                }
+            }
+        }
+
+        if (!is_result_computed) {
+            left_it->compute_iterators();
+            right_it->compute_iterators();
+
+            if (filter_node->filter_operator == AND) {
+                filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            } else {
+                filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            }
         }
 
         if (left_it->validity == timed_out || right_it->validity == timed_out ||
