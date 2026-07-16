@@ -2731,7 +2731,9 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
                                                            enable_lazy_evaluation);
     ASSERT_TRUE(or_object_filter_test.init_status().ok());
     ASSERT_FALSE(or_object_filter_test._get_is_filter_result_initialized());
-    ASSERT_EQ(3, or_object_filter_test.approx_filter_ids_length);
+    // the inner AND nodes are not computed on init anymore, so the estimate is the sum of
+    // each AND's smaller side instead of the exact counts.
+    ASSERT_EQ(5, or_object_filter_test.approx_filter_ids_length);
     ASSERT_EQ(0, or_object_filter_test.seq_id);
 
     validate_ids = {0, 1, 2, 3, 4, 5};
