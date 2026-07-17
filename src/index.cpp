@@ -1379,8 +1379,8 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
                 continue;
             }
 
-            if(token.size() > 100) {
-                token.erase(100);
+            if(token.size() > a_field.truncate_len && a_field.truncate_len > 0) {
+                token.erase(a_field.truncate_len);
             }
 
             token_to_offsets[token].push_back(token_index + 1);
