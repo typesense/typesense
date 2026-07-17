@@ -7781,11 +7781,20 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     const std::string& field_name = search_field.name;
 
     if(search_field.type == field_types::STRING) {
-        Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
+        Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators,
+                  search_field.get_stemmer()).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            Tokenizer(value, true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
+            Tokenizer(value, true, false, locale, symbols_to_index, token_separators,
+                      search_field.get_stemmer()).tokenize(tokens);
+        }
+    }
+
+    // indexing truncates tokens before inserting, removal must match
+    for(auto& token: tokens) {
+        if(token.size() > search_field.truncate_len && search_field.truncate_len > 0) {
+            token.erase(search_field.truncate_len);
         }
     }
 }
