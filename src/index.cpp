@@ -1379,8 +1379,8 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
                 continue;
             }
 
-            if(token.size() > 100) {
-                token.erase(100);
+            if(token.size() > a_field.truncate_len && a_field.truncate_len > 0) {
+                token.erase(a_field.truncate_len);
             }
 
             token_to_offsets[token].push_back(token_index + 1);
@@ -7555,7 +7555,9 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
-        tokenize_string_field(document, search_field, tokens, search_field.locale, symbols_to_index, token_separators);
+        const auto& field_symbols = search_field.symbols_to_index.empty() ? symbols_to_index : search_field.symbols_to_index;
+        const auto& field_separators = search_field.token_separators.empty() ? token_separators : search_field.token_separators;
+        tokenize_string_field(document, search_field, tokens, search_field.locale, field_symbols, field_separators);
 
         for(size_t i = 0; i < tokens.size(); i++) {
             const auto& token = tokens[i];
@@ -7781,11 +7783,20 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     const std::string& field_name = search_field.name;
 
     if(search_field.type == field_types::STRING) {
-        Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
+        Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators,
+                  search_field.get_stemmer()).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            Tokenizer(value, true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
+            Tokenizer(value, true, false, locale, symbols_to_index, token_separators,
+                      search_field.get_stemmer()).tokenize(tokens);
+        }
+    }
+
+    // indexing truncates tokens before inserting, removal must match
+    for(auto& token: tokens) {
+        if(token.size() > search_field.truncate_len && search_field.truncate_len > 0) {
+            token.erase(search_field.truncate_len);
         }
     }
 }

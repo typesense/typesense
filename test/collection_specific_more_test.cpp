@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <collection_manager.h>
+#include <posting.h>
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
@@ -3728,6 +3729,211 @@ TEST_F(CollectionSpecificMoreTest, StemmingWithDroppingTokens) {
     ASSERT_EQ("gardening supply", search_res["hits"][1]["document"]["content"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingRemoveDocLeavesNoStalePostings) {
+    nlohmann::json schema = R"({
+        "name": "stem_remove",
+        "fields": [
+            {"name": "title", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "Blue Jeans"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Red Jeans"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Denim Jean"})"_json.dump()).ok());
+
+    auto res = coll->search("jeans", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["hits"].size());
+
+    ASSERT_TRUE(coll->remove("1").ok());
+
+    // "jeans" is indexed under its stem "jean", so removal must clean that posting list
+    std::string stem_token = "jean";
+    art_leaf* leaf = const_cast<Index*>(coll->_get_index())->get_token_leaf(
+            "title", (const unsigned char*) stem_token.c_str(), stem_token.size() + 1);
+    ASSERT_NE(nullptr, leaf);
+    ASSERT_EQ(2, posting_t::num_ids(leaf->values));
+
+    res = coll->search("jeans", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["hits"].size());
+
+    // control: raw token already equals its stem
+    ASSERT_TRUE(coll->remove("2").ok());
+
+    res = coll->search("jeans", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingUpdateDocLeavesNoStalePostings) {
+    nlohmann::json schema = R"({
+        "name": "stem_update",
+        "fields": [
+            {"name": "title", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "running shoes"})"_json.dump()).ok());
+
+    auto res = coll->search("run", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "walking shoes"})"_json.dump(), UPDATE).ok());
+
+    res = coll->search("run", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll->search("walk", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingRemoveDocArrayFieldLeavesNoStalePostings) {
+    nlohmann::json schema = R"({
+        "name": "stem_remove_arr",
+        "fields": [
+            {"name": "tags", "type": "string[]", "stem": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "tags": ["blue jeans"]})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "tags": ["red jeans"]})"_json.dump()).ok());
+
+    auto res = coll->search("jeans", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->remove("1").ok());
+
+    std::string stem_token = "jean";
+    art_leaf* leaf = const_cast<Index*>(coll->_get_index())->get_token_leaf(
+            "tags", (const unsigned char*) stem_token.c_str(), stem_token.size() + 1);
+    ASSERT_NE(nullptr, leaf);
+    ASSERT_EQ(1, posting_t::num_ids(leaf->values));
+
+    res = coll->search("jeans", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryRemoveDocLeavesNoStalePostings) {
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"trousers\", \"root\": \"pant\"}");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("stale_posting_stems", json_lines).ok());
+
+    nlohmann::json schema = R"({
+        "name": "stem_remove_dict",
+        "fields": [
+            {"name": "title", "type": "string", "stem_dictionary": "stale_posting_stems"}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "blue trousers"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "red trousers"})"_json.dump()).ok());
+
+    auto res = coll->search("pant", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->remove("1").ok());
+
+    std::string root_token = "pant";
+    art_leaf* leaf = const_cast<Index*>(coll->_get_index())->get_token_leaf(
+            "title", (const unsigned char*) root_token.c_str(), root_token.size() + 1);
+    ASSERT_NE(nullptr, leaf);
+    ASSERT_EQ(1, posting_t::num_ids(leaf->values));
+
+    res = coll->search("pant", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, FieldLevelSymbolsToIndexRemoveDocLeavesNoStalePostings) {
+    nlohmann::json schema = R"({
+        "name": "field_symbols_remove",
+        "fields": [
+            {"name": "title", "type": "string", "symbols_to_index": ["-"]}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "t-shirt blue"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "t-shirt red"})"_json.dump()).ok());
+
+    auto res = coll->search("t-shirt", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->remove("1").ok());
+
+    // removal must tokenize with the field-level symbols, else it computes "tshirt"
+    // and misses the "t-shirt" leaf
+    std::string token = "t-shirt";
+    art_leaf* leaf = const_cast<Index*>(coll->_get_index())->get_token_leaf(
+            "title", (const unsigned char*) token.c_str(), token.size() + 1);
+    ASSERT_NE(nullptr, leaf);
+    ASSERT_EQ(1, posting_t::num_ids(leaf->values));
+
+    res = coll->search("t-shirt", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, FieldLevelTokenSeparatorsRemoveDocLeavesNoStalePostings) {
+    nlohmann::json schema = R"({
+        "name": "field_separators_remove",
+        "fields": [
+            {"name": "tags", "type": "string[]", "token_separators": ["-"]}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "0", "tags": ["space-ship alpha"]})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "tags": ["space-ship beta"]})"_json.dump()).ok());
+
+    auto res = coll->search("space", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->remove("1").ok());
+
+    // removal must split on the field-level separator, else it computes "spaceship"
+    // and leaves "space"/"ship" postings stale
+    std::string token = "space";
+    art_leaf* leaf = const_cast<Index*>(coll->_get_index())->get_token_leaf(
+            "tags", (const unsigned char*) token.c_str(), token.size() + 1);
+    ASSERT_NE(nullptr, leaf);
+    ASSERT_EQ(1, posting_t::num_ids(leaf->values));
+
+    res = coll->search("space", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
 
 TEST_F(CollectionSpecificMoreTest, CustomStemmingDictionaryOverridesDeEnLocale) {
     nlohmann::json schema = R"({
