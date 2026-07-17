@@ -7555,7 +7555,9 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
-        tokenize_string_field(document, search_field, tokens, search_field.locale, symbols_to_index, token_separators);
+        const auto& field_symbols = search_field.symbols_to_index.empty() ? symbols_to_index : search_field.symbols_to_index;
+        const auto& field_separators = search_field.token_separators.empty() ? token_separators : search_field.token_separators;
+        tokenize_string_field(document, search_field, tokens, search_field.locale, field_symbols, field_separators);
 
         for(size_t i = 0; i < tokens.size(); i++) {
             const auto& token = tokens[i];
