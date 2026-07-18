@@ -261,3 +261,36 @@ TEST(TopsterTest, DistinctIntValues) {
     ASSERT_TRUE(dist_topster_first_pass.group_kv_map.empty());
     ASSERT_EQ(10, dist_topster_first_pass.loglog_counter->cardinality());
 }
+
+TEST(TopsterTest, GroupAllowlistBoundsSecondPassAggregations) {
+    spp::sparse_hash_set<uint64_t> group_key_allowlist = {2, 997};
+    Topster<KV> topster(250, 3, false, group_found_params_t{}, true, &group_key_allowlist);
+
+    for (uint64_t group_key = 0; group_key < 1000; group_key++) {
+        for (uint64_t document_index = 0; document_index < 5; document_index++) {
+            const uint64_t document_id = group_key * 5 + document_index;
+            int64_t scores[3] = {static_cast<int64_t>(document_id), 0, 0};
+            KV kv(0, document_id, group_key, 0, scores);
+            topster.add(&kv);
+        }
+    }
+
+    ASSERT_EQ(2, topster.group_kv_map.size());
+    ASSERT_EQ(10, topster.group_doc_seq_ids.size());
+    ASSERT_EQ(3, topster.group_kv_map.at(2)->size);
+    ASSERT_EQ(3, topster.group_kv_map.at(997)->size);
+}
+
+TEST(GroupByMissingValueIdsTest, DisabledCollectorDoesNotRetainIds) {
+    group_by_missing_value_ids_t disabled_collector(false);
+    for (uint32_t seq_id = 0; seq_id < 10000; seq_id++) {
+        disabled_collector.insert(seq_id);
+    }
+
+    ASSERT_TRUE(disabled_collector.empty());
+
+    group_by_missing_value_ids_t enabled_collector;
+    enabled_collector.insert(7);
+    enabled_collector.insert(11);
+    ASSERT_EQ(2, enabled_collector.size());
+}

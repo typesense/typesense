@@ -2143,7 +2143,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
                 bool is_group_by_first_pass = false;
-                std::set<uint32_t> group_by_missing_value_ids;
+                group_by_missing_value_ids_t group_by_missing_value_ids;
                 bool enable_typos_for_numerical_tokens = true;
                 bool enable_typos_for_alpha_numerical_tokens = false;
 

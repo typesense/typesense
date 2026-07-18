@@ -8770,7 +8770,7 @@ Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>&
                                                std::vector<facet_info_t>& facet_infos,
                                                const std::vector<facet_index_type_t>& facet_index_types,
                                                bool is_group_by_first_pass,
-                                               std::set<uint32_t>& group_by_missing_value_ids) const {
+                                               group_by_missing_value_ids_t& group_by_missing_value_ids) const {
 
     std::shared_lock lock(mutex);
     return index->compute_facet_infos_with_lock(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
@@ -8787,7 +8787,7 @@ Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_q
                                              int max_facet_count, bool is_wildcard_query,
                                              const std::vector<facet_index_type_t>& facet_index_types,
                                              bool is_group_by_first_pass,
-                                             std::set<uint32_t>& group_by_missing_value_ids) const {
+                                             group_by_missing_value_ids_t& group_by_missing_value_ids) const {
 
     std::shared_lock lock(mutex);
     return index->do_facets_with_lock(facets, facet_query, estimate_facets, facet_sample_percent, facet_infos, group_limit,
