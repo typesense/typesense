@@ -1199,8 +1199,7 @@ public:
                                        size_t max_candidates,
                                        std::vector<facet_info_t>& facet_infos,
                                        const std::vector<facet_index_type_t>& facet_index_types,
-                                       bool is_group_by_first_pass,
-                                       group_by_missing_value_ids_t& group_by_missing_value_ids) const;
+                                       bool is_group_by_first_pass) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
                                      bool estimate_facets, size_t facet_sample_percent,
@@ -1210,8 +1209,7 @@ public:
                                      const uint32_t* result_ids, size_t results_size,
                                      int max_facet_count, bool is_wildcard_query,
                                      const std::vector<facet_index_type_t>& facet_index_types,
-                                     bool is_group_by_first_pass,
-                                     group_by_missing_value_ids_t& group_by_missing_value_ids) const;
+                                     bool is_group_by_first_pass) const;
 
     Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
 

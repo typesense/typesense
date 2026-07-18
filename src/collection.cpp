@@ -8769,13 +8769,12 @@ Option<bool> Collection::compute_facet_infos_with_lock(const std::vector<facet>&
                                                size_t max_candidates,
                                                std::vector<facet_info_t>& facet_infos,
                                                const std::vector<facet_index_type_t>& facet_index_types,
-                                               bool is_group_by_first_pass,
-                                               group_by_missing_value_ids_t& group_by_missing_value_ids) const {
+                                               bool is_group_by_first_pass) const {
 
     std::shared_lock lock(mutex);
     return index->compute_facet_infos_with_lock(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                                                 group_by_fields, group_limit, is_wildcard_no_filter_query, max_candidates, facet_infos,
-                                                facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
+                                                facet_index_types, is_group_by_first_pass, this);
 }
 
 Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_query_t& facet_query,
@@ -8786,13 +8785,12 @@ Option<bool> Collection::do_facets_with_lock(std::vector<facet>& facets, facet_q
                                              const uint32_t* result_ids, size_t results_size,
                                              int max_facet_count, bool is_wildcard_query,
                                              const std::vector<facet_index_type_t>& facet_index_types,
-                                             bool is_group_by_first_pass,
-                                             group_by_missing_value_ids_t& group_by_missing_value_ids) const {
+                                             bool is_group_by_first_pass) const {
 
     std::shared_lock lock(mutex);
     return index->do_facets_with_lock(facets, facet_query, estimate_facets, facet_sample_percent, facet_infos, group_limit,
                                       group_by_fields, group_missing_values, result_ids, results_size, max_facet_count, is_wildcard_query,
-                                      facet_index_types, is_group_by_first_pass, group_by_missing_value_ids, this);
+                                      facet_index_types, is_group_by_first_pass, this);
 }
 
 Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,

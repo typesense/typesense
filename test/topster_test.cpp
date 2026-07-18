@@ -299,17 +299,3 @@ TEST(TopsterTest, EmptyGroupAllowlistRejectsEveryGroup) {
     ASSERT_TRUE(topster.group_kv_map.empty());
     ASSERT_TRUE(topster.group_doc_seq_ids.empty());
 }
-
-TEST(GroupByMissingValueIdsTest, DisabledCollectorDoesNotRetainIds) {
-    group_by_missing_value_ids_t disabled_collector(false);
-    for (uint32_t seq_id = 0; seq_id < 10000; seq_id++) {
-        disabled_collector.insert(seq_id);
-    }
-
-    ASSERT_TRUE(disabled_collector.empty());
-
-    group_by_missing_value_ids_t enabled_collector;
-    enabled_collector.insert(7);
-    enabled_collector.insert(11);
-    ASSERT_EQ(2, enabled_collector.size());
-}
