@@ -11,6 +11,8 @@
 #include "filter_result_iterator.h"
 #include "loglogbeta.h"
 
+using group_key_allowlist_t = std::shared_ptr<const spp::sparse_hash_set<uint64_t>>;
+
 struct group_found_params_t {
     int8_t sort_index = -1;
     int8_t sort_order = 1;
@@ -249,9 +251,9 @@ struct Topster {
     std::unordered_map<uint64_t, T*> map;
 
     size_t distinct;
-    // Exact group keys selected by the first grouped-search pass. This is a non-owning pointer whose lifetime is
-    // guaranteed by Index::run_search while the second pass is running.
-    const spp::sparse_hash_set<uint64_t>* group_key_allowlist;
+    // Exact group keys selected by the first grouped-search pass. A null handle disables allowlist filtering, while a
+    // non-null handle to an empty set intentionally rejects every group.
+    group_key_allowlist_t group_key_allowlist;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
@@ -271,9 +273,9 @@ struct Topster {
     explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
                      const group_found_params_t& group_found_params = {},
                      const bool& initialize_loglog_counter = true,
-                     const spp::sparse_hash_set<uint64_t>* group_key_allowlist = nullptr) :
+                     group_key_allowlist_t group_key_allowlist = nullptr) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
-                        group_key_allowlist(group_key_allowlist),
+                        group_key_allowlist(std::move(group_key_allowlist)),
                         is_group_by_first_pass(is_group_by_first_pass),
                         group_found_params(group_found_params) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
@@ -512,4 +514,3 @@ struct Topster {
         loglog_counter->merge(*topster.loglog_counter.get());
     }
 };
-

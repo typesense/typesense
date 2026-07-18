@@ -263,8 +263,11 @@ TEST(TopsterTest, DistinctIntValues) {
 }
 
 TEST(TopsterTest, GroupAllowlistBoundsSecondPassAggregations) {
-    spp::sparse_hash_set<uint64_t> group_key_allowlist = {2, 997};
-    Topster<KV> topster(250, 3, false, group_found_params_t{}, true, &group_key_allowlist);
+    auto group_key_allowlist = std::make_shared<spp::sparse_hash_set<uint64_t>>();
+    group_key_allowlist->insert(2);
+    group_key_allowlist->insert(997);
+    Topster<KV> topster(250, 3, false, group_found_params_t{}, true, group_key_allowlist);
+    group_key_allowlist.reset();
 
     for (uint64_t group_key = 0; group_key < 1000; group_key++) {
         for (uint64_t document_index = 0; document_index < 5; document_index++) {
@@ -279,6 +282,17 @@ TEST(TopsterTest, GroupAllowlistBoundsSecondPassAggregations) {
     ASSERT_EQ(10, topster.group_doc_seq_ids.size());
     ASSERT_EQ(3, topster.group_kv_map.at(2)->size);
     ASSERT_EQ(3, topster.group_kv_map.at(997)->size);
+}
+
+TEST(TopsterTest, EmptyGroupAllowlistRejectsEveryGroup) {
+    auto empty_group_key_allowlist = std::make_shared<spp::sparse_hash_set<uint64_t>>();
+    Topster<KV> topster(10, 3, false, group_found_params_t{}, true, empty_group_key_allowlist);
+
+    int64_t scores[3] = {0, 0, 0};
+    KV kv(0, 1, 42, 0, scores);
+    ASSERT_EQ(2, topster.add(&kv));
+    ASSERT_TRUE(topster.group_kv_map.empty());
+    ASSERT_TRUE(topster.group_doc_seq_ids.empty());
 }
 
 TEST(GroupByMissingValueIdsTest, DisabledCollectorDoesNotRetainIds) {

@@ -2557,7 +2557,7 @@ Option<bool> Index::run_search(search_args* search_params) {
 
     size_t first_pass_found_count = 0;
     size_t first_pass_found_docs = 0;
-    spp::sparse_hash_set<uint64_t> selected_group_keys;
+    std::shared_ptr<spp::sparse_hash_set<uint64_t>> selected_group_keys;
     const bool is_vector_group_query = search_params->group_limit && !search_params->vector_query.field_name.empty();
     // Only vector/hybrid grouping still builds a generated second-pass filter, which needs the IDs of documents whose
     // group fields are missing. Text grouping uses the selected group-key allowlist directly and must not retain an ID
@@ -2645,14 +2645,15 @@ Option<bool> Index::run_search(search_args* search_params) {
             // No keyword groups were found, so the grouped second pass should run against the original filter.
             vector_only_group_by_second_pass = true;
         } else if (!is_vector_group_query) {
+            selected_group_keys = std::make_shared<spp::sparse_hash_set<uint64_t>>();
             for (const auto& kvs: first_pass.raw_result_kvs) {
                 if (!kvs.empty()) {
-                    selected_group_keys.insert(kvs.front()->distinct_key);
+                    selected_group_keys->insert(kvs.front()->distinct_key);
                 }
             }
             for (const auto& kvs: first_pass.curation_result_kvs) {
                 if (!kvs.empty()) {
-                    selected_group_keys.insert(kvs.front()->distinct_key);
+                    selected_group_keys->insert(kvs.front()->distinct_key);
                 }
             }
         }
@@ -2881,21 +2882,12 @@ Option<bool> Index::run_search(search_args* search_params) {
                   search_params->union_result_seq_ids,
                   search_params->diversity,
                   search_params->group_max_candidates,
-                  selected_group_keys.empty() ? nullptr : &selected_group_keys
+                  selected_group_keys
     );
 
     // The filter iterator can be updated in places like `Index::do_phrase_search`.
     filter_iterator_guard.release();
     filter_iterator_guard.reset(filter_result_iterator);
-
-    // The allowlist is owned by this stack frame. Candidate admission and result-ID compaction have both completed
-    // before search() returns, so avoid leaving a stale non-owning pointer on the result containers.
-    if (search_params->topster != nullptr) {
-        search_params->topster->group_key_allowlist = nullptr;
-    }
-    if (search_params->curated_topster != nullptr) {
-        search_params->curated_topster->group_key_allowlist = nullptr;
-    }
 
     if (search_params->group_limit) {
         if (vector_only_group_by_second_pass) {
@@ -3757,7 +3749,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    group_by_missing_value_ids_t& group_by_missing_value_ids, Collection const *const collection,
                    const std::vector<std::string>& synonym_sets, id_list_t* union_result_seq_ids,
                    const diversity_t& diversity, const size_t group_max_candidates,
-                   const spp::sparse_hash_set<uint64_t>* group_key_allowlist) const {
+                   group_key_allowlist_t group_key_allowlist) const {
     std::shared_lock lock(mutex);
 
     group_found_params_t group_found_params{};

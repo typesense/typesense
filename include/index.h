@@ -882,7 +882,7 @@ public:
                 const std::vector<std::string>& synonym_sets,
                 id_list_t* union_result_seq_ids,
                 const diversity_t& diversity, const size_t group_max_candidates,
-                const spp::sparse_hash_set<uint64_t>* group_key_allowlist = nullptr) const;
+                group_key_allowlist_t group_key_allowlist = nullptr) const;
 
     void remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
