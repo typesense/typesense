@@ -2558,11 +2558,8 @@ Option<bool> Index::run_search(search_args* search_params) {
     size_t first_pass_found_count = 0;
     size_t first_pass_found_docs = 0;
     std::shared_ptr<spp::sparse_hash_set<uint64_t>> selected_group_keys;
-    const bool is_vector_group_query = search_params->group_limit && !search_params->vector_query.field_name.empty();
-    // Only vector/hybrid grouping still builds a generated second-pass filter, which needs the IDs of documents whose
-    // group fields are missing. Text grouping uses the selected group-key allowlist directly and must not retain an ID
-    // for every matching document with a missing group field.
-    group_by_missing_value_ids_t group_by_missing_value_ids(is_vector_group_query);
+    // Exact group hashes represent missing values as well, so no second-pass document-ID allowlist is needed.
+    group_by_missing_value_ids_t group_by_missing_value_ids(false);
 
     if (search_params->group_limit) {
         if (!search_params->diversity.similarity_equation.empty()) {
@@ -2644,7 +2641,7 @@ Option<bool> Index::run_search(search_args* search_params) {
 
             // No keyword groups were found, so the grouped second pass should run against the original filter.
             vector_only_group_by_second_pass = true;
-        } else if (!is_vector_group_query) {
+        } else {
             selected_group_keys = std::make_shared<spp::sparse_hash_set<uint64_t>>();
             for (const auto& kvs: first_pass.raw_result_kvs) {
                 if (!kvs.empty()) {
@@ -2664,152 +2661,11 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
 
             first_pass_found_count = first_pass.groups_count();
-            if (!is_vector_group_query) {
-                first_pass_found_docs = first_pass.all_result_ids_len;
+            first_pass_found_docs = first_pass.all_result_ids_len;
 
-                // Text searches can use the exact group hashes already present in the first-pass KVs. The second
-                // pass will reject non-selected hashes before allocating group aggregations and before faceting.
-                filter_result_iterator->reset();
-                return Option<bool>(true);
-            }
-
-            std::shared_lock lock(mutex);
-
-            std::vector<group_by_field_it_t> group_by_fields;
-            for (const auto& field_name: search_params->group_by_fields) {
-                auto field = search_schema.find(field_name);
-                if (field == search_schema.end() || !facet_index_v4->has_hash_index(field_name)) {
-                    continue;
-                }
-                group_by_fields.emplace_back(group_by_field_it_t{field_name,
-                                                                 facet_index_v4->get_facet_hash_index(field_name)->new_iterator(),
-                                                                 field->is_array(), field->is_string()});
-            }
-            if (group_by_fields.empty()) {
-                return Option<bool>(400, "`group_by` cannot be empty.");
-            }
-
-            std::vector<std::set<std::string>> group_by_values_list(group_by_fields.size());
-            get_group_by_values(first_pass.raw_result_kvs, first_pass.curation_result_kvs, group_by_fields,
-                                group_by_values_list);
-
-            std::string filter_by;
-            std::vector<std::string> clauses;
-
-            for (size_t i = 0; i < group_by_fields.size(); i++) {
-                const auto& field_name = group_by_fields[i].field_name;
-                const auto& values = group_by_values_list[i];
-
-                std::vector<std::string> valid_values;
-                valid_values.reserve(values.size());
-                for (const auto& value : values) {
-                    if (!value.empty()) {
-                        if (group_by_fields[i].is_string) {
-                            valid_values.push_back("`" + value + "`");
-                        } else {
-                            valid_values.push_back(value);
-                        }
-                    }
-                }
-                if (valid_values.empty()) {
-                    continue;
-                }
-
-                // For string fields, split into chunks so each leaf filter stays small enough
-                // for init() to materialize it via the string_filter_ids_threshold path. A single
-                // mega-filter would otherwise exceed the threshold and stay lazy.
-                const size_t chunk_size = group_by_fields[i].is_string
-                                              ? GROUPED_STRING_FILTER_VALUES_CHUNK_SIZE
-                                              : valid_values.size();
-
-                std::vector<std::string> field_clauses;
-                for (size_t start = 0; start < valid_values.size(); start += chunk_size) {
-                    const size_t end = std::min(start + chunk_size, valid_values.size());
-                    std::string clause = field_name + ": [";
-                    for (size_t j = start; j < end; j++) {
-                        clause += valid_values[j];
-                        if (j + 1 < end) {
-                            clause += ",";
-                        }
-                    }
-                    clause += "]";
-                    field_clauses.push_back(std::move(clause));
-                }
-
-                if (field_clauses.size() == 1) {
-                    clauses.push_back(std::move(field_clauses[0]));
-                } else {
-                    std::string combined = "(";
-                    for (size_t k = 0; k < field_clauses.size(); k++) {
-                        combined += field_clauses[k];
-                        if (k + 1 < field_clauses.size()) {
-                            combined += " || ";
-                        }
-                    }
-                    combined += ")";
-                    clauses.push_back(std::move(combined));
-                }
-            }
-
-            for (size_t i = 0; i < clauses.size(); i++) {
-                filter_by += clauses[i];
-                if (i + 1 < clauses.size()) {
-                    filter_by += " && ";
-                }
-            }
-
-            filter_node_t* new_filter_tree_root = nullptr;
-            // The grouped second-pass filter is internally generated and chunked into many ORed
-            // sub-filters, which can exceed filter_by_max_ops even when the user's filter wouldn't.
-            Option<bool> filter_op = filter::parse_filter_query(filter_by, search_schema, store, "", new_filter_tree_root,
-                                                                search_params->validate_field_names,
-                                                                "",
-                                                                false);
-            if (!filter_op.ok()) {
-                delete new_filter_tree_root;
-                return filter_op;
-            }
-
-            auto new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
-                                                             search_params->enable_lazy_filter,
-                                                             search_params->max_filter_by_candidates,
-                                                             search_begin_us, search_stop_us,
-                                                             search_params->validate_field_names);
-
-            if (filter_root == nullptr) {
-                filter_root.reset(new_filter_tree_root);
-
-                filter_result_iterator = new_iterator;
-                filter_iterator_guard.reset(new_iterator);
-            } else {
-                filter_result_iterator = new filter_result_iterator_t(AND, filter_iterator_guard.release(), new_iterator,
-                                                                      filter_root, new_filter_tree_root);
-                filter_iterator_guard.reset(filter_result_iterator);
-            }
-
-            if (!group_by_missing_value_ids.empty()) {
-                filter filter_exp = {"id"};
-                for (const auto& id: group_by_missing_value_ids) {
-                    filter_exp.values.emplace_back(std::to_string(id));
-                }
-                filter_exp.comparators = std::vector<NUM_COMPARATOR>(group_by_missing_value_ids.size(), EQUALS);
-
-                new_filter_tree_root = new filter_node_t(filter_exp);
-
-                new_iterator = new filter_result_iterator_t(get_collection_name(), this, new_filter_tree_root,
-                                                            search_params->enable_lazy_filter,
-                                                            search_params->max_filter_by_candidates,
-                                                            search_begin_us, search_stop_us,
-                                                            search_params->validate_field_names);
-                filter_result_iterator = new filter_result_iterator_t(OR, filter_iterator_guard.release(), new_iterator,
-                                                                      filter_root, new_filter_tree_root);
-                filter_iterator_guard.reset(filter_result_iterator);
-            }
-
-            if (!search_params->enable_lazy_filter ||
-                    filter_result_iterator->approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
-                filter_result_iterator->compute_iterators();
-            }
+            // Use the original user filter in the second pass. The exact group hashes selected above reject
+            // non-selected groups before scoring, aggregation and faceting, including for vector and hybrid search.
+            filter_result_iterator->reset();
 
             return Option<bool>(true);
         };
@@ -2896,7 +2752,7 @@ Option<bool> Index::run_search(search_args* search_params) {
             search_params->found_count = std::max(search_params->groups_processed.size(),
                                                   search_params->raw_result_kvs.size() + search_params->curation_result_kvs.size());
         } else {
-            search_params->found_docs = is_vector_group_query ? search_params->all_result_ids_len : first_pass_found_docs;
+            search_params->found_docs = first_pass_found_docs;
 
             if (search_params->group_max_candidates != DEFAULT_TOPSTER_SIZE) {
                 // User has set an appropriate upper limit of the expected group count. Assuming all the groups have been

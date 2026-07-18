@@ -2640,6 +2640,117 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearchExplicitGroupMaxCandidatesSh
     ASSERT_EQ(total_groups, res["found"].get<size_t>());
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearchUsesExactCompositeGroupKeys) {
+    nlohmann::json schema = R"({
+        "name": "grouped_vector_composite_allowlist",
+        "fields": [
+            {"name": "company", "type": "string", "facet": true},
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "bucket", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    // The first pass retains 250 of these 256 groups. Those groups contain every company and title value
+    // independently, so a field-wise generated filter would admit all 256 combinations in the second pass.
+    for (size_t group_index = 0; group_index < 256; group_index++) {
+        const size_t company = group_index % 16;
+        const size_t title = ((group_index / 16) + company) % 16;
+        nlohmann::json doc = {
+                {"company", "company_" + std::to_string(company)},
+                {"title", "title_" + std::to_string(title)},
+                {"bucket", "all"},
+                {"vec", {1.0, 0.0}}
+        };
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "grouped_vector_composite_allowlist"},
+            {"q", "*"},
+            {"vector_query", "vec:([1.0, 0.0], k:256)"},
+            {"group_by", "company,title"},
+            {"group_limit", "1"},
+            {"facet_by", "bucket"},
+            {"per_page", "20"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(20, res["grouped_hits"].size());
+    ASSERT_EQ(256, res["found_docs"].get<size_t>());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_EQ("bucket", res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("all", res["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(Index::DEFAULT_TOPSTER_SIZE, res["facet_counts"][0]["counts"][0]["count"]);
+}
+
+TEST_F(CollectionVectorTest, GroupByWithHybridSearchUsesAllowlistForMissingValues) {
+    nlohmann::json schema = R"({
+        "name": "grouped_hybrid_missing_allowlist",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "string", "facet": true, "optional": true},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "0", "title": "alpha", "vec": [1.0, 0.0]
+    })"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({
+        "id": "1", "title": "alpha", "vec": [0.99, 0.01]
+    })"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({
+        "id": "2", "title": "alpha", "group": "g1", "vec": [0.98, 0.02]
+    })"_json.dump()).ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "grouped_hybrid_missing_allowlist"},
+            {"q", "alpha"},
+            {"query_by", "title"},
+            {"vector_query", "vec:([1.0, 0.0], alpha:0.5, k:3)"},
+            {"group_by", "group"},
+            {"group_limit", "2"},
+            {"group_missing_values", "true"},
+            {"per_page", "10"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto res = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+
+    std::set<std::string> ids;
+    for (const auto& group : res["grouped_hits"]) {
+        for (const auto& hit : group["hits"]) {
+            ids.insert(hit["document"]["id"].get<std::string>());
+        }
+    }
+    ASSERT_EQ(std::set<std::string>({"0", "1", "2"}), ids);
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({
