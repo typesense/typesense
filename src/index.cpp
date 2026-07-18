@@ -2644,24 +2644,13 @@ Option<bool> Index::run_search(search_args* search_params) {
             }
         }
 
-        auto prepare_grouped_second_pass = [&]() -> Option<bool> {
-            if (vector_only_group_by_second_pass) {
-                return Option<bool>(true);
-            }
-
+        if (!vector_only_group_by_second_pass) {
             first_pass_found_count = first_pass.groups_count();
             first_pass_found_docs = first_pass.all_result_ids_len;
 
             // Use the original user filter in the second pass. The exact group hashes selected above reject
             // non-selected groups before scoring, aggregation and faceting, including for vector and hybrid search.
             filter_result_iterator->reset();
-
-            return Option<bool>(true);
-        };
-
-        auto prepare_op = prepare_grouped_second_pass();
-        if (!prepare_op.ok()) {
-            return prepare_op;
         }
 
         filter_result_iterator_no_groups->reset();
