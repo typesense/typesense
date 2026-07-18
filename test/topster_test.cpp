@@ -269,6 +269,10 @@ TEST(TopsterTest, GroupAllowlistBoundsSecondPassAggregations) {
     Topster<KV> topster(250, 3, false, group_found_params_t{}, true, group_key_allowlist);
     group_key_allowlist.reset();
 
+    ASSERT_TRUE(topster.is_group_key_allowed(2));
+    ASSERT_TRUE(topster.is_group_key_allowed(997));
+    ASSERT_FALSE(topster.is_group_key_allowed(3));
+
     for (uint64_t group_key = 0; group_key < 1000; group_key++) {
         for (uint64_t document_index = 0; document_index < 5; document_index++) {
             const uint64_t document_id = group_key * 5 + document_index;
@@ -287,6 +291,7 @@ TEST(TopsterTest, GroupAllowlistBoundsSecondPassAggregations) {
 TEST(TopsterTest, EmptyGroupAllowlistRejectsEveryGroup) {
     auto empty_group_key_allowlist = std::make_shared<spp::sparse_hash_set<uint64_t>>();
     Topster<KV> topster(10, 3, false, group_found_params_t{}, true, empty_group_key_allowlist);
+    ASSERT_FALSE(topster.is_group_key_allowed(42));
 
     int64_t scores[3] = {0, 0, 0};
     KV kv(0, 1, 42, 0, scores);

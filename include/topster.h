@@ -325,6 +325,12 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
+    bool is_group_key_allowed(uint64_t distinct_key) const {
+        const bool is_group_by_second_pass = distinct && !is_group_by_first_pass;
+        return !is_group_by_second_pass || group_key_allowlist == nullptr ||
+               group_key_allowlist->find(distinct_key) != group_key_allowlist->end();
+    }
+
     int add(T* kv) {
         /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
         for(auto& mkv: kv_map) {
@@ -353,8 +359,7 @@ struct Topster {
 
         // The first pass has already selected the only groups for which we need full aggregations. Rejecting other
         // groups here prevents allocating a Topster for every group encountered during the second pass.
-        if (is_group_by_second_pass && group_key_allowlist != nullptr &&
-            group_key_allowlist->find(get_distinct_key(kv)) == group_key_allowlist->end()) {
+        if (!is_group_key_allowed(get_distinct_key(kv))) {
             return 2;
         }
 
