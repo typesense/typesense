@@ -63,11 +63,16 @@ std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language
     if (language_ == "de_en") {
         language_ = "english";
     }
+
+    // Cache key must include stem_dictionary so fields that share a locale but
+    // use different dictionaries (or plain Snowball vs dictionary) do not
+    // silently reuse the first Stemmer that was built (#2979).
+    const std::string cache_key = language_ + "\x1f" + dictionary_name;
     
-    if (stemmers.find(language_) == stemmers.end()) {
-        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
+    if (stemmers.find(cache_key) == stemmers.end()) {
+        stemmers[cache_key] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
     }
-    return stemmers[language];
+    return stemmers[cache_key];
 }
 
 void StemmerManager::delete_stemmer(const std::string& language) {
