@@ -4595,6 +4595,159 @@ TEST_F(CollectionFilteringTest, ArrayFieldInsideObjectFilter) {
               search_titles("offers.{quantities:![3..4]}"));
 }
 
+TEST_F(CollectionFilteringTest, ObjectFilterMultiTokenStringValues) {
+    // token_separators split values like es-MX into multiple tokens, the object filter
+    // must compare all tokens, not just the first one
+    auto schema_json =
+            R"({
+                "name": "nested_locale_categories",
+                "enable_nested_fields": true,
+                "token_separators": ["-", "_", "/"],
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "active", "type": "object[]"},
+                    {"name": "active.locale", "type": "string[]", "optional": true},
+                    {"name": "active.actived", "type": "string[]", "optional": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Both Active",
+                "active": [
+                    {"locale": "es-ES", "actived": "true"},
+                    {"locale": "es-MX", "actived": "true"}
+                ]
+            })"_json,
+            R"({
+                "title": "MX Inactive",
+                "active": [
+                    {"locale": "es-ES", "actived": "true"},
+                    {"locale": "es-MX", "actived": "false"}
+                ]
+            })"_json,
+            R"({
+                "title": "ES Only",
+                "active": [
+                    {"locale": "es-ES", "actived": "true"}
+                ]
+            })"_json,
+            R"({
+                "title": "MX Only",
+                "active": [
+                    {"locale": "es-MX", "actived": "true"}
+                ]
+            })"_json,
+            R"({
+                "title": "ES Inactive",
+                "active": [
+                    {"locale": "es-ES", "actived": "false"},
+                    {"locale": "es-MX", "actived": "true"}
+                ]
+            })"_json
+    };
+
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale:=es-MX && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("ES Inactive", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("MX Only", result["hits"][1]["document"]["title"]);
+    ASSERT_EQ("Both Active", result["hits"][2]["document"]["title"]);
+
+    req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale:=es-ES && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("ES Only", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("MX Inactive", result["hits"][1]["document"]["title"]);
+    ASSERT_EQ("Both Active", result["hits"][2]["document"]["title"]);
+
+    req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale:=es-ES && actived:=false}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("ES Inactive", result["hits"][0]["document"]["title"]);
+
+    req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale:=es-MX && actived:=false}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("MX Inactive", result["hits"][0]["document"]["title"]);
+
+    req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale:=de-DE && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+}
+
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
     // track_missing_values on non-optional field should fail
     auto schema = R"({

@@ -3618,6 +3618,28 @@ static std::unordered_map<std::string, std::unordered_set<uint32_t>> build_objec
 }
 
 
+// join all tokens so multi token values like `es-MX` compare fully, not just by their first token
+static std::string tokenize_object_filter_value(const std::string& value, const std::vector<char>& symbols,
+                                                const std::vector<char>& separators, const field& f) {
+    Tokenizer tokenizer(value, true, false, f.locale, symbols, separators, f.get_stemmer());
+
+    std::string tokenized_val;
+    std::string token;
+    size_t token_index = 0;
+    while (tokenizer.next(token, token_index)) {
+        if (token.size() > f.truncate_len && f.truncate_len > 0) {
+            token.erase(f.truncate_len);
+        }
+
+        if (!tokenized_val.empty()) {
+            tokenized_val += " ";
+        }
+        tokenized_val += token;
+    }
+
+    return tokenized_val.empty() ? value : tokenized_val;
+}
+
 bool filter_result_iterator_t::validate_object_filter_helper(
         Index const* const index, const nlohmann::json& doc, const filter_node_t* filter_node,
         const std::string& collection_name, const std::string& object_field_name,
@@ -3677,6 +3699,8 @@ bool filter_result_iterator_t::validate_object_filter_helper(
         }
 
         field f = index->search_schema.at(filter_exp.field_name);
+        const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+        const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
 
         using fieldType = std::variant<int64_t, float, bool, std::string>;
 
@@ -3719,16 +3743,8 @@ bool filter_result_iterator_t::validate_object_filter_helper(
             return false;
         };
 
-        const auto get_string_value = [&index, &f](const nlohmann::json& json_val) -> fieldType {
-            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
-            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
-
-            std::string doc_str = json_val.get<std::string>();
-            Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
-
-            std::string tokenized_doc_val;
-            size_t doc_token_index = 0;
-            return doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
+        const auto get_string_value = [&symbols, &separators, &f](const nlohmann::json& json_val) -> fieldType {
+            return tokenize_object_filter_value(json_val.get<std::string>(), symbols, separators, f);
         };
 
         const auto get_doc_value = [&get_string_value, &f](const nlohmann::json& json_val) -> fieldType {
@@ -3811,13 +3827,7 @@ bool filter_result_iterator_t::validate_object_filter_helper(
                     val.pop_back();
                 }
 
-                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
-                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
-                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
-
-                std::string tokenized_filter_val;
-                size_t token_index = 0;
-                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                filter_val = tokenize_object_filter_value(val, symbols, separators, f);
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
             } else if (f.is_bool()) {
