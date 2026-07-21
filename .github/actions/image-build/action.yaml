@@ -1,0 +1,203 @@
+name: 'Build Typesense docker image'
+description: >-
+  Builds typesense-server with Bazel natively for one architecture and pushes
+  an arch-suffixed image (:TAG-amd64 / :TAG-arm64) to an Ory Artifact Registry
+  repository via Workload Identity Federation. Combine the per-arch tags into
+  one multi-platform manifest list with the image-merge action.
+
+inputs:
+  image_repo:
+    required: false
+    default: 'europe-west3-docker.pkg.dev/ory-artifacts/dirty-images'
+    description: registry repository to push to
+  image_name:
+    required: false
+    default: 'typesense'
+    description: name of the docker image
+  image_tag:
+    required: false
+    description: >-
+      tag of the docker image before the architecture suffix, defaults to the
+      commit SHA. The image is pushed as :TAG-ARCHITECTURE.
+  typesense_version:
+    required: false
+    description: version compiled into the binary and reported by /debug, defaults to the short commit SHA
+  architecture:
+    required: false
+    default: 'amd64'
+    description: >-
+      target architecture. Must match the runner's native CPU: the Bazel build
+      is not cross-compiled. Also suffixes the pushed tag and the Bazel caches.
+  bazel_jobs:
+    required: false
+    default: '6'
+    description: number of parallel Bazel jobs
+  bazel_cache_key:
+    required: false
+    default: 'image-build'
+    description: >-
+      Key for the Bazel disk/external caches. An input rather than a `vars`
+      lookup because `vars` availability inside composite actions is not
+      guaranteed; callers resolve it at workflow scope.
+
+outputs:
+  digest:
+    description: digest of the pushed single-arch image
+    value: ${{ steps.build.outputs.digest }}
+  image_tag:
+    description: the arch-suffixed tag the image was pushed under
+    value: ${{ steps.parse-inputs.outputs.arch_tag }}
+  version:
+    description: the version compiled into the binary
+    value: ${{ steps.parse-inputs.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Parse Input
+      shell: bash
+      id: parse-inputs
+      # Inputs go through env, not string interpolation, so a value containing
+      # shell metacharacters cannot alter the script.
+      env:
+        INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        INPUT_TYPESENSE_VERSION: ${{ inputs.typesense_version }}
+        INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+        COMMIT_SHA: ${{ github.sha }}
+      run: |
+        # Docker tag grammar: may not start with '.' or '-'; '_' is allowed.
+        check_tag() {
+          if ! [[ "$2" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::Invalid $1 '$2'. Must be a valid Docker tag: alphanumerics . _ - only, max 128 chars, not starting with . or -"
+            exit 1
+          fi
+        }
+
+        if [ -n "${INPUT_IMAGE_TAG}" ]; then
+          tag="${INPUT_IMAGE_TAG}"
+        else
+          tag="${COMMIT_SHA}"
+        fi
+        # Validated up front so a bad tag fails now, not after the Bazel build.
+        check_tag "image_tag" "${tag}"
+        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+        # The pushed tag carries the arch suffix; the image-merge action later
+        # combines the per-arch tags under the plain tag.
+        check_tag "architecture" "${INPUT_ARCHITECTURE}"
+        check_tag "arch_tag" "${tag}-${INPUT_ARCHITECTURE}"
+        echo "arch_tag=${tag}-${INPUT_ARCHITECTURE}" >> "${GITHUB_OUTPUT}"
+        echo "Image tag is set to ${tag}-${INPUT_ARCHITECTURE}"
+
+        # Derived from the tag, not HEAD: on pull_request, HEAD is the ephemeral
+        # refs/pull/N/merge commit, which exists in no branch.
+        if [ -n "${INPUT_TYPESENSE_VERSION}" ]; then
+          version="${INPUT_TYPESENSE_VERSION}"
+        elif [[ "${tag}" =~ ^[0-9a-f]{40}$ ]]; then
+          version="${tag:0:12}"
+        else
+          version="$(git rev-parse --short HEAD)"
+        fi
+
+        # The version is also published as a registry tag, so it must satisfy
+        # the Docker tag grammar — which excludes '+', ruling out semver build
+        # metadata.
+        check_tag "version" "${version}"
+
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+        echo "Typesense version is set to ${version}"
+
+    # Mirrors .github/workflows/tests.yml, the only known-working build of this
+    # repo on stock runners. lld is mandatory: BUILD sets -fuse-ld=lld.
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+        sudo apt-get update
+        sudo apt-get install -y g++-10 make git zlib1g-dev m4 lld
+
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+        sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+        sudo update-alternatives --set cc /usr/bin/gcc
+        sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+        sudo update-alternatives --set c++ /usr/bin/g++
+
+    - name: Set up Bazel
+      uses: bazel-contrib/setup-bazel@0.14.0
+      with:
+        # setup-bazel's cache keys include the OS but not the CPU arch, and
+        # GitHub cache keys are immutable: without this split the first arch to
+        # save would own the key and the other arch would stay cold forever.
+        cache-version: 1-${{ inputs.architecture }}
+        bazelisk-cache: true
+        disk-cache: ${{ inputs.bazel_cache_key }}
+        repository-cache: true
+        external-cache: true
+        # GCC 10.5's GCSE pass miscompiles nlohmann's dump_integer on aarch64,
+        # corrupting integers in serialized JSON. Injected via the user-level
+        # bazelrc (picked up by every bazel invocation in ci_build_v2.sh) so
+        # that script stays identical to upstream.
+        bazelrc: ${{ inputs.architecture == 'arm64' && 'build --copt=-fno-gcse' || '' }}
+
+    # Stages the binary into dist/, which is the build context below.
+    - name: Build Typesense server
+      shell: bash
+      env:
+        TYPESENSE_VERSION: ${{ steps.parse-inputs.outputs.version }}
+        TYPESENSE_TARGET: typesense-server
+        BAZEL_JOBS: ${{ inputs.bazel_jobs }}
+      run: bash ci_build_v2.sh "--jobs=${BAZEL_JOBS}"
+
+    # Must precede any image pull: the cache-* repos below are readable only
+    # with this token, and only the writer pool carries that grant.
+    - name: 'Auth Cloud SDK'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      with:
+        project_id: ory-artifacts
+        workload_identity_provider: 'projects/54661938681/locations/global/workloadIdentityPools/gha-artifact-writer/providers/github'
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v3.0.1'
+      with:
+        install_components: 'docker-credential-gcr'
+
+    - name: Login to Google Image Registry
+      shell: bash
+      run: gcloud auth configure-docker europe-west3-docker.pkg.dev --quiet
+
+    # Mirrors route base image pulls through Artifact Registry. If a mirror is
+    # down, BuildKit falls back to anonymous rate-limited upstream pulls.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+      with:
+        # renovate: datasource=docker depName=europe-west3-docker.pkg.dev/ory-artifacts/cache-docker-hub/moby/buildkit
+        driver-opts: image=europe-west3-docker.pkg.dev/ory-artifacts/cache-docker-hub/moby/buildkit:buildx-stable-1@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
+        buildkitd-config-inline: |
+          [registry."docker.io"]
+            mirrors = ["europe-west3-docker.pkg.dev/ory-artifacts/cache-docker-hub"]
+          [registry."ghcr.io"]
+            mirrors = ["europe-west3-docker.pkg.dev/ory-artifacts/cache-ghcr-io"]
+          [registry."quay.io"]
+            mirrors = ["europe-west3-docker.pkg.dev/ory-artifacts/cache-quay-io"]
+
+    - name: Build Image
+      id: build
+      uses: docker/build-push-action@v7
+      with:
+        context: dist
+        file: docker/deployment.Dockerfile
+        platforms: linux/${{ inputs.architecture }}
+        # A plain image manifest per arch (no provenance attestation index)
+        # keeps the merged manifest list a clean one-entry-per-platform index.
+        provenance: false
+        push: true
+        tags: |
+          ${{ inputs.image_repo }}/${{ inputs.image_name }}:${{ steps.parse-inputs.outputs.arch_tag }}
+        labels: |
+          org.opencontainers.image.version=${{ steps.parse-inputs.outputs.version }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+    # TODO(security): scan the image here before it can be promoted.
+    # Follow-up to ory-corp/infrastructure#6496.

@@ -1,0 +1,75 @@
+name: 'Merge Typesense multi-arch image'
+description: >-
+  Combines the per-architecture images pushed by the image-build action
+  (:TAG-amd64, :TAG-arm64) into one multi-platform manifest list at :TAG.
+  Requires id-token write permission for Workload Identity Federation.
+
+inputs:
+  image_repo:
+    required: false
+    default: 'europe-west3-docker.pkg.dev/ory-artifacts/dirty-images'
+    description: registry repository holding the per-arch tags; the manifest list is pushed there too
+  image_name:
+    required: false
+    default: 'typesense'
+    description: name of the docker image
+  image_tag:
+    required: true
+    description: unsuffixed tag; the per-arch images must already exist at TAG-ARCH
+  image_tag_alt:
+    required: false
+    description: additional tag for the manifest list, e.g. pr-1234
+  architectures:
+    required: false
+    default: 'amd64 arm64'
+    description: space-separated architecture suffixes to merge
+
+outputs:
+  digest:
+    description: digest of the multi-platform manifest list, safe to hand to a later job
+    value: ${{ steps.merge.outputs.digest }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Auth Cloud SDK'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      with:
+        project_id: ory-artifacts
+        workload_identity_provider: 'projects/54661938681/locations/global/workloadIdentityPools/gha-artifact-writer/providers/github'
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v3.0.1'
+
+    - name: Log in to Artifact Registry
+      shell: bash
+      run: gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin europe-west3-docker.pkg.dev
+
+    - name: Create multi-arch manifest list
+      id: merge
+      shell: bash
+      # Inputs go through env, not string interpolation, so a value containing
+      # shell metacharacters cannot alter the script.
+      env:
+        IMAGE: ${{ inputs.image_repo }}/${{ inputs.image_name }}
+        TAG: ${{ inputs.image_tag }}
+        ARCHITECTURES: ${{ inputs.architectures }}
+      run: |
+        refs=()
+        for arch in ${ARCHITECTURES}; do
+          refs+=("${IMAGE}:${TAG}-${arch}")
+        done
+        docker buildx imagetools create --tag "${IMAGE}:${TAG}" "${refs[@]}"
+        digest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{.Manifest.Digest}}')"
+        echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+        docker buildx imagetools inspect "${IMAGE}:${TAG}"
+
+    # By digest, so a concurrent re-tag of TAG cannot slip in between.
+    - name: Tag alternative image tag
+      if: ${{ inputs.image_tag_alt != '' }}
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image_repo }}/${{ inputs.image_name }}
+        TAG_ALT: ${{ inputs.image_tag_alt }}
+        DIGEST: ${{ steps.merge.outputs.digest }}
+      run: docker buildx imagetools create --tag "${IMAGE}:${TAG_ALT}" "${IMAGE}@${DIGEST}"

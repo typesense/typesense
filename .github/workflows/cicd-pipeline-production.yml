@@ -1,0 +1,229 @@
+name: Typesense - PRODUCTION Pipeline
+
+# On-demand production publish. Two modes, selected by the version input:
+#
+#   empty (default) -> PROMOTE the existing staging image for that commit.
+#     ~1 min, and production runs exactly what staging validated.
+#   set             -> BUILD the commit from source with that version compiled
+#     in. 1-3h, and the artifact is a fresh build staging never saw.
+#
+# Prefer promote; build only when production must report a specific version
+# the staging image does not already carry.
+#
+# Build mode needs separate build/publish jobs because the registries have
+# different writers: only gha-artifact-promoter can write production-images,
+# but only gha-artifact-writer can read the cache-* mirrors the build pulls
+# from. So the per-arch builds and the manifest merge land in dirty-images and
+# the final job copies the result across.
+#
+# Both modes copy by digest, so the source tag cannot be swapped underneath.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit SHA to publish (must exist in staging-images when promoting)
+        type: string
+        required: true
+      version:
+        description: 'Leave EMPTY to promote the staging image. Set (e.g. 30.0.0-ory.1) to rebuild with that version.'
+        type: string
+        required: false
+      tag_latest:
+        description: Also move the :latest tag in the production registry
+        type: boolean
+        default: false
+
+concurrency:
+  group: cicd-pipeline-production
+  cancel-in-progress: false
+
+jobs:
+  build-image:
+    name: Build typesense ${{ inputs.version }} (${{ matrix.arch }})
+    # Skipped entirely in promote mode.
+    if: ${{ inputs.version != '' }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit }}
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "${GITHUB_ENV}"
+      - name: Build Docker Image
+        uses: ./.github/actions/image-build
+        with:
+          image_repo: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+          image_name: typesense
+          # Namespaced so it cannot collide with PR builds' commit-SHA tags.
+          image_tag: release-${{ inputs.version }}
+          architecture: ${{ matrix.arch }}
+          typesense_version: ${{ inputs.version }}
+          bazel_cache_key: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || 'image-build' }}
+
+  merge-image:
+    name: Merge multi-arch image
+    needs:
+      - build-image
+    # Skips in promote mode (build-image skipped, so result != success) and on a
+    # failed build. Explicit rather than relying on the implicit success().
+    if: ${{ !cancelled() && needs.build-image.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      digest: ${{ steps.merge.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Merge per-arch images
+        id: merge
+        uses: ./.github/actions/image-merge
+        with:
+          image_repo: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+          image_name: typesense
+          image_tag: release-${{ inputs.version }}
+
+  push-production:
+    name: Publish to production
+    needs:
+      - build-image
+      - merge-image
+    # Accepting a bare 'skipped' from merge-image conflated two very different
+    # states: promote mode (nothing to build) and a build that failed. The
+    # latter used to reach this job, consume the production approval, and only
+    # then die on the empty digest. Promote mode requires both upstreams to be
+    # skipped-not-failed; build mode requires merge-image to have succeeded.
+    if: ${{ !cancelled()
+      && needs.build-image.result != 'failure'
+      && needs.merge-image.result != 'failure'
+      && (inputs.version == '' || needs.merge-image.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Gates nothing until protection rules are attached in repo settings.
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_REPO_DIRTY: 'europe-west3-docker.pkg.dev/ory-artifacts/dirty-images'
+      IMAGE_REPO_STAGING: 'europe-west3-docker.pkg.dev/ory-artifacts/staging-images'
+      IMAGE_REPO_DST: 'europe-west3-docker.pkg.dev/ory-artifacts/production-images'
+      REPO: europe-west3-docker.pkg.dev
+      IMAGE_NAME: 'typesense'
+      VERSION: ${{ inputs.version }}
+      COMMIT: ${{ inputs.commit }}
+      BUILD_DIGEST: ${{ needs.merge-image.outputs.digest }}
+    steps:
+      - name: Auth Cloud SDK
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ory-artifacts
+          workload_identity_provider: 'projects/54661938681/locations/global/workloadIdentityPools/gha-artifact-promoter/providers/github'
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3.0.1
+      - name: Log in to Artifact Registry
+        run: gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${REPO}"
+
+      # Collapse both modes to one digest-pinned ref so the publish steps match.
+      # The digest names the multi-arch manifest list, so every copy below
+      # carries both platforms.
+      - name: Resolve source image
+        id: src
+        run: |
+          if [ -n "${VERSION}" ]; then
+            if [ -z "${BUILD_DIGEST}" ]; then
+              echo "::error::Build job produced no digest."
+              exit 1
+            fi
+            echo "Mode: BUILD (fresh build of ${COMMIT} as ${VERSION})"
+            echo "ref=${IMAGE_REPO_DIRTY}/${IMAGE_NAME}@${BUILD_DIGEST}" >> "${GITHUB_OUTPUT}"
+            echo "digest=${BUILD_DIGEST}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Mode: PROMOTE (staging image for ${COMMIT}, no rebuild)"
+            digest="$(gcloud artifacts docker images describe \
+              "${IMAGE_REPO_STAGING}/${IMAGE_NAME}:${COMMIT}" \
+              --format='value(image_summary.digest)' 2>/dev/null || true)"
+            if [ -z "${digest}" ]; then
+              echo "::error::${IMAGE_REPO_STAGING}/${IMAGE_NAME}:${COMMIT} not found. Run the MASTER pipeline for this commit first, or supply a version to build from source."
+              exit 1
+            fi
+            echo "ref=${IMAGE_REPO_STAGING}/${IMAGE_NAME}@${digest}" >> "${GITHUB_OUTPUT}"
+            echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # The version tag is the release identity; never rewrite it silently.
+      # (Promote mode writes only the SHA tag, so re-running is a no-op.)
+      - name: Guard against overwriting an existing release
+        if: ${{ inputs.version != '' }}
+        run: |
+          if gcloud artifacts docker images describe \
+            "${IMAGE_REPO_DST}/${IMAGE_NAME}:${VERSION}" >/dev/null 2>&1; then
+            echo "::error::${IMAGE_NAME}:${VERSION} already exists in production-images. Versions are immutable; pick a new version."
+            exit 1
+          fi
+
+      - name: Publish to production
+        uses: akhilerm/tag-push-action@eadeefebd39db8a47e146115649adae1fce576a6 # v2.3.0
+        with:
+          src: ${{ steps.src.outputs.ref }}
+          dst: ${{ env.IMAGE_REPO_DST }}/${{ env.IMAGE_NAME }}:${{ inputs.commit }}
+
+      - name: Tag with version
+        if: ${{ inputs.version != '' }}
+        uses: akhilerm/tag-push-action@eadeefebd39db8a47e146115649adae1fce576a6 # v2.3.0
+        with:
+          src: ${{ steps.src.outputs.ref }}
+          dst: ${{ env.IMAGE_REPO_DST }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}
+
+      - name: Move :latest tag
+        if: ${{ inputs.tag_latest }}
+        uses: akhilerm/tag-push-action@eadeefebd39db8a47e146115649adae1fce576a6 # v2.3.0
+        with:
+          src: ${{ steps.src.outputs.ref }}
+          dst: ${{ env.IMAGE_REPO_DST }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Summary
+        env:
+          SRC_REF: ${{ steps.src.outputs.ref }}
+          DIGEST: ${{ steps.src.outputs.digest }}
+        run: |
+          {
+            if [ -n "${VERSION}" ]; then
+              echo "### Published to production (rebuilt)"
+            else
+              echo "### Promoted to production (staging artifact, no rebuild)"
+            fi
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${COMMIT}\` |"
+            if [ -n "${VERSION}" ]; then
+              echo "| Version | \`${VERSION}\` |"
+            fi
+            echo "| Source | \`${SRC_REF}\` |"
+            echo "| Digest | \`${DIGEST}\` |"
+            echo
+            echo '```'
+            echo "${IMAGE_REPO_DST}/${IMAGE_NAME}:${COMMIT}"
+            if [ -n "${VERSION}" ]; then
+              echo "${IMAGE_REPO_DST}/${IMAGE_NAME}:${VERSION}"
+            fi
+            echo '```'
+            echo
+            echo "Update the Helm chart tag in ory-corp/cloud to roll this out."
+          } >> "${GITHUB_STEP_SUMMARY}"

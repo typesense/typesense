@@ -1,0 +1,146 @@
+name: Typesense - Branch and PR Pipeline
+
+# Builds a dirty multi-platform image for every non-draft PR. No push trigger
+# on purpose: it would double every expensive Bazel build.
+
+on:
+  workflow_dispatch:
+  merge_group:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Base branch. UPDATE THIS when the default branch moves to a new version —
+    # a mismatch creates no run at all, it does not show up as skipped.
+    branches:
+      - v31
+
+concurrency:
+  group: ci-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      # ci-only: every changed file is orchestration-only, so the image would be
+      # byte-identical. Deliberately NOT '!.github/**': .github/actions/** holds
+      # the build definition itself (toolchain, Bazel flags, Dockerfile path), and
+      # a change there must always be built.
+      ci-only: ${{ steps.inverse-filter.outputs.non-ci == 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      # predicate-quantifier 'every' ANDs the patterns per file: a file counts as
+      # non-CI only if it is outside every listed directory. With the default
+      # 'some' the patterns would OR and any one of them would match everything.
+      # Output is true when at least one changed file is non-CI, so 'false' means
+      # the whole diff was orchestration.
+      - name: Detect CI-only diff
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: inverse-filter
+        # Fail open on step error: non-ci is then empty, ci-only resolves to
+        # false, and the build runs. Job-level failure is handled by the
+        # !cancelled() guard on the consuming jobs.
+        continue-on-error: true
+        with:
+          predicate-quantifier: every
+          filters: |
+            non-ci:
+              - '!.github/workflows/**'
+              - '!.github/ISSUE_TEMPLATE/**'
+
+  build-image:
+    name: Build typesense (dirty, ${{ matrix.arch }})
+    needs:
+      - detect-changes
+    # Skip drafts (multi-hour build) and PRs from external forks (no OIDC token,
+    # nowhere to push; tests.yml still covers them).
+    #
+    # Compare head repo to base repo — do NOT use head.repo.fork, which is true
+    # for every PR here because this repo is itself a fork of typesense/typesense.
+    #
+    # CI-only diffs skip the build. workflow_dispatch overrides, so a CI change
+    # can still be exercised on demand.
+    #
+    # !cancelled() is load-bearing: without a status function the implicit
+    # success() on needs would skip this job whenever detect-changes fails, and
+    # a job-level if cannot override that. With it, a failed gate leaves ci-only
+    # empty and the build runs.
+    if: ${{ !cancelled() && github.event.pull_request.draft != true &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.ci-only != 'true') }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Cold Bazel cache runs well over an hour.
+    timeout-minutes: 180
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_REPO: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+    steps:
+      # Pinned to the PR head, not the default refs/pull/N/merge commit, so the
+      # image tag names a commit that actually exists on the branch.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "${GITHUB_ENV}"
+      - name: Build Docker Image
+        uses: ./.github/actions/image-build
+        with:
+          image_repo: ${{ env.IMAGE_REPO }}
+          image_name: typesense
+          image_tag: ${{ github.event.pull_request.head.sha || github.sha }}
+          architecture: ${{ matrix.arch }}
+          bazel_cache_key: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || 'image-build' }}
+
+  merge-image:
+    name: Merge multi-arch image
+    # Skipped automatically when build-image is skipped.
+    needs:
+      - build-image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_REPO: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+    steps:
+      # Same ref as the build jobs, so the merge uses the PR's action version.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Merge per-arch images
+        uses: ./.github/actions/image-merge
+        with:
+          image_repo: ${{ env.IMAGE_REPO }}
+          image_name: typesense
+          image_tag: ${{ github.event.pull_request.head.sha || github.sha }}
+          image_tag_alt: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Summary
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "### Typesense multi-arch image pushed (amd64 + arm64)"
+            echo
+            echo '```'
+            echo "${IMAGE_REPO}/typesense:${IMAGE_TAG}"
+            if [ -n "${PR_NUMBER}" ]; then
+              echo "${IMAGE_REPO}/typesense:pr-${PR_NUMBER}"
+            fi
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

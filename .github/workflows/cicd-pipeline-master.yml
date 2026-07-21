@@ -1,0 +1,189 @@
+name: Typesense - MASTER Pipeline
+
+# Builds each commit on the default branch (v31, not master) as a
+# multi-platform image (amd64 + arm64) and promotes it into the staging
+# registry.
+#
+# UPDATE THE BRANCH BELOW when the default branch moves to a new version — a
+# mismatch creates no run at all, it does not show up as skipped.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit SHA to build (default: branch tip). Use this to mint a staging image for a commit the CI-only gate skipped.'
+        type: string
+        required: false
+      version:
+        description: 'Version to compile in, e.g. 30.0.0-ory.1-rc1 (default: commit SHA)'
+        type: string
+        required: false
+  push:
+    branches:
+      - v31
+
+# Keyed per commit: GitHub keeps only one pending run per group, so a shared
+# group would drop queued commits and leave them with no staging image.
+concurrency:
+  group: cicd-pipeline-master-${{ inputs.commit || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      # See the branch-and-pr pipeline for why .github/actions/** is excluded
+      # from the CI-only definition.
+      ci-only: ${{ steps.inverse-filter.outputs.non-ci == 'false' }}
+      # Every downstream job keys off this instead of github.sha, so a dispatch
+      # with an explicit commit tags the image with that commit rather than the
+      # branch tip.
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - name: Resolve commit
+        id: resolve
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+          echo "Target commit is ${sha}"
+      # base is left unset: dorny defaults to the repository default branch,
+      # and when that is the branch being pushed to it diffs against the commit
+      # before the push — which is what we want here.
+      - name: Detect CI-only diff
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: inverse-filter
+        # Fail open on step error; job-level failure is handled by the
+        # !cancelled() guard on the consuming job.
+        continue-on-error: true
+        with:
+          predicate-quantifier: every
+          filters: |
+            non-ci:
+              - '!.github/workflows/**'
+              - '!.github/ISSUE_TEMPLATE/**'
+
+  build-image:
+    name: Build typesense (dirty, ${{ matrix.arch }})
+    needs:
+      - detect-changes
+    # CI-only commits produce an identical binary, so skip the rebuild. Dispatch
+    # overrides — pass `commit` to mint a staging image for a skipped commit.
+    #
+    # !cancelled() is load-bearing: without a status function a failed
+    # detect-changes would skip this job via the implicit success() on needs,
+    # and the dispatch override could not rescue it.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.ci-only != 'true') }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect-changes.outputs.sha || github.sha }}
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "${GITHUB_ENV}"
+      - name: Build Docker Image
+        uses: ./.github/actions/image-build
+        with:
+          image_repo: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+          image_name: typesense
+          image_tag: ${{ needs.detect-changes.outputs.sha || github.sha }}
+          architecture: ${{ matrix.arch }}
+          # Empty on a push event, so the action falls back to the commit SHA.
+          typesense_version: ${{ inputs.version }}
+          bazel_cache_key: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || 'image-build' }}
+
+  merge-image:
+    name: Merge multi-arch image
+    needs:
+      - detect-changes
+      - build-image
+    # Gates on build-image specifically. Without a status function the implicit
+    # success() over ALL needs would skip this job when detect-changes fails,
+    # stranding a completed two-arch build with no manifest list.
+    if: ${{ !cancelled() && needs.build-image.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect-changes.outputs.sha || github.sha }}
+      - name: Merge per-arch images
+        uses: ./.github/actions/image-merge
+        with:
+          image_repo: europe-west3-docker.pkg.dev/ory-artifacts/dirty-images
+          image_name: typesense
+          image_tag: ${{ needs.detect-changes.outputs.sha || github.sha }}
+
+  docker-push:
+    name: Push Staging Image
+    needs:
+      - detect-changes
+      - merge-image
+    # Gates on merge-image specifically rather than !failure(): detect-changes is
+    # also an ancestor, and a failed gate must not block a push whose build and
+    # merge both succeeded.
+    if: ${{ !cancelled() && needs.merge-image.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_REPO_SRC: 'europe-west3-docker.pkg.dev/ory-artifacts/dirty-images'
+      IMAGE_REPO_DST: 'europe-west3-docker.pkg.dev/ory-artifacts/staging-images'
+      REPO: europe-west3-docker.pkg.dev
+    steps:
+      - name: Auth Cloud SDK
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ory-artifacts
+          workload_identity_provider: 'projects/54661938681/locations/global/workloadIdentityPools/gha-artifact-promoter/providers/github'
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3.0.1
+      - name: Log in to Artifact Registry
+        run: gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${REPO}"
+      # SHA-pinned: third-party action, runs with a registry token in reach.
+      # crane-based, so it copies the whole multi-arch manifest list.
+      - name: Push typesense image
+        uses: akhilerm/tag-push-action@eadeefebd39db8a47e146115649adae1fce576a6 # v2.3.0
+        env:
+          IMAGE_NAME: 'typesense'
+        with:
+          src: ${{ env.IMAGE_REPO_SRC }}/${{ env.IMAGE_NAME }}:${{ needs.detect-changes.outputs.sha || github.sha }}
+          dst: ${{ env.IMAGE_REPO_DST }}/${{ env.IMAGE_NAME }}:${{ needs.detect-changes.outputs.sha || github.sha }}
+      # Only the branch tip may move :latest. A dispatch that rebuilds an older
+      # commit must not roll staging back for every consumer of that tag.
+      - name: Move :latest tag
+        # Both halves matter: `commit` empty means we built the tip rather than
+        # an older commit, and the ref check stops a dispatch from a feature
+        # branch pointing :latest at unreviewed code.
+        if: ${{ inputs.commit == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: akhilerm/tag-push-action@eadeefebd39db8a47e146115649adae1fce576a6 # v2.3.0
+        env:
+          IMAGE_NAME: 'typesense'
+        with:
+          src: ${{ env.IMAGE_REPO_SRC }}/${{ env.IMAGE_NAME }}:${{ needs.detect-changes.outputs.sha || github.sha }}
+          dst: ${{ env.IMAGE_REPO_DST }}/${{ env.IMAGE_NAME }}:latest
