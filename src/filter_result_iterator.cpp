@@ -3640,6 +3640,40 @@ static std::string tokenize_object_filter_value(const std::string& value, const 
     return tokenized_val.empty() ? value : tokenized_val;
 }
 
+// filter tokens get an unordered AND like the flat filter path, a trailing * makes the last token
+// match by prefix and infix values match as a substring
+static bool object_filter_string_matches(const std::string& tokenized_doc_val, const std::string& tokenized_filter_val,
+                                         const bool is_prefix, const bool is_infix) {
+    if (is_infix) {
+        return tokenized_doc_val.find(tokenized_filter_val) != std::string::npos;
+    }
+
+    std::vector<std::string> doc_tokens;
+    StringUtils::split(tokenized_doc_val, doc_tokens, " ");
+
+    std::vector<std::string> filter_tokens;
+    StringUtils::split(tokenized_filter_val, filter_tokens, " ");
+
+    for (size_t i = 0; i < filter_tokens.size(); i++) {
+        const auto& filter_token = filter_tokens[i];
+        const bool prefix_token = is_prefix && i == filter_tokens.size() - 1;
+        bool token_found = false;
+
+        for (const auto& doc_token: doc_tokens) {
+            if (prefix_token ? doc_token.rfind(filter_token, 0) == 0 : doc_token == filter_token) {
+                token_found = true;
+                break;
+            }
+        }
+
+        if (!token_found) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool filter_result_iterator_t::validate_object_filter_helper(
         Index const* const index, const nlohmann::json& doc, const filter_node_t* filter_node,
         const std::string& collection_name, const std::string& object_field_name,
@@ -3704,15 +3738,19 @@ bool filter_result_iterator_t::validate_object_filter_helper(
 
         using fieldType = std::variant<int64_t, float, bool, std::string>;
 
-        const auto value_matches = [](const fieldType& doc_val, const fieldType& filter_val,
-                                      const NUM_COMPARATOR comparator) {
+        bool filter_is_prefix = false;
+        bool filter_is_infix = false;
+
+        const auto value_matches = [&filter_is_prefix, &filter_is_infix](const fieldType& doc_val, const fieldType& filter_val,
+                                                                         const NUM_COMPARATOR comparator) {
             if (comparator == EQUALS) {
                 return doc_val == filter_val;
             } else if (comparator == NOT_EQUALS) {
                 return doc_val != filter_val;
             } else if(comparator == CONTAINS) {
                 if(std::holds_alternative<std::string>(doc_val) && std::holds_alternative<std::string>(filter_val)) {
-                    return std::get<std::string>(doc_val).find(std::get<std::string>(filter_val)) != std::string::npos;
+                    return object_filter_string_matches(std::get<std::string>(doc_val), std::get<std::string>(filter_val),
+                                                        filter_is_prefix, filter_is_infix);
                 }
             } else if (comparator == LESS_THAN) {
                 if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
@@ -3819,11 +3857,12 @@ bool filter_result_iterator_t::validate_object_filter_helper(
 
             fieldType filter_val;
             if (f.is_string()) {
-                bool is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
-                if (is_infix) {
+                filter_is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
+                filter_is_prefix = !filter_is_infix && val.at(val.size() - 1) == '*' && comparator == CONTAINS;
+                if (filter_is_infix) {
                     val.erase(0, 1);
                     val.pop_back();
-                } else if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
+                } else if (filter_is_prefix) {//prefix match
                     val.pop_back();
                 }
 

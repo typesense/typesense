@@ -4746,6 +4746,148 @@ TEST_F(CollectionFilteringTest, ObjectFilterMultiTokenStringValues) {
     result = nlohmann::json::parse(json_res);
     ASSERT_EQ(0, result["found"].get<size_t>());
     ASSERT_EQ(0, result["hits"].size());
+
+    // non-exact match tokens get an unordered AND, `mx es` must match es-MX elements
+    req_params = {
+            {"collection",     "nested_locale_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{locale: mx es && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ("ES Inactive", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("MX Only", result["hits"][1]["document"]["title"]);
+    ASSERT_EQ("Both Active", result["hits"][2]["document"]["title"]);
+}
+
+TEST_F(CollectionFilteringTest, ObjectFilterMultiTokenContains) {
+    // non-exact multi token values must match tokens as an unordered AND,
+    // not as a contiguous phrase
+    auto schema_json =
+            R"({
+                "name": "nested_product_categories",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "active", "type": "object[]"},
+                    {"name": "active.name", "type": "string[]", "optional": true},
+                    {"name": "active.actived", "type": "string[]", "optional": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Doc A",
+                "active": [
+                    {"name": "Regional Category Featured", "actived": "true"},
+                    {"name": "Plain", "actived": "false"}
+                ]
+            })"_json,
+            R"({
+                "title": "Doc B",
+                "active": [
+                    {"name": "Featured Regional", "actived": "true"}
+                ]
+            })"_json,
+            R"({
+                "title": "Doc C",
+                "active": [
+                    {"name": "Category Regional", "actived": "false"},
+                    {"name": "Featured Category", "actived": "true"}
+                ]
+            })"_json
+    };
+
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // out of order and non contiguous in Doc A, reversed in Doc B
+    std::map<std::string, std::string> req_params = {
+            {"collection",     "nested_product_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{name: featured regional && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("Doc B", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("Doc A", result["hits"][1]["document"]["title"]);
+
+    // trailing * applies a prefix match to the last token only
+    req_params = {
+            {"collection",     "nested_product_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{name: regional categ* && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Doc A", result["hits"][0]["document"]["title"]);
+
+    // tokens spread across different array elements must not match
+    req_params = {
+            {"collection",     "nested_product_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{name: featured plain && actived:=true}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+
+    req_params = {
+            {"collection",     "nested_product_categories"},
+            {"q",              "*"},
+            {"filter_by",      "active.{name: regional && actived:=false}"},
+            {"include_fields", "title, active"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("Doc C", result["hits"][0]["document"]["title"]);
 }
 
 TEST_F(CollectionFilteringTest, MissingFilterSchemaValidation) {
