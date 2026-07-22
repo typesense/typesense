@@ -61,8 +61,10 @@ private:
     std::vector<std::deque<uint64_t>> queues;
 
     std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
-    await_t refq_wait;
     std::list<refq_entry> reference_q;
+    std::unordered_map<uint64_t, std::list<refq_entry>::iterator> reference_q_by_request;
+    std::unordered_map<uint64_t, std::vector<uint64_t>> reference_waiters;
+    std::unordered_map<std::string, uint64_t> collection_request_tails;
 
     /* Variables to be serialized on snapshot                  /
     --------------------------------------------------------- */
@@ -100,16 +102,24 @@ private:
 
     static std::string get_req_suffix_key(uint64_t req_id);
 
+    static bool is_request_earlier(uint64_t lhs_latest_chunk_log_index, uint64_t lhs_last_updated,
+                                   uint64_t lhs_req_id, uint64_t rhs_latest_chunk_log_index,
+                                   uint64_t rhs_last_updated, uint64_t rhs_req_id);
+
     std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(uint64_t req_id,
                                                                    const std::string& coll_name);
 
-    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id,
-                                                         const std::string& coll_name);
+    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id, const std::string& coll_name,
+                                                         bool use_order_fallback = false);
 
     void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
 
     void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
                                                  const std::string& coll_name);
+
+    void add_reference_request_with_lock(refq_entry&& ref);
+
+    size_t process_reference_queue_with_lock(uint64_t completed_request_id);
 
 public:
 
