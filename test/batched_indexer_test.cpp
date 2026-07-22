@@ -123,7 +123,7 @@ TEST(BatchedIndexerTest, RevisitsOnlyReferenceWaitersAffectedByCompletion) {
 
             BatchedIndexer::refq_entry ref(0, request_id);
             ref.waiting_on_requests.insert(request_id - 1);
-            indexer.add_reference_request_with_lock(std::move(ref));
+            indexer.add_reference_request(std::move(ref));
         }
         indexer.req_res_map.erase(1);
     }
@@ -154,7 +154,7 @@ TEST(BatchedIndexerTest, ReleasesIndexedReferenceWaiterAfterEveryDependencyCompl
         BatchedIndexer::refq_entry ref(0, 30);
         ref.waiting_on_requests.insert(10);
         ref.waiting_on_requests.insert(20);
-        indexer.add_reference_request_with_lock(std::move(ref));
+        indexer.add_reference_request(std::move(ref));
         indexer.req_res_map.erase(10);
     }
 
@@ -192,7 +192,7 @@ TEST(BatchedIndexerTest, ReleasesAffectedReferenceWaitersInQueueOrder) {
         for (const auto request_id : {uint64_t{20}, uint64_t{30}}) {
             BatchedIndexer::refq_entry ref(0, request_id);
             ref.waiting_on_requests.insert(10);
-            indexer.add_reference_request_with_lock(std::move(ref));
+            indexer.add_reference_request(std::move(ref));
         }
         indexer.req_res_map.erase(10);
     }
@@ -264,7 +264,7 @@ TEST(BatchedIndexerTest, ChainsSameCollectionRequestsThroughReferenceQueueTail) 
         std::unique_lock lk(indexer.mutex);
         BatchedIndexer::refq_entry ref(0, 20);
         ref.waiting_on_requests.insert(10);
-        indexer.add_reference_request_with_lock(std::move(ref));
+        indexer.add_reference_request(std::move(ref));
     }
     indexer.collection_request_tails["orders"] = 20;
 

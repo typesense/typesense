@@ -117,7 +117,7 @@ private:
     void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
                                                  const std::string& coll_name);
 
-    void add_reference_request_with_lock(refq_entry&& ref);
+    void add_reference_request(refq_entry&& ref);
 
     size_t process_reference_queue_with_lock(uint64_t completed_request_id);
 

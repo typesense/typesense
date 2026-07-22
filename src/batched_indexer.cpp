@@ -119,7 +119,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 } else {
                     refq_entry ref(queue_id, req->start_ts);
                     ref.waiting_on_requests = std::move(wait_on_request_ids);
-                    add_reference_request_with_lock(std::move(ref));
+                    add_reference_request(std::move(ref));
                 }
             }
 
@@ -432,7 +432,7 @@ void BatchedIndexer::run() {
     delete thread_pool;
 }
 
-void BatchedIndexer::add_reference_request_with_lock(refq_entry&& ref) {
+void BatchedIndexer::add_reference_request(refq_entry&& ref) {
     const auto request_id = ref.start_ts;
     reference_q.emplace_back(std::move(ref));
     const auto reference_q_it = std::prev(reference_q.end());
@@ -734,7 +734,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
                 std::unique_lock qlk(qmutuxes[ref.queue_id].mcv);
                 queues[ref.queue_id].emplace_back(ref.start_ts);
             } else {
-                add_reference_request_with_lock(std::move(ref));
+                add_reference_request(std::move(ref));
             }
         }
     }
