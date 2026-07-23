@@ -583,20 +583,50 @@ void BatchedIndexer::serialize_state(nlohmann::json& state) {
     LOG(INFO) << "Serialized " << num_reqs_stored << " in-flight requests for snapshot.";
 }
 
-void BatchedIndexer::clear_state_unlocked() {
+void BatchedIndexer::clear_state_unlocked(const bool cancel_live_requests) {
     for (size_t queue_id = 0; queue_id < num_threads; queue_id++) {
         std::unique_lock qlk(qmutuxes[queue_id].mcv);
         queues[queue_id].clear();
     }
 
-    std::unique_lock lk(mutex);
-    req_res_map.clear();
-    coll_to_references.clear();
-    reference_q.clear();
-    reference_q_by_request.clear();
-    reference_waiters.clear();
-    collection_request_tails.clear();
-    queued_writes = 0;
+    std::vector<std::pair<std::shared_ptr<http_req>, std::shared_ptr<http_res>>> displaced_live_requests;
+    {
+        std::unique_lock lk(mutex);
+        if(cancel_live_requests) {
+            for (const auto& [request_id, req_res] : req_res_map) {
+                if(req_res.res != nullptr && req_res.res->is_alive) {
+                    displaced_live_requests.emplace_back(req_res.req, req_res.res);
+                }
+            }
+        }
+
+        req_res_map.clear();
+        coll_to_references.clear();
+        reference_q.clear();
+        reference_q_by_request.clear();
+        reference_waiters.clear();
+        collection_request_tails.clear();
+        queued_writes = 0;
+    }
+
+    for (const auto& [req, res] : displaced_live_requests) {
+        {
+            std::unique_lock response_lock(res->mres);
+            if(!res->is_alive) {
+                continue;
+            }
+            res->set_503("Request cancelled while installing a Raft snapshot.");
+            res->final = true;
+        }
+
+        if(server != nullptr) {
+            auto* async_req_res = new async_req_res_t(req, res, true);
+            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+        } else {
+            req->notify();
+            res->notify();
+        }
+    }
 }
 
 void BatchedIndexer::load_state(const nlohmann::json& state) {

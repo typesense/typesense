@@ -125,7 +125,7 @@ private:
     size_t process_reference_queue_with_lock(uint64_t completed_request_id);
 
     // The caller must hold `lifecycle_mutex` exclusively.
-    void clear_state_unlocked();
+    void clear_state_unlocked(bool cancel_live_requests = true);
 
     // The caller must hold `lifecycle_mutex` exclusively.
     void load_state_unlocked(const nlohmann::json& state);

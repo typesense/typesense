@@ -284,6 +284,12 @@ private:
 
     int on_snapshot_load(braft::SnapshotReader* reader);
 
+    int restore_batched_indexer_state(StoreStatus status, const std::string& state,
+                                      bool batched_indexer_workers_paused);
+
+    // The caller must hold the batched indexer's lifecycle mutex exclusively when one is configured.
+    int fail_snapshot_load_unlocked(int status);
+
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
         LOG(INFO) << "Node becomes leader, term: " << term;

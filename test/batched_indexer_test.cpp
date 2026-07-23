@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -703,10 +705,13 @@ TEST(BatchedIndexerTest, ReplacesExistingStateWhenLoadingSnapshot) {
     BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
     auto blocked_req = make_req(10, 10, "stale_collection");
     auto queued_req = make_req(20, 20, "stale_collection");
+    auto queued_res = make_res();
+    queued_res->is_alive = true;
+    queued_res->final = false;
     restored_indexer.req_res_map.emplace(
         10, BatchedIndexer::req_res_t(10, "", blocked_req, make_res(), 10, 1, 0, true, 10));
     restored_indexer.req_res_map.emplace(
-        20, BatchedIndexer::req_res_t(20, "", queued_req, make_res(), 20, 1, 0, true, 20));
+        20, BatchedIndexer::req_res_t(20, "", queued_req, queued_res, 20, 1, 0, true, 20));
 
     BatchedIndexer::refq_entry stale_blocked_request(0, 10);
     stale_blocked_request.waiting_on_requests.insert(99);
@@ -732,6 +737,42 @@ TEST(BatchedIndexerTest, ReplacesExistingStateWhenLoadingSnapshot) {
     EXPECT_EQ(1, restored_indexer.queued_writes.load());
     ASSERT_EQ(1, restored_indexer.collection_request_tails.size());
     EXPECT_EQ(30, restored_indexer.collection_request_tails.at("snapshot_collection"));
+    EXPECT_EQ(503, queued_res->status_code);
+    EXPECT_TRUE(queued_res->final);
+}
+
+TEST(BatchedIndexerTest, WaitsForActiveWorkBeforeReplacingSnapshotState) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+
+    BatchedIndexer source_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    auto snapshot_req = make_req(30, 30, "snapshot_collection");
+    source_indexer.req_res_map.emplace(
+        30, BatchedIndexer::req_res_t(30, "", snapshot_req, make_res(), 30, 1, 0, true, 30));
+    nlohmann::json snapshot_state;
+    source_indexer.serialize_state(snapshot_state);
+
+    BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    auto stale_req = make_req(20, 20, "stale_collection");
+    restored_indexer.req_res_map.emplace(
+        20, BatchedIndexer::req_res_t(20, "", stale_req, make_res(), 20, 1, 0, true, 20));
+
+    std::shared_lock active_work(restored_indexer.lifecycle_mutex);
+    std::promise<void> load_started;
+    auto load_started_future = load_started.get_future();
+    auto load = std::async(std::launch::async, [&]() {
+        load_started.set_value();
+        restored_indexer.load_state(snapshot_state);
+    });
+
+    load_started_future.wait();
+    EXPECT_EQ(std::future_status::timeout, load.wait_for(std::chrono::milliseconds(50)));
+    EXPECT_EQ(1, restored_indexer.req_res_map.count(20));
+
+    active_work.unlock();
+    EXPECT_EQ(std::future_status::ready, load.wait_for(std::chrono::seconds(1)));
+    ASSERT_EQ(1, restored_indexer.req_res_map.size());
+    EXPECT_EQ(1, restored_indexer.req_res_map.count(30));
 }
 
 TEST(BatchedIndexerTest, SerializesLatestChunkLogIndex) {

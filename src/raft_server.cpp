@@ -687,23 +687,10 @@ int ReplicationState::init_db(const bool batched_indexer_workers_paused) {
         LOG(INFO) << "Initializing batched indexer from snapshot state...";
         std::string batched_indexer_state_str;
         StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-
-        const auto restore_batched_indexer = [&]() {
-            if(s == FOUND) {
-                nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-                batched_indexer->load_state_unlocked(batch_indexer_state);
-            } else {
-                // The incoming store is authoritative. A snapshot from an older version might not contain batched
-                // indexer state at all, in which case no state from the replaced store may survive.
-                batched_indexer->clear_state_unlocked();
-            }
-        };
-
-        if(batched_indexer_workers_paused) {
-            restore_batched_indexer();
-        } else {
-            std::unique_lock lifecycle_lock(batched_indexer->lifecycle_mutex);
-            restore_batched_indexer();
+        const int restore_status =
+            restore_batched_indexer_state(s, batched_indexer_state_str, batched_indexer_workers_paused);
+        if(restore_status != 0) {
+            return restore_status;
         }
     }
 
@@ -715,6 +702,64 @@ int ReplicationState::init_db(const bool batched_indexer_workers_paused) {
     }
 
     return 0;
+}
+
+int ReplicationState::restore_batched_indexer_state(const StoreStatus status, const std::string& state,
+                                                    const bool batched_indexer_workers_paused) {
+    if(batched_indexer == nullptr) {
+        return 0;
+    }
+
+    const auto restore = [&]() {
+        if(status == StoreStatus::ERROR) {
+            LOG(ERROR) << "Failed to read batched indexer state from the incoming store.";
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+
+        if(status == StoreStatus::NOT_FOUND) {
+            // The incoming store is authoritative. A snapshot from an older version might not contain batched
+            // indexer state at all, in which case no state from the replaced store may survive.
+            batched_indexer->clear_state_unlocked();
+            return 0;
+        }
+
+        try {
+            const auto batch_indexer_state = nlohmann::json::parse(state, nullptr, false);
+            if(batch_indexer_state.is_discarded() || !batch_indexer_state.is_object() ||
+               !batch_indexer_state.contains("req_res_map") ||
+               !batch_indexer_state["req_res_map"].is_object()) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            batched_indexer->load_state_unlocked(batch_indexer_state);
+            return 0;
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "Failed to restore batched indexer state: " << e.what();
+            // A nested type error can be detected after restoration has begun. Do not expose that partial state.
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+    };
+
+    if(batched_indexer_workers_paused) {
+        return restore();
+    }
+
+    std::unique_lock lifecycle_lock(batched_indexer->lifecycle_mutex);
+    return restore();
+}
+
+int ReplicationState::fail_snapshot_load_unlocked(const int status) {
+    snapshot_load_blocks_readiness = true;
+    read_caught_up = false;
+    write_caught_up = false;
+    if(batched_indexer != nullptr) {
+        batched_indexer->clear_state_unlocked();
+    }
+    return status == 0 ? 1 : status;
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
@@ -752,7 +797,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
                                                    Config::get_instance().get_analytics_db_ttl());
         if (reload_store != 0) {
             LOG(ERROR) << "Failed to reload analytics db snapshot.";
-            return reload_store;
+            return fail_snapshot_load_unlocked(reload_store);
         }
     }
 
@@ -761,17 +806,18 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     int reload_store = store->reload(true, db_snapshot_path);
     if(reload_store != 0) {
-        return reload_store;
+        return fail_snapshot_load_unlocked(reload_store);
     }
 
     const int init_db_status = init_db(true);
-    if(init_db_status == 0) {
-        read_caught_up = false;
-        write_caught_up = false;
-        snapshot_load_blocks_readiness = false;
+    if(init_db_status != 0) {
+        return fail_snapshot_load_unlocked(init_db_status);
     }
 
-    return init_db_status;
+    read_caught_up = false;
+    write_caught_up = false;
+    snapshot_load_blocks_readiness = false;
+    return 0;
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
