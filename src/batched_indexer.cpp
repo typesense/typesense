@@ -594,6 +594,8 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
     size_t num_reqs_restored = 0;
     std::set<uint64_t> queue_ids;
     std::unordered_set<uint64_t> reference_q_start_ts;
+    std::unordered_map<std::string, uint64_t> persisted_collection_tails;
+    std::unordered_map<std::string, uint64_t> reconstructed_collection_tails;
 
     if(state.contains("reference_q")) {
         for(const auto& item: state["reference_q"].items()) {
@@ -647,6 +649,47 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         num_reqs_restored++;
     }
 
+    if (state.contains("collection_request_tails")) {
+        std::unique_lock lk(mutex);
+        for (const auto& item : state["collection_request_tails"].items()) {
+            const auto request_id = item.value().get<uint64_t>();
+            if (req_res_map.count(request_id) != 0) {
+                persisted_collection_tails[item.key()] = request_id;
+            }
+        }
+    }
+
+    {
+        std::unique_lock lk(mutex);
+        // The main queues are restored in logical request order below. Start each legacy collection chain at the
+        // logical tail of the requests that are already eligible for those queues. Requests still in `reference_q`
+        // are deliberately excluded: regardless of logical order, they will be appended only after their
+        // dependencies complete. A valid persisted tail remains authoritative; only missing collections need this
+        // reconstruction.
+        for (const auto& [request_id, req_res] : req_res_map) {
+            if (!req_res.is_complete || reference_q_start_ts.count(request_id) != 0) {
+                continue;
+            }
+
+            const auto& coll_name = get_collection_name(req_res.req);
+            if (coll_name.empty() || persisted_collection_tails.count(coll_name) != 0) {
+                continue;
+            }
+
+            const auto tail_it = reconstructed_collection_tails.find(coll_name);
+            if (tail_it == reconstructed_collection_tails.end()) {
+                reconstructed_collection_tails[coll_name] = request_id;
+                continue;
+            }
+
+            const auto& existing_tail = req_res_map.at(tail_it->second);
+            if (is_request_earlier(existing_tail.latest_chunk_log_index, existing_tail.last_updated, tail_it->second,
+                                   req_res.latest_chunk_log_index, req_res.last_updated, request_id)) {
+                tail_it->second = request_id;
+            }
+        }
+    }
+
     if(state.contains("reference_q")) {
         std::unique_lock lk(mutex);
 
@@ -668,6 +711,33 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
                     dependencies.insert(dependency_id);
                 }
             }
+        }
+
+        // Legacy snapshots did not record the physical collection tails. Extend each missing collection's
+        // reconstructed main-queue tail through its blocked entries in persisted `reference_q` order. This captures
+        // topology-gap states where a logically newer request already bypassed an older blocked request: the blocked
+        // request will be appended after that main-queue request, so it(not the logical maximum) is the next tail.
+        //
+        // Add these edges before reducing dependency frontiers so the synthetic chain also proves that older
+        // same-collection dependencies are transitively covered and the migrated state stays bounded.
+        for (const auto& item : state["reference_q"].items()) {
+            const nlohmann::json& ref_entry = item.value();
+            const auto request_id = ref_entry["start_ts"].get<uint64_t>();
+            const auto request_it = req_res_map.find(request_id);
+            if (request_it == req_res_map.end() || !request_it->second.is_complete) {
+                continue;
+            }
+
+            const auto& coll_name = get_collection_name(request_it->second.req);
+            if (coll_name.empty() || persisted_collection_tails.count(coll_name) != 0) {
+                continue;
+            }
+
+            const auto tail_it = reconstructed_collection_tails.find(coll_name);
+            if (tail_it != reconstructed_collection_tails.end() && tail_it->second != request_id) {
+                persisted_dependencies[request_id].insert(tail_it->second);
+            }
+            reconstructed_collection_tails[coll_name] = request_id;
         }
 
         for(const auto& item: state["reference_q"].items()) {
@@ -728,6 +798,13 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
                     const std::string& coll_name = get_collection_name(req);
                     ref.waiting_on_requests = get_requests_to_wait_on(ref.start_ts, coll_name, true);
                 }
+
+                // Snapshots old enough to omit dependency sets still need the reconstructed same-collection chain.
+                const auto reconstructed_dependencies_it = persisted_dependencies.find(ref.start_ts);
+                if (reconstructed_dependencies_it != persisted_dependencies.end()) {
+                    ref.waiting_on_requests.insert(reconstructed_dependencies_it->second.begin(),
+                                                   reconstructed_dependencies_it->second.end());
+                }
             }
             if (ref.waiting_on_requests.empty()) {
                 queue_ids.insert(ref.queue_id);
@@ -741,41 +818,9 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
 
     {
         std::unique_lock lk(mutex);
-        if (state.contains("collection_request_tails")) {
-            for (const auto& item : state["collection_request_tails"].items()) {
-                const auto request_id = item.value().get<uint64_t>();
-                if (req_res_map.count(request_id) != 0) {
-                    collection_request_tails[item.key()] = request_id;
-                }
-            }
-        }
-
-        // Older snapshots did not persist collection tails. Reconstruct any missing collection in the same total
-        // order used by the main queues below, without overwriting authoritative tails from a newer snapshot.
-        std::unordered_map<std::string, uint64_t> reconstructed_tails;
-        for (const auto& [request_id, req_res] : req_res_map) {
-            if (!req_res.is_complete) {
-                continue;
-            }
-
-            const auto& coll_name = get_collection_name(req_res.req);
-            if (coll_name.empty() || collection_request_tails.count(coll_name) != 0) {
-                continue;
-            }
-
-            const auto tail_it = reconstructed_tails.find(coll_name);
-            if (tail_it == reconstructed_tails.end()) {
-                reconstructed_tails[coll_name] = request_id;
-                continue;
-            }
-
-            const auto& existing_tail = req_res_map.at(tail_it->second);
-            if (is_request_earlier(existing_tail.latest_chunk_log_index, existing_tail.last_updated, tail_it->second,
-                                   req_res.latest_chunk_log_index, req_res.last_updated, request_id)) {
-                tail_it->second = request_id;
-            }
-        }
-        collection_request_tails.insert(reconstructed_tails.begin(), reconstructed_tails.end());
+        collection_request_tails = std::move(persisted_collection_tails);
+        collection_request_tails.insert(reconstructed_collection_tails.begin(),
+                                        reconstructed_collection_tails.end());
     }
 
     std::unordered_map<uint64_t, std::pair<uint64_t, uint64_t>> restored_request_order;

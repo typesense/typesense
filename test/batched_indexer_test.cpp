@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "string_utils.h"
+
 #define private public
 #include "batched_indexer.h"
 #undef private
@@ -521,6 +523,98 @@ TEST(BatchedIndexerTest, PreservesIndependentSameCollectionDependenciesWhenMigra
     };
 
     EXPECT_TRUE(has_dependency_path(40, 20));
+}
+
+TEST(BatchedIndexerTest, KeepsReplayedRequestBehindBlockedSameCollectionRequestAfterLegacyRestore) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+
+    constexpr size_t num_threads = 4;
+    const std::string collection = "orders";
+    const auto queue_id_for = [](const std::string& collection_name) {
+        return StringUtils::hash_wy(collection_name.c_str(), collection_name.size()) % num_threads;
+    };
+    const auto collection_queue_id = queue_id_for(collection);
+
+    // Use a different worker queue for request 10 so request 30 can finish while request 10 is still blocking
+    // request 20.
+    std::string blocker_collection;
+    for (size_t i = 0; i < 100 && blocker_collection.empty(); i++) {
+        const auto candidate = "inventory_" + std::to_string(i);
+        if (queue_id_for(candidate) != collection_queue_id) {
+            blocker_collection = candidate;
+        }
+    }
+    ASSERT_FALSE(blocker_collection.empty());
+
+    BatchedIndexer source_indexer(nullptr, nullptr, nullptr, num_threads, config, skip_writes);
+    const auto add_request = [&source_indexer](const uint64_t request_id, const std::string& collection_name,
+                                               const bool is_complete) {
+        auto req = make_req(request_id, request_id, collection_name);
+        source_indexer.req_res_map.emplace(
+            request_id, BatchedIndexer::req_res_t(request_id, "", req, make_res(), request_id,
+                                                  1, 0, is_complete, request_id));
+    };
+
+    add_request(10, blocker_collection, true);
+    add_request(20, collection, true);
+    add_request(30, collection, true);
+    add_request(40, collection, false);
+
+    // This is state produced by an older version during a reference-topology gap: request 20 remained blocked while
+    // request 30 from the same collection bypassed it. Request 40 had not finished replay when the snapshot was taken.
+    BatchedIndexer::refq_entry blocked_request(collection_queue_id, 20);
+    blocked_request.waiting_on_requests.insert(10);
+    source_indexer.reference_q.emplace_back(std::move(blocked_request));
+    source_indexer.queued_writes = 3;
+
+    nlohmann::json legacy_state;
+    source_indexer.serialize_state(legacy_state);
+    legacy_state.erase("collection_request_tails");
+
+    BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, num_threads, config, skip_writes);
+    restored_indexer.load_state(legacy_state);
+
+    // Requests 10 and 30 have been dequeued by their separate workers but are still in progress.
+    for (auto& queue : restored_indexer.queues) {
+        queue.clear();
+    }
+
+    // Finish replaying request 40 using the same dependency selection and queue placement as enqueue().
+    {
+        std::unique_lock lk(restored_indexer.mutex);
+        restored_indexer.req_res_map.at(40).is_complete = true;
+        auto waiting_on_requests = restored_indexer.get_requests_to_wait_on(40, collection);
+        restored_indexer.collection_request_tails[collection] = 40;
+        if (waiting_on_requests.empty()) {
+            restored_indexer.queues[collection_queue_id].emplace_back(40);
+        } else {
+            BatchedIndexer::refq_entry replayed_request(collection_queue_id, 40);
+            replayed_request.waiting_on_requests = std::move(waiting_on_requests);
+            restored_indexer.add_reference_request(std::move(replayed_request));
+        }
+    }
+
+    // Request 30 finishes first. Request 40 must remain blocked because request 20 will be appended after 30.
+    {
+        std::unique_lock lk(restored_indexer.mutex);
+        restored_indexer.req_res_map.erase(30);
+    }
+    restored_indexer.process_reference_queue_with_lock(30);
+    EXPECT_TRUE(restored_indexer.queues[collection_queue_id].empty());
+
+    // Once request 10 finishes, request 20 is the next same-collection write. Request 40 must still wait for it.
+    {
+        std::unique_lock lk(restored_indexer.mutex);
+        restored_indexer.req_res_map.erase(10);
+    }
+    restored_indexer.process_reference_queue_with_lock(10);
+
+    ASSERT_EQ(1, restored_indexer.queues[collection_queue_id].size());
+    EXPECT_EQ(20, restored_indexer.queues[collection_queue_id].front());
+    const auto replayed_request_it = restored_indexer.reference_q_by_request.find(40);
+    ASSERT_NE(restored_indexer.reference_q_by_request.end(), replayed_request_it);
+    EXPECT_EQ(1, replayed_request_it->second->waiting_on_requests.count(20));
 }
 
 TEST(BatchedIndexerTest, SerializesLatestChunkLogIndex) {
