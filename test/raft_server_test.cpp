@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
+#include <chrono>
+#include <future>
 #include <string>
+
+#define private public
 #include "raft_server.h"
+#undef private
 
 namespace {
     bool matches_either_ip_version(const std::string& result, 
@@ -23,6 +28,30 @@ namespace {
         struct sockaddr_in6 sa;
         return inet_pton(AF_INET6, ipv6.c_str(), &(sa.sin6_addr)) != 0;
     }
+}
+
+TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
+    auto& config = Config::get_instance();
+    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+
+    replication_state.read_caught_up = true;
+    replication_state.write_caught_up = true;
+    replication_state.snapshot_load_blocks_readiness = true;
+    EXPECT_FALSE(replication_state.is_read_caught_up());
+    EXPECT_FALSE(replication_state.is_write_caught_up());
+
+    std::unique_lock snapshot_load_lock(replication_state.snapshot_load_mutex);
+    replication_state.snapshot_load_blocks_readiness = false;
+    auto refresh = std::async(std::launch::async, [&replication_state]() {
+        replication_state.refresh_catchup_status(false);
+    });
+
+    EXPECT_EQ(std::future_status::timeout, refresh.wait_for(std::chrono::milliseconds(50)));
+    snapshot_load_lock.unlock();
+    EXPECT_EQ(std::future_status::ready, refresh.wait_for(std::chrono::seconds(1)));
+    EXPECT_FALSE(replication_state.is_read_caught_up());
+    EXPECT_FALSE(replication_state.is_write_caught_up());
 }
 
 TEST(RaftServerTest, ResolveNodesConfigWithHostNames) {

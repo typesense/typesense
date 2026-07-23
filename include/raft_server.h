@@ -129,6 +129,8 @@ private:
 
     std::atomic<bool> read_caught_up;
     std::atomic<bool> write_caught_up;
+    mutable std::shared_mutex snapshot_load_mutex;
+    std::atomic<bool> snapshot_load_blocks_readiness;
 
     std::string raft_dir_path;
 
@@ -188,11 +190,11 @@ public:
     }
 
     bool is_read_caught_up() const {
-        return read_caught_up;
+        return !snapshot_load_blocks_readiness && read_caught_up;
     }
 
     bool is_write_caught_up() const {
-        return write_caught_up;
+        return !snapshot_load_blocks_readiness && write_caught_up;
     }
 
     bool is_alive() const;

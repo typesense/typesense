@@ -724,6 +724,12 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     LOG(INFO) << "on_snapshot_load";
 
+    // `refresh_catchup_status` runs independently of braft snapshot callbacks. Serialize it with installation so it
+    // cannot republish readiness from a stale raft status while the Store and in-memory state are being replaced.
+    // A failed installation deliberately leaves the gate closed until a later snapshot succeeds.
+    std::unique_lock snapshot_load_lock(snapshot_load_mutex);
+    snapshot_load_blocks_readiness = true;
+
     // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
     read_caught_up = false;
     write_caught_up = false;
@@ -758,7 +764,12 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return reload_store;
     }
 
-    bool init_db_status = init_db(true);
+    const int init_db_status = init_db(true);
+    if(init_db_status == 0) {
+        read_caught_up = false;
+        write_caught_up = false;
+        snapshot_load_blocks_readiness = false;
+    }
 
     return init_db_status;
 }
@@ -815,6 +826,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
 }
 
 void ReplicationState::refresh_catchup_status(bool log_msg) {
+    std::shared_lock snapshot_load_lock(snapshot_load_mutex);
+    if(snapshot_load_blocks_readiness) {
+        read_caught_up = write_caught_up = false;
+        return;
+    }
+
     std::shared_lock lock(node_mutex);
     if(node == nullptr ) {
         read_caught_up = write_caught_up = false;
@@ -930,6 +947,7 @@ ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_i
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         read_caught_up(false), write_caught_up(false),
+        snapshot_load_blocks_readiness(false),
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
         last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
 
