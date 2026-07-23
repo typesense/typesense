@@ -617,6 +617,54 @@ TEST(BatchedIndexerTest, KeepsReplayedRequestBehindBlockedSameCollectionRequestA
     EXPECT_EQ(1, replayed_request_it->second->waiting_on_requests.count(20));
 }
 
+TEST(BatchedIndexerTest, ReplacesExistingStateWhenLoadingSnapshot) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+
+    BatchedIndexer snapshot_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    auto snapshot_req = make_req(30, 30, "snapshot_collection");
+    snapshot_indexer.req_res_map.emplace(
+        30, BatchedIndexer::req_res_t(30, "", snapshot_req, make_res(), 30, 1, 0, true, 30));
+    snapshot_indexer.collection_request_tails["snapshot_collection"] = 30;
+    snapshot_indexer.queued_writes = 1;
+
+    nlohmann::json snapshot_state;
+    snapshot_indexer.serialize_state(snapshot_state);
+
+    BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    auto blocked_req = make_req(10, 10, "stale_collection");
+    auto queued_req = make_req(20, 20, "stale_collection");
+    restored_indexer.req_res_map.emplace(
+        10, BatchedIndexer::req_res_t(10, "", blocked_req, make_res(), 10, 1, 0, true, 10));
+    restored_indexer.req_res_map.emplace(
+        20, BatchedIndexer::req_res_t(20, "", queued_req, make_res(), 20, 1, 0, true, 20));
+
+    BatchedIndexer::refq_entry stale_blocked_request(0, 10);
+    stale_blocked_request.waiting_on_requests.insert(99);
+    restored_indexer.add_reference_request(std::move(stale_blocked_request));
+    restored_indexer.queues[0].emplace_back(20);
+    restored_indexer.collection_request_tails["stale_collection"] = 10;
+    restored_indexer.coll_to_references["stale_collection"] = {"removed_reference"};
+    restored_indexer.queued_writes = 2;
+
+    restored_indexer.load_state(snapshot_state);
+
+    ASSERT_EQ(1, restored_indexer.req_res_map.size());
+    EXPECT_EQ(1, restored_indexer.req_res_map.count(30));
+    EXPECT_EQ(0, restored_indexer.req_res_map.count(10));
+    EXPECT_EQ(0, restored_indexer.req_res_map.count(20));
+
+    ASSERT_EQ(1, restored_indexer.queues[0].size());
+    EXPECT_EQ(30, restored_indexer.queues[0].front());
+    EXPECT_TRUE(restored_indexer.reference_q.empty());
+    EXPECT_TRUE(restored_indexer.reference_q_by_request.empty());
+    EXPECT_TRUE(restored_indexer.reference_waiters.empty());
+    EXPECT_EQ(0, restored_indexer.coll_to_references.count("stale_collection"));
+    EXPECT_EQ(1, restored_indexer.queued_writes.load());
+    ASSERT_EQ(1, restored_indexer.collection_request_tails.size());
+    EXPECT_EQ(30, restored_indexer.collection_request_tails.at("snapshot_collection"));
+}
+
 TEST(BatchedIndexerTest, SerializesLatestChunkLogIndex) {
     std::atomic<bool> skip_writes(false);
     auto& config = Config::get_instance();

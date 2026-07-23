@@ -661,7 +661,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
 
-int ReplicationState::init_db() {
+int ReplicationState::init_db(const bool batched_indexer_workers_paused) {
     LOG(INFO) << "Loading collections from disk...";
 
     Option<bool> init_op = CollectionManager::get_instance().load(
@@ -687,9 +687,23 @@ int ReplicationState::init_db() {
         LOG(INFO) << "Initializing batched indexer from snapshot state...";
         std::string batched_indexer_state_str;
         StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-        if(s == FOUND) {
-            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-            batched_indexer->load_state(batch_indexer_state);
+
+        const auto restore_batched_indexer = [&]() {
+            if(s == FOUND) {
+                nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
+                batched_indexer->load_state_unlocked(batch_indexer_state);
+            } else {
+                // The incoming store is authoritative. A snapshot from an older version might not contain batched
+                // indexer state at all, in which case no state from the replaced store may survive.
+                batched_indexer->clear_state_unlocked();
+            }
+        };
+
+        if(batched_indexer_workers_paused) {
+            restore_batched_indexer();
+        } else {
+            std::unique_lock lifecycle_lock(batched_indexer->lifecycle_mutex);
+            restore_batched_indexer();
         }
     }
 
@@ -714,6 +728,14 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     read_caught_up = false;
     write_caught_up = false;
 
+    // Batch workers can retain request-map references and RocksDB iterators after dequeueing. Stop enqueue, worker,
+    // and GC activity before replacing the store, and keep it stopped until the in-memory indexer state has also
+    // been replaced.
+    std::unique_lock<std::shared_mutex> batched_indexer_lifecycle_lock;
+    if(batched_indexer != nullptr) {
+        batched_indexer_lifecycle_lock = std::unique_lock<std::shared_mutex>(batched_indexer->lifecycle_mutex);
+    }
+
     // Load snapshot from leader, replacing the running StateMachine
     std::string analytics_snapshot_path = reader->get_path();
     analytics_snapshot_path.append(std::string("/") + analytics_db_snapshot_name);
@@ -736,7 +758,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return reload_store;
     }
 
-    bool init_db_status = init_db();
+    bool init_db_status = init_db(true);
 
     return init_db_status;
 }

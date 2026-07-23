@@ -53,6 +53,8 @@ std::string get_ref_coll_names(const std::string& body, std::unordered_set<std::
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    std::shared_lock lifecycle_lock(lifecycle_mutex);
+
     // Called by the raft write thread: goal is to quickly send the request to a queue and move on
     // NOTE: it's ok to access `req` and `res` in this function without synchronization
     // because the read thread for *this* request is paused now and resumes only messaged at the end
@@ -213,6 +215,19 @@ void BatchedIndexer::run() {
                     break;
                 }
 
+                // Do not hold a queue mutex while waiting for snapshot installation to finish: the installer needs
+                // every queue mutex in order to replace the queues. Recheck after acquiring the lifecycle lock,
+                // because installation may have replaced the entry that originally woke this worker.
+                qlk.unlock();
+                std::shared_lock lifecycle_lock(lifecycle_mutex);
+                qlk.lock();
+                if(quit) {
+                    break;
+                }
+                if(queue.empty()) {
+                    continue;
+                }
+
                 uint64_t req_id = queue.front();
                 queue.pop_front();
                 qlk.unlock();
@@ -365,6 +380,7 @@ void BatchedIndexer::run() {
                 std::chrono::high_resolution_clock::now() - last_gc_run).count();
 
         if(seconds_elapsed > GC_INTERVAL_SECONDS) {
+            std::shared_lock lifecycle_lock(lifecycle_mutex);
 
             std::unique_lock lk(mutex);
             LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size()
@@ -567,7 +583,28 @@ void BatchedIndexer::serialize_state(nlohmann::json& state) {
     LOG(INFO) << "Serialized " << num_reqs_stored << " in-flight requests for snapshot.";
 }
 
+void BatchedIndexer::clear_state_unlocked() {
+    for (size_t queue_id = 0; queue_id < num_threads; queue_id++) {
+        std::unique_lock qlk(qmutuxes[queue_id].mcv);
+        queues[queue_id].clear();
+    }
+
+    std::unique_lock lk(mutex);
+    req_res_map.clear();
+    coll_to_references.clear();
+    reference_q.clear();
+    reference_q_by_request.clear();
+    reference_waiters.clear();
+    collection_request_tails.clear();
+    queued_writes = 0;
+}
+
 void BatchedIndexer::load_state(const nlohmann::json& state) {
+    std::unique_lock lifecycle_lock(lifecycle_mutex);
+    load_state_unlocked(state);
+}
+
+void BatchedIndexer::load_state_unlocked(const nlohmann::json& state) {
     // `queued_writes` is a denormalized counter that must always equal the sum of the unprocessed chunks
     // across the *complete* requests in `req_res_map`. Restoring it verbatim from the snapshot let a drifted
     // value survive forever: e.g. a value that counted writes whose request entries were already gone would
@@ -577,14 +614,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
     // not counted at enqueue time either, and will be counted by enqueue() when the raft log is replayed.
     const int64_t persisted_queued_writes = state.contains("queued_writes") ?
                                                 state["queued_writes"].get<int64_t>() : 0;
-    queued_writes = 0;
-    {
-        std::unique_lock lk(mutex);
-        reference_q.clear();
-        reference_q_by_request.clear();
-        reference_waiters.clear();
-        collection_request_tails.clear();
-    }
+    clear_state_unlocked();
 
     // Tracked alongside `queued_writes` purely for the post-load sanity check below: by the time we log, the
     // restored queues have been notified and a worker may have already decremented the live counter, so we

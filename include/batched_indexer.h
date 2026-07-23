@@ -10,6 +10,8 @@
 
 class BatchedIndexer {
 private:
+    friend class ReplicationState;
+
     struct req_res_t {
         uint64_t start_ts;
         std::string prev_req_body;  // used to handle partial JSON documents caused by chunking
@@ -80,6 +82,7 @@ private:
 
     std::atomic<bool> quit;
     std::shared_mutex pause_mutex;
+    std::shared_mutex lifecycle_mutex;
 
     // Used to skip over a bad raft log entry which previously triggered a crash
     const static int64_t UNSET_SKIP_INDEX = -9999;
@@ -120,6 +123,12 @@ private:
     void add_reference_request(refq_entry&& ref);
 
     size_t process_reference_queue_with_lock(uint64_t completed_request_id);
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void clear_state_unlocked();
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void load_state_unlocked(const nlohmann::json& state);
 
 public:
 

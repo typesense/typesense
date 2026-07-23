@@ -202,7 +202,7 @@ public:
     // Shut this node down.
     void shutdown();
 
-    int init_db();
+    int init_db(bool batched_indexer_workers_paused = false);
 
     Store* get_store();
 
