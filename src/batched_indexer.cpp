@@ -743,6 +743,43 @@ void BatchedIndexer::load_state_unlocked(const nlohmann::json& state) {
             }
         }
 
+        // Requests restored directly to a worker queue are serialized by that queue even though legacy snapshots do
+        // not record explicit dependency edges between them. Record their reconstructed FIFO rank so a legacy
+        // dependency closure can be reduced to the latest dependency that is actually present in that closure.
+        // Choosing only the collection's overall logical tail would be incorrect when the current request precedes
+        // later entries from the same collection.
+        std::unordered_map<uint64_t, size_t> main_queue_ranks;
+        std::unordered_map<std::string, std::vector<uint64_t>> main_queue_requests_by_collection;
+        for (const auto& [request_id, req_res] : req_res_map) {
+            if (!req_res.is_complete || reference_q_start_ts.count(request_id) != 0) {
+                continue;
+            }
+            main_queue_requests_by_collection[get_collection_name(req_res.req)].push_back(request_id);
+        }
+
+        for (auto& [coll_name, request_ids] : main_queue_requests_by_collection) {
+            std::sort(request_ids.begin(), request_ids.end(), [this](const uint64_t lhs, const uint64_t rhs) {
+                const auto& lhs_req_res = req_res_map.at(lhs);
+                const auto& rhs_req_res = req_res_map.at(rhs);
+                return is_request_earlier(lhs_req_res.latest_chunk_log_index, lhs_req_res.last_updated, lhs,
+                                          rhs_req_res.latest_chunk_log_index, rhs_req_res.last_updated, rhs);
+            });
+
+            const auto persisted_tail_it = persisted_collection_tails.find(coll_name);
+            if (persisted_tail_it != persisted_collection_tails.end()) {
+                const auto tail_it = std::find(request_ids.begin(), request_ids.end(), persisted_tail_it->second);
+                if (tail_it != request_ids.end()) {
+                    const auto tail_request_id = *tail_it;
+                    request_ids.erase(tail_it);
+                    request_ids.push_back(tail_request_id);
+                }
+            }
+
+            for (size_t rank = 0; rank < request_ids.size(); rank++) {
+                main_queue_ranks[request_ids[rank]] = rank;
+            }
+        }
+
         // Legacy snapshots did not record the physical collection tails. Extend each missing collection's
         // reconstructed main-queue tail through its blocked entries in persisted `reference_q` order. This captures
         // topology-gap states where a logically newer request already bypassed an older blocked request: the blocked
@@ -777,6 +814,8 @@ void BatchedIndexer::load_state_unlocked(const nlohmann::json& state) {
                 // Legacy snapshots can contain the transitive closure of every earlier related request. Reduce each
                 // collection to its independent dependency frontier. Unlike choosing the logically latest request,
                 // this keeps multiple same-collection dependencies when none is proven to cover another.
+                std::unordered_map<std::string, std::unordered_set<uint64_t>> dependency_candidates;
+                std::unordered_map<std::string, uint64_t> latest_main_queue_dependencies;
                 std::unordered_map<std::string, std::unordered_set<uint64_t>> dependency_frontiers;
                 const auto restored_dependencies_it =
                     persisted_dependencies.find(ref_entry["start_ts"].get<uint64_t>());
@@ -784,7 +823,26 @@ void BatchedIndexer::load_state_unlocked(const nlohmann::json& state) {
                     for (const auto dependency_id : restored_dependencies_it->second) {
                         const auto& dependency_collection =
                             get_collection_name(req_res_map.at(dependency_id).req);
-                        auto& frontier = dependency_frontiers[dependency_collection];
+                        const auto rank_it = main_queue_ranks.find(dependency_id);
+                        if (rank_it != main_queue_ranks.end()) {
+                            const auto selected_it = latest_main_queue_dependencies.find(dependency_collection);
+                            if (selected_it == latest_main_queue_dependencies.end() ||
+                                main_queue_ranks.at(selected_it->second) < rank_it->second) {
+                                latest_main_queue_dependencies[dependency_collection] = dependency_id;
+                            }
+                        } else {
+                            dependency_candidates[dependency_collection].insert(dependency_id);
+                        }
+                    }
+                }
+
+                for (const auto& [dependency_collection, dependency_id] : latest_main_queue_dependencies) {
+                    dependency_candidates[dependency_collection].insert(dependency_id);
+                }
+
+                for (const auto& [dependency_collection, candidates] : dependency_candidates) {
+                    auto& frontier = dependency_frontiers[dependency_collection];
+                    for (const auto dependency_id : candidates) {
                         bool is_covered = false;
                         for (const auto frontier_dependency_id : frontier) {
                             const auto frontier_dependencies_it =

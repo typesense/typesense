@@ -449,6 +449,74 @@ TEST(BatchedIndexerTest, MigratesLegacySnapshotDependenciesToBoundedCollectionTa
     EXPECT_EQ(backlog_size, migrated_state["collection_request_tails"]["orders"].get<uint64_t>());
 }
 
+TEST(BatchedIndexerTest, MigratesLegacyMainQueueDependenciesToBoundedCollectionTails) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+    BatchedIndexer source_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+
+    constexpr uint64_t backlog_size = 64;
+    constexpr uint64_t waiter_count = 64;
+    constexpr uint64_t waiter_offset = 1000;
+    for (uint64_t request_id = 1; request_id <= backlog_size; request_id++) {
+        auto req = make_req(request_id, request_id, "products");
+        source_indexer.req_res_map.emplace(
+            request_id, BatchedIndexer::req_res_t(request_id, "", req, make_res(), request_id,
+                                                  1, 0, true, request_id));
+    }
+
+    for (uint64_t i = 1; i <= waiter_count; i++) {
+        const auto request_id = waiter_offset + i;
+        auto req = make_req(request_id, request_id, "links");
+        source_indexer.req_res_map.emplace(
+            request_id, BatchedIndexer::req_res_t(request_id, "", req, make_res(), request_id,
+                                                  1, 0, true, request_id));
+
+        BatchedIndexer::refq_entry ref(0, request_id);
+        for (uint64_t predecessor_id = 1; predecessor_id <= backlog_size; predecessor_id++) {
+            ref.waiting_on_requests.insert(predecessor_id);
+        }
+        source_indexer.reference_q.emplace_back(std::move(ref));
+    }
+    source_indexer.queued_writes = backlog_size + waiter_count;
+
+    nlohmann::json legacy_state;
+    source_indexer.serialize_state(legacy_state);
+    legacy_state.erase("collection_request_tails");
+
+    BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    restored_indexer.load_state(legacy_state);
+
+    size_t restored_dependency_count = 0;
+    size_t restored_product_dependency_count = 0;
+    for (const auto& ref : restored_indexer.reference_q) {
+        restored_dependency_count += ref.waiting_on_requests.size();
+        for (const auto dependency_id : ref.waiting_on_requests) {
+            if (dependency_id <= backlog_size) {
+                restored_product_dependency_count++;
+            }
+        }
+    }
+
+    size_t indexed_dependency_count = 0;
+    for (const auto& dependency_waiters : restored_indexer.reference_waiters) {
+        indexed_dependency_count += dependency_waiters.second.size();
+    }
+
+    // Every legacy waiter originally contained the full products closure. Since products replay through one FIFO
+    // worker queue, waiting on that queue's restored tail transitively covers the other product requests.
+    EXPECT_LE(restored_product_dependency_count, waiter_count);
+    EXPECT_LE(restored_dependency_count, (2 * waiter_count) - 1);
+    EXPECT_EQ(restored_dependency_count, indexed_dependency_count);
+
+    nlohmann::json migrated_state;
+    restored_indexer.serialize_state(migrated_state);
+    size_t serialized_dependency_count = 0;
+    for (const auto& ref : migrated_state["reference_q"]) {
+        serialized_dependency_count += ref["waiting_on_requests"].size();
+    }
+    EXPECT_LE(serialized_dependency_count, (2 * waiter_count) - 1);
+}
+
 TEST(BatchedIndexerTest, PreservesIndependentSameCollectionDependenciesWhenMigratingLegacySnapshot) {
     std::atomic<bool> skip_writes(false);
     auto& config = Config::get_instance();
@@ -523,6 +591,7 @@ TEST(BatchedIndexerTest, PreservesIndependentSameCollectionDependenciesWhenMigra
     };
 
     EXPECT_TRUE(has_dependency_path(40, 20));
+    EXPECT_TRUE(has_dependency_path(40, 30));
 }
 
 TEST(BatchedIndexerTest, KeepsReplayedRequestBehindBlockedSameCollectionRequestAfterLegacyRestore) {
