@@ -725,10 +725,19 @@ int ReplicationState::restore_batched_indexer_state(const StoreStatus status, co
         }
 
         try {
-            const auto batch_indexer_state = nlohmann::json::parse(state, nullptr, false);
+            auto batch_indexer_state = nlohmann::json::parse(state, nullptr, false);
             if(batch_indexer_state.is_discarded() || !batch_indexer_state.is_object() ||
-               !batch_indexer_state.contains("req_res_map") ||
-               !batch_indexer_state["req_res_map"].is_object()) {
+               !batch_indexer_state.contains("req_res_map")) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            // Empty request maps were serialized as JSON null before they were explicitly initialized as objects.
+            // Treat that legacy representation as an empty map so existing snapshots remain restorable.
+            if(batch_indexer_state["req_res_map"].is_null()) {
+                batch_indexer_state["req_res_map"] = nlohmann::json::object();
+            } else if(!batch_indexer_state["req_res_map"].is_object()) {
                 LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
                 batched_indexer->clear_state_unlocked();
                 return 1;

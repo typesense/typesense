@@ -541,7 +541,7 @@ void BatchedIndexer::persist_applying_index() {
 void BatchedIndexer::serialize_state(nlohmann::json& state) {
     // requires external synchronization!
     state["queued_writes"] = queued_writes.load();
-    state["req_res_map"] = nlohmann::json();
+    state["req_res_map"] = nlohmann::json::object();
 
     size_t num_reqs_stored = 0;
     std::unique_lock lk(mutex);
