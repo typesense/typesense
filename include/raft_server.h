@@ -129,6 +129,8 @@ private:
 
     std::atomic<bool> read_caught_up;
     std::atomic<bool> write_caught_up;
+    mutable std::shared_mutex snapshot_load_mutex;
+    std::atomic<bool> snapshot_load_blocks_readiness;
 
     std::string raft_dir_path;
 
@@ -188,11 +190,11 @@ public:
     }
 
     bool is_read_caught_up() const {
-        return read_caught_up;
+        return !snapshot_load_blocks_readiness && read_caught_up;
     }
 
     bool is_write_caught_up() const {
-        return write_caught_up;
+        return !snapshot_load_blocks_readiness && write_caught_up;
     }
 
     bool is_alive() const;
@@ -202,7 +204,7 @@ public:
     // Shut this node down.
     void shutdown();
 
-    int init_db();
+    int init_db(bool batched_indexer_workers_paused = false);
 
     Store* get_store();
 
@@ -281,6 +283,12 @@ private:
     void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done);
 
     int on_snapshot_load(braft::SnapshotReader* reader);
+
+    int restore_batched_indexer_state(StoreStatus status, const std::string& state,
+                                      bool batched_indexer_workers_paused);
+
+    // The caller must hold the batched indexer's lifecycle mutex exclusively when one is configured.
+    int fail_snapshot_load_unlocked(int status);
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);

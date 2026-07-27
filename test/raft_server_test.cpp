@@ -1,8 +1,31 @@
 #include <gtest/gtest.h>
+#include <chrono>
+#include <future>
 #include <string>
+
+#define private public
 #include "raft_server.h"
+#undef private
 
 namespace {
+    std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
+                                                   const bool live_response) {
+        auto req = std::make_shared<http_req>();
+        req->start_ts = request_id;
+        req->log_index = request_id;
+        req->params["collection"] = "products";
+
+        auto res = std::make_shared<http_res>(nullptr);
+        res->is_alive = live_response;
+        res->final = !live_response;
+        indexer.req_res_map.emplace(
+            request_id, BatchedIndexer::req_res_t(request_id, "", req, res, request_id,
+                                                  1, 0, true, request_id));
+        indexer.queues[0].emplace_back(request_id);
+        indexer.queued_writes++;
+        return res;
+    }
+
     bool matches_either_ip_version(const std::string& result, 
                                  const std::string& ipv4_version,
                                  const std::string& ipv6_version) {
@@ -23,6 +46,114 @@ namespace {
         struct sockaddr_in6 sa;
         return inet_pton(AF_INET6, ipv6.c_str(), &(sa.sin6_addr)) != 0;
     }
+}
+
+TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
+    auto& config = Config::get_instance();
+    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+
+    replication_state.read_caught_up = true;
+    replication_state.write_caught_up = true;
+    replication_state.snapshot_load_blocks_readiness = true;
+    EXPECT_FALSE(replication_state.is_read_caught_up());
+    EXPECT_FALSE(replication_state.is_write_caught_up());
+
+    std::unique_lock snapshot_load_lock(replication_state.snapshot_load_mutex);
+    replication_state.snapshot_load_blocks_readiness = false;
+    auto refresh = std::async(std::launch::async, [&replication_state]() {
+        replication_state.refresh_catchup_status(false);
+    });
+
+    EXPECT_EQ(std::future_status::timeout, refresh.wait_for(std::chrono::milliseconds(50)));
+    snapshot_load_lock.unlock();
+    EXPECT_EQ(std::future_status::ready, refresh.wait_for(std::chrono::seconds(1)));
+    EXPECT_FALSE(replication_state.is_read_caught_up());
+    EXPECT_FALSE(replication_state.is_write_caught_up());
+}
+
+TEST(RaftServerTest, RestoresBatchedIndexerStateByStoreStatusAndFailsClosed) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+    BatchedIndexer indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    ReplicationState replication_state(nullptr, &indexer, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+
+    auto read_error_res = seed_indexer_request(indexer, 10, true);
+    EXPECT_EQ(1, replication_state.restore_batched_indexer_state(StoreStatus::ERROR, "", false));
+    EXPECT_TRUE(indexer.req_res_map.empty());
+    EXPECT_TRUE(indexer.queues[0].empty());
+    EXPECT_EQ(503, read_error_res->status_code);
+    EXPECT_TRUE(read_error_res->final);
+
+    seed_indexer_request(indexer, 20, false);
+    EXPECT_EQ(0, replication_state.restore_batched_indexer_state(StoreStatus::NOT_FOUND, "", false));
+    EXPECT_TRUE(indexer.req_res_map.empty());
+    EXPECT_TRUE(indexer.queues[0].empty());
+
+    BatchedIndexer source_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    seed_indexer_request(source_indexer, 30, false);
+    nlohmann::json valid_state;
+    source_indexer.serialize_state(valid_state);
+
+    auto partially_invalid_state = valid_state;
+    partially_invalid_state["req_res_map"]["40"] = {
+        {"start_ts", 40},
+        {"req", 123},
+    };
+    seed_indexer_request(indexer, 20, false);
+    EXPECT_EQ(1, replication_state.restore_batched_indexer_state(
+                     StoreStatus::FOUND, partially_invalid_state.dump(), false));
+    EXPECT_TRUE(indexer.req_res_map.empty());
+    EXPECT_TRUE(indexer.queues[0].empty());
+
+    EXPECT_EQ(0, replication_state.restore_batched_indexer_state(
+                     StoreStatus::FOUND, valid_state.dump(), false));
+    ASSERT_EQ(1, indexer.req_res_map.size());
+    EXPECT_EQ(1, indexer.req_res_map.count(30));
+
+    auto reload_failure_res = seed_indexer_request(indexer, 50, true);
+    replication_state.read_caught_up = true;
+    replication_state.write_caught_up = true;
+    replication_state.snapshot_load_blocks_readiness = false;
+    {
+        std::unique_lock lifecycle_lock(indexer.lifecycle_mutex);
+        EXPECT_EQ(-7, replication_state.fail_snapshot_load_unlocked(-7));
+    }
+    EXPECT_TRUE(indexer.req_res_map.empty());
+    EXPECT_TRUE(indexer.queues[0].empty());
+    EXPECT_EQ(503, reload_failure_res->status_code);
+    EXPECT_TRUE(reload_failure_res->final);
+    EXPECT_FALSE(replication_state.is_read_caught_up());
+    EXPECT_FALSE(replication_state.is_write_caught_up());
+}
+
+TEST(RaftServerTest, RestoresEmptyAndLegacyNullBatchedIndexerState) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+    BatchedIndexer source_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+
+    nlohmann::json empty_state;
+    source_indexer.serialize_state(empty_state);
+    EXPECT_TRUE(empty_state["req_res_map"].is_object());
+    EXPECT_TRUE(empty_state["req_res_map"].empty());
+
+    BatchedIndexer restored_indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    ReplicationState replication_state(nullptr, &restored_indexer, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+    seed_indexer_request(restored_indexer, 10, false);
+    EXPECT_EQ(0, replication_state.restore_batched_indexer_state(
+                     StoreStatus::FOUND, empty_state.dump(), false));
+    EXPECT_TRUE(restored_indexer.req_res_map.empty());
+    EXPECT_TRUE(restored_indexer.queues[0].empty());
+
+    auto legacy_empty_state = empty_state;
+    legacy_empty_state["req_res_map"] = nullptr;
+    seed_indexer_request(restored_indexer, 20, false);
+    EXPECT_EQ(0, replication_state.restore_batched_indexer_state(
+                     StoreStatus::FOUND, legacy_empty_state.dump(), false));
+    EXPECT_TRUE(restored_indexer.req_res_map.empty());
+    EXPECT_TRUE(restored_indexer.queues[0].empty());
 }
 
 TEST(RaftServerTest, ResolveNodesConfigWithHostNames) {

@@ -10,6 +10,8 @@
 
 class BatchedIndexer {
 private:
+    friend class ReplicationState;
+
     struct req_res_t {
         uint64_t start_ts;
         std::string prev_req_body;  // used to handle partial JSON documents caused by chunking
@@ -61,8 +63,10 @@ private:
     std::vector<std::deque<uint64_t>> queues;
 
     std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
-    await_t refq_wait;
     std::list<refq_entry> reference_q;
+    std::unordered_map<uint64_t, std::list<refq_entry>::iterator> reference_q_by_request;
+    std::unordered_map<uint64_t, std::vector<uint64_t>> reference_waiters;
+    std::unordered_map<std::string, uint64_t> collection_request_tails;
 
     /* Variables to be serialized on snapshot                  /
     --------------------------------------------------------- */
@@ -78,6 +82,7 @@ private:
 
     std::atomic<bool> quit;
     std::shared_mutex pause_mutex;
+    std::shared_mutex lifecycle_mutex;
 
     // Used to skip over a bad raft log entry which previously triggered a crash
     const static int64_t UNSET_SKIP_INDEX = -9999;
@@ -100,16 +105,30 @@ private:
 
     static std::string get_req_suffix_key(uint64_t req_id);
 
+    static bool is_request_earlier(uint64_t lhs_latest_chunk_log_index, uint64_t lhs_last_updated,
+                                   uint64_t lhs_req_id, uint64_t rhs_latest_chunk_log_index,
+                                   uint64_t rhs_last_updated, uint64_t rhs_req_id);
+
     std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(uint64_t req_id,
                                                                    const std::string& coll_name);
 
-    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id,
-                                                         const std::string& coll_name);
+    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id, const std::string& coll_name,
+                                                         bool use_order_fallback = false);
 
     void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
 
     void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
                                                  const std::string& coll_name);
+
+    void add_reference_request(refq_entry&& ref);
+
+    size_t process_reference_queue_with_lock(uint64_t completed_request_id);
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void clear_state_unlocked(bool cancel_live_requests = true);
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void load_state_unlocked(const nlohmann::json& state);
 
 public:
 
