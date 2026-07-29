@@ -4364,13 +4364,21 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
+        size_t raw_results_added = 0;
         for (auto& kvs: search_param->raw_result_kvs) {
+            if(raw_results_added++ >= search_param->fetch_size) {
+                break;
+            }
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             union_topster->add(&kv);
         }
 
         //populate curations
+        size_t curation_results_added = 0;
         for(auto& kvs : search_param->curation_result_kvs) {
+            if(curation_results_added++ >= search_param->fetch_size) {
+                break;
+            }
             Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
             curations_topster->add(&kv);
         }
@@ -10421,7 +10429,7 @@ void collection_search_args_t::curation_union_global_params(union_global_params_
     page = global_params.page;
     per_page = global_params.per_page;
     offset = global_params.offset;
-    limit_hits = global_params.limit_hits;
+    limit_hits = std::min(limit_hits, global_params.limit_hits);
 }
 
 Option<bool> Collection::set_curation_sets(const std::vector<std::string>& curation_sets) {
