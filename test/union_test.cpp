@@ -399,6 +399,7 @@ protected:
         auto products = collection_create_op.get();
         for (auto i = 0; i < 50; i++) {
             nlohmann::json json = {
+                    {"id", std::to_string(i)},
                     {"title", "product " + std::to_string(i)},
                     {"price", static_cast<float>(i)}
             };
@@ -994,7 +995,7 @@ TEST_F(UnionTest, ScopedKeyLimitHitsAndFilterByAreEnforcedInUnionSearch) {
     auto key_op = collectionManager.getAuthManager().create_key(parent_key);
     ASSERT_TRUE(key_op.ok());
 
-    const auto scoped_limit_key = makeScopedSearchKey(parent_key.value, R"({"limit_hits":5})");
+    const auto scoped_limit_key = makeScopedSearchKey(parent_key.value, R"({"limit_hits":5,"pinned_hits":"0:1"})");
     embedded_params = std::vector<nlohmann::json>(1, nlohmann::json::object());
     std::map<std::string, std::string> auth_params;
     ASSERT_TRUE(collectionManager.getAuthManager().authenticate(
@@ -1015,6 +1016,8 @@ TEST_F(UnionTest, ScopedKeyLimitHitsAndFilterByAreEnforcedInUnionSearch) {
     auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(5, json_res["hits"].size());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"]);
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
     json_res.clear();
 
     const auto scoped_filter_key = makeScopedSearchKey(parent_key.value, R"({"filter_by":"price:<10"})");
@@ -1032,6 +1035,7 @@ TEST_F(UnionTest, ScopedKeyLimitHitsAndFilterByAreEnforcedInUnionSearch) {
                         "collection": "ScopedUnionProducts",
                         "q": "*",
                         "query_by": "title",
+                        "pinned_hits": "49:1",
                         "filter_by": "price:>=0"
                     }
                 ])"_json;
@@ -1040,6 +1044,9 @@ TEST_F(UnionTest, ScopedKeyLimitHitsAndFilterByAreEnforcedInUnionSearch) {
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(10, json_res["hits"].size());
     ASSERT_EQ(10, json_res["found"]);
+    for(const auto& hit : json_res["hits"]) {
+        ASSERT_NE("49", hit["document"]["id"]);
+    }
     json_res.clear();
     req_params.clear();
 }
