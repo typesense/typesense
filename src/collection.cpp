@@ -6246,6 +6246,12 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
                 size_t char_diff = num_letters - prefix_letters;
                 auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ? tok_end : prefix_end;
+                // `prefix_end` is computed from character counts but used as a byte offset,
+                // so it can fall inside a multi-byte UTF-8 character. Extend the span to the
+                // end of that character, otherwise highlighting produces invalid UTF-8 (#2995).
+                while (new_tok_end < tok_end && (text[new_tok_end + 1] & 0xC0) == 0x80) {
+                    new_tok_end++;
+                }
                 token_offsets.emplace(tok_start, new_tok_end);
             } else {
                 token_offsets.emplace(tok_start, tok_end);
