@@ -2123,6 +2123,13 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
     return Option<bool>(true);
 }
 
+void enforce_scoped_filter_for_curated_hits(const nlohmann::json& embedded_params,
+                                            std::map<std::string, std::string>& req_params) {
+    if(embedded_params.count("filter_by") != 0) {
+        req_params["filter_curated_hits"] = "true";
+    }
+}
+
 Option<bool> apply_preset(std::map<std::string, std::string>& req_params) {
     const auto preset_it = req_params.find("preset");
 
@@ -2187,6 +2194,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if (!apply_preset_op.ok()) {
         return apply_preset_op;
     }
+    enforce_scoped_filter_for_curated_hits(embedded_params, req_params);
 
     std::string stopwords_set;
     auto const get_stopwords_op = get_stopword_set(req_params, stopwords_set);
@@ -2443,6 +2451,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             result_op = std::move(apply_preset_op);
             break;
         }
+        enforce_scoped_filter_for_curated_hits(embedded_params, req_params);
 
         std::string stopwords_set;
         auto get_stopwords_op = get_stopword_set(req_params, stopwords_set);

@@ -4364,15 +4364,36 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
 
-        for (auto& kvs: search_param->raw_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
+        size_t results_added = 0;
+        size_t raw_result_index = 0;
+        size_t curation_result_index = 0;
+
+        while(results_added < search_param->fetch_size && raw_result_index < search_param->raw_result_kvs.size()) {
+            if(curation_result_index < search_param->curation_result_kvs.size()) {
+                const auto curation_kv = search_param->curation_result_kvs[curation_result_index][0];
+                const auto curation_position = static_cast<size_t>(-curation_kv->scores[0]);
+                if(results_added + 1 == curation_position) {
+                    Union_KV kv(*curation_kv, search_index, collection_ids[search_index], should_remove_duplicates);
+                    curations_topster->add(&kv);
+                    curation_result_index++;
+                    results_added++;
+                    continue;
+                }
+            }
+
+            Union_KV kv(*search_param->raw_result_kvs[raw_result_index][0], search_index, collection_ids[search_index],
+                        should_remove_duplicates);
             union_topster->add(&kv);
+            raw_result_index++;
+            results_added++;
         }
 
-        //populate curations
-        for(auto& kvs : search_param->curation_result_kvs) {
-            Union_KV kv(*kvs[0], search_index, collection_ids[search_index], should_remove_duplicates);
+        while(results_added < search_param->fetch_size && curation_result_index < search_param->curation_result_kvs.size()) {
+            Union_KV kv(*search_param->curation_result_kvs[curation_result_index][0], search_index,
+                        collection_ids[search_index], should_remove_duplicates);
             curations_topster->add(&kv);
+            curation_result_index++;
+            results_added++;
         }
     }
 
@@ -10421,7 +10442,7 @@ void collection_search_args_t::curation_union_global_params(union_global_params_
     page = global_params.page;
     per_page = global_params.per_page;
     offset = global_params.offset;
-    limit_hits = global_params.limit_hits;
+    limit_hits = std::min(limit_hits, global_params.limit_hits);
 }
 
 Option<bool> Collection::set_curation_sets(const std::vector<std::string>& curation_sets) {
