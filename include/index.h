@@ -398,6 +398,40 @@ struct group_by_field_it_t {
     bool is_array;
 };
 
+/// Forward-only cursors into each `_eval` expression's sorted seq_id array, held per sort field.
+///
+/// `compute_sort_scores` is called with monotonically increasing seq_ids within a query, so each
+/// expression only ever needs to scan forward. The cursors must be kept separate per sort field:
+/// a query may carry more than one `_eval` clause, and sharing a single flat vector between them
+/// both corrupts their cursors and lets a clause with more expressions index out of bounds.
+struct eval_filter_indexes_t {
+    std::vector<std::vector<uint32_t>> per_sort_field;
+
+    /// Cursors for `sort_field_index`, allocated on first use and preserved across documents.
+    std::vector<uint32_t>& get(const size_t sort_field_index, const size_t expression_count) {
+        auto& indexes = slot(sort_field_index);
+        if (indexes.size() != expression_count) {
+            indexes.assign(expression_count, 0);
+        }
+        return indexes;
+    }
+
+    /// Cursors for a reference sort, rewound every document because the referenced doc set varies.
+    std::vector<uint32_t>& reset(const size_t sort_field_index, const size_t count) {
+        auto& indexes = slot(sort_field_index);
+        indexes.assign(count, 0);
+        return indexes;
+    }
+
+private:
+    std::vector<uint32_t>& slot(const size_t sort_field_index) {
+        if (per_sort_field.size() <= sort_field_index) {
+            per_sort_field.resize(sort_field_index + 1);
+        }
+        return per_sort_field[sort_field_index];
+    }
+};
+
 #ifdef TEST_BUILD
     extern bool testing_not_equals_bug;
 #endif
@@ -1170,7 +1204,7 @@ public:
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                      const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
                                      const std::map<basic_string<char>, reference_filter_result_t>& references,
-                                     std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score,
+                                     eval_filter_indexes_t& filter_indexes, int64_t max_field_match_score,
                                      int64_t* scores, int64_t& match_score_index,
                                      float vector_distance = 0) const;
 

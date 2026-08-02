@@ -3956,3 +3956,85 @@ TEST_F(CollectionSortingTest, IgnoreInvalidFieldsIfNotValidateFieldNames) {
     ASSERT_TRUE(results.ok());
     ASSERT_EQ(2, results.get()["hits"].size());
 }
+TEST_F(CollectionSortingTest, ReferenceAndNormalEvalKeepSeparateCursors) {
+    // 16 expressions against a referenced-doc count of 1: indices 1..15 used to fall past the end of
+    // the shared cursor vector, so the ranking came back different on every run.
+    static constexpr size_t NUM_EVAL_FIELDS = 16;
+
+    // A reference `_eval` and a normal `_eval` can coexist in one query: `eval_sort_count` is only
+    // incremented for non-reference clauses, so the "Only one sorting eval expression is allowed"
+    // guard does not catch the pair. They used to share one cursor vector, which the reference
+    // clause sized to the referenced-doc count (1 here) and the normal clause then indexed past.
+    nlohmann::json prod_schema;
+    prod_schema["name"] = "eval_prod";
+    prod_schema["fields"] = nlohmann::json::array();
+    nlohmann::json pid_field;
+    pid_field["name"] = "pid";
+    pid_field["type"] = "string";
+    prod_schema["fields"].push_back(pid_field);
+
+    for (size_t n = 1; n <= NUM_EVAL_FIELDS; n++) {
+        nlohmann::json bool_field;
+        bool_field["name"] = "f" + std::to_string(n);
+        bool_field["type"] = "bool";
+        prod_schema["fields"].push_back(bool_field);
+    }
+    ASSERT_TRUE(collectionManager.create_collection(prod_schema).ok());
+
+    auto stock_schema = R"({
+        "name": "eval_stock",
+        "fields": [
+            {"name": "pid", "type": "string", "reference": "eval_prod.pid"},
+            {"name": "in_stock", "type": "bool"}
+        ]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(stock_schema).ok());
+
+    // Document i matches only f(i+1), so scoring has to walk deep into the expression list.
+    for (size_t i = 0; i < NUM_EVAL_FIELDS; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["pid"] = "p" + std::to_string(i);
+        for (size_t n = 1; n <= NUM_EVAL_FIELDS; n++) {
+            doc["f" + std::to_string(n)] = (n == i + 1);
+        }
+        ASSERT_TRUE(collectionManager.get_collection("eval_prod")->add(doc.dump()).ok());
+
+        nlohmann::json stock;
+        stock["id"] = std::to_string(i);
+        stock["pid"] = "p" + std::to_string(i);
+        stock["in_stock"] = true;
+        ASSERT_TRUE(collectionManager.get_collection("eval_stock")->add(stock.dump()).ok());
+    }
+
+    std::string rules;
+    for (size_t n = 1; n <= NUM_EVAL_FIELDS; n++) {
+        rules += (n == 1 ? "" : ",");
+        rules += "(f" + std::to_string(n) + ":true):" + std::to_string(NUM_EVAL_FIELDS + 1 - n);
+    }
+
+    // Every doc is in stock, so the reference clause ties and the second clause decides the order.
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_prod"},
+            {"q", "*"},
+            {"per_page", std::to_string(NUM_EVAL_FIELDS)},
+            {"filter_by", "$eval_stock(id:*)"},
+            {"sort_by", "$eval_stock(_eval([(in_stock:true):5]):desc), _eval([" + rules + "]):desc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    ASSERT_TRUE(collectionManager.do_search(req_params, embedded_params, json_res, now_ts).ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(NUM_EVAL_FIELDS, res_obj["hits"].size());
+    for (size_t i = 0; i < NUM_EVAL_FIELDS; i++) {
+        ASSERT_EQ(std::to_string(i), res_obj["hits"][i]["document"]["id"].get<std::string>())
+                            << "wrong document at rank " << i;
+    }
+
+    collectionManager.drop_collection("eval_stock");
+    collectionManager.drop_collection("eval_prod");
+}
