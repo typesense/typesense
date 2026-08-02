@@ -4038,3 +4038,169 @@ TEST_F(CollectionSortingTest, ReferenceAndNormalEvalKeepSeparateCursors) {
     collectionManager.drop_collection("eval_stock");
     collectionManager.drop_collection("eval_prod");
 }
+
+TEST_F(CollectionSortingTest, EvalSumAddsEveryMatchingExpression) {
+    // `_eval` scores the first matching expression only; `mode: sum` adds them all up. The two
+    // produce a different order for the same rules, which is what this asserts.
+    auto schema = R"({
+        "name": "eval_sum",
+        "fields": [
+            {"name": "domain", "type": "string"},
+            {"name": "seniority", "type": "int32"},
+            {"name": "skills", "type": "string[]"}
+        ]
+    })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["domain"] = "engineering";
+    doc1["seniority"] = 1;
+    doc1["skills"] = nlohmann::json::array({"java"});
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["domain"] = "design";
+    doc2["seniority"] = 3;
+    doc2["skills"] = nlohmann::json::array({"react", "typescript", "graphql"});
+
+    nlohmann::json doc3;
+    doc3["id"] = "3";
+    doc3["domain"] = "sales";
+    doc3["seniority"] = 2;
+    doc3["skills"] = nlohmann::json::array({"excel"});
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    const std::string rules = "[(domain:=engineering):25, (seniority:=3):6, (skills:=react):8, "
+                              "(skills:=typescript):8, (skills:=graphql):8]";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // doc1 = 25, doc2 = 6+8+8+8 = 30, doc3 = 0
+    std::map<std::string, std::string> sum_params = {
+            {"collection", "eval_sum"},
+            {"q", "*"},
+            {"sort_by", "_eval(" + rules + ", mode: sum):desc"}
+    };
+    ASSERT_TRUE(collectionManager.do_search(sum_params, embedded_params, json_res, now_ts).ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"].get<std::string>());
+
+    // Same rules under `_eval`: doc1 = 25, doc2 = 6, doc3 = 0. The top two swap.
+    std::map<std::string, std::string> first_match_params = {
+            {"collection", "eval_sum"},
+            {"q", "*"},
+            {"sort_by", "_eval(" + rules + "):desc"}
+    };
+    json_res.clear();
+    ASSERT_TRUE(collectionManager.do_search(first_match_params, embedded_params, json_res, now_ts).ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", res_obj["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("eval_sum");
+}
+
+TEST_F(CollectionSortingTest, EvalSumSaturatesInsteadOfOverflowing) {
+    auto schema = R"({
+        "name": "eval_sum_overflow",
+        "fields": [
+            {"name": "domain", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["domain"] = "engineering";
+
+    nlohmann::json doc2;
+    doc2["id"] = "2";
+    doc2["domain"] = "design";
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    // Both expressions match doc1; the sum would wrap negative without saturation, dropping it last.
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_sum_overflow"},
+            {"q", "*"},
+            {"sort_by", "_eval([(domain:=engineering):9223372036854775806, "
+                        "(domain:=engineering):9223372036854775806], mode: sum):desc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    ASSERT_TRUE(collectionManager.do_search(req_params, embedded_params, json_res, now_ts).ok());
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("eval_sum_overflow");
+}
+
+TEST_F(CollectionSortingTest, EvalSumRejectedOnReferencedCollection) {
+    auto products_schema = R"({
+        "name": "es_products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "product_name", "type": "string"}
+        ]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+    auto stock_schema = R"({
+        "name": "es_stock",
+        "fields": [
+            {"name": "product_id", "type": "string", "reference": "es_products.product_id"},
+            {"name": "in_stock", "type": "bool"}
+        ]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(stock_schema).ok());
+
+    nlohmann::json product;
+    product["id"] = "0";
+    product["product_id"] = "p0";
+    product["product_name"] = "shoe";
+    ASSERT_TRUE(collectionManager.get_collection("es_products")->add(product.dump()).ok());
+
+    nlohmann::json stock;
+    stock["id"] = "0";
+    stock["product_id"] = "p0";
+    stock["in_stock"] = true;
+    ASSERT_TRUE(collectionManager.get_collection("es_stock")->add(stock.dump()).ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "es_products"},
+            {"q", "*"},
+            {"sort_by", "$es_stock(_eval([(in_stock:true):3], mode: sum):desc)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_TRUE(search_op.error().find("`mode: sum` is not supported on a referenced collection")
+                != std::string::npos) << search_op.error();
+
+    collectionManager.drop_collection("es_stock");
+    collectionManager.drop_collection("es_products");
+}

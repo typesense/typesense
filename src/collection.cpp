@@ -1873,6 +1873,16 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             for (auto& ref_sort_field_std: ref_sort_fields_std) {
+                // The reference eval path scores against the referenced docs of a single document and stops at the
+                // first match, so there is no well-defined set of signals to add up. Reject rather than silently
+                // falling back to first-match semantics.
+                if (ref_sort_field_std.type == sort_by::eval_expression &&
+                    ref_sort_field_std.eval.mode == sort_by::eval_mode_t::sum_matches) {
+                    return Option<bool>(400, "`" + sort_field_const::eval_mode + ": " +
+                                                sort_field_const::eval_mode_sum +
+                                                "` is not supported on a referenced collection.");
+                }
+
                 ref_sort_field_std.reference_collection_name = ref_collection_name;
                 ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
                                                                        nested_join_coll_names.begin(),
@@ -1895,6 +1905,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             sort_field_std.eval.filter_trees = new filter_node_t*[count]{nullptr};
             sort_field_std.eval_expressions = _sort_field.eval_expressions;
             sort_field_std.eval.scores = _sort_field.eval.scores;
+            sort_field_std.eval.mode = _sort_field.eval.mode;
             sort_field_std.type = sort_by::eval_expression;
             auto doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
 

@@ -5736,6 +5736,19 @@ void Index::get_field_token_its(const size_t num_search_fields,
     }
 }
 
+/// Saturating signed addition for `_eval([...], mode: sum)` scores.
+///
+/// Clamps to `INT64_MIN + 1` and not `INT64_MIN`, because a descending sort negates the score at the
+/// end of `compute_sort_scores` and `-INT64_MIN` is undefined behaviour.
+static inline int64_t saturating_add_score(const int64_t a, const int64_t b) {
+    int64_t sum = 0;
+    if (__builtin_add_overflow(a, b, &sum)) {
+        return b > 0 ? INT64_MAX : (INT64_MIN + 1);
+    }
+
+    return sum < (INT64_MIN + 1) ? (INT64_MIN + 1) : sum;
+}
+
 Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                         const std::vector<size_t>& geopoint_indices,
@@ -5882,8 +5895,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         break;
                     }
                 }
+
+                scores[i] = found ? eval.scores[eval_index] : 0;
             } else {
                 auto& eval_indexes = filter_indexes.get(i, count);
+                auto const is_sum_mode = (eval.mode == sort_by::eval_mode_t::sum_matches);
+                int64_t sum_score = 0;
 
                 for (; eval_index < count; eval_index++) {
                     auto const& eval_ids = eval.eval_ids_vec[eval_index];
@@ -5901,12 +5918,20 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                     if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
                         filter_index++;
                         found = true;
-                        break;
+
+                        if (!is_sum_mode) {
+                            break;
+                        }
+                        sum_score = saturating_add_score(sum_score, eval.scores[eval_index]);
                     }
                 }
-            }
 
-            scores[i] = found ? eval.scores[eval_index] : 0;
+                if (is_sum_mode) {
+                    scores[i] = sum_score;
+                } else {
+                    scores[i] = found ? eval.scores[eval_index] : 0;
+                }
+            }
         } else if(field_values[i] == &vector_distance_sentinel_value) {
             scores[i] = float_to_int64_t(vector_distance);
         } else if(field_values[i] == &vector_query_sentinel_value) {

@@ -1770,9 +1770,51 @@ AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
 }
 
+/// Parses the optional trailing parameters of a multi-eval clause, i.e. everything between the
+/// closing `]` and the closing `)` of `_eval([...], <params>)`.
+static bool parse_multi_eval_params(const std::string& params_str, sort_by::eval_mode_t& eval_mode) {
+    auto params_substr = params_str;
+    StringUtils::trim(params_substr);
+    if (params_substr.empty()) {
+        return true;
+    }
+
+    // The span starts right after `]`, so a parameter list opens with the separating comma.
+    if (params_substr[0] != ',') {
+        return false;
+    }
+    params_substr = params_substr.substr(1);
+
+    std::vector<std::string> params;
+    StringUtils::split(params_substr, params, ",");
+    if (params.empty()) {
+        return false;
+    }
+
+    for (const auto& param: params) {
+        // `split` trims each token, so `mode:sum` and `mode: sum` both arrive here the same way.
+        std::vector<std::string> param_parts;
+        StringUtils::split(param, param_parts, ":");
+        if (param_parts.size() != 2 || param_parts[0] != sort_field_const::eval_mode) {
+            return false;
+        }
+
+        if (param_parts[1] == sort_field_const::eval_mode_sum) {
+            eval_mode = sort_by::eval_mode_t::sum_matches;
+        } else if (param_parts[1] == sort_field_const::eval_mode_first_match) {
+            eval_mode = sort_by::eval_mode_t::first_match;
+        } else {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
     // FORMAT:
     // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ]):<order>
+    // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ], mode: sum):<order>
 
     std::vector<std::string> eval_expressions;
     std::vector<std::int64_t> scores;
@@ -1826,6 +1868,20 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
         scores.emplace_back(std::stoll(score));
     }
 
+    // `index` is at the closing `]`, so everything up to the closing `)` of `_eval(` is the optional
+    // parameter list. It has to be consumed before the scan below, which stops at the first `:`.
+    // With a parameter present that first colon belongs to `mode: sum`, not to the order.
+    auto const close_paren_pos = sort_by_str.find(')', index);
+    if (close_paren_pos == std::string::npos) {
+        return false;
+    }
+
+    sort_by::eval_mode_t eval_mode = sort_by::eval_mode_t::first_match;
+    if (!parse_multi_eval_params(sort_by_str.substr(index + 1, close_paren_pos - index - 1), eval_mode)) {
+        return false;
+    }
+    index = close_paren_pos;
+
     while (++index < sort_by_str.size() && sort_by_str[index] != ':');
     if (index >= sort_by_str.size()) {
         return false;
@@ -1838,13 +1894,70 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
     StringUtils::trim(order_str);
     StringUtils::toupper(order_str);
 
-    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    sort_fields.emplace_back(eval_expressions, scores, order_str, eval_mode);
+    return true;
+}
+
+/// Splits a trailing parameter list off the single-expression form, `_eval((<expr>), mode: sum)`.
+///
+/// The array form is delimited by `]`, so everything after it is unambiguously a parameter. The
+/// single-expression form has no such delimiter and a filter value may legally hold a top level
+/// comma, as `title:Hello, World` does. Parameters are therefore only recognised when the
+/// expression is wrapped in its own parentheses, which lets a plain parenthesis count find where it
+/// ends. `_eval(brand:nike, mode: sum)` stays a filter, exactly as it parses today.
+///
+/// Returns false only when the parameter list is present but unusable.
+static bool split_trailing_eval_params(std::string& eval_expr, sort_by::eval_mode_t& eval_mode) {
+    auto expr = eval_expr;
+    StringUtils::trim(expr);
+    if (expr.empty() || expr[0] != '(') {
+        return true;
+    }
+
+    int paren_count = 0;
+    bool in_backtick = false;
+    size_t expr_end = std::string::npos;
+
+    for (size_t i = 0; i < expr.size(); i++) {
+        const char c = expr[i];
+        if (c == '`') {
+            in_backtick = !in_backtick;
+        } else if (in_backtick) {
+            continue;
+        } else if (c == '(') {
+            paren_count++;
+        } else if (c == ')' && --paren_count == 0) {
+            expr_end = i;
+            break;
+        }
+    }
+
+    if (expr_end == std::string::npos) {
+        return true;
+    }
+
+    // A parameter list is introduced by a comma. Anything else following the group belongs to the
+    // filter, as in `(a:1) && (b:2)`, and the expression is left exactly as it was.
+    auto trailing = expr.substr(expr_end + 1);
+    StringUtils::trim(trailing);
+    if (trailing.empty() || trailing[0] != ',') {
+        return true;
+    }
+
+    if (!parse_multi_eval_params(trailing, eval_mode)) {
+        return false;
+    }
+
+    // Drop the wrapping parentheses along with the parameter list.
+    eval_expr = expr.substr(1, expr_end - 1);
+    StringUtils::trim(eval_expr);
     return true;
 }
 
 bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
     // FORMAT:
     // _eval(<expr>):<order>
+    // _eval((<expr>), mode: sum):<order>
     std::string eval_expr = "(";
     int paren_count = 1;
     bool in_backtick = false;
@@ -1866,6 +1979,11 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
         return false;
     }
 
+    sort_by::eval_mode_t eval_mode = sort_by::eval_mode_t::first_match;
+    if (!split_trailing_eval_params(eval_expr, eval_mode)) {
+        return false;
+    }
+
     while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
     if (index >= sort_by_str.size()) {
         return false;
@@ -1880,7 +1998,7 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
 
     std::vector<std::string> eval_expressions = {eval_expr};
     std::vector<int64_t> scores = {1};
-    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    sort_fields.emplace_back(eval_expressions, scores, order_str, eval_mode);
 
     return true;
 }
