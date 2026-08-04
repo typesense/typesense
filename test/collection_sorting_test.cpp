@@ -4196,10 +4196,16 @@ TEST_F(CollectionSortingTest, EvalSumRejectedOnReferencedCollection) {
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_TRUE(search_op.error().find("`mode: sum` is not supported on a referenced collection")
-                != std::string::npos) << search_op.error();
+    // Repeated rejected requests must not retain the parsed filter trees. This loop is also a
+    // LeakSanitizer regression: before the early rejection in sort validation, each iteration
+    // leaked the filter-tree pointer array and the parsed filter tree.
+    for (size_t i = 0; i < 10; i++) {
+        json_res.clear();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_FALSE(search_op.ok());
+        ASSERT_TRUE(search_op.error().find("`mode: sum` is not supported on a referenced collection")
+                    != std::string::npos) << search_op.error();
+    }
 
     collectionManager.drop_collection("es_stock");
     collectionManager.drop_collection("es_products");

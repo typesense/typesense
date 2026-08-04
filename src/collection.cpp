@@ -1847,6 +1847,19 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 return Option<bool>(400, "Reference `sort_by` is malformed.");
             }
 
+            // Referenced eval sorting scores a single referenced document and stops at the first
+            // match, so there is no well-defined set of signals for `mode: sum` to add up. Reject
+            // before validation allocates filter trees that cannot be transferred to the outer
+            // sort-fields cleanup guard on this error path.
+            for (const auto& ref_sort_field: ref_sort_fields) {
+                if (ref_sort_field.type == sort_by::eval_expression &&
+                    ref_sort_field.eval.mode == sort_by::eval_mode_t::sum_matches) {
+                    return Option<bool>(400, "`" + sort_field_const::eval_mode + ": " +
+                                                sort_field_const::eval_mode_sum +
+                                                "` is not supported on a referenced collection.");
+                }
+            }
+
             std::vector<sort_by> ref_sort_fields_std;
             auto sort_validation_op = ref_collection->validate_and_standardize_sort_fields_with_lock(ref_sort_fields,
                                                                                                      ref_sort_fields_std,
@@ -1873,16 +1886,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             for (auto& ref_sort_field_std: ref_sort_fields_std) {
-                // The reference eval path scores against the referenced docs of a single document and stops at the
-                // first match, so there is no well-defined set of signals to add up. Reject rather than silently
-                // falling back to first-match semantics.
-                if (ref_sort_field_std.type == sort_by::eval_expression &&
-                    ref_sort_field_std.eval.mode == sort_by::eval_mode_t::sum_matches) {
-                    return Option<bool>(400, "`" + sort_field_const::eval_mode + ": " +
-                                                sort_field_const::eval_mode_sum +
-                                                "` is not supported on a referenced collection.");
-                }
-
                 ref_sort_field_std.reference_collection_name = ref_collection_name;
                 ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
                                                                        nested_join_coll_names.begin(),
