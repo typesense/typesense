@@ -15526,6 +15526,113 @@ TEST_F(CollectionJoinTest, PinnedHitsShouldIncludeJoinedFields) {
     ASSERT_EQ("Blyton", res_obj["hits"][0]["document"]["product_data"]["extra_data"]);
 }
 
+TEST_F(CollectionJoinTest, MultiplePinnedHitsWithJoinShouldEachGetTheirOwnJoinedData) {
+    auto schema_json =
+            R"({
+                "name":  "products",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "id": "124",
+                "name": "Product 1"
+            })"_json,
+            R"({
+                "id": "125",
+                "name": "Product 2"
+            })"_json,
+            R"({
+                "id": "126",
+                "name": "Product 3"
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto products_coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = products_coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "product_data",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "products.id" },
+                    {"name": "extra_data", "type": "string" }
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "11",
+                "product_id": "124",
+                "extra_data": "foo"
+            })"_json,
+            R"({
+                "id": "15",
+                "product_id": "125",
+                "extra_data": "hello"
+            })"_json,
+            R"({
+                "id": "34",
+                "product_id": "126",
+                "extra_data": "bar"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto product_data_coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = product_data_coll->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "$product_data(id:*)"},
+            {"pinned_hits", "124:1,125:2"},
+            {"filter_curated_hits", "true"},
+            {"include_fields", "$product_data(*) as product_data"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("124", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_TRUE(res_obj["hits"][0]["curated"].get<bool>());
+    ASSERT_TRUE(res_obj["hits"][0]["document"].contains("product_data"));
+    ASSERT_EQ("11", res_obj["hits"][0]["document"]["product_data"]["id"]);
+    ASSERT_EQ("foo", res_obj["hits"][0]["document"]["product_data"]["extra_data"]);
+
+    ASSERT_EQ("125", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_TRUE(res_obj["hits"][1]["curated"].get<bool>());
+    ASSERT_TRUE(res_obj["hits"][1]["document"].contains("product_data"));
+    ASSERT_EQ("15", res_obj["hits"][1]["document"]["product_data"]["id"]);
+    ASSERT_EQ("hello", res_obj["hits"][1]["document"]["product_data"]["extra_data"]);
+
+    ASSERT_NE(res_obj["hits"][0]["document"]["product_data"]["id"],
+              res_obj["hits"][1]["document"]["product_data"]["id"]);
+    ASSERT_NE(res_obj["hits"][0]["document"]["product_data"]["extra_data"],
+              res_obj["hits"][1]["document"]["product_data"]["extra_data"]);
+}
+
 TEST_F(CollectionJoinTest, FixReferencesAtQueryTime) {
     auto schema_json =
             R"({
