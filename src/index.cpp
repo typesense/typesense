@@ -5736,17 +5736,19 @@ void Index::get_field_token_its(const size_t num_search_fields,
     }
 }
 
-/// Saturating signed addition for `_eval([...], mode: sum)` scores.
+/// Clamps an exact `_eval(..., mode: sum)` total to the range supported by sort scores.
 ///
-/// Clamps to `INT64_MIN + 1` and not `INT64_MIN`, because a descending sort negates the score at the
-/// end of `compute_sort_scores` and `-INT64_MIN` is undefined behaviour.
-static inline int64_t saturating_add_score(const int64_t a, const int64_t b) {
-    int64_t sum = 0;
-    if (__builtin_add_overflow(a, b, &sum)) {
-        return b > 0 ? INT64_MAX : (INT64_MIN + 1);
+/// The lower bound is `INT64_MIN + 1` and not `INT64_MIN`, because an ascending sort negates the
+/// score at the end of `compute_sort_scores` and `-INT64_MIN` is undefined behaviour.
+static inline int64_t clamp_eval_sum(const __int128 sum) {
+    if (sum > static_cast<__int128>(INT64_MAX)) {
+        return INT64_MAX;
+    }
+    if (sum < static_cast<__int128>(INT64_MIN + 1)) {
+        return INT64_MIN + 1;
     }
 
-    return sum < (INT64_MIN + 1) ? (INT64_MIN + 1) : sum;
+    return static_cast<int64_t>(sum);
 }
 
 Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
@@ -5875,7 +5877,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         int64_t selected_score = is_asc ? INT64_MAX : INT64_MIN;
 
                         for (const auto& ref_seq_id: ref_seq_ids) {
-                            int64_t ref_score = 0;
+                            __int128 ref_score = 0;
                             for (eval_index = 0; eval_index < count; eval_index++) {
                                 auto const& eval_ids = eval.eval_ids_vec[eval_index];
                                 auto const& eval_ids_count = eval.eval_ids_count_vec[eval_index];
@@ -5891,12 +5893,13 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                                                 ref_seq_id) - eval_ids;
                                 if (filter_index < eval_ids_count && eval_ids[filter_index] == ref_seq_id) {
                                     filter_index++;
-                                    ref_score = saturating_add_score(ref_score, eval.scores[eval_index]);
+                                    ref_score += static_cast<__int128>(eval.scores[eval_index]);
                                 }
                             }
 
-                            selected_score = is_asc ? std::min(selected_score, ref_score) :
-                                                      std::max(selected_score, ref_score);
+                            const auto clamped_ref_score = clamp_eval_sum(ref_score);
+                            selected_score = is_asc ? std::min(selected_score, clamped_ref_score) :
+                                                      std::max(selected_score, clamped_ref_score);
                         }
 
                         scores[i] = selected_score;
@@ -5943,7 +5946,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 }
             } else {
                 auto& eval_indexes = filter_indexes.get(i, count);
-                int64_t sum_score = 0;
+                __int128 sum_score = 0;
 
                 for (; eval_index < count; eval_index++) {
                     auto const& eval_ids = eval.eval_ids_vec[eval_index];
@@ -5965,12 +5968,12 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         if (!is_sum_mode) {
                             break;
                         }
-                        sum_score = saturating_add_score(sum_score, eval.scores[eval_index]);
+                        sum_score += static_cast<__int128>(eval.scores[eval_index]);
                     }
                 }
 
                 if (is_sum_mode) {
-                    scores[i] = sum_score;
+                    scores[i] = clamp_eval_sum(sum_score);
                 } else {
                     scores[i] = found ? eval.scores[eval_index] : 0;
                 }

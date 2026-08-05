@@ -4117,7 +4117,8 @@ TEST_F(CollectionSortingTest, EvalSumSaturatesInsteadOfOverflowing) {
     auto schema = R"({
         "name": "eval_sum_overflow",
         "fields": [
-            {"name": "domain", "type": "string"}
+            {"name": "domain", "type": "string"},
+            {"name": "rank", "type": "int32"}
         ]
     })"_json;
 
@@ -4126,10 +4127,12 @@ TEST_F(CollectionSortingTest, EvalSumSaturatesInsteadOfOverflowing) {
     nlohmann::json doc1;
     doc1["id"] = "1";
     doc1["domain"] = "engineering";
+    doc1["rank"] = 0;
 
     nlohmann::json doc2;
     doc2["id"] = "2";
     doc2["domain"] = "design";
+    doc2["rank"] = 1;
 
     ASSERT_TRUE(coll->add(doc1.dump()).ok());
     ASSERT_TRUE(coll->add(doc2.dump()).ok());
@@ -4149,6 +4152,26 @@ TEST_F(CollectionSortingTest, EvalSumSaturatesInsteadOfOverflowing) {
     ASSERT_TRUE(collectionManager.do_search(req_params, embedded_params, json_res, now_ts).ok());
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+
+    // Clamp only after every matching weight is added. Both expression orders sum doc1 to
+    // INT64_MAX, tying doc2 and leaving rank:asc to put doc1 first.
+    req_params["sort_by"] = "_eval([(domain:=engineering):9223372036854775807, "
+                            "(domain:=engineering):1, (domain:=engineering):-1, "
+                            "(domain:=design):9223372036854775807], mode: sum):desc, rank:asc";
+    json_res.clear();
+    ASSERT_TRUE(collectionManager.do_search(req_params, embedded_params, json_res, now_ts).ok());
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
+
+    req_params["sort_by"] = "_eval([(domain:=engineering):9223372036854775807, "
+                            "(domain:=engineering):-1, (domain:=engineering):1, "
+                            "(domain:=design):9223372036854775807], mode: sum):desc, rank:asc";
+    json_res.clear();
+    ASSERT_TRUE(collectionManager.do_search(req_params, embedded_params, json_res, now_ts).ok());
+    res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", res_obj["hits"][1]["document"]["id"].get<std::string>());
 
@@ -4312,6 +4335,89 @@ TEST_F(CollectionSortingTest, EvalSumOnReferencedCollection) {
     collectionManager.drop_collection("es_products");
     collectionManager.drop_collection("es_stock");
     collectionManager.drop_collection("es_locations");
+}
+
+TEST_F(CollectionSortingTest, ReferencedEvalSumIsOrderIndependentNearOverflow) {
+    auto refs_schema = R"({
+        "name": "eval_order_refs",
+        "fields": [
+            {"name": "ref_id", "type": "string"},
+            {"name": "max_signal", "type": "bool"},
+            {"name": "plus_signal", "type": "bool"},
+            {"name": "minus_signal", "type": "bool"},
+            {"name": "ceiling_signal", "type": "bool"}
+        ]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(refs_schema).ok());
+
+    auto products_schema = R"({
+        "name": "eval_order_products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "ref_id", "type": "string", "reference": "eval_order_refs.ref_id"},
+            {"name": "rank", "type": "int32"}
+        ]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(products_schema).ok());
+
+    const std::vector<nlohmann::json> ref_documents = {
+            {{"id", "0"}, {"ref_id", "r0"}, {"max_signal", true}, {"plus_signal", true},
+             {"minus_signal", true}, {"ceiling_signal", false}},
+            {{"id", "1"}, {"ref_id", "r1"}, {"max_signal", false}, {"plus_signal", false},
+             {"minus_signal", false}, {"ceiling_signal", true}},
+    };
+    for (const auto& ref_document: ref_documents) {
+        ASSERT_TRUE(collectionManager.get_collection("eval_order_refs")->add(ref_document.dump()).ok());
+    }
+
+    const std::vector<nlohmann::json> product_documents = {
+            {{"id", "0"}, {"product_id", "p0"}, {"ref_id", "r0"}, {"rank", 0}},
+            {{"id", "1"}, {"product_id", "p1"}, {"ref_id", "r1"}, {"rank", 1}},
+    };
+    for (const auto& product_document: product_documents) {
+        ASSERT_TRUE(collectionManager.get_collection("eval_order_products")->add(product_document.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_order_products"},
+            {"q", "*"},
+            {"sort_by", "$eval_order_refs(_eval([(max_signal:true):9223372036854775807, "
+                        "(plus_signal:true):1, (minus_signal:true):-1, "
+                        "(ceiling_signal:true):9223372036854775807], mode: sum):desc), rank:asc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto results = nlohmann::json::parse(json_res);
+    std::vector<std::string> saturating_first_order;
+    for (const auto& hit: results["hits"]) {
+        saturating_first_order.emplace_back(hit["document"]["product_id"]);
+    }
+
+    req_params["sort_by"] = "$eval_order_refs(_eval([(max_signal:true):9223372036854775807, "
+                            "(minus_signal:true):-1, (plus_signal:true):1, "
+                            "(ceiling_signal:true):9223372036854775807], mode: sum):desc), rank:asc";
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    results = nlohmann::json::parse(json_res);
+    std::vector<std::string> cancelling_first_order;
+    for (const auto& hit: results["hits"]) {
+        cancelling_first_order.emplace_back(hit["document"]["product_id"]);
+    }
+
+    // Both r0 sums are mathematically INT64_MAX and should tie r1. rank:asc must therefore put p0 first.
+    const std::vector<std::string> expected_order = {"p0", "p1"};
+    EXPECT_EQ(expected_order, saturating_first_order);
+    EXPECT_EQ(expected_order, cancelling_first_order);
+    EXPECT_EQ(saturating_first_order, cancelling_first_order);
+
+    collectionManager.drop_collection("eval_order_products");
+    collectionManager.drop_collection("eval_order_refs");
 }
 
 TEST_F(CollectionSortingTest, EvalSumReferencedValidationFailureDoesNotLeak) {
