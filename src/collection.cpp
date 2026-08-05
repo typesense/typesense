@@ -1847,20 +1847,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 return Option<bool>(400, "Reference `sort_by` is malformed.");
             }
 
-            // Referenced eval sorting scores a single referenced document and stops at the first
-            // match, so there is no well-defined set of signals for `mode: sum` to add up. Reject
-            // before validation allocates filter trees that cannot be transferred to the outer
-            // sort-fields cleanup guard on this error path.
-            for (const auto& ref_sort_field: ref_sort_fields) {
-                if (ref_sort_field.type == sort_by::eval_expression &&
-                    ref_sort_field.eval.mode == sort_by::eval_mode_t::sum_matches) {
-                    return Option<bool>(400, "`" + sort_field_const::eval_mode + ": " +
-                                                sort_field_const::eval_mode_sum +
-                                                "` is not supported on a referenced collection.");
-                }
-            }
-
-            std::vector<sort_by> ref_sort_fields_std;
+            sort_fields_guard_t ref_sort_fields_guard;
+            auto& ref_sort_fields_std = ref_sort_fields_guard.sort_fields_std;
             auto sort_validation_op = ref_collection->validate_and_standardize_sort_fields_with_lock(ref_sort_fields,
                                                                                                      ref_sort_fields_std,
                                                                                                      is_wildcard_query,
@@ -1873,6 +1861,11 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                                                      true,
                                                                                                      is_union_search,
                                                                                                      union_search_index);
+
+            if (!sort_validation_op.ok()) {
+                return Option<bool>(sort_validation_op.code(), "Referenced collection `" + ref_collection_name + "`: " +
+                                                                sort_validation_op.error());
+            }
 
             std::vector<std::string> nested_join_coll_names;
             for (auto const& coll_name: _sort_field.nested_join_collection_names) {
@@ -1890,14 +1883,13 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
                                                                        nested_join_coll_names.begin(),
                                                                        nested_join_coll_names.end());
-
-                sort_fields_std.emplace_back(ref_sort_field_std);
             }
 
-            if (!sort_validation_op.ok()) {
-                return Option<bool>(sort_validation_op.code(), "Referenced collection `" + ref_collection_name + "`: " +
-                                                                sort_validation_op.error());
-            }
+            // `sort_by` copies the raw eval pointers. Once every referenced sort field is valid,
+            // transfer their cleanup ownership to the outer search guard by copying the fields and
+            // releasing them from the local guard.
+            sort_fields_std.insert(sort_fields_std.end(), ref_sort_fields_std.begin(), ref_sort_fields_std.end());
+            ref_sort_fields_std.clear();
 
             continue;
         } else if (_sort_field.name == sort_field_const::eval) {

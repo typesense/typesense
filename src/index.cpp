@@ -5858,48 +5858,91 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
             uint32_t eval_index = 0;
+            auto const is_sum_mode = (eval.mode == sort_by::eval_mode_t::sum_matches);
             if (is_reference_sort) {
-                // Both ref_seq_ids and eval.eval_ids_vec will be ordered. So we can take advantage of binary search
-                // and break early if there are no matches.
-                auto& ref_filter_indexes = filter_indexes.reset(i, ref_seq_ids.size());
+                if (is_sum_mode) {
+                    if (ref_seq_ids.empty()) {
+                        scores[i] = 0;
+                    } else {
+                        // A source document can reach the same referenced document through multiple
+                        // join paths. Score each referenced document once and process them in ascending
+                        // order so that every expression can maintain a monotonic filter cursor.
+                        gfx::timsort(ref_seq_ids.begin(), ref_seq_ids.end());
+                        ref_seq_ids.erase(std::unique(ref_seq_ids.begin(), ref_seq_ids.end()), ref_seq_ids.end());
 
-                // Trying to find a match for every reference doc. The score will be the value of eval expression where
-                // we find the first match.
-                for (size_t j = 0; j < ref_seq_ids.size(); j++) {
-                    const auto& ref_seq_id = ref_seq_ids[j];
-                    bool break_early = true;
-                    for (eval_index = 0; eval_index < count; eval_index++) {
-                        auto const& eval_ids = eval.eval_ids_vec[eval_index];
-                        auto const& eval_ids_count = eval.eval_ids_count_vec[eval_index];
-                        auto& filter_index = ref_filter_indexes[j];
+                        auto& ref_filter_indexes = filter_indexes.reset(i, count);
+                        const bool is_asc = (sort_order[i] == -1);
+                        int64_t selected_score = is_asc ? INT64_MAX : INT64_MIN;
 
-                        if (filter_index >= eval_ids_count) {
-                            // When all the indexes of eval.eval_ids_vec have reached to the end, we can stop looking.
-                            continue;
+                        for (const auto& ref_seq_id: ref_seq_ids) {
+                            int64_t ref_score = 0;
+                            for (eval_index = 0; eval_index < count; eval_index++) {
+                                auto const& eval_ids = eval.eval_ids_vec[eval_index];
+                                auto const& eval_ids_count = eval.eval_ids_count_vec[eval_index];
+                                auto& filter_index = ref_filter_indexes[eval_index];
+
+                                if (filter_index >= eval_ids_count) {
+                                    continue;
+                                }
+
+                                // Returns the first element that is >= to the referenced document id.
+                                filter_index = std::lower_bound(eval_ids + filter_index,
+                                                                eval_ids + eval_ids_count,
+                                                                ref_seq_id) - eval_ids;
+                                if (filter_index < eval_ids_count && eval_ids[filter_index] == ref_seq_id) {
+                                    filter_index++;
+                                    ref_score = saturating_add_score(ref_score, eval.scores[eval_index]);
+                                }
+                            }
+
+                            selected_score = is_asc ? std::min(selected_score, ref_score) :
+                                                      std::max(selected_score, ref_score);
                         }
-                        break_early = false;
 
-                        // Returns iterator to the first element that is >= to value or last if no such element is found.
-                        filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count,
-                                                        ref_seq_id) - eval_ids;
+                        scores[i] = selected_score;
+                    }
+                } else {
+                    // Both ref_seq_ids and eval.eval_ids_vec will be ordered. So we can take advantage of binary search
+                    // and break early if there are no matches.
+                    auto& ref_filter_indexes = filter_indexes.reset(i, ref_seq_ids.size());
 
-                        if (filter_index < eval_ids_count && eval_ids[filter_index] == ref_seq_id) {
-                            found = true;
-                            break_early = true;
+                    // Trying to find a match for every reference doc. The score will be the value of eval expression where
+                    // we find the first match.
+                    for (size_t j = 0; j < ref_seq_ids.size(); j++) {
+                        const auto& ref_seq_id = ref_seq_ids[j];
+                        bool break_early = true;
+                        for (eval_index = 0; eval_index < count; eval_index++) {
+                            auto const& eval_ids = eval.eval_ids_vec[eval_index];
+                            auto const& eval_ids_count = eval.eval_ids_count_vec[eval_index];
+                            auto& filter_index = ref_filter_indexes[j];
+
+                            if (filter_index >= eval_ids_count) {
+                                // When all the indexes of eval.eval_ids_vec have reached to the end, we can stop looking.
+                                continue;
+                            }
+                            break_early = false;
+
+                            // Returns iterator to the first element that is >= to value or last if no such element is found.
+                            filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count,
+                                                            ref_seq_id) - eval_ids;
+
+                            if (filter_index < eval_ids_count && eval_ids[filter_index] == ref_seq_id) {
+                                found = true;
+                                break_early = true;
+                                break;
+                            }
+                        }
+
+                        if (break_early) {
+                            // Either all the indexes of eval.eval_ids_vec have reached to the end or we've found a match.
                             break;
                         }
                     }
 
-                    if (break_early) {
-                        // Either all the indexes of eval.eval_ids_vec have reached to the end or we've found a match.
-                        break;
-                    }
+                    scores[i] = found ? eval.scores[eval_index] : 0;
                 }
-
-                scores[i] = found ? eval.scores[eval_index] : 0;
             } else {
                 auto& eval_indexes = filter_indexes.get(i, count);
-                auto const is_sum_mode = (eval.mode == sort_by::eval_mode_t::sum_matches);
                 int64_t sum_score = 0;
 
                 for (; eval_index < count; eval_index++) {
