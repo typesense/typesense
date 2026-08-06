@@ -1489,6 +1489,25 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     return num_indexed;
 }
 
+// re-tokenizes a curation rule query the same way rule.normalized_query is built at parse time,
+// but with a caller-supplied symbols_to_index. curations are parsed without a collection's symbols,
+// so the stored normalized_query strips symbols_to_index and can match too loosely. passing the
+// collection/field symbols here keeps the match symbol-aware.
+static std::string normalize_curation_rule_query(const std::string& rule_query, const std::string& locale,
+                                                 const std::vector<char>& symbols_to_index,
+                                                 const std::vector<char>& token_separators,
+                                                 std::shared_ptr<Stemmer> stemmer) {
+    std::vector<char> symbols = symbols_to_index;
+    symbols.push_back('{');
+    symbols.push_back('}');
+    symbols.push_back('*');
+    symbols.push_back('.');
+
+    std::vector<std::string> tokens;
+    Tokenizer(rule_query, true, false, locale, symbols, token_separators, stemmer, true).tokenize(tokens);
+    return StringUtils::join(tokens, " ");
+}
+
 bool Collection::does_curation_match(const curation_t& curation, std::string& query,
                                      std::set<uint32_t>& excluded_set,
                                      string& actual_query, const std::string& curation_normalized_query, const string& filter_query,
@@ -1608,9 +1627,26 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
 
     // a static filter rule that matched here must apply even if replace_query or stopword removal
     // later rewrites the query, so remember it instead of re-matching the rewritten query
-    // (sort_by is already carried out of here via curated_sort_by)
+    // (sort_by is already carried out of here via curated_sort_by).
+    //
+    // gate on a symbol-aware re-match: the stored normalized_query strips symbols_to_index and can
+    // match too loosely (rule "non-stick" normalizes to "nonstick" and would otherwise force-apply
+    // on a "nonstick" query for a '-' indexed collection, which static_filter_query_eval rejects).
+    // matches driven purely by synonyms or by rule.filter_by are intentionally not force-applied:
+    // they don't survive the query rewrite in static_filter_query_eval and never did before this.
     if(!curation.rule.dynamic_query && !curation.rule.dynamic_filter && !curation.filter_by.empty()) {
-        matched_filter_curations.insert(&curation);
+        auto stemmer = curation.rule.stem ?
+                StemmerManager::get_instance().get_stemmer(curation.rule.locale, curation.rule.stemming_dictionary) : nullptr;
+        const std::string symbol_aware_query = normalize_curation_rule_query(curation.rule.query, curation.rule.locale,
+                                                                             symbols_to_index, token_separators, stemmer);
+
+        const bool strict_match =
+                (curation.rule.match == curation_t::MATCH_EXACT && symbol_aware_query == query) ||
+                (curation.rule.match == curation_t::MATCH_CONTAINS && StringUtils::contains_word(query, symbol_aware_query));
+
+        if(strict_match) {
+            matched_filter_curations.insert(&curation);
+        }
     }
 
     return true;
@@ -5079,20 +5115,12 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
 
     std::vector<const curation_t*> matched_dynamic_curations;
     auto compute_normalized_query = [&](const curation_t& curation) {
-      auto symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
-      symbols.push_back('{');
-      symbols.push_back('}');
-      symbols.push_back('*');
-      symbols.push_back('.');
-
+      const auto& symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
       const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
       const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
 
-      std::vector<std::string> tokens;
-      Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
-      tokenizer.tokenize(tokens);
-      auto query_normalized = StringUtils::join(tokens, " ");
+      auto query_normalized = normalize_curation_rule_query(curation.rule.query, query_locale, symbols, separators,
+                                                            use_search_field_stemmer ? stemmer : nullptr);
       size_t i = 0;
       while(i < query_normalized.size()) {
           if(query_normalized[i] == '{') {

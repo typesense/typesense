@@ -987,6 +987,58 @@ TEST_F(CollectionCurationTest, FilterByAppliedWhenTriggerQueryHasStopword) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionCurationTest, StaticFilterNotForcedWhenSymbolAwareTriggerMismatches) {
+    // curations are parsed without a collection's symbols_to_index, so rule "non-stick" is stored as
+    // normalized_query "nonstick". on a collection that indexes '-', a "nonstick" query must NOT
+    // force-apply the filter: the symbol-aware trigger is "non-stick", which does not match.
+    Collection *coll1;
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll_sym").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll_sym", 1, fields, "points",
+                                                    static_cast<uint64_t>(std::time(nullptr)), "", {"-"}).get();
+        coll1->set_curation_sets({"index"});
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0"; doc1["name"] = "nonstick pan";   doc1["price"] = 399.99; doc1["points"] = 30;
+    nlohmann::json doc2;
+    doc2["id"] = "1"; doc2["name"] = "nonstick spray"; doc2["price"] = 20.00;  doc2["points"] = 5;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json curation_json = R"({
+       "id": "sym-rule",
+       "rule": { "query": "non-stick", "match": "exact" },
+       "remove_matched_tokens": false,
+       "filter_by": "price:>55"
+    })"_json;
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto results = coll1->search("nonstick", {"name"}, "",
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                 {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                                 true, true, false, "", "", "").get();
+
+    // symbol-aware trigger "non-stick" != "nonstick", so the filter is not force-applied: both docs survive
+    ASSERT_EQ(2, results["hits"].size());
+
+    ov_manager.delete_curation_item("index", "sym-rule");
+    collectionManager.drop_collection("coll_sym");
+}
+
 TEST_F(CollectionCurationTest, ReplaceWildcardQueryWithKeyword) {
     Collection *coll1;
     auto& ov_manager = CurationIndexManager::get_instance();
