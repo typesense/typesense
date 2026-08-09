@@ -4178,6 +4178,50 @@ TEST_F(CollectionSortingTest, EvalSumSaturatesInsteadOfOverflowing) {
     collectionManager.drop_collection("eval_sum_overflow");
 }
 
+TEST_F(CollectionSortingTest, EvalSumPreservesInt64MinScores) {
+    auto schema = R"({
+        "name": "eval_sum_int64_min",
+        "fields": [
+            {"name": "signal", "type": "string"},
+            {"name": "tie_breaker", "type": "int32"}
+        ]
+    })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id":"0","signal":"minimum","tie_breaker":0})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"1","signal":"next","tie_breaker":1})").ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "eval_sum_int64_min"},
+            {"q", "*"},
+            {"sort_by", "_eval([(signal:=minimum):-9223372036854775808, "
+                        "(signal:=next):-9223372036854775807], mode: sum):desc, tie_breaker:asc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto results = nlohmann::json::parse(json_res);
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"]);
+
+    // Reversing the secondary sort makes a collapsed score produce the opposite, incorrect order.
+    // Ascending eval sorting must also avoid trying to negate INT64_MIN.
+    req_params["sort_by"] = "_eval([(signal:=minimum):-9223372036854775808, "
+                            "(signal:=next):-9223372036854775807], mode: sum):asc, tie_breaker:desc";
+    json_res.clear();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+
+    collectionManager.drop_collection("eval_sum_int64_min");
+}
+
 TEST_F(CollectionSortingTest, EvalSumOnReferencedCollection) {
     auto locations_schema = R"({
         "name": "es_locations",

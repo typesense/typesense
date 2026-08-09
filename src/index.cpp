@@ -5737,18 +5737,20 @@ void Index::get_field_token_its(const size_t num_search_fields,
 }
 
 /// Clamps an exact `_eval(..., mode: sum)` total to the range supported by sort scores.
-///
-/// The lower bound is `INT64_MIN + 1` and not `INT64_MIN`, because an ascending sort negates the
-/// score at the end of `compute_sort_scores` and `-INT64_MIN` is undefined behaviour.
 static inline int64_t clamp_eval_sum(const __int128 sum) {
     if (sum > static_cast<__int128>(INT64_MAX)) {
         return INT64_MAX;
     }
-    if (sum < static_cast<__int128>(INT64_MIN + 1)) {
-        return INT64_MIN + 1;
+    if (sum < static_cast<__int128>(INT64_MIN)) {
+        return INT64_MIN;
     }
 
     return static_cast<int64_t>(sum);
+}
+
+/// Reverses the ordering of an eval score across the full int64 range without negating INT64_MIN.
+static inline int64_t reverse_eval_score(const int64_t score) {
+    return static_cast<int64_t>(-static_cast<__int128>(score) - 1);
 }
 
 Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
@@ -6045,7 +6047,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         }
 
         if (sort_order[i] == -1) {
-            scores[i] = -scores[i];
+            scores[i] = field_values[i] == &eval_sentinel_value ? reverse_eval_score(scores[i]) : -scores[i];
         }
     }
 
