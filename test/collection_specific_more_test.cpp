@@ -3192,6 +3192,68 @@ TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
     ASSERT_TRUE(res.get()["hits"][0]["document"].count("word_not_to_store") == 0);
 }
 
+TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
+    // a `store: false` field is stripped before the document is written to disk. when the field is
+    // also `optional: false`, the reloaded document used to fail validation and the entire
+    // collection loaded 0 documents, silently, while /health stayed ok. the documents (and their
+    // stored fields) must survive a restart. covers a customer-supplied vector field and a plain
+    // string field, mirroring the two broken cases.
+    nlohmann::json schema = R"({
+         "name": "listings",
+         "fields": [
+           {"name": "title", "type": "string"},
+           {"name": "embedding", "type": "float[]", "num_dim": 4, "optional": false, "store": false},
+           {"name": "secret", "type": "string", "optional": false, "store": false}
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "title " + std::to_string(i);
+        doc["embedding"] = {0.1, 0.2, 0.3, 0.4};
+        doc["secret"] = "s" + std::to_string(i);
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto before_op = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(before_op.ok());
+    nlohmann::json before = before_op.get();
+    ASSERT_EQ(5, before["found"].get<size_t>());
+
+    // emulate restart: reload the collection from disk (cold-load path, no raft replay)
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    store = new Store(state_dir_path);
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    coll = collectionManager.get_collection("listings").get();
+    ASSERT_TRUE(coll != nullptr);
+
+    auto after_op = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(after_op.ok());
+    nlohmann::json after = after_op.get();
+    ASSERT_EQ(5, after["found"].get<size_t>());
+    ASSERT_EQ(5, after["hits"].size());
+
+    // stored field is intact, unstored fields are gone (never persisted)
+    nlohmann::json doc0 = after["hits"][0]["document"];
+    ASSERT_EQ(1, doc0.count("title"));
+    ASSERT_EQ(0, doc0.count("embedding"));
+    ASSERT_EQ(0, doc0.count("secret"));
+
+    collectionManager.drop_collection("listings");
+}
+
 TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     nlohmann::json schema = R"({
         "name": "coll1",
