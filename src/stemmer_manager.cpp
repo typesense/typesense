@@ -58,22 +58,42 @@ std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language
     std::unique_lock<std::mutex> lock(mutex);
     // use english as default language
     std::string language_ = language.empty() ? "english" : language;
-    
+
     // Treat de_en the same as en
     if (language_ == "de_en") {
         language_ = "english";
     }
-    
-    if (stemmers.find(language_) == stemmers.end()) {
-        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
+
+    // Cache key must include dictionary_name: two fields on the same locale but with
+    // different (or no) stem_dictionary need distinct Stemmer instances, otherwise the
+    // first field constructed for a locale silently decides the stemmer every later
+    // field on that locale gets, regardless of its own dictionary_name.
+    const std::string cache_key = language_ + '\x1f' + dictionary_name;
+
+    auto it = stemmers.find(cache_key);
+    if (it == stemmers.end()) {
+        auto stemmer = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
+        it = stemmers.emplace(cache_key, stemmer).first;
     }
-    return stemmers[language];
+    return it->second;
 }
 
 void StemmerManager::delete_stemmer(const std::string& language) {
     std::unique_lock<std::mutex> lock(mutex);
-    if (stemmers.find(language) != stemmers.end()) {
-        stemmers.erase(language);
+    std::string language_ = language.empty() ? "english" : language;
+    if (language_ == "de_en") {
+        language_ = "english";
+    }
+
+    // A language can have multiple cached stemmers (one per distinct dictionary_name,
+    // see get_stemmer above), so remove every entry for this language, not just one.
+    const std::string prefix = language_ + '\x1f';
+    for (auto it = stemmers.begin(); it != stemmers.end();) {
+        if (it->first.compare(0, prefix.size(), prefix) == 0) {
+            it = stemmers.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 

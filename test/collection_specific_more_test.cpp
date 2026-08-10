@@ -3479,6 +3479,52 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     ASSERT_EQ(0, results["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryDoesNotCollideWithPlainStemOnSameLocale) {
+    // Regression test for https://github.com/typesense/typesense/issues/2979:
+    // StemmerManager's cache was keyed by locale alone, so the first field to
+    // request a given locale decided which Stemmer every later field on that
+    // locale got, silently discarding a later field's stem_dictionary.
+
+    std::string json_line = "{\"word\": \"people\", \"root\":\"person\"}";
+    std::vector<std::string> json_lines;
+    json_lines.push_back(json_line);
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("irregulars", json_lines).ok());
+
+    // 1) FIRST field on locale "en" is plain Snowball stemming (no dictionary).
+    //    This is what used to poison the cache for every later "en" field.
+    nlohmann::json plain_schema = R"({
+         "name": "plain_first",
+         "fields": [
+           {"name": "title", "type": "string", "locale": "en", "stem": true}
+         ]
+       })"_json;
+    auto plain_res = collectionManager.create_collection(plain_schema);
+    ASSERT_TRUE(plain_res.ok());
+
+    // 2) SECOND field, also locale "en", asks for the dictionary. Before the
+    //    fix, this silently got the first field's plain-Snowball stemmer instead.
+    nlohmann::json victim_schema = R"({
+         "name": "dict_victim",
+         "fields": [
+           {"name": "title", "type": "string", "locale": "en", "stem_dictionary": "irregulars"}
+         ]
+       })"_json;
+    auto victim_res = collectionManager.create_collection(victim_schema);
+    ASSERT_TRUE(victim_res.ok());
+    auto dict_victim = victim_res.get();
+
+    nlohmann::json doc;
+    doc["title"] = "people";
+    ASSERT_TRUE(dict_victim->add(doc.dump()).ok());
+
+    // Snowball stems "people" -> "peopl"; only the dictionary maps it to "person".
+    // With prefix matching disabled, a hit can only come from the dictionary
+    // having actually been applied.
+    auto results = dict_victim->search("person", {"title"}, "", {}, sort_fields, {0}, 10,
+                                        1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     stemmerManager.delete_all_stemming_dictionaries();
 
