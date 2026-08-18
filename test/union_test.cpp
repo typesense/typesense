@@ -3049,3 +3049,40 @@ TEST_F(UnionTest, DynamicFacetMinOccurrenceRatioShouldApplyAfterUnionMerge) {
     ASSERT_EQ("shared", json_res["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(6, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
 }
+TEST_F(UnionTest, PrefixQueryWithMultibyteChars) {
+    // https://github.com/typesense/typesense/issues/2995
+    // A union search used to hang when a prefix query token contained multiple multi-byte
+    // characters: prefix highlighting computed a byte offset in the middle of a UTF-8
+    // character, producing an invalid `matched_tokens` string which made the response
+    // fail to serialize.
+    auto schema_json = R"({
+        "name": "foods",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto foods = collection_create_op.get();
+
+    ASSERT_TRUE(foods->add(R"({"name": "blåbær"})").ok());
+    ASSERT_TRUE(foods->add(R"({"name": "jordbær"})").ok());
+    ASSERT_TRUE(foods->add(R"({"name": "chicken"})").ok());
+
+    embedded_params = std::vector<nlohmann::json>(1, nlohmann::json::object());
+    searches = R"([
+                    {
+                        "collection": "foods",
+                        "q": "blåbæ",
+                        "query_by": "name"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, json_res["found"].get<size_t>());
+    ASSERT_EQ("blåbær", json_res["hits"][0]["document"]["name"].get<std::string>());
+    // the highlight must not contain an invalid UTF-8 string, so serializing must not throw
+    ASSERT_NO_THROW((void)json_res.dump());
+    ASSERT_EQ(1, json_res["hits"][0]["highlight"]["name"]["matched_tokens"].size());
+}
