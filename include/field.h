@@ -501,6 +501,11 @@ namespace sort_field_const {
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";
 
+    // `_eval([...], mode: <...>)` parameter and its accepted values.
+    static const std::string eval_mode = "mode";
+    static const std::string eval_mode_first_match = "first_match";
+    static const std::string eval_mode_sum = "sum";
+
     static const std::string missing_values = "missing_values";
 
     static const std::string vector_distance = "_vector_distance";
@@ -621,11 +626,23 @@ struct sort_by {
         linear,
     };
 
+    /// How the scores of matching `_eval` expressions combine into the sort value, selected by the
+    /// `mode` parameter of the clause.
+    enum eval_mode_t {
+        /// Default: score of the first expression that matches, 0 if none do. Expressions are
+        /// treated as an ordered if/else-if chain.
+        first_match,
+        /// `mode: sum`: sum of the scores of every expression that matches. Expressions are
+        /// treated as independent signals in a linear model.
+        sum_matches,
+    };
+
     struct eval_t {
         filter_node_t** filter_trees = nullptr; // Array of filter_node_t pointers.
         std::vector<uint32_t*> eval_ids_vec;
         std::vector<uint32_t> eval_ids_count_vec;
         std::vector<int64_t> scores;
+        eval_mode_t mode = first_match;
     };
 
     std::string name;
@@ -669,11 +686,13 @@ struct sort_by {
             geo_precision(0), missing_values(normal) {
     }
 
-    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
+    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order,
+            eval_mode_t eval_mode = first_match):
             eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), text_match_bucket_size(0),
             geopoint(0), exclude_radius(0), geo_precision(0), missing_values(normal) {
         name = sort_field_const::eval;
         eval.scores = std::move(scores);
+        eval.mode = eval_mode;
         type = eval_expression;
     }
 

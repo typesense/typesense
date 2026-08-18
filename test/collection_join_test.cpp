@@ -15112,7 +15112,34 @@ TEST_F(JoinIncludeExcludeFieldsTest, IncludeFieldsSortLimit) {
     ASSERT_EQ(3.5, res_obj["hits"][0]["document"]["books.popularity"][2].get<double>());
     ASSERT_EQ(4.8, res_obj["hits"][0]["document"]["books.popularity"][3].get<double>());
 
-    //now apply limiting to last search query
+    // Commas inside a multi-expression `_eval`, including its trailing mode parameter, must not be
+    // interpreted as delimiters between reference include parameters.
+    req_params = {
+            {"collection",     "authors"},
+            {"q",              "*"},
+            {"filter_by",      "$books(id:*)"},
+            {"include_fields", "$books(*, sort_by:_eval([(in_stock:true):1, (popularity:>4):2], mode:sum):desc, "
+                               "strategy:merge, limit:2) as books"}
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["books.id"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"]["books.id"][0]);
+    ASSERT_EQ("5", res_obj["hits"][0]["document"]["books.id"][1]);
+
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["books.id"].size());
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["books.id"][0]);
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["books.id"][1]);
+
+    // Apply limiting to a single-expression `_eval` sort.
 
     req_params = {
             {"collection",     "authors"},

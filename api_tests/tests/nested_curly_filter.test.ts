@@ -333,6 +333,15 @@ describe(Phases.SINGLE_FRESH, () => {
     });
     expect(res.ok).toBe(true);
 
+    const importResults = (await res.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { success: boolean });
+    expect(importResults).toHaveLength(items.length);
+    for (const result of importResults) {
+      expect(result.success).toBe(true);
+    }
+
     const twoPredicateExpected = countSameObjectMatches(
       items,
       (offer) => offer.quantities.some((quantity) => quantity >= 2) && offer.minCost <= 7500,

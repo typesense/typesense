@@ -1525,6 +1525,69 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("points", sort_fields[1].name);
     ASSERT_EQ("DESC", sort_fields[1].order);
 
+    // The single expression form takes `mode` too, and the parameter must not leak into the filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike), mode: sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike),mode:first_match):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // An unusable mode is an error rather than something that quietly ends up in the filter.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval((brand:nike), mode: sumx):DESC", sort_fields));
+
+    // Without the wrapping parentheses there is no parameter list, so this stays a plain filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike, mode: sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:nike, mode: sum", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // A parenthesised group followed by anything other than a comma is an ordinary compound filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike) && (size:10)):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("(brand:nike) && (size:10)", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike || brand:air) && size:10):DESC",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("(brand:nike || brand:air) && size:10", sort_fields[0].eval_expressions[0]);
+
+    // A comma that belongs to the filter value is left alone, so these keep parsing as they always did.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(title:Hello, World):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("title:Hello, World", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:[nike,adidas]):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:[nike,adidas]", sort_fields[0].eval_expressions[0]);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(loc:(48.90,2.33,5.1 km)):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("loc:(48.90,2.33,5.1 km)", sort_fields[0].eval_expressions[0]);
+
+    // Backticks protect a value that would otherwise look like a parameter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(title:`Hello, mode: sum`):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("title:`Hello, mode: sum`", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike || brand:air):3, (brand:adidas):2]):DESC", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
@@ -1536,6 +1599,58 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ(3, sort_fields[0].eval.scores[0]);
     ASSERT_EQ(2, sort_fields[0].eval.scores[1]);
     ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // `mode: sum` carries a colon of its own, which must not be mistaken for the one introducing the order.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3, (brand:adidas):2], mode: sum):DESC, "
+                                                          "points:desc", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(2, sort_fields.size());
+    ASSERT_EQ("_eval", sort_fields[0].name);
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ(2, sort_fields[0].eval_expressions.size());
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ("brand:adidas", sort_fields[0].eval_expressions[1]);
+    ASSERT_EQ(3, sort_fields[0].eval.scores[0]);
+    ASSERT_EQ(2, sort_fields[0].eval.scores[1]);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("points", sort_fields[1].name);
+    ASSERT_EQ("DESC", sort_fields[1].order);
+
+    // Whitespace around the parameter is optional.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3],mode:sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+
+    // The default is accepted explicitly too.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode: first_match):ASC",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+    ASSERT_EQ("ASC", sort_fields[0].order);
+
+    // Unknown parameter name, unknown mode value, and a malformed parameter are all rejected.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], combine: sum):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode: product):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], ):DESC", sort_fields));
+
+    // An unterminated clause has no parameter span to read at all.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3]:DESC", sort_fields));
 
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc, loc(24.56,10.45):ASC, "
