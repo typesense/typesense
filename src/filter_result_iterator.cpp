@@ -1390,6 +1390,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
             if (f.is_single_geopoint()) {
                 auto sort_field_index = index->sort_index.at(f.name);
 
+                uint64_t geo_processed = 0;
                 for (auto result_id : geo_result_ids) {
                     // no need to check for existence of `result_id` because of indexer based pre-filtering above
                     int64_t lat_lng = sort_field_index->at(result_id);
@@ -1398,10 +1399,14 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                     if (query_region->Contains(s2_lat_lng.ToPoint())) {
                         exact_geo_result_ids.push_back(result_id);
                     }
+                    if (++geo_processed % 65536 == 0 && timeout_info != nullptr && is_timed_out(true)) {
+                        break;
+                    }
                 }
             } else {
                 spp::sparse_hash_map<uint32_t, int64_t*>* geo_field_index = index->geo_array_index.at(f.name);
 
+                uint64_t geo_processed = 0;
                 for (auto result_id : geo_result_ids) {
                     int64_t* lat_lngs = geo_field_index->at(result_id);
 
@@ -1420,6 +1425,9 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
 
                     if (point_found) {
                         exact_geo_result_ids.push_back(result_id);
+                    }
+                    if (++geo_processed % 65536 == 0 && timeout_info != nullptr && is_timed_out(true)) {
+                        break;
                     }
                 }
             }
