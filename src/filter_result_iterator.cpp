@@ -1404,10 +1404,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                         search_cutoff = true;
                         break;
                     }
-                    if (++geo_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
-                        search_cutoff = true;
-                        break;
-                    }
                 }
             } else {
                 spp::sparse_hash_map<uint32_t, int64_t*>* geo_field_index = index->geo_array_index.at(f.name);
@@ -1431,6 +1427,10 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
 
                     if (point_found) {
                         exact_geo_result_ids.push_back(result_id);
+                    }
+                    if (++geo_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                        search_cutoff = true;
+                        break;
                     }
                 }
             }
