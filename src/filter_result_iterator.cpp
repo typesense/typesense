@@ -13,7 +13,6 @@
 #include "index.h"
 #include "posting.h"
 #include "collection_manager.h"
-#include "thread_local_vars.h"
 
 void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
                             std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
@@ -1400,8 +1399,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                     if (query_region->Contains(s2_lat_lng.ToPoint())) {
                         exact_geo_result_ids.push_back(result_id);
                     }
-                    if (++geo_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
-                        search_cutoff = true;
+                    if (++geo_processed % 65536 == 0 && timeout_info != nullptr && is_timed_out(true)) {
                         break;
                     }
                 }
@@ -1428,8 +1426,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation) {
                     if (point_found) {
                         exact_geo_result_ids.push_back(result_id);
                     }
-                    if (++geo_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
-                        search_cutoff = true;
+                    if (++geo_processed % 65536 == 0 && timeout_info != nullptr && is_timed_out(true)) {
                         break;
                     }
                 }
