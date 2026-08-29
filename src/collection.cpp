@@ -50,6 +50,25 @@ bool is_allowed_alter_type_transition(const std::string& from_type, const std::s
            (from_type == field_types::INT32 && to_type == field_types::INT64) ||
            (from_type == field_types::INT32_ARRAY && to_type == field_types::INT64_ARRAY);
 }
+
+std::string canonical_reference_collection_name(const std::string& collection_name) {
+    auto& collection_manager = CollectionManager::get_instance();
+    std::set<std::string> visited_names;
+    auto current_name = collection_name;
+
+    // Follow aliases even when their target is not loaded yet. The visited set
+    // prevents malformed alias cycles from looping forever.
+    while (visited_names.insert(current_name).second) {
+        auto symlink_op = collection_manager.resolve_symlink(current_name);
+        if (!symlink_op.ok()) {
+            break;
+        }
+        current_name = symlink_op.get();
+    }
+
+    auto collection = collection_manager.get_collection(current_name);
+    return collection != nullptr ? collection->get_name() : current_name;
+}
 }
 
 struct sort_fields_guard_t {
@@ -7967,6 +7986,33 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         return Option<bool>(400, "There can be only one field named `.*`.");
     }
 
+    // Reference bookkeeping stores only one reverse-reference field per
+    // (target collection, referencing collection) pair. Legacy schemas may
+    // already contain duplicates, so only reject a duplicate involving a
+    // reference field changed by this alter.
+    std::set<std::string> changed_reference_fields;
+    for (const auto& field: addition_fields) {
+        if (!field.reference.empty()) {
+            changed_reference_fields.insert(field.name);
+        }
+    }
+    for (const auto& field: reindex_fields) {
+        if (!field.reference.empty()) {
+            changed_reference_fields.insert(field.name);
+        }
+    }
+
+    std::map<std::string, std::string> first_reference_by_collection;
+    for (const auto& reference: updated_reference_fields) {
+        const auto canonical_name = canonical_reference_collection_name(reference.second.collection);
+        const auto [first_reference, inserted] = first_reference_by_collection.emplace(canonical_name, reference.first);
+        if (!inserted && (changed_reference_fields.count(reference.first) != 0 ||
+                          changed_reference_fields.count(first_reference->second) != 0)) {
+            return Option<bool>(400, "Collection `" + name + "` cannot have more than one reference field to collection `" +
+                                         canonical_name + "`.");
+        }
+    }
+
     // data validations: here we ensure that already stored data is compatible with requested schema changes
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
     std::string upper_bound_key = get_seq_id_collection_prefix() + "`";  // cannot inline this
@@ -8287,6 +8333,26 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
                                       spp::sparse_hash_map<std::string, reference_info_t>& reference_fields,
                                       tsl::htrie_set<char>& object_reference_fields,
                                       std::set<update_reference_info_t>& update_ref_infos) {
+    if (is_live_request) {
+        // Validate the complete reference set before registering anything in
+        // CollectionManager. This keeps a rejected create from leaving stale
+        // reverse-reference bookkeeping behind.
+        std::set<std::string> referenced_collection_names;
+        for (const auto& field: fields) {
+            if (field.reference.empty()) {
+                continue;
+            }
+
+            const auto dot_index = field.reference.find('.');
+            const auto ref_coll_name = canonical_reference_collection_name(
+                    field.reference.substr(0, dot_index));
+            if (!referenced_collection_names.insert(ref_coll_name).second) {
+                return Option<Index*>(400, "Collection `" + name + "` cannot have more than one reference field to collection `" +
+                                             ref_coll_name + "`.");
+            }
+        }
+    }
+
     std::set<std::string> skipped_reference_helper_fields;
     for(const field& field: fields) {
         if(field.is_dynamic()) {

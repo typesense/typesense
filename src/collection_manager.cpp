@@ -24,6 +24,24 @@ constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply = nullptr;
 #endif
 
+namespace {
+std::string canonical_collection_name(const CollectionManager& collection_manager, const std::string& collection_name) {
+    std::set<std::string> visited_names;
+    auto current_name = collection_name;
+
+    while (visited_names.insert(current_name).second) {
+        auto symlink_op = collection_manager.resolve_symlink(current_name);
+        if (!symlink_op.ok()) {
+            break;
+        }
+        current_name = symlink_op.get();
+    }
+
+    auto collection = collection_manager.get_collection(current_name);
+    return collection != nullptr ? collection->get_name() : current_name;
+}
+}
+
 struct staged_async_reference_backfill_t {
     std::shared_ptr<Collection> referenced_coll;
     std::shared_ptr<Collection> referencing_coll;
@@ -1050,6 +1068,24 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
 
             if (resolution.referenced_coll != nullptr) {
                 resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+                if (resolution.referencing_coll != nullptr) {
+                    const auto existing_reference_fields = resolution.referencing_coll->get_reference_fields();
+                    for (const auto& existing_reference: existing_reference_fields) {
+                        if (existing_reference.first == resolution.ref_info.field) {
+                            continue;
+                        }
+
+                        const auto existing_target_name = canonical_collection_name(*this,
+                                                                                     existing_reference.second.collection);
+                        if (existing_target_name == resolution.referenced_collection_name) {
+                            rollback_new_collection();
+                            return Option<Collection*>(400, "Collection `" + resolution.ref_info.collection +
+                                                            "` cannot have more than one reference field to collection `" +
+                                                            resolution.referenced_collection_name + "`.");
+                        }
+                    }
+                }
+
                 resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
                         resolution.ref_info.collection, resolution.ref_info.field,
                         resolution.ref_info.referenced_field_name, resolution.ref_info.referenced_field);
@@ -1406,6 +1442,25 @@ Option<bool> CollectionManager::validate_deferred_references_for_symlink(const s
 
     for (const auto& item: deferred_ref_infos) {
         const auto& ref_info = item.second;
+        auto referencing_coll = get_collection(ref_info.collection);
+        if (referencing_coll != nullptr) {
+            const auto schema = referencing_coll->get_schema();
+            for (const auto& schema_field: schema) {
+                if (schema_field.name == ref_info.field || schema_field.reference.empty()) {
+                    continue;
+                }
+
+                const auto dot_index = schema_field.reference.find('.');
+                const auto target_name = canonical_collection_name(*this,
+                                                                   schema_field.reference.substr(0, dot_index));
+                if (target_name == referenced_collection_name) {
+                    return Option<bool>(400, "Collection `" + ref_info.collection +
+                                         "` cannot have more than one reference field to collection `" +
+                                         referenced_collection_name + "`.");
+                }
+            }
+        }
+
         for (const auto& ref_field: ref_collection_reference_fields) {
             if (ref_field.second.collection == ref_info.collection) {
                 return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
@@ -1459,6 +1514,23 @@ Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const st
 
         if (resolution.referenced_coll != nullptr) {
             resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+            if (resolution.referencing_coll != nullptr) {
+                const auto existing_reference_fields = resolution.referencing_coll->get_reference_fields();
+                for (const auto& existing_reference: existing_reference_fields) {
+                    if (existing_reference.first == resolution.ref_info.field) {
+                        continue;
+                    }
+
+                    const auto existing_target_name = canonical_collection_name(*this,
+                                                                                 existing_reference.second.collection);
+                    if (existing_target_name == resolution.referenced_collection_name) {
+                        return Option<bool>(400, "Collection `" + resolution.ref_info.collection +
+                                             "` cannot have more than one reference field to collection `" +
+                                             resolution.referenced_collection_name + "`.");
+                    }
+                }
+            }
+
             resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
                     resolution.ref_info.collection, resolution.ref_info.field, resolution.ref_info.referenced_field_name,
                     resolution.ref_info.referenced_field);
@@ -1650,6 +1722,21 @@ Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const 
     }
 
     for (auto& rebind: rebind_plan) {
+        const auto existing_reference_fields = rebind.referencing_coll->get_reference_fields();
+        for (const auto& existing_reference: existing_reference_fields) {
+            if (existing_reference.first == rebind.ref_info.field) {
+                continue;
+            }
+
+            const auto existing_target_name = canonical_collection_name(*this,
+                                                                         existing_reference.second.collection);
+            if (existing_target_name == resolved_new_collection_name) {
+                return Option<bool>(400, "Collection `" + rebind.ref_info.collection +
+                                     "` cannot have more than one reference field to collection `" +
+                                     resolved_new_collection_name + "`.");
+            }
+        }
+
         rebind.update_ref_infos = new_coll->validate_referenced_in(rebind.ref_info.collection,
                                                                    rebind.ref_info.field,
                                                                    rebind.ref_info.referenced_field_name,
