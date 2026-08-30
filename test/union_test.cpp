@@ -3049,3 +3049,26 @@ TEST_F(UnionTest, DynamicFacetMinOccurrenceRatioShouldApplyAfterUnionMerge) {
     ASSERT_EQ("shared", json_res["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(6, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
 }
+
+TEST_F(UnionTest, ReturnsEveryHitAcrossCollections) {
+    // Documents of different collections share sequence ids and must not be merged as duplicates.
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    for(const auto& name: {"coll_a", "coll_b"}) {
+        auto coll = collectionManager.create_collection(name, 1, fields).get();
+        for(size_t i = 0; i < 100; i++) {
+            ASSERT_TRUE(coll->add(R"({"title": "doc"})").ok());
+        }
+    }
+
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    req_params["per_page"] = "250";
+    searches = R"([
+                    {"collection": "coll_a", "q": "*"},
+                    {"collection": "coll_b", "q": "*"}
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(200, json_res["found"].get<size_t>());
+    ASSERT_EQ(200, json_res["hits"].size());
+}

@@ -217,17 +217,21 @@ struct Union_KV : public KV {
                     std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
+    // The key identifies one document of one search or collection. Both parts are 32-bit, so
+    // packing them is exact, whereas hashing them together collides between documents whose
+    // sequence ids differ by a small multiple of 64 (e.g. (3, 1000) and (4, 932)) and makes the
+    // topster drop one of them as a duplicate.
     static constexpr uint64_t get_key(const Union_KV* union_kv) {
         if(union_kv->remove_duplicates) {
-            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+            return (uint64_t(union_kv->collection_id) << 32) | union_kv->distinct_key;
         }
 
-        return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
+        return (uint64_t(union_kv->search_index) << 32) | union_kv->key;
     }
 
     static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
         if(union_kv->remove_duplicates) {
-            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+            return (uint64_t(union_kv->collection_id) << 32) | union_kv->distinct_key;
         }
 
         return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
