@@ -4425,7 +4425,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         curated_union_keys.reserve(curation_result_kvs.size());
         for(const auto& kvs : curation_result_kvs) {
             const auto* kv = kvs[0];
-            curated_union_keys.insert(StringUtils::hash_combine(kv->collection_id, kv->distinct_key));
+            curated_union_keys.insert(Union_KV::get_key(kv));
         }
     }
 
@@ -4445,7 +4445,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         if(should_remove_duplicates) {
             const auto* raw_kv = raw_result_kvs[raw_results_index][0];
-            const auto raw_union_key = StringUtils::hash_combine(raw_kv->collection_id, raw_kv->distinct_key);
+            const auto raw_union_key = Union_KV::get_key(raw_kv);
             if(curated_union_keys.count(raw_union_key) != 0) {
                 raw_results_index++;
                 continue;

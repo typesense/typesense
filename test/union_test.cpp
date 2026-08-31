@@ -3072,3 +3072,63 @@ TEST_F(UnionTest, ReturnsEveryHitAcrossCollections) {
     ASSERT_EQ(200, json_res["found"].get<size_t>());
     ASSERT_EQ(200, json_res["hits"].size());
 }
+
+TEST_F(UnionTest, CuratedHitShouldNotSuppressUnrelatedRawHit) {
+    // The curated dedup keys must identify documents the same way the union topster does: a
+    // curated document of one collection must only ever suppress its own raw duplicate, not an
+    // unrelated document of another collection.
+    auto schema_json =
+            R"({
+                "name": "coll_curated_a",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_a = collection_create_op.get();
+
+    auto schema_json_b =
+            R"({
+                "name": "coll_curated_b",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json_b);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_b = collection_create_op.get();
+
+    for(size_t i = 0; i < 100; i++) {
+        ASSERT_TRUE(coll_a->add(R"({"id": ")" + std::to_string(i) + R"(", "title": "doc"})").ok());
+        ASSERT_TRUE(coll_b->add(R"({"id": ")" + std::to_string(i) + R"(", "title": "doc"})").ok());
+    }
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    curation_manager.init_store(store);
+    auto upsert_set = nlohmann::json::array({
+        nlohmann::json{
+            {"id", "pin-99"},
+            {"rule", {{"query", "doc"}, {"match", curation_t::MATCH_EXACT}}},
+            {"includes", nlohmann::json::array({
+                nlohmann::json{{"id", "99"}, {"position", 1}}
+            })}
+        }
+    });
+    ASSERT_TRUE(curation_manager.upsert_curation_set("union_curations", upsert_set).ok());
+    ASSERT_TRUE(coll_a->set_curation_sets({"union_curations"}).ok());
+
+    req_params = {{"remove_duplicates", "true"}, {"per_page", "250"}};
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {"collection": "coll_curated_a", "q": "doc", "query_by": "title"},
+                    {"collection": "coll_curated_b", "q": "doc", "query_by": "title"}
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(200, json_res["found"].get<size_t>());
+    ASSERT_EQ(200, json_res["hits"].size());
+    ASSERT_EQ("99", json_res["hits"][0]["document"]["id"]);
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
