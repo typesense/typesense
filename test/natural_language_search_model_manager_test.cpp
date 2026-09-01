@@ -291,7 +291,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, ReplicationInitDbReloadsNaturalLan
     add_valid_model_mock_response();
 
     Config::get_instance().set_data_dir(state_dir_path);
-    ReplicationState replication_state(nullptr, nullptr, store, nullptr, nullptr, nullptr, false,
+    ReplicationState replication_state(nullptr, nullptr, store, nullptr, nullptr, false,
                                        &Config::get_instance(), 8, 1000);
 
     ASSERT_EQ(replication_state.init_db(), 0);

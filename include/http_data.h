@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <map>
@@ -256,12 +258,20 @@ public:
     }
 };
 
+struct http_message_dispatcher;
+
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
     static constexpr const char* CONTENT_TYPE_HEADER = "content-type";
     static constexpr const char* OCTET_STREAM_HEADER_VALUE = "application/octet-stream";
+
+    // The message dispatcher of the event loop that owns this request's connection. Responses and
+    // deferred work MUST be delivered through this dispatcher, since only the owning loop may touch
+    // the connection's socket. nullptr means the request never belonged to an event loop
+    // (e.g. a write replayed from the log, or tests).
+    http_message_dispatcher* res_dispatcher = nullptr;
 
     h2o_req_t* _req;
     std::string http_method;
@@ -316,13 +326,28 @@ struct http_req {
     void (*async_res_write_callback)(std::string&, const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
     bool (*async_res_done_callback)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
 
+    // Returns a strictly increasing microsecond timestamp, unique across all threads.
+    // start_ts doubles as the request's unique ID in the write pipeline: BatchedIndexer keys
+    // its request map and its write-log chunk keys by it, so two requests minted in the same
+    // microsecond on different event loops must never share a value.
+    static uint64_t next_start_ts() {
+        static std::atomic<uint64_t> last_ts{0};
+        uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        uint64_t prev = last_ts.load(std::memory_order_relaxed);
+        uint64_t next;
+        do {
+            next = std::max(now, prev + 1);
+        } while(!last_ts.compare_exchange_weak(prev, next, std::memory_order_relaxed));
+        return next;
+    }
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
                 chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),
                 is_diposed(false) {
 
-        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+        start_ts = next_start_ts();
 
         conn_ts = start_ts;
 
@@ -347,8 +372,7 @@ struct http_req {
                         std::chrono::system_clock::now().time_since_epoch()).count();
         }
 
-        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+        start_ts = next_start_ts();
     }
 
     ~http_req() {
@@ -534,7 +558,12 @@ struct http_message_dispatcher {
     h2o_multithread_receiver_t* message_receiver;
     std::map<std::string, bool (*)(void*)> message_handlers;
 
+    // The event loop this dispatcher delivers on. Deferred work for a request must be scheduled
+    // on its owning loop; HttpServer::defer_processing reads this to link its timer there.
+    h2o_loop_t* loop = nullptr;
+
     void init(h2o_loop_t *loop) {
+        this->loop = loop;
         message_queue = h2o_multithread_create_queue(loop);
         message_receiver = new h2o_multithread_receiver_t();
         h2o_multithread_register_receiver(message_queue, message_receiver, on_message);

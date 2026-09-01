@@ -118,7 +118,6 @@ private:
     Store* analytics_store;
 
     ThreadPool* thread_pool;
-    http_message_dispatcher* message_dispatcher;
 
     const bool api_uses_ssl;
 
@@ -159,7 +158,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* analytics_store,
-                     ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+                     ThreadPool* thread_pool,
                      bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
@@ -222,8 +221,6 @@ public:
     void do_snapshot(const std::string& nodes);
 
     void persist_applying_index();
-
-    http_message_dispatcher* get_message_dispatcher() const;
 
     void wait() {
         auto lk = std::unique_lock<std::mutex>(mcv);
