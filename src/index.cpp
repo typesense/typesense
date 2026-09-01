@@ -7985,6 +7985,21 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
     nlohmann::json final_update_doc = nlohmann::json::object(); // Temporary for changed fields
 
     // Recursive function to apply merge patch and track changes
+    const auto add_nested_child_deletions = [](const std::string& key, const nlohmann::json& old,
+                                               nlohmann::json& del) {
+        if(!old.contains(".flat")) {
+            return;
+        }
+
+        const std::string prefix = key + ".";
+        for(const auto& flat_key_json: old[".flat"]) {
+            const auto flat_key = flat_key_json.get<std::string>();
+            if(flat_key.rfind(prefix, 0) == 0 && old.contains(flat_key)) {
+                del[flat_key] = old[flat_key];
+            }
+        }
+    };
+
     std::function<void(nlohmann::json&, nlohmann::json&, const nlohmann::json&,
                        nlohmann::json&, nlohmann::json&)> apply_merge_patch =
             [&](nlohmann::json& target, nlohmann::json& patch, const nlohmann::json& old,
@@ -8023,6 +8038,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                             }
 
                             del[key] = old[key];
+                            add_nested_child_deletions(key, old, del);
                         }
                         target.erase(key);
                         // Do not add to upd (ensures no nulls in final_update_doc)
@@ -8039,7 +8055,10 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Replacement or new field
                         nlohmann::json processed_value = process_value(value);
                         if (!old.contains(key) || processed_value != old[key]) {
-                            if (old.contains(key)) del[key] = old[key];
+                            if (old.contains(key)) {
+                                del[key] = old[key];
+                                add_nested_child_deletions(key, old, del);
+                            }
                             upd[key] = processed_value;
                             target[key] = processed_value;
                         }
