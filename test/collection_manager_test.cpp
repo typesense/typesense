@@ -4,6 +4,7 @@
 #include <fstream>
 #include <collection_manager.h>
 #include "analytics_manager.h"
+#include "embedder_manager.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "synonym_index.h"
@@ -87,6 +88,7 @@ protected:
             CurationIndexManager::get_instance().dispose();
             delete store;
         }
+        EmbedderManager::get_instance().delete_all_text_embedders();
         analyticsManager.stop();
         delete analytic_store;
     }
@@ -1099,6 +1101,62 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     collectionManager.drop_collection("coll1");
     collectionManager2.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, RestoreRemoteEmbeddingFieldWithoutEndpointValidation) {
+    auto create_op = collectionManager.create_collection(R"({
+        "name": "coll_embed",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json);
+    ASSERT_TRUE(create_op.ok());
+
+    std::string collection_meta_json;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(Collection::get_meta_key("coll_embed"), collection_meta_json));
+    auto collection_meta = nlohmann::json::parse(collection_meta_json);
+
+    const nlohmann::json embedding_field = R"({
+        "name": "embedding",
+        "type": "float[]",
+        "facet": false,
+        "optional": true,
+        "index": true,
+        "num_dim": 4,
+        "embed": {
+            "from": ["title"],
+            "model_config": {
+                "model_name": "openai/unreachable-model",
+                "api_key": "dummy-key",
+                "url": "http://localhost:1"
+            }
+        }
+    })"_json;
+
+    collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY].push_back(embedding_field);
+    ASSERT_TRUE(store->insert(Collection::get_meta_key("coll_embed"), collection_meta.dump()));
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_collection = collectionManager.get_collection("coll_embed").get();
+    ASSERT_NE(nullptr, restored_collection);
+    ASSERT_EQ(1, restored_collection->get_schema().count("embedding"));
+    ASSERT_EQ(1, restored_collection->get_embedding_fields().count("embedding"));
+    ASSERT_EQ(4, restored_collection->get_embedding_fields().at("embedding").num_dim);
+
+    const auto& model_config = embedding_field["embed"]["model_config"];
+    auto embedder_op = EmbedderManager::get_instance().get_text_embedder(model_config, 4);
+    ASSERT_TRUE(embedder_op.ok());
+    ASSERT_TRUE(embedder_op.get()->is_remote());
+    ASSERT_EQ(4, embedder_op.get()->get_num_dim());
+
+    collectionManager.drop_collection("coll_embed");
 }
 
 TEST_F(CollectionManagerTest, RestorePresetsOnRestart) {
