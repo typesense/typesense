@@ -24,6 +24,80 @@ namespace braft {
     DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 }
 
+namespace {
+    bool copy_snapshot_to_temp_dir(const std::string& snapshot_dir_path, const std::string& meta_dir_path,
+                                   const std::string& temp_snapshot_path) {
+        const butil::FilePath temp_state_dir(temp_snapshot_path + "/state");
+        const butil::FilePath temp_snapshot_root(temp_state_dir.value() + "/snapshot");
+
+        if(directory_exists(temp_snapshot_path) && !delete_path(temp_snapshot_path, true)) {
+            LOG(ERROR) << "Failed to delete stale temporary snapshot path " << temp_snapshot_path;
+            return false;
+        }
+
+        if(!create_directory(temp_state_dir.value())) {
+            LOG(ERROR) << "Failed to create temporary external snapshot path " << temp_state_dir.value();
+            return false;
+        }
+
+        if(!create_directory(temp_snapshot_root.value())) {
+            LOG(ERROR) << "Failed to create temporary external snapshot root " << temp_snapshot_root.value();
+            delete_path(temp_snapshot_path, true);
+            return false;
+        }
+
+        const butil::FilePath src_snapshot_dir(snapshot_dir_path);
+        const butil::FilePath src_meta_dir(meta_dir_path);
+
+        LOG(INFO) << "Copying snapshot to temporary external path from " << snapshot_dir_path
+                  << " with meta from " << meta_dir_path << " to " << temp_snapshot_path;
+
+        const bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, temp_snapshot_root, true);
+        const bool meta_copied = butil::CopyDirectory(src_meta_dir, temp_state_dir, true);
+
+        if(snapshot_copied && meta_copied) {
+            return true;
+        }
+
+        LOG(ERROR) << "Failed to copy snapshot to temporary external path from " << snapshot_dir_path
+                   << " with meta from " << meta_dir_path << " to " << temp_snapshot_path;
+        delete_path(temp_snapshot_path, true);
+        return false;
+    }
+
+    bool move_temp_snapshot_into_place(const std::string& temp_snapshot_path, const std::string& ext_snapshot_path) {
+        const std::string backup_snapshot_path = ext_snapshot_path + ".bak";
+
+        if(directory_exists(backup_snapshot_path) && !delete_path(backup_snapshot_path, true)) {
+            LOG(ERROR) << "Failed to delete stale external snapshot backup path " << backup_snapshot_path;
+            delete_path(temp_snapshot_path, true);
+            return false;
+        }
+
+        if(directory_exists(ext_snapshot_path) && !rename_path(ext_snapshot_path, backup_snapshot_path)) {
+            LOG(ERROR) << "Failed to move existing external snapshot path " << ext_snapshot_path
+                       << " to backup path " << backup_snapshot_path;
+            delete_path(temp_snapshot_path, true);
+            return false;
+        }
+
+        if(rename_path(temp_snapshot_path, ext_snapshot_path)) {
+            delete_path(backup_snapshot_path, true);
+            LOG(INFO) << "Moved temporary external snapshot into place at " << ext_snapshot_path;
+            return true;
+        }
+
+        LOG(ERROR) << "Failed to move temporary external snapshot from " << temp_snapshot_path
+                   << " to " << ext_snapshot_path;
+        if(directory_exists(backup_snapshot_path) && !rename_path(backup_snapshot_path, ext_snapshot_path)) {
+            LOG(ERROR) << "Failed to restore external snapshot backup from " << backup_snapshot_path
+                       << " to " << ext_snapshot_path;
+        }
+        delete_path(temp_snapshot_path, true);
+        return false;
+    }
+}
+
 void ReplicationClosure::Run() {
     // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
@@ -644,7 +718,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     SnapshotArg* arg = new SnapshotArg;
     arg->replication_state = this;
     arg->writer = writer;
-    arg->state_dir_path = raft_dir_path;
     arg->db_snapshot_path = db_snapshot_path;
     arg->done = done;
 
@@ -652,8 +725,9 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         arg->analytics_db_snapshot_path = analytics_db_snapshot_path;
     }
 
-    if(!ext_snapshot_path.empty()) {
-        arg->ext_snapshot_path = ext_snapshot_path;
+    auto* on_demand_snapshot_closure = dynamic_cast<OnDemandSnapshotClosure*>(done);
+    if(on_demand_snapshot_closure != nullptr && !on_demand_snapshot_closure->get_ext_snapshot_path().empty()) {
+        arg->ext_snapshot_path = on_demand_snapshot_closure->get_ext_snapshot_path();
     }
 
     // Start a new bthread to avoid blocking StateMachine for slower operations that don't need a blocking view
@@ -1035,7 +1109,7 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
         return ;
     }
 
-    if(snapshot_in_progress) {
+    if(!try_set_snapshot_in_progress()) {
         res->set_409("Another snapshot is in progress.");
         auto req_res = new async_req_res_t(req, res, true);
         get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
@@ -1045,17 +1119,36 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
     LOG(INFO) << "Triggering an on demand snapshot"
               << (!snapshot_path.empty() ? " with external snapshot path..." : "...");
 
-    thread_pool->enqueue([&snapshot_path, req, res, this]() {
-        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path,
-                                                                                raft_dir_path);
-        ext_snapshot_path = snapshot_path;
+    thread_pool->enqueue([snapshot_path, req, res, this]() {
         std::shared_lock lock(this->node_mutex);
+        if(node == nullptr) {
+            lock.unlock();
+            set_snapshot_in_progress(false);
+            res->set_500("Could not trigger a snapshot, as node is not initialized.");
+            auto req_res = new async_req_res_t(req, res, true);
+            get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            return;
+        }
+
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res, snapshot_path);
         node->snapshot(snapshot_closure);
     });
 }
 
-void ReplicationState::set_ext_snapshot_path(const std::string& snapshot_path) {
-    this->ext_snapshot_path = snapshot_path;
+bool ReplicationState::try_set_snapshot_in_progress() {
+    size_t expected = 0;
+    return snapshot_in_progress.compare_exchange_strong(expected, 1);
+}
+
+bool ReplicationState::export_snapshot_to_path(const std::string& ext_snapshot_path) {
+    const std::string snapshot_dir_path = raft_dir_path + "/snapshot";
+    const std::string meta_dir_path = raft_dir_path + "/meta";
+    const std::string temp_snapshot_path = ext_snapshot_path + ".tmp";
+
+    const bool exported = copy_snapshot_to_temp_dir(snapshot_dir_path, meta_dir_path, temp_snapshot_path) &&
+                          move_temp_snapshot_into_place(temp_snapshot_path, ext_snapshot_path);
+
+    return exported;
 }
 
 void ReplicationState::set_snapshot_in_progress(const bool snapshot_in_progress) {
@@ -1280,8 +1373,20 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
         }
     }
 
+    if(!try_set_snapshot_in_progress()) {
+        LOG(INFO) << "Skipping timed snapshot because another snapshot is already in progress.";
+        return;
+    }
+
     TimedSnapshotClosure* snapshot_closure = new TimedSnapshotClosure(this);
     std::shared_lock lock(node_mutex);
+    if(!node) {
+        lock.unlock();
+        set_snapshot_in_progress(false);
+        LOG(WARNING) << "Skipping timed snapshot because node is not initialized.";
+        return;
+    }
+
     node->snapshot(snapshot_closure);
     last_snapshot_ts = current_ts;
 }
@@ -1330,24 +1435,10 @@ void OnDemandSnapshotClosure::Run() {
     bool ext_snapshot_succeeded = false;
 
     // if an external snapshot is requested, copy latest snapshot directory into that
-    if(!ext_snapshot_path.empty()) {
-        const butil::FilePath& dest_state_dir = butil::FilePath(ext_snapshot_path + "/state");
-
-        if(!butil::DirectoryExists(dest_state_dir)) {
-            butil::CreateDirectory(dest_state_dir, true);
-        }
-
-        const butil::FilePath& src_snapshot_dir = butil::FilePath(state_dir_path + "/snapshot");
-        const butil::FilePath& src_meta_dir = butil::FilePath(state_dir_path + "/meta");
-
-        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
-        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
-
-        ext_snapshot_succeeded = snapshot_copied && meta_copied;
+    if(status().ok() && !ext_snapshot_path.empty()) {
+        ext_snapshot_succeeded = replication_state->export_snapshot_to_path(ext_snapshot_path);
     }
 
-    // order is important, because the atomic boolean guards write to the path
-    replication_state->set_ext_snapshot_path("");
     replication_state->set_snapshot_in_progress(false);
 
     req->last_chunk_aggregate = true;
