@@ -2025,6 +2025,15 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                             }
                         }
 
+                        if(embedding_op.embedding.size() != vector_field_it.value().num_dim) {
+                            return Option<bool>(400, "The embedding model returned " +
+                                                     std::to_string(embedding_op.embedding.size()) +
+                                                     " dimensions, but the field `" +
+                                                     sort_field_std.vector_query.query.field_name + "` expects " +
+                                                     std::to_string(vector_field_it.value().num_dim) +
+                                                     " dimensions. Was the remote embedding model changed?");
+                        }
+
                         embeddings.emplace_back(embedding_op.embedding);
                     }
 
@@ -2905,6 +2914,12 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                     }
                 }
                 std::vector<float> embedding = embedding_op.embedding;
+                if(embedding.size() != search_field.num_dim) {
+                    return Option<bool>(400, "The embedding model returned " + std::to_string(embedding.size()) +
+                                             " dimensions, but the field `" + search_field.name + "` expects " +
+                                             std::to_string(search_field.num_dim) + " dimensions. Was the remote "
+                                             "embedding model changed?");
+                }
                 // params could have been set for an embed field, so we take a backup and restore
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
@@ -9210,9 +9225,16 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
                 }
             }
 
+            if(embedding_op.embedding.size() != vector_field_it.value().num_dim) {
+                return Option<bool>(400, "The embedding model returned " + std::to_string(embedding_op.embedding.size()) +
+                                         " dimensions, but the field `" + vector_query.field_name + "` expects " +
+                                         std::to_string(vector_field_it.value().num_dim) +
+                                         " dimensions. Was the remote embedding model changed?");
+            }
+
             embeddings.emplace_back(embedding_op.embedding);
         }
-        
+
         if(vector_query.query_weights.empty()) {
             // get average of all embeddings
             std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
