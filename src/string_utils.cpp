@@ -354,6 +354,19 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
+std::string StringUtils::truncate_utf8(const std::string& text, size_t max_bytes) {
+    if(text.size() <= max_bytes) {
+        return text;
+    }
+
+    size_t num_bytes = max_bytes;
+    while(num_bytes > 0 && (static_cast<unsigned char>(text[num_bytes]) & 0xC0) == 0x80) {
+        num_bytes--;
+    }
+
+    return text.substr(0, num_bytes);
+}
+
 Option<bool> StringUtils::split_include_exclude_fields(const std::string& include_exclude_fields,
                                                        std::vector<std::string>& tokens) {
     std::string token;
