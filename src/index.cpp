@@ -7430,6 +7430,21 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
         return ;
     }
 
+    // an object[] element with a null typed sub-field re-flattens to an array containing null.
+    // strip those before the casts below, which would otherwise throw on the null element.
+    // un-indexing a value that was never indexed is a no-op
+    if(document[field_name].is_array()) {
+        auto& arr = document[field_name];
+        auto it = arr.begin();
+        while(it != arr.end()) {
+            if(it->is_null()) {
+                it = arr.erase(it);
+            } else {
+                it++;
+            }
+        }
+    }
+
     auto coerce_op = validator_t::coerce_element(search_field, document, document[field_name],
                                                  "", DIRTY_VALUES::COERCE_OR_REJECT);
     if(!coerce_op.ok()) {
