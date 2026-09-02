@@ -6496,8 +6496,10 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     if(remove_from_store) {
         const std::string& id = document["id"];
 
-        store->remove(get_doc_id_key(id));
-        store->remove(get_seq_id_key(seq_id));
+        rocksdb::WriteBatch batch;
+        batch.Delete(get_doc_id_key(id));
+        batch.Delete(get_seq_id_key(seq_id));
+        store->batch_write(batch);
     }
 }
 
@@ -6786,11 +6788,13 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     }
 
     if(remove_from_store) {
+        rocksdb::WriteBatch batch;
         for(auto& record: records) {
             const auto id = record.doc["id"].get<std::string>();
-            store->remove(get_doc_id_key(id));
-            store->remove(get_seq_id_key(record.seq_id));
+            batch.Delete(get_doc_id_key(id));
+            batch.Delete(get_seq_id_key(record.seq_id));
         }
+        store->batch_write(batch);
     }
 
     if(removed_docs != nullptr) {
@@ -6853,6 +6857,30 @@ Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const 
     }
 
     return Option<uint32_t>(500, "Error while fetching doc_id from store.");
+}
+
+Collection::seq_id_reconcile_t Collection::reconcile_seq_id_mapping(const std::string& doc_id, uint32_t seq_id) {
+    std::string seq_id_str;
+    StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
+
+    if(status == StoreStatus::FOUND) {
+        if((uint32_t) std::stoul(seq_id_str) == seq_id) {
+            return seq_id_reconcile_t::CANONICAL;
+        }
+
+        // a newer seq_id owns this id: drop the stale orphan seq_id key
+        LOG(WARNING) << "Dropping orphan seq_id key " << seq_id << " for id `" << doc_id << "` in " << name;
+        store->remove(get_seq_id_key(seq_id));
+        return seq_id_reconcile_t::ORPHAN;
+    }
+
+    if(status == StoreStatus::NOT_FOUND) {
+        // seq_id key survived but its doc_id key was lost: restore the mapping
+        LOG(WARNING) << "Restoring missing doc_id key for id `" << doc_id << "` in " << name;
+        store->insert(get_doc_id_key(doc_id), std::to_string(seq_id));
+    }
+
+    return seq_id_reconcile_t::CANONICAL;
 }
 
 std::vector<std::string> Collection::get_facet_fields() {
@@ -10874,8 +10902,10 @@ void Collection::cascade_remove(const std::vector<index_record>& records, const 
 
         if (remove_from_store) {
             const auto id = record.doc["id"].get<std::string>();
-            store->remove(get_doc_id_key(id));
-            store->remove(get_seq_id_key(record.seq_id));
+            rocksdb::WriteBatch batch;
+            batch.Delete(get_doc_id_key(id));
+            batch.Delete(get_seq_id_key(record.seq_id));
+            store->batch_write(batch);
         }
     }
 }
