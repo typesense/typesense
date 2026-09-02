@@ -5165,6 +5165,22 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
     }
 }
 
+// drops the ascii chars a tokenizer configured with `index_symbols` would not index, without
+// re-running the segmenter over the token
+static std::string strip_non_index_ascii(const std::string& token, const std::vector<char>& index_symbols) {
+    std::string out;
+    out.reserve(token.size());
+
+    for(char c: token) {
+        if(!Tokenizer::is_ascii_char(c) || std::isalnum(static_cast<unsigned char>(c)) ||
+           std::find(index_symbols.begin(), index_symbols.end(), c) != index_symbols.end()) {
+            out += c;
+        }
+    }
+
+    return out;
+}
+
 void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
                                 std::vector<std::vector<std::string>>& q_exclude_tokens,
                                 std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
@@ -5214,6 +5230,16 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
 
         if(already_segmented) {
             StringUtils::split(token, sub_tokens, " ");
+        } else if(Tokenizer::has_word_tokenizer(locale)) {
+            // dictionary segmented locales must not be re-segmented: their own output is not a stable
+            // input. thai normalizes SARA AM (U+0E33) to U+0E4D U+0E32, and the break iterator splits
+            // the decomposed form into two tokens, which no longer matches how the document or the
+            // synonym term was tokenized. the first pass already applied this config, so only the
+            // symbols it was told to keep (the phrase quote) need stripping here.
+            auto cleaned = strip_non_index_ascii(token, custom_symbols);
+            if(!cleaned.empty()) {
+                sub_tokens.push_back(cleaned);
+            }
         } else {
             Tokenizer(token, true, false, locale, custom_symbols, custom_separators).tokenize(sub_tokens);
         }
