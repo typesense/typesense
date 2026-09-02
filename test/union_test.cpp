@@ -434,6 +434,32 @@ protected:
         }
     }
 
+    // Two collections for one union: the first holds documents the search has
+    // to work through, the second holds none that filter_by admits, so its
+    // search returns before it ever reads the clock.
+    void setupCutoffCollections() {
+        for (const auto& name: {"cutoff_0", "cutoff_1"}) {
+            nlohmann::json schema_json = {
+                    {"name",   name},
+                    {"fields", {{{"name", "title"},    {"type", "string"}},
+                                {{"name", "category"}, {"type", "string"}}}}
+            };
+            auto collection_create_op = collectionManager.create_collection(schema_json);
+            ASSERT_TRUE(collection_create_op.ok());
+
+            auto collection = collection_create_op.get();
+            for (auto i = 0; i < 200; i++) {
+                nlohmann::json document = {
+                        {"title",    "widget " + std::to_string(i)},
+                        // Only the first collection holds the category the
+                        // search filters on.
+                        {"category", std::string(name) == "cutoff_0" ? "kitchen" : "garden"}
+                };
+                ASSERT_TRUE(collection->add(document.dump()).ok());
+            }
+        }
+    }
+
     virtual void SetUp() {
         setupCollection();
     }
@@ -3207,4 +3233,47 @@ TEST_F(UnionTest, SearchCutoffKeepsInfixMatchesFiltered) {
     ASSERT_LT(json_res["found"].get<size_t>(), INFIX_DOCS_PER_COLLECTION);
     ASSERT_FALSE(json_res["hits"].empty());
     assert_only_kitchen();
+}
+
+// A union reports search_cutoff for the whole request, so a sub-search that ran
+// out of the shared time budget has to be visible in it however the later
+// sub-searches fared. Each sub-search starts by clearing the flag, and a search
+// that finds nothing its filter admits returns before it reads the clock at
+// all, so the last sub-search in a union is not a reliable place to read it
+// from.
+TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
+    setupCutoffCollections();
+
+    searches = R"([
+                    {
+                        "collection": "cutoff_0",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=kitchen"
+                    },
+                    {
+                        "collection": "cutoff_1",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=kitchen"
+                    }
+                ])"_json;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+
+    // Begun with the budget already spent, which is the state every sub-search
+    // of a union is in once an earlier one has used it up.
+    req_params = {{"per_page", "20"}, {"search_cutoff_ms", "1"}};
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res,
+                                                now_ts - std::chrono::microseconds(std::chrono::seconds(1)).count());
+
+    ASSERT_TRUE(search_op.ok());
+
+    // A union that has nothing left to return after the budget is spent answers
+    // with no result body at all, which is honest about it. A result body is
+    // not, unless it says so.
+    if (!json_res.is_null()) {
+        ASSERT_TRUE(json_res.contains("search_cutoff")) << json_res.dump();
+        ASSERT_TRUE(json_res["search_cutoff"].get<bool>())
+                            << "a sub-search ran out of budget and the union did not say so: " << json_res.dump();
+    }
 }
