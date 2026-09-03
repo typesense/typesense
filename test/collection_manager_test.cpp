@@ -1104,12 +1104,13 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 }
 
 TEST_F(CollectionManagerTest, RestoreRemoteEmbeddingFieldWithoutEndpointValidation) {
-    auto create_op = collectionManager.create_collection(R"({
+    nlohmann::json coll_json = R"({
         "name": "coll_embed",
         "fields": [
             {"name": "title", "type": "string"}
         ]
-    })"_json);
+    })"_json;
+    auto create_op = collectionManager.create_collection(coll_json);
     ASSERT_TRUE(create_op.ok());
 
     std::string collection_meta_json;
