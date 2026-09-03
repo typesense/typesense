@@ -2755,7 +2755,7 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
                                  const size_t group_limit,
                                  const std::vector<std::string>& group_by_fields,
                                  const bool group_missing_values,
-                                 const  std::map<std::string, reference_filter_result_t>& references) const {
+                                 const std::map<uint32_t, std::map<std::string, reference_filter_result_t>>& seq_id_to_references) const {
 
     if(included_ids_map.empty()) {
         return;
@@ -2789,6 +2789,9 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             scores[2] = int64_t(1);
 
             //included ids are upstream validated, so can directly add references
+            const auto& ref_it = seq_id_to_references.find(seq_id);
+            const auto& references = (ref_it != seq_id_to_references.end()) ? ref_it->second
+                                                                            : std::map<std::string, reference_filter_result_t>{};
             KV kv(0, seq_id, distinct_id, 0, scores, references);
             curated_topster->add(&kv);
         }
@@ -3612,12 +3615,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
     std::vector<uint32_t> included_ids_vec;
+    std::map<uint32_t, std::map<std::string, reference_filter_result_t>> seq_id_to_references;
 
     process_curated_ids(included_ids, excluded_ids, group_limit, filter_curated_hits,
                         filter_result_iterator, curated_ids, included_ids_map,
-                        included_ids_vec);
+                        included_ids_vec, seq_id_to_references);
     collate_included_ids({}, included_ids_map, curated_topster, group_limit,
-                         group_by_fields, group_missing_values, filter_result_iterator->reference);
+                         group_by_fields, group_missing_values, seq_id_to_references);
     filter_result_iterator->reset();
     search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
@@ -4862,7 +4866,8 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
                                 const bool filter_curated_hits, filter_result_iterator_t* const filter_result_iterator,
                                 std::set<uint32_t>& curated_ids,
                                 std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                std::vector<uint32_t>& included_ids_vec) const {
+                                std::vector<uint32_t>& included_ids_vec,
+                                std::map<uint32_t, std::map<std::string, reference_filter_result_t>>& seq_id_to_references) const {
 
     for(const auto& seq_id_pos: included_ids) {
         included_ids_vec.push_back(seq_id_pos.first);
@@ -4886,6 +4891,8 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
 
             if (result == 1) {
                 included_ids_set.insert(included_id);
+
+                seq_id_to_references[included_id] = filter_result_iterator->reference;
             }
         }
     }
