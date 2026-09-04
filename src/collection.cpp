@@ -1489,6 +1489,25 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     return num_indexed;
 }
 
+// re-tokenizes a curation rule query the same way rule.normalized_query is built at parse time,
+// but with a caller-supplied symbols_to_index. curations are parsed without a collection's symbols,
+// so the stored normalized_query strips symbols_to_index and can match too loosely. passing the
+// collection/field symbols here keeps the match symbol-aware.
+static std::string normalize_curation_rule_query(const std::string& rule_query, const std::string& locale,
+                                                 const std::vector<char>& symbols_to_index,
+                                                 const std::vector<char>& token_separators,
+                                                 std::shared_ptr<Stemmer> stemmer) {
+    std::vector<char> symbols = symbols_to_index;
+    symbols.push_back('{');
+    symbols.push_back('}');
+    symbols.push_back('*');
+    symbols.push_back('.');
+
+    std::vector<std::string> tokens;
+    Tokenizer(rule_query, true, false, locale, symbols, token_separators, stemmer, true).tokenize(tokens);
+    return StringUtils::join(tokens, " ");
+}
+
 bool Collection::does_curation_match(const curation_t& curation, std::string& query,
                                      std::set<uint32_t>& excluded_set,
                                      string& actual_query, const std::string& curation_normalized_query, const string& filter_query,
@@ -1500,6 +1519,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                      std::vector<uint32_t>& excluded_ids,
                                      std::vector<const curation_t*>& filter_sort_curations,
+                                     std::set<const curation_t*>& matched_filter_curations,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
                                      nlohmann::json& curation_metadata,
@@ -1604,6 +1624,31 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
     if(curation_metadata.empty()) {
         curation_metadata = curation.metadata;
     }
+
+    // a static filter rule that matched here must apply even if replace_query or stopword removal
+    // later rewrites the query, so remember it instead of re-matching the rewritten query
+    // (sort_by is already carried out of here via curated_sort_by).
+    //
+    // gate on a symbol-aware re-match: the stored normalized_query strips symbols_to_index and can
+    // match too loosely (rule "non-stick" normalizes to "nonstick" and would otherwise force-apply
+    // on a "nonstick" query for a '-' indexed collection, which static_filter_query_eval rejects).
+    // matches driven purely by synonyms or by rule.filter_by are intentionally not force-applied:
+    // they don't survive the query rewrite in static_filter_query_eval and never did before this.
+    if(!curation.rule.dynamic_query && !curation.rule.dynamic_filter && !curation.filter_by.empty()) {
+        auto stemmer = curation.rule.stem ?
+                StemmerManager::get_instance().get_stemmer(curation.rule.locale, curation.rule.stemming_dictionary) : nullptr;
+        const std::string symbol_aware_query = normalize_curation_rule_query(curation.rule.query, curation.rule.locale,
+                                                                             symbols_to_index, token_separators, stemmer);
+
+        const bool strict_match =
+                (curation.rule.match == curation_t::MATCH_EXACT && symbol_aware_query == query) ||
+                (curation.rule.match == curation_t::MATCH_CONTAINS && StringUtils::contains_word(query, symbol_aware_query));
+
+        if(strict_match) {
+            matched_filter_curations.insert(&curation);
+        }
+    }
+
     return true;
 }
 
@@ -1615,6 +1660,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const curation_t*>& filter_sort_curations,
+                                std::set<const curation_t*>& matched_filter_curations,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
@@ -1694,7 +1740,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                                 ov->rule.normalized_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
-                                                                excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                                excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                                 curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                                 synonym_prefix, synonym_num_typos);
                           if(match_found) {
@@ -1724,7 +1770,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                              ov->rule.normalized_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
-                                                            excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                            excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                             curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                             synonym_prefix, synonym_num_typos);
                       if(match_found) {
@@ -1763,7 +1809,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                   bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
-                                                        excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                        excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
                                                         synonym_num_typos);
                   if(match_found) {
@@ -3159,6 +3205,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
     std::vector<const curation_t*> filter_sort_curations;
+    std::set<const curation_t*> matched_filter_curations;
     std::string curated_sort_by;
     std::set<std::string> curation_tag_set;
 
@@ -3172,7 +3219,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, matched_filter_curations,
+                   filter_curated_hits_curations,
                    curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
     if(!curate_results_op.ok()) {
         return curate_results_op;
@@ -3228,7 +3276,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                                false, stopwords_set);
 
-            process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
+            process_filter_sort_curations(filter_sort_curations, matched_filter_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -3266,7 +3314,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         // process filter curations first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
+        process_filter_sort_curations(filter_sort_curations, matched_filter_curations, q_include_tokens, token_order, filter_tree_root_guard,
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
                                  most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
@@ -5076,6 +5124,7 @@ void Collection::build_highlight_snapshots(
 }
 
 void Collection::process_filter_sort_curations(std::vector<const curation_t*>& filter_sort_curations,
+                                          const std::set<const curation_t*>& matched_filter_curations,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
                                           std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -5093,20 +5142,12 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
 
     std::vector<const curation_t*> matched_dynamic_curations;
     auto compute_normalized_query = [&](const curation_t& curation) {
-      auto symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
-      symbols.push_back('{');
-      symbols.push_back('}');
-      symbols.push_back('*');
-      symbols.push_back('.');
-
+      const auto& symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
       const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
       const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
 
-      std::vector<std::string> tokens;
-      Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
-      tokenizer.tokenize(tokens);
-      auto query_normalized = StringUtils::join(tokens, " ");
+      auto query_normalized = normalize_curation_rule_query(curation.rule.query, query_locale, symbols, separators,
+                                                            use_search_field_stemmer ? stemmer : nullptr);
       size_t i = 0;
       while(i < query_normalized.size()) {
           if(query_normalized[i] == '{') {
@@ -5134,7 +5175,8 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       StringUtils::split(query_normalized, rule_tokens, " ");
       curation_rule_token_sets.emplace_back(rule_tokens.begin(), rule_tokens.end());
     }
-    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, curation_rule_token_sets,
+    index->process_filter_sort_curations(filter_sort_curations, matched_filter_curations, curation_normalized_queries,
+                                    curation_rule_token_sets,
                                     q_include_tokens, token_order, filter_tree_root, matched_dynamic_curations,
                                     curation_metadata, sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens, validate_field_names);
