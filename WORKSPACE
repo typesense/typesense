@@ -342,7 +342,7 @@ new_git_repository(
     name= "snowball",
     build_file = "//bazel:snowball.BUILD",
     # Pin snowball to the latest known-good upstream commit.
-    commit = "2c40f9d8d93faa141e2a8ab640e404b815726c25",
+    commit = "cd195b51e948a902a4312f023f4a14392516a543",
     remote = "https://github.com/snowballstem/snowball.git"
 )
 
