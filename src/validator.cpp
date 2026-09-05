@@ -1,6 +1,17 @@
 #include "validator.h"
 #include "field.h"
 
+namespace {
+bool is_valid_uint32_json_integer(const nlohmann::json& value) {
+    if (!value.is_number_integer() && !value.is_number_unsigned()) {
+        return false;
+    }
+
+    const auto signed_value = value.get<int64_t>();
+    return signed_value >= 0 && static_cast<uint64_t>(signed_value) <= UINT32_MAX;
+}
+}
+
 Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::json& document,
                                        nlohmann::json& doc_ele,
                                        const std::string& fallback_field_type,
@@ -340,7 +351,8 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
     // Object array reference helper field. It's not provided by the user.
     if(is_array && a_field.nested && a_field.is_reference_helper) {
         // It's an array of two uint32_t values indicating the object index and referenced doc id respectively.
-        if(item.size() != 2 || !item.at(0).is_number_unsigned() || !item.at(1).is_number_unsigned()) {
+        if(item.size() != 2 || !is_valid_uint32_json_integer(item.at(0)) ||
+           !is_valid_uint32_json_integer(item.at(1))) {
             return Option<>(400, "`" + field_name + "` object array reference helper field has wrong value `"
                                  + item.dump() + "`.");
         }
