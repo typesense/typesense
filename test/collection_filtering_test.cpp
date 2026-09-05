@@ -5444,3 +5444,376 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluationSearchHits) {
 
     collectionManager.drop_collection("products");
 }
+
+TEST_F(CollectionFilteringTest, LazyFilterNotInArrayDeepPagination) {
+    // Bug: deep pagination with --enable-lazy-filter returns empty hits when a NOT-IN
+    // array filter's approx_filter_ids_length underestimates, causing the topster to
+    // be sized too small for pages beyond the (incorrect) approximation.
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_test",
+        "fields": [
+            {"name": "app_id", "type": "string", "facet": true},
+            {"name": "tags", "type": "string[]", "facet": true},
+            {"name": "is_active", "type": "bool", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // 100 docs: 70 good (active, safe tags), 20 excluded (active, bad tags), 10 inactive.
+    const std::vector<std::string> good_tags = {"safe", "clean", "general", "family", "fun"};
+    const std::vector<std::string> bad_tags = {"tag_a", "tag_b", "tag_c", "tag_d", "tag_e"};
+
+    for (int i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["app_id"] = "myapp";
+        doc["score"] = 100 - i; // deterministic descending scores
+
+        int mod = i % 10;
+        if (mod < 7) {
+            doc["tags"] = {good_tags[i % good_tags.size()], good_tags[(i + 2) % good_tags.size()]};
+            doc["is_active"] = true;
+        } else if (mod < 9) {
+            doc["tags"] = {bad_tags[i % bad_tags.size()], bad_tags[(i + 1) % bad_tags.size()]};
+            doc["is_active"] = true;
+        } else {
+            doc["tags"] = {good_tags[i % good_tags.size()]};
+            doc["is_active"] = false;
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "app_id:myapp && tags:!=[tag_a,tag_b,tag_c,tag_d,tag_e] && is_active:true";
+
+    // First page: get total found count.
+    auto req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_test";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "10";
+    (*req_params)["page"] = "1";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    size_t found = result["found"].get<size_t>();
+    ASSERT_EQ(70, found);
+
+    // Paginate through ALL pages, collecting every hit.
+    size_t total_retrieved = 0;
+    size_t per_page = 10;
+    size_t max_pages = (found / per_page) + 1;
+
+    for (size_t page = 1; page <= max_pages; page++) {
+        delete req_params;
+        req_params = new std::map<std::string, std::string>();
+        (*req_params)["collection"] = "lazy_not_in_test";
+        (*req_params)["q"] = "*";
+        (*req_params)["filter_by"] = filter;
+        (*req_params)["sort_by"] = "score:desc";
+        (*req_params)["per_page"] = std::to_string(per_page);
+        (*req_params)["page"] = std::to_string(page);
+        (*req_params)["enable_lazy_filter"] = "true";
+
+        json_res.clear();
+        now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        result = nlohmann::json::parse(json_res);
+
+        size_t hits = result["hits"].size();
+        total_retrieved += hits;
+
+        // Every page up to the last full page must have per_page results.
+        if (page < max_pages) {
+            ASSERT_EQ(per_page, hits);
+        }
+    }
+
+    delete req_params;
+
+    // All 70 matching docs must be retrievable through pagination.
+    ASSERT_EQ(found, total_retrieved);
+}
+
+TEST_F(CollectionFilteringTest, LazyFilterNotInMultiTokenStringDeepPagination) {
+    // Regression: multi-token NOT-IN on a string field with --enable-lazy-filter.
+    // Each multi-token filter value is estimated from token-level posting-list
+    // minima, which overcounts the excluded side (docs that merely share a token,
+    // e.g. "red apple pie", inflate the "red apple" estimate). The OR-sum across
+    // values overcounts further, so num_ids - OR_sum undercounts the NOT result and
+    // sizes the topster too small for deep pages.
+    //
+    // num_ids = 20. OR-sum = min(red=8, apple=10) + min(blue=2, apple=10) = 8 + 2 = 10,
+    // so the old approx = 20 - 10 = 10, while 14 docs actually match. The undersized
+    // topster (10) drops results past offset 10. The approx (10) stays >= the
+    // TEST_BUILD threshold (3), so the iterator is not eagerly materialized and the
+    // bug surfaces on the lazy path. With the fix the topster is sized at num_ids.
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_multi_token_test",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // 14 matching docs (ids 0-13), 6 excluded by exact NOT value (ids 14-19).
+    for (int i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["score"] = 1000 - i; // deterministic descending scores
+
+        if (i < 4) {
+            doc["title"] = "red apple pie"; // shares tokens with "red apple" but is not an exact match
+        } else if (i < 14) {
+            doc["title"] = "green pear";
+        } else if (i < 18) {
+            doc["title"] = "red apple"; // excluded (exact)
+        } else {
+            doc["title"] = "blue apple"; // excluded (exact)
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "title:!=[red apple,blue apple]";
+    const size_t per_page = 4;
+
+    auto run_page = [&](size_t page) {
+        auto req_params = new std::map<std::string, std::string>();
+        (*req_params)["collection"] = "lazy_not_in_multi_token_test";
+        (*req_params)["q"] = "*";
+        (*req_params)["filter_by"] = filter;
+        (*req_params)["sort_by"] = "score:desc";
+        (*req_params)["per_page"] = std::to_string(per_page);
+        (*req_params)["page"] = std::to_string(page);
+        (*req_params)["enable_lazy_filter"] = "true";
+        (*req_params)["include_fields"] = "id";
+
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+        delete req_params;
+        EXPECT_TRUE(search_op.ok());
+        return nlohmann::json::parse(json_res);
+    };
+
+    auto first = run_page(1);
+    size_t found = first["found"].get<size_t>();
+    ASSERT_EQ(14, found);
+
+    // Paginate through every page; all 14 matches must be retrievable.
+    size_t total_retrieved = 0;
+    size_t total_pages = (found + per_page - 1) / per_page;
+    for (size_t page = 1; page <= total_pages; page++) {
+        auto result = run_page(page);
+        total_retrieved += result["hits"].size();
+    }
+    ASSERT_EQ(found, total_retrieved);
+
+    // Deep page (offset 12) must return the two lowest-scoring matches.
+    auto deep = run_page(4);
+    ASSERT_EQ(2, deep["hits"].size());
+    ASSERT_EQ("12", deep["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("13", deep["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionFilteringTest, LazyFilterNotInNumericOverlapDeepPagination) {
+    // Regression: numeric NOT-IN on int32[] with overlapping posting lists.
+    // Docs with tags=[1,2] appear in both S1 and S2. OR-sum = S1+S2 = 20 double-
+    // counts the overlap, so old approx = num_ids - 20 = 5, but actual NOT = 15.
+    // The undersized topster (5) drops results beyond page 1.
+    nlohmann::json schema = R"({
+        "name": "lazy_not_in_numeric_overlap",
+        "fields": [
+            {"name": "tags", "type": "int32[]", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // 10 docs with tags=[1,2] (excluded), 15 docs with tags=[3] (matching NOT).
+    for (int i = 0; i < 25; i++) {
+        nlohmann::json doc;
+        doc["score"] = 25 - i;
+        if (i < 10) {
+            doc["tags"] = {1, 2};
+        } else {
+            doc["tags"] = {3};
+        }
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string filter = "tags:!=[1, 2]";
+
+    auto req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "1";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    size_t found = result["found"].get<size_t>();
+    ASSERT_EQ(15, found);
+    ASSERT_EQ(5, result["hits"].size());
+
+    // Page 2 — fails without fix because topster is sized at 5 (old approx).
+    delete req_params;
+    req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "2";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    // Without fix: topster=5, page 2 returns 0 hits.
+    // With fix: topster=15, page 2 returns 5 hits.
+    ASSERT_EQ(5, result["hits"].size());
+
+    // Page 3 — last page with 5 remaining results.
+    delete req_params;
+    req_params = new std::map<std::string, std::string>();
+    (*req_params)["collection"] = "lazy_not_in_numeric_overlap";
+    (*req_params)["q"] = "*";
+    (*req_params)["filter_by"] = filter;
+    (*req_params)["sort_by"] = "score:desc";
+    (*req_params)["per_page"] = "5";
+    (*req_params)["page"] = "3";
+    (*req_params)["enable_lazy_filter"] = "true";
+
+    json_res.clear();
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(*req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(5, result["hits"].size());
+
+    delete req_params;
+}
+
+TEST_F(CollectionFilteringTest, LazyNotInArrayFiltersPaginatePastOverlapApproximation) {
+    auto schema = R"({
+        "name": "coll_lazy_not_in_overlap",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "app_id", "type": "string", "facet": true},
+            {"name": "tags", "type": "string[]", "facet": true},
+            {"name": "numbers", "type": "int32[]", "facet": true},
+            {"name": "is_active", "type": "bool", "facet": true},
+            {"name": "score", "type": "int32"}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    // The four excluded docs contain both excluded values, so a lazy OR-sum estimate
+    // undercounts the NOT side as 12 even though 14 active docs match.
+    for (int i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        doc["app_id"] = "myapp";
+        doc["score"] = 1000 - i;
+
+        if (i < 14) {
+            doc["tags"] = nlohmann::json::array({"safe"});
+            doc["numbers"] = nlohmann::json::array({10});
+            doc["is_active"] = true;
+        } else if (i < 18) {
+            doc["tags"] = nlohmann::json::array({"tag_a", "tag_b"});
+            doc["numbers"] = nlohmann::json::array({1, 2});
+            doc["is_active"] = true;
+        } else {
+            doc["tags"] = nlohmann::json::array({"safe"});
+            doc["numbers"] = nlohmann::json::array({10});
+            doc["is_active"] = false;
+        }
+
+        auto add_op = coll->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto assert_deep_page = [&](const std::string& filter_by) {
+        SCOPED_TRACE(filter_by);
+        std::map<std::string, std::string> req_params = {
+            {"collection", "coll_lazy_not_in_overlap"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", filter_by},
+            {"sort_by", "score:desc"},
+            {"enable_lazy_filter", "true"},
+            {"per_page", "4"},
+            {"page", "4"},
+            {"include_fields", "id"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+
+        ASSERT_EQ(14, res_obj["found"].get<size_t>());
+        ASSERT_EQ(2, res_obj["hits"].size());
+        ASSERT_EQ("12", res_obj["hits"][0]["document"]["id"].get<std::string>());
+        ASSERT_EQ("13", res_obj["hits"][1]["document"]["id"].get<std::string>());
+    };
+
+    assert_deep_page("app_id:=myapp && tags:!=[tag_a,tag_b] && is_active:true");
+    assert_deep_page("app_id:=myapp && numbers: !=[1,2] && is_active:true");
+}

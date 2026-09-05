@@ -1543,9 +1543,15 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    // Keep the excluded-list estimate only as a hint for the eager-materialization threshold.
+                    auto const not_equals_filter_ids_approx = approx_filter_ids_length >= num_ids ?
+                                                              num_ids : (num_ids - approx_filter_ids_length);
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    // Overlapping excluded values overcount the excluded docs, so this estimate can
+                    // undersize the topster. num_ids is a safe upper bound for any NOT result.
+                    approx_filter_ids_length = num_ids;
+
+                    if (not_equals_filter_ids_approx < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -1703,9 +1709,15 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                 if (a_filter.apply_not_equals) {
                     auto const& num_ids = index->seq_ids->num_ids();
-                    approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+                    // Keep the excluded-list estimate only as a hint for the eager-materialization threshold.
+                    auto const not_equals_filter_ids_approx = approx_filter_ids_length >= num_ids ?
+                                                              num_ids : (num_ids - approx_filter_ids_length);
 
-                    if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    // Overlapping excluded values overcount the excluded docs, so this estimate can
+                    // undersize the topster. num_ids is a safe upper bound for any NOT result.
+                    approx_filter_ids_length = num_ids;
+
+                    if (not_equals_filter_ids_approx < numeric_filter_ids_threshold) {
                         // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                         compute_iterators();
                         return;
@@ -2224,9 +2236,15 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         if (a_filter.apply_not_equals) {
             auto const& num_ids = index->seq_ids->num_ids();
-            approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+            // Preserve OR-sum-based hint for eager-materialization threshold.
+            auto const not_equals_filter_ids_approx = approx_filter_ids_length >= num_ids ?
+                                                      num_ids : (num_ids - approx_filter_ids_length);
 
-            if (approx_filter_ids_length < string_filter_ids_threshold) {
+            // Per-value string counts are only token-level approximations until exact
+            // value matching runs, so they are not a safe bound for lazy NOT iterators.
+            approx_filter_ids_length = num_ids;
+
+            if (not_equals_filter_ids_approx < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                 compute_iterators();
                 return;
