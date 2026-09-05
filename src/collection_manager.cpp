@@ -837,6 +837,7 @@ void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
 
     collections.clear();
+    collections_pending_drop.clear();
     collection_symlinks.clear();
     preset_configs.clear();
     referenced_ins.clear();
@@ -889,7 +890,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& curation_sets) {
     std::unique_lock lock(mutex);
 
-    if(store->contains(Collection::get_meta_key(name))) {
+    if(collections.count(name) != 0 || collections_pending_drop.count(name) != 0 ||
+       store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
 
@@ -1250,21 +1252,31 @@ std::vector<std::string> CollectionManager::get_collection_names() const {
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name,
                                                           const bool remove_from_store,
                                                           const bool compact_store) {
-    std::shared_lock s_lock(mutex);
-    auto collection = get_collection_unsafe(collection_name);
+    std::shared_ptr<Collection> collection;
+    std::string actual_coll_name;
+    uint32_t collection_id = 0;
 
-    if(collection == nullptr) {
-        return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
+    {
+        std::unique_lock lock(mutex);
+        collection = get_collection_unsafe(collection_name);
+
+        if(collection == nullptr) {
+            return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
+        }
+
+        // to handle alias resolution
+        actual_coll_name = collection->get_name();
+        collection_id = collection->get_collection_id();
+        collections_pending_drop.insert(actual_coll_name);
+        collections.erase(actual_coll_name);
+        collection_id_names.erase(collection_id);
     }
-
-    // to handle alias resolution
-    const std::string actual_coll_name = collection->get_name();
 
     nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
-        const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
-        const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
+        const std::string& del_key_prefix = std::to_string(collection_id) + "_";
+        const std::string& del_end_prefix = std::to_string(collection_id) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
 
         if(compact_store) {
@@ -1276,8 +1288,6 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
-    s_lock.unlock();
-
     // Remove the record of other collections being referenced in this collection.
     auto reference_fields = collection->get_reference_fields();
     for (const auto& item: reference_fields) {
@@ -1286,18 +1296,18 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         remove_referenced_ins_with_lock(collection_name, reference_info);
     }
 
-    std::unique_lock u_lock(mutex);
-    collections.erase(actual_coll_name);
-    collection_id_names.erase(collection->get_collection_id());
-
     const auto& embedding_fields = collection->get_embedding_fields();
 
-    u_lock.unlock();
     for(const auto& embedding_field : embedding_fields) {
         const auto& model_name = embedding_field.embed[fields::model_config][fields::model_name].get<std::string>();
         if (embedding_field.embed.count(fields::personalization_type) == 0) {
             process_embedding_field_delete(model_name);
         }
+    }
+
+    {
+        std::unique_lock lock(mutex);
+        collections_pending_drop.erase(actual_coll_name);
     }
 
     return Option<nlohmann::json>(collection_json);

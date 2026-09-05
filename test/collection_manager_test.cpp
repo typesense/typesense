@@ -1286,6 +1286,16 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     delete it;
 }
 
+TEST_F(CollectionManagerTest, CreateCollectionRejectsLoadedCollectionWithoutStoreMeta) {
+    ASSERT_TRUE(store->remove(Collection::get_meta_key("collection1")));
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto create_op = collectionManager.create_collection("collection1", 1, fields);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ(409, create_op.code());
+    ASSERT_EQ(collection1, collectionManager.get_collection("collection1").get());
+}
+
 TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
     api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
     collectionManager.getAuthManager().create_key(key1);

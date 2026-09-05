@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <set>
 #include <string>
 #ifdef TEST_BUILD
 #include <functional>
@@ -34,6 +35,8 @@ private:
     spp::sparse_hash_map<std::string, std::shared_ptr<Collection>> collections;
 
     spp::sparse_hash_map<uint32_t, std::string> collection_id_names;
+
+    std::set<std::string> collections_pending_drop;
 
     spp::sparse_hash_map<std::string, std::string> collection_symlinks;
 
