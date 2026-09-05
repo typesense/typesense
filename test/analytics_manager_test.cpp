@@ -724,6 +724,107 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   }
 }
 
+TEST_F(AnalyticsManagerTest, PopularQueriesMissingUserId) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json rule = R"({
+    "name": "popular_no_user",
+    "type": "popular_queries",
+    "collection": "products",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "queries",
+      "capture_search_requests": false,
+      "meta_fields": ["analytics_tag"],
+      "limit": 1000
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  // user_id is optional for counter rules: event is accepted and counted
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "popular_no_user",
+    "data": {
+      "q": "hola",
+      "analytics_tag": "tag1"
+    }
+  })"_json);
+  ASSERT_TRUE(add_event_op.ok());
+
+  auto get_counter_op = search_analytics.get_search_counter_events();
+  ASSERT_EQ(get_counter_op["popular_no_user"].query_counts.size(), 1);
+  for(auto& [key, value] : get_counter_op["popular_no_user"].query_counts) {
+    ASSERT_EQ(key.query, "hola");
+    ASSERT_EQ(key.user_id, "");
+    ASSERT_EQ(value, 1);
+  }
+}
+
+TEST_F(AnalyticsManagerTest, LogEventMissingUserIdReturns400) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" },
+        {"name": "country", "type": "string", "facet": true }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json log_rule = R"({
+    "name": "log_no_user",
+    "type": "log",
+    "collection": "products",
+    "event_type": "search",
+    "params": {
+      "capture_search_requests": false,
+      "meta_fields": ["analytics_tag"]
+    }
+  })"_json;
+
+  auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
+  ASSERT_TRUE(create_op.ok());
+
+  // user_id is required for log rules: event is rejected with a 400 instead of hanging
+  auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_no_user",
+    "data": {
+      "q": "hola",
+      "analytics_tag": "tag1"
+    }
+  })"_json);
+  ASSERT_FALSE(add_event_op.ok());
+  ASSERT_EQ(add_event_op.code(), 400);
+  ASSERT_EQ(add_event_op.error(), "'user_id' should be a string and is required");
+}
+
 TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDs) {
   nlohmann::json products_schema = R"({
       "name": "products_meta_id",
