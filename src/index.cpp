@@ -2819,6 +2819,24 @@ bool Index::static_filter_query_eval(const curation_t* curation,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
                                      const bool& validate_field_names) const {
     std::string query = StringUtils::join(tokens, " ");
+
+    // when the rule has stem enabled, stem the query tokens with the rule's own stemmer so the match
+    // is consistent regardless of field stemming. curation_normalized_query is already rule-stemmed by
+    // the caller and the query side must be stemmed the same way, otherwise a rule "tops" stemmed to
+    // "top" would match "pink top" but not "pink tops".
+    if (curation->rule.stem) {
+        auto rule_stemmer = StemmerManager::get_instance().get_stemmer(curation->rule.locale,
+                                                                       curation->rule.stemming_dictionary);
+        if (rule_stemmer != nullptr) {
+            std::vector<std::string> stemmed_tokens;
+            stemmed_tokens.reserve(tokens.size());
+            for (const auto& tok : tokens) {
+                stemmed_tokens.push_back(rule_stemmer->stem(tok));
+            }
+            query = StringUtils::join(stemmed_tokens, " ");
+        }
+    }
+
     bool tag_matched = (!curation->rule.tags.empty() && curation->rule.filter_by.empty() &&
                          curation->rule.query.empty());
 

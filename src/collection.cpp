@@ -5100,11 +5100,20 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       symbols.push_back('.');
 
       const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
-      const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
+      const bool is_static = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
+
+      // a rule with stem enabled normalizes its query with the rule's own stemmer, regardless of
+      // whether the searched fields have stemming. otherwise a static rule "tops" stays "tops"
+      // here and fails to match a singular "top" query even though the include path already did.
+      std::shared_ptr<Stemmer> effective_stemmer = is_static ? stemmer : nullptr;
+      if(is_static && curation.rule.stem) {
+          effective_stemmer = StemmerManager::get_instance().get_stemmer(curation.rule.locale,
+                                                                         curation.rule.stemming_dictionary);
+      }
 
       std::vector<std::string> tokens;
       Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
+                          effective_stemmer, true);
       tokenizer.tokenize(tokens);
       auto query_normalized = StringUtils::join(tokens, " ");
       size_t i = 0;
