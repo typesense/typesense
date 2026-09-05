@@ -3616,6 +3616,62 @@ static std::unordered_map<std::string, std::unordered_set<uint32_t>> build_objec
 }
 
 
+// join all tokens so multi token values like `es-MX` compare fully, not just by their first token
+static std::string tokenize_object_filter_value(const std::string& value, const std::vector<char>& symbols,
+                                                const std::vector<char>& separators, const field& f) {
+    Tokenizer tokenizer(value, true, false, f.locale, symbols, separators, f.get_stemmer());
+
+    std::string tokenized_val;
+    std::string token;
+    size_t token_index = 0;
+    while (tokenizer.next(token, token_index)) {
+        if (token.size() > f.truncate_len && f.truncate_len > 0) {
+            token.erase(f.truncate_len);
+        }
+
+        if (!tokenized_val.empty()) {
+            tokenized_val += " ";
+        }
+        tokenized_val += token;
+    }
+
+    return tokenized_val.empty() ? value : tokenized_val;
+}
+
+// filter tokens get an unordered AND like the flat filter path, a trailing * makes the last token
+// match by prefix and infix values match as a substring
+static bool object_filter_string_matches(const std::string& tokenized_doc_val, const std::string& tokenized_filter_val,
+                                         const bool is_prefix, const bool is_infix) {
+    if (is_infix) {
+        return tokenized_doc_val.find(tokenized_filter_val) != std::string::npos;
+    }
+
+    std::vector<std::string> doc_tokens;
+    StringUtils::split(tokenized_doc_val, doc_tokens, " ");
+
+    std::vector<std::string> filter_tokens;
+    StringUtils::split(tokenized_filter_val, filter_tokens, " ");
+
+    for (size_t i = 0; i < filter_tokens.size(); i++) {
+        const auto& filter_token = filter_tokens[i];
+        const bool prefix_token = is_prefix && i == filter_tokens.size() - 1;
+        bool token_found = false;
+
+        for (const auto& doc_token: doc_tokens) {
+            if (prefix_token ? doc_token.rfind(filter_token, 0) == 0 : doc_token == filter_token) {
+                token_found = true;
+                break;
+            }
+        }
+
+        if (!token_found) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool filter_result_iterator_t::validate_object_filter_helper(
         Index const* const index, const nlohmann::json& doc, const filter_node_t* filter_node,
         const std::string& collection_name, const std::string& object_field_name,
@@ -3675,18 +3731,24 @@ bool filter_result_iterator_t::validate_object_filter_helper(
         }
 
         field f = index->search_schema.at(filter_exp.field_name);
+        const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
+        const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
 
         using fieldType = std::variant<int64_t, float, bool, std::string>;
 
-        const auto value_matches = [](const fieldType& doc_val, const fieldType& filter_val,
-                                      const NUM_COMPARATOR comparator) {
+        bool filter_is_prefix = false;
+        bool filter_is_infix = false;
+
+        const auto value_matches = [&filter_is_prefix, &filter_is_infix](const fieldType& doc_val, const fieldType& filter_val,
+                                                                         const NUM_COMPARATOR comparator) {
             if (comparator == EQUALS) {
                 return doc_val == filter_val;
             } else if (comparator == NOT_EQUALS) {
                 return doc_val != filter_val;
             } else if(comparator == CONTAINS) {
                 if(std::holds_alternative<std::string>(doc_val) && std::holds_alternative<std::string>(filter_val)) {
-                    return std::get<std::string>(doc_val).find(std::get<std::string>(filter_val)) != std::string::npos;
+                    return object_filter_string_matches(std::get<std::string>(doc_val), std::get<std::string>(filter_val),
+                                                        filter_is_prefix, filter_is_infix);
                 }
             } else if (comparator == LESS_THAN) {
                 if(std::holds_alternative<int64_t>(doc_val) && std::holds_alternative<int64_t>(filter_val)) {
@@ -3717,16 +3779,8 @@ bool filter_result_iterator_t::validate_object_filter_helper(
             return false;
         };
 
-        const auto get_string_value = [&index, &f](const nlohmann::json& json_val) -> fieldType {
-            const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
-            const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
-
-            std::string doc_str = json_val.get<std::string>();
-            Tokenizer doc_tokenizer(doc_str, true, false, f.locale, symbols, separators, f.get_stemmer());
-
-            std::string tokenized_doc_val;
-            size_t doc_token_index = 0;
-            return doc_tokenizer.next(tokenized_doc_val, doc_token_index) ? tokenized_doc_val : doc_str;
+        const auto get_string_value = [&symbols, &separators, &f](const nlohmann::json& json_val) -> fieldType {
+            return tokenize_object_filter_value(json_val.get<std::string>(), symbols, separators, f);
         };
 
         const auto get_doc_value = [&get_string_value, &f](const nlohmann::json& json_val) -> fieldType {
@@ -3801,21 +3855,16 @@ bool filter_result_iterator_t::validate_object_filter_helper(
 
             fieldType filter_val;
             if (f.is_string()) {
-                bool is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
-                if (is_infix) {
+                filter_is_infix = val.size() > 2 && val.front() == '*' && val.back() == '*' && comparator == CONTAINS;
+                filter_is_prefix = !filter_is_infix && val.at(val.size() - 1) == '*' && comparator == CONTAINS;
+                if (filter_is_infix) {
                     val.erase(0, 1);
                     val.pop_back();
-                } else if(val.at(val.size() - 1) == '*' && comparator == CONTAINS) {//prefix match
+                } else if (filter_is_prefix) {//prefix match
                     val.pop_back();
                 }
 
-                const auto& symbols = f.symbols_to_index.empty() ? index->symbols_to_index : f.symbols_to_index;
-                const auto& separators = f.token_separators.empty() ? index->token_separators : f.token_separators;
-                Tokenizer tokenizer(val, true, false, f.locale, symbols, separators, f.get_stemmer());
-
-                std::string tokenized_filter_val;
-                size_t token_index = 0;
-                filter_val = tokenizer.next(tokenized_filter_val, token_index) ? tokenized_filter_val : val;
+                filter_val = tokenize_object_filter_value(val, symbols, separators, f);
             } else if (f.is_float()) {
                 filter_val = std::stof(val);
             } else if (f.is_bool()) {
