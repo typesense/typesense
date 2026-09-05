@@ -13724,6 +13724,182 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, FacetByMultipleNestedJoinPathsExhaustive) {
+    auto schema_json =
+            R"({
+                "name": "Regions",
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    std::vector<nlohmann::json> documents = {
+            R"({"name": "Europe"})"_json,
+            R"({"name": "Asia"})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Categories",
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"name": "Electronics"})"_json,
+            R"({"name": "Books"})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true},
+                    {"name": "region_id", "type": "string", "reference": "Regions.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"name": "Alice", "region_id": "0"})"_json,
+            R"({"name": "Bob", "region_id": "1"})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "name", "type": "string", "facet": true},
+                    {"name": "category_id", "type": "string", "reference": "Categories.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"name": "Laptop", "category_id": "0"})"_json,
+            R"({"name": "Novel", "category_id": "1"})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Orders",
+                "fields": [
+                    {"name": "total", "type": "int32"},
+                    {"name": "customer_id", "type": "string", "reference": "Customers.id"},
+                    {"name": "product_id", "type": "string", "reference": "Products.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    documents = {
+            R"({"total": 100, "customer_id": "0", "product_id": "0"})"_json,
+            R"({"total": 200, "customer_id": "1", "product_id": "1"})"_json
+    };
+    for (auto const& json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Orders"},
+            {"q", "*"},
+            {"filter_by", "$Customers($Regions(id:*)) && $Products($Categories(id:*))"},
+            {"include_fields", "$Customers(name, $Regions(name)),$Products(name, $Categories(name))"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    std::unordered_map<std::string, std::pair<std::string, std::string>> customer_to_joined_values;
+    for (const auto& hit: res_obj["hits"]) {
+        customer_to_joined_values[hit["document"]["Customers"]["name"]] = {
+                hit["document"]["Customers"]["Regions"]["name"],
+                hit["document"]["Products"]["Categories"]["name"]
+        };
+    }
+    ASSERT_EQ(2, customer_to_joined_values.size());
+    ASSERT_EQ("Europe", customer_to_joined_values["Alice"].first);
+    ASSERT_EQ("Electronics", customer_to_joined_values["Alice"].second);
+    ASSERT_EQ("Asia", customer_to_joined_values["Bob"].first);
+    ASSERT_EQ("Books", customer_to_joined_values["Bob"].second);
+
+    req_params = {
+            {"collection", "Orders"},
+            {"q", "*"},
+            {"filter_by", "$Customers($Regions(id:*)) && $Products($Categories(id:*))"},
+            {"facet_by", "$Regions(name),$Categories(name)"},
+            {"facet_strategy", "exhaustive"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["facet_counts"].size());
+    ASSERT_EQ("$Regions(name)", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("$Categories(name)", res_obj["facet_counts"][1]["field_name"]);
+    ASSERT_EQ(2, res_obj["facet_counts"][1]["counts"].size());
+
+    req_params["facet_by"] = "$Categories(name),$Regions(name)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["facet_counts"].size());
+    ASSERT_EQ("$Categories(name)", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, res_obj["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("$Regions(name)", res_obj["facet_counts"][1]["field_name"]);
+    ASSERT_EQ(2, res_obj["facet_counts"][1]["counts"].size());
+}
+
 TEST_F(CollectionJoinTest, AlterReferenceField) {
     auto schema_json =
             R"({

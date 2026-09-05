@@ -4431,7 +4431,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
-        std::vector<std::unordered_map<std::string, reference_filter_result_t>> batch_reference_facet_ids;
+        std::vector<std::unordered_map<std::string, reference_filter_result_t>> batch_reference_facet_ids(num_threads);
 
         size_t num_value_facets = 0;
 
@@ -4485,15 +4485,20 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         bool is_one_valid = false;
 
-        for (auto& item: reference_facet_ids) {
-            auto& reference_facet_result = item.second;
-            const auto& ref_ids_len = reference_facet_result.count;
-            const auto max_ids_len = std::max((size_t)ref_ids_len, all_result_ids_len);
+        for(size_t batch_index = 0; batch_index < num_threads; batch_index++) {
+            for (auto& item: reference_facet_ids) {
+                auto& reference_facet_result = item.second;
+                const auto& ref_ids_len = reference_facet_result.count;
+                const auto max_ids_len = std::max((size_t)ref_ids_len, all_result_ids_len);
+                const size_t ref_window_size = (num_threads == 0) ? 0 :
+                                               (max_ids_len + num_threads - 1) / num_threads;
+                const size_t reference_facet_index = batch_index * ref_window_size;
 
-            const size_t ref_window_size = (num_threads == 0) ? 0 :
-                                           (max_ids_len + num_threads - 1) / num_threads;
-            uint32_t batch_reference_facet_len = ref_window_size;
-            for(size_t reference_facet_index = 0; reference_facet_index < ref_ids_len; ) {
+                if (reference_facet_index >= ref_ids_len) {
+                    continue;
+                }
+
+                size_t batch_reference_facet_len = ref_window_size;
                 if (reference_facet_index + ref_window_size > ref_ids_len) {
                     batch_reference_facet_len = ref_ids_len - reference_facet_index;
                 }
@@ -4504,12 +4509,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           reference_facet_result.docs + reference_facet_index + batch_reference_facet_len,
                           batch_res_ids);
 
-                std::unordered_map<std::string, reference_filter_result_t> batch_reference_facets;
-                batch_reference_facets[item.first] = reference_filter_result_t(batch_reference_facet_len, batch_res_ids);
-                batch_reference_facet_ids.emplace_back(std::move(batch_reference_facets));
+                batch_reference_facet_ids[batch_index][item.first] =
+                        reference_filter_result_t(batch_reference_facet_len, batch_res_ids);
 
-                reference_facet_index += batch_reference_facet_len;
-                if (reference_facet_index < reference_facet_result.count) {
+                if (reference_facet_index + batch_reference_facet_len < ref_ids_len) {
                     is_one_valid = true;
                 }
             }
