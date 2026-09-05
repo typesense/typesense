@@ -8407,8 +8407,15 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 LOG(ERROR) << "Error: " << embedder_op.error();
                 return;
             }
-            embeddings_text = embedder_op.get()->embed_documents(values_text, remote_embedding_batch_size, remote_embedding_timeout_ms,
-                                                            remote_embedding_num_tries);
+            const auto& mc = field.embed[fields::model_config];
+            size_t field_timeout_ms = mc.contains(fields::timeout_ms)
+                ? mc[fields::timeout_ms].get<size_t>()
+                : remote_embedding_timeout_ms;
+            size_t field_num_tries = mc.contains(fields::num_retries)
+                ? mc[fields::num_retries].get<size_t>() + 1
+                : remote_embedding_num_tries;
+            embeddings_text = embedder_op.get()->embed_documents(values_text, remote_embedding_batch_size, field_timeout_ms,
+                                                            field_num_tries);
         }
 
         if(!values_personalization.empty()) {

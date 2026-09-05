@@ -78,6 +78,8 @@ namespace fields {
     // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
     static const std::string indexing_prefix = "indexing_prefix";
     static const std::string query_prefix = "query_prefix";
+    static const std::string timeout_ms = "timeout_ms";
+    static const std::string num_retries = "num_retries";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
     static const std::string personalization_type = "personalization_type";
