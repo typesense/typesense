@@ -138,17 +138,15 @@ encoded_input_t GemmaTokenizer::Encode(const std::string& text) {
     std::vector<int> piece_ids;
     sentencepiece_tokenizer_->Encode(text, &piece_ids);
 
-    std::vector<int64_t> input_ids;
-    input_ids.reserve(piece_ids.size() + 2);
-    input_ids.push_back(bos_token_id_);
-    input_ids.insert(input_ids.end(), piece_ids.begin(), piece_ids.end());
-    input_ids.push_back(eos_token_id_);
+    // Truncate before copying: only the first max_length_ - 2 pieces survive,
+    // the other two slots being BOS and EOS.
+    const size_t num_pieces = std::min(piece_ids.size(), max_length_ - 2);
 
-    // Truncate to max_length, ensuring last token is EOS
-    if (input_ids.size() > max_length_) {
-        input_ids.resize(max_length_);
-        input_ids[max_length_ - 1] = eos_token_id_;
-    }
+    std::vector<int64_t> input_ids;
+    input_ids.reserve(num_pieces + 2);
+    input_ids.push_back(bos_token_id_);
+    input_ids.insert(input_ids.end(), piece_ids.begin(), piece_ids.begin() + num_pieces);
+    input_ids.push_back(eos_token_id_);
 
     std::vector<int64_t> attention_mask(input_ids.size(), 1);
 
