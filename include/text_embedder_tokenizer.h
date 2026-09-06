@@ -110,7 +110,7 @@ class QwenTokenizer : public TextEmbeddingTokenizer {
         const icu::Normalizer2* nfc_ = nullptr;
         std::unordered_map<std::string, std::vector<std::string>> cache_;
         std::mutex mutex_;
-        const std::vector<std::string> bpe(const std::string& token);
+        std::vector<std::string> bpe(const std::string& token);
     public:
         QwenTokenizer(const std::string& vocab_path);
         encoded_input_t Encode(const std::string& text) override;

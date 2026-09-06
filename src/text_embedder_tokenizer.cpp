@@ -190,15 +190,17 @@ QwenTokenizer::QwenTokenizer(const std::string& vocab_path) {
     // depending on which version of tokenizers wrote the file.
     int32_t rank = 0;
     for(const auto& merge : tokenizer_json["model"]["merges"]) {
-        if(merge.is_array() && merge.size() == 2) {
+        if(merge.is_array() && merge.size() == 2 && merge[0].is_string() && merge[1].is_string()) {
             bpe_ranks_[merge_key(merge[0].get<std::string>(), merge[1].get<std::string>())] = rank;
-        } else if(merge.is_string()) {
+        } else if(merge.is_string() && merge.get<std::string>().find(' ') != std::string::npos) {
             const std::string& pair = merge.get<std::string>();
             auto space = pair.find(' ');
-            if(space == std::string::npos) {
-                continue;
-            }
             bpe_ranks_[merge_key(pair.substr(0, space), pair.substr(space + 1))] = rank;
+        } else {
+            // Skipping the entry would shift the rank of every merge after it,
+            // which silently changes how the whole vocabulary tokenizes.
+            throw std::runtime_error("Tokenizer file has a malformed merge at rank " +
+                                     std::to_string(rank) + ": " + vocab_path);
         }
         rank++;
     }
@@ -235,7 +237,7 @@ QwenTokenizer::QwenTokenizer(const std::string& vocab_path) {
     }
 }
 
-const std::vector<std::string> QwenTokenizer::bpe(const std::string& token) {
+std::vector<std::string> QwenTokenizer::bpe(const std::string& token) {
     auto cached = cache_.find(token);
     if(cached != cache_.end()) {
         return cached->second;

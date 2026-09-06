@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
+#include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
 #include "text_embedder_tokenizer.h"
+#include "json.hpp"
 
 // A small byte level BPE tokenizer in the Hugging Face tokenizer.json format.
 // Its vocabulary is the 256 byte symbols plus these merges, in rank order:
@@ -110,6 +113,41 @@ TEST(QwenTokenizerTest, MarksEveryTokenInTheAttentionMask) {
     ASSERT_EQ(encoded.input_ids.size(), encoded.attention_mask.size());
     ASSERT_EQ(std::vector<int64_t>(encoded.input_ids.size(), 1), encoded.attention_mask);
     ASSERT_TRUE(encoded.token_type_ids.empty());
+}
+
+// Writes the fixture back out with one merge replaced, so the constructor can
+// be pointed at a file that is well formed apart from that entry.
+static std::string write_fixture_with_broken_merge(const nlohmann::json& broken_merge) {
+    std::ifstream in(tiny_qwen_path);
+    nlohmann::json tokenizer_json;
+    in >> tokenizer_json;
+
+    tokenizer_json["model"]["merges"][2] = broken_merge;
+
+    const std::string path = "/tmp/typesense_test_qwen_broken_merge.json";
+    std::ofstream out(path);
+    out << tokenizer_json.dump();
+    out.close();
+
+    return path;
+}
+
+TEST(QwenTokenizerTest, RejectsMergeThatIsNotAPair) {
+    // Skipping the entry instead would shift every later merge down one rank,
+    // changing how the whole vocabulary tokenizes with nothing to show for it.
+    const std::string path = write_fixture_with_broken_merge("no-space-in-this-merge");
+
+    ASSERT_THROW(QwenTokenizer tokenizer(path), std::runtime_error);
+
+    std::remove(path.c_str());
+}
+
+TEST(QwenTokenizerTest, RejectsMergeOfTheWrongShape) {
+    const std::string path = write_fixture_with_broken_merge(nlohmann::json::array({"only-one-half"}));
+
+    ASSERT_THROW(QwenTokenizer tokenizer(path), std::runtime_error);
+
+    std::remove(path.c_str());
 }
 
 TEST(QwenTokenizerTest, ReportsQwenTokenizerType) {
