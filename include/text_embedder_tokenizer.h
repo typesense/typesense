@@ -6,6 +6,9 @@
 #include <tokenizer/bert_tokenizer.hpp>
 #include <clip_tokenizer.h>
 #include <core/session/onnxruntime_cxx_api.h>
+#include <unicode/regex.h>
+#include <unicode/normalizer2.h>
+#include <array>
 #include <mutex>
 
 
@@ -14,7 +17,8 @@ enum class TokenizerType {
     distilbert,
     xlm_roberta,
     clip,
-    siglip
+    siglip,
+    qwen
 };
 
 struct encoded_input_t {
@@ -89,6 +93,29 @@ class SigLIPTokenizer : public TextEmbeddingTokenizer {
         encoded_input_t Encode(const std::string& text) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::siglip;
+        }
+};
+
+// Byte level BPE, as used by the Qwen2 and Qwen3 tokenizers. Reads the
+// Hugging Face tokenizer.json, which holds both the vocabulary and the merges.
+class QwenTokenizer : public TextEmbeddingTokenizer {
+    private:
+        static constexpr size_t max_length_ = 2048;
+        static constexpr size_t max_cache_size_ = 65536;
+        int64_t eos_token_id_ = 0;
+        std::array<std::string, 256> byte_encoder_;
+        std::unordered_map<std::string, int64_t> encoder_;
+        std::unordered_map<std::string, int32_t> bpe_ranks_;
+        std::unique_ptr<icu::RegexMatcher> matcher_;
+        const icu::Normalizer2* nfc_ = nullptr;
+        std::unordered_map<std::string, std::vector<std::string>> cache_;
+        std::mutex mutex_;
+        const std::vector<std::string> bpe(const std::string& token);
+    public:
+        QwenTokenizer(const std::string& vocab_path);
+        encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::qwen;
         }
 };
 

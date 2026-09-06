@@ -49,6 +49,8 @@ TextEmbedder::TextEmbedder(const std::string& model_name, const bool is_public_m
         tokenizer_ = std::make_unique<SigLIPTokenizer>(vocab_path);
     } else if(tokenizer_type == TokenizerType::clip) {
         tokenizer_ = std::make_unique<CLIPTokenizerWrapper>(vocab_path);
+    } else if(tokenizer_type == TokenizerType::qwen) {
+        tokenizer_ = std::make_unique<QwenTokenizer>(vocab_path);
     }
     auto output_tensor_count = session_->GetOutputCount();
     for (size_t i = 0; i < output_tensor_count; i++) {
