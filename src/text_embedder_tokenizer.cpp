@@ -128,6 +128,34 @@ encoded_input_t SigLIPTokenizer::Encode(const std::string& text) {
 }
 
 
+GemmaTokenizer::GemmaTokenizer(const std::string& model_path) {
+    sentencepiece_tokenizer_ = std::make_unique<sentencepiece::SentencePieceProcessor>();
+    sentencepiece_tokenizer_->Load(model_path);
+}
+
+encoded_input_t GemmaTokenizer::Encode(const std::string& text) {
+    // Gemma uses the raw SentencePiece ids: no fairseq offset and no lowercasing.
+    std::vector<int> piece_ids;
+    sentencepiece_tokenizer_->Encode(text, &piece_ids);
+
+    std::vector<int64_t> input_ids;
+    input_ids.reserve(piece_ids.size() + 2);
+    input_ids.push_back(bos_token_id_);
+    input_ids.insert(input_ids.end(), piece_ids.begin(), piece_ids.end());
+    input_ids.push_back(eos_token_id_);
+
+    // Truncate to max_length, ensuring last token is EOS
+    if (input_ids.size() > max_length_) {
+        input_ids.resize(max_length_);
+        input_ids[max_length_ - 1] = eos_token_id_;
+    }
+
+    std::vector<int64_t> attention_mask(input_ids.size(), 1);
+
+    return {input_ids, {}, attention_mask};
+}
+
+
 CLIPTokenizerWrapper::CLIPTokenizerWrapper(const std::string& vocab_path) {
     try {
         clip_tokenizer_ = std::make_unique<CLIPTokenizer>(vocab_path);
