@@ -6929,6 +6929,72 @@ std::string Collection::get_default_sorting_field() {
     return default_sorting_field;
 }
 
+Option<bool> Collection::rebuild_token_scores(int64_t raft_log_index) {
+    // Keep field alters from destroying an ART while the index lock is yielded. Normal
+    // document writers take this lock in shared mode too, so they can still use the gaps.
+    std::shared_lock alter_shlock(alter_mutex);
+    std::shared_lock lock(mutex);
+
+    if(default_sorting_field.empty()) {
+        return Option<bool>(400, "Collection `" + name + "` does not have a `default_sorting_field`, so its token "
+                                 "scores are ordered by frequency and never go stale.");
+    }
+
+    // a string sort field lives in `str_sort_index`, not `sort_index`, and every document
+    // scores 0 either way. the walk would find nothing to read and report success
+    auto sort_field_it = search_schema.find(default_sorting_field);
+    if(sort_field_it != search_schema.end() && sort_field_it.value().is_string()) {
+        return Option<bool>(400, "Collection `" + name + "` sorts by the string field `" + default_sorting_field +
+                                 "`, which scores every token equally, so there is nothing to rebuild.");
+    }
+
+    const std::string sorting_field = default_sorting_field;
+    lock.unlock();
+
+    // The rebuild changes only the in-memory ART, so replaying its Raft entry after a
+    // restart used to repeat all of the expensive work. Record successful entries in the
+    // same store that snapshots capture. Each follower writes its own marker, so a live
+    // entry still runs on every node while an entry already completed by this node is skipped.
+    const std::string rebuild_log_key = std::to_string(collection_id) + "_" + TOKEN_SCORE_REBUILD_LOG_PREFIX;
+    if(raft_log_index > 0) {
+        std::string rebuilt_through_str;
+        const StoreStatus status = store->get(rebuild_log_key, rebuilt_through_str);
+        if(status == StoreStatus::ERROR) {
+            return Option<bool>(500, "Could not read the token score rebuild state for collection `" + name + "`.");
+        }
+
+        if(status == StoreStatus::FOUND && StringUtils::is_int64_t(rebuilt_through_str)) {
+            try {
+                if(std::stoll(rebuilt_through_str) >= raft_log_index) {
+                    LOG(INFO) << "Skipping token score rebuild for collection " << name << " at Raft log index "
+                              << raft_log_index << ": it already completed on this node.";
+                    return Option<bool>(false);
+                }
+            } catch(const std::exception&) {
+                // A malformed internal marker must not brick the repair endpoint. Rebuild
+                // once and overwrite it with the current, valid log index below.
+                LOG(WARNING) << "Ignoring malformed token score rebuild state for collection " << name << ".";
+            }
+        }
+    }
+
+    LOG(INFO) << "Rebuilding token scores for collection " << name << "...";
+    auto begin_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    index->rebuild_token_scores(sorting_field);
+
+    auto took_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() - begin_us;
+    LOG(INFO) << "Rebuilt token scores for collection " << name << " in " << (took_us / 1000) << "ms.";
+
+    if(raft_log_index > 0 && !store->insert(rebuild_log_key, std::to_string(raft_log_index))) {
+        return Option<bool>(500, "Could not persist the token score rebuild state for collection `" + name + "`.");
+    }
+
+    return Option<bool>(true);
+}
+
 void Collection::update_metadata(const nlohmann::json& meta) {
     std::shared_lock lock(mutex);
     metadata = meta;
