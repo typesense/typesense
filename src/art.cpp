@@ -104,8 +104,7 @@ bool compare_art_node_score_pq(const art_node* a, const art_node* b) {
 }
 
 /**
- * Allocates a node of the given type,
- * initializes to zero and sets the type.
+ * Allocates and initializes a node of the given type.
  */
 static art_node* alloc_node(uint8_t type) {
     art_node* n;
@@ -126,7 +125,9 @@ static art_node* alloc_node(uint8_t type) {
             abort();
     }
     n->type = type;
-    n->max_score = 0;
+    // Score-ordered trees may contain only negative values. Child insertion will raise
+    // this to the real subtree maximum; starting at zero would permanently overstate it.
+    n->max_score = INT64_MIN;
     return n;
 }
 
@@ -472,11 +473,15 @@ static void copy_header(art_node *dest, art_node *src) {
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
 }
 
+static int64_t child_max_score(const art_node* child) {
+    return IS_LEAF(child) ? ((art_leaf*) LEAF_RAW(child))->max_score : child->max_score;
+}
+
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
     n->n.num_children++;
     n->children[c] = (art_node *) child;
-    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+    n->n.max_score = MAX(n->n.max_score, child_max_score((art_node*) child));
 }
 
 static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *child) {
@@ -486,7 +491,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+        n->n.max_score = MAX(n->n.max_score, child_max_score((art_node*) child));
     } else {
         art_node256 *new_n = (art_node256*)alloc_node(NODE256);
         for (int i=0;i<256;i++) {
@@ -527,7 +532,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+        n->n.max_score = MAX(n->n.max_score, child_max_score((art_node*) child));
 
     } else {
         art_node48 *new_n = (art_node48*)alloc_node(NODE48);
@@ -560,7 +565,7 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+        n->n.max_score = MAX(n->n.max_score, child_max_score((art_node*) child));
 
     } else {
         art_node16 *new_n = (art_node16*)alloc_node(NODE16);
@@ -664,10 +669,6 @@ static void* recursive_insert(art_node* n, art_node** ref, const unsigned char* 
         return NULL;
     }
 
-    if(docs_max_score != USE_FREQUENCY_SCORE) {
-        n->max_score = MAX(n->max_score, docs_max_score);
-    }
-
     // Check if given node has a prefix
     if (n->partial_len) {
         // Determine if the prefixes differ, since we need to split
@@ -709,6 +710,12 @@ static void* recursive_insert(art_node* n, art_node** ref, const unsigned char* 
     }
 
     RECURSE_SEARCH:;
+
+    // Only raise this node after its compressed prefix has matched. On a mismatch,
+    // `n` becomes a sibling of the new leaf and the new score does not belong in it.
+    if(docs_max_score != USE_FREQUENCY_SCORE) {
+        n->max_score = MAX(n->max_score, docs_max_score);
+    }
 
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
@@ -942,6 +949,414 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 
     return child->max_token_count;
 }*/
+
+// collects a node's child pointers along with the key byte each one is reached by.
+// both buffers must hold 256 entries. children come back in ascending byte order,
+// which is what lets the walk resume at a key.
+static int node_children(const art_node* n, art_node** out, unsigned char* out_bytes) {
+    int idx, count = 0;
+
+    switch (n->type) {
+        case NODE4:
+            for (int i = 0; i < n->num_children; i++) {
+                out_bytes[count] = ((art_node4*)n)->keys[i];
+                out[count++] = ((art_node4*)n)->children[i];
+            }
+            break;
+
+        case NODE16:
+            for (int i = 0; i < n->num_children; i++) {
+                out_bytes[count] = ((art_node16*)n)->keys[i];
+                out[count++] = ((art_node16*)n)->children[i];
+            }
+            break;
+
+        case NODE48:
+            for (int i = 0; i < 256; i++) {
+                idx = ((art_node48*)n)->keys[i];
+                if (!idx) continue;
+                out_bytes[count] = (unsigned char) i;
+                out[count++] = ((art_node48*)n)->children[idx-1];
+            }
+            break;
+
+        case NODE256:
+            for (int i = 0; i < 256; i++) {
+                if (!((art_node256*)n)->children[i]) continue;
+                out_bytes[count] = (unsigned char) i;
+                out[count++] = ((art_node256*)n)->children[i];
+            }
+            break;
+
+        default:
+            abort();
+    }
+
+    return count;
+}
+
+struct rebuild_frame_t {
+    art_node* node;
+    std::vector<art_node*> children;
+    std::vector<unsigned char> bytes;
+    size_t next_child;
+    int64_t max_score;
+};
+
+/**
+ * Where the walk stopped, expressed as a key rather than a node pointer. A pointer
+ * cannot survive a yield: a concurrent delete may free or collapse nodes while the
+ * lock is released. The key survives anything, so each segment re-descends from the
+ * root and picks up where the last one left off.
+ */
+struct art_rebuild_cursor_t {
+    std::vector<unsigned char> key;
+    bool started = false;         // false => start at the very first leaf
+    bool leaf_partial = false;    // true => `key`'s leaf is only partly scored
+    uint32_t next_id = 0;         // first posting of that leaf not yet scored
+    int64_t partial_max = INT64_MIN;
+};
+
+static bool leaf_key_equals(const art_leaf* l, const art_rebuild_cursor_t& cursor) {
+    return l->key_len == cursor.key.size() &&
+           memcmp(l->key, cursor.key.data(), l->key_len) == 0;
+}
+
+/**
+ * Scores at most `budget` postings of `l` starting at posting id `from_id`, folding
+ * each into `running_max`. Returns true when the leaf is exhausted; otherwise sets
+ * `stop_id` to the first posting still owing so a later segment can resume there.
+ * A budget of 0 means unlimited.
+ */
+// ids gathered from the posting list before being scored. advancing the iterator and
+// looking up scores in the same loop costs roughly 50% on a long posting list: the two
+// touch completely different memory and evict each other. gather, then score.
+static constexpr size_t REBUILD_GATHER_BATCH = 4096;
+
+static bool score_leaf_chunk(art_leaf* l, art_score_fn score_fn, void* fn_obj,
+                             uint32_t from_id, size_t budget,
+                             int64_t& running_max, uint32_t& stop_id, size_t& scored,
+                             std::vector<uint32_t>& id_buf) {
+    scored = 0;
+
+    if (IS_COMPACT_POSTING(l->values)) {
+        // a compact list tops out at COMPACT_LIST_THRESHOLD_LENGTH ids, so it is never
+        // worth chunking. walking it in place also avoids the full-list expansion that
+        // posting_t::merge would do just to read the ids back out
+        compact_posting_list_t* cl = COMPACT_POSTING_PTR(l->values);
+        size_t i = 0;
+
+        while (i < cl->length) {
+            size_t num_offsets = cl->id_offsets[i];
+            uint32_t id = cl->id_offsets[i + num_offsets + 1];
+
+            if (id >= from_id) {
+                int64_t score = score_fn(fn_obj, id);
+                if (score > running_max) {
+                    running_max = score;
+                }
+                scored++;
+            }
+
+            i += num_offsets + 2;
+        }
+
+        return true;
+    }
+
+    posting_list_t* pl = (posting_list_t*) l->values;
+    posting_list_t::iterator_t it = pl->new_iterator();
+
+    if (from_id != 0) {
+        it.skip_to(from_id);
+    }
+
+    while (it.valid()) {
+        size_t want = REBUILD_GATHER_BATCH;
+
+        if (budget != 0) {
+            if (scored >= budget) {
+                stop_id = it.id();
+                return false;
+            }
+
+            if (budget - scored < want) {
+                want = budget - scored;
+            }
+        }
+
+        id_buf.clear();
+        while (it.valid() && id_buf.size() < want) {
+            id_buf.push_back(it.id());
+            it.next();
+        }
+
+        for (size_t i = 0; i < id_buf.size(); i++) {
+            int64_t score = score_fn(fn_obj, id_buf[i]);
+            if (score > running_max) {
+                running_max = score;
+            }
+        }
+
+        scored += id_buf.size();
+    }
+
+    return true;
+}
+
+/**
+ * Scores one leaf, resuming inside it when the cursor says a previous segment ran out
+ * of budget partway. Returns true when the leaf is finished. Either way the cursor is
+ * left pointing at this leaf so the next segment can seek back to it.
+ */
+static bool score_leaf(art_leaf* l, art_score_fn score_fn, void* fn_obj,
+                       size_t budget, size_t& scored_in_segment,
+                       art_rebuild_cursor_t& cursor, std::vector<uint32_t>& id_buf) {
+
+    const bool resuming = cursor.leaf_partial && leaf_key_equals(l, cursor);
+
+    cursor.started = true;
+    cursor.key.assign(l->key, l->key + l->key_len);
+
+    // a leaf whose documents have all been deleted keeps whatever score it had: there is
+    // nothing live to recompute it from
+    if (posting_t::num_ids(l->values) == 0) {
+        cursor.leaf_partial = false;
+        return true;
+    }
+
+    int64_t running_max = resuming ? cursor.partial_max : INT64_MIN;
+    uint32_t from_id = resuming ? cursor.next_id : 0;
+
+    size_t remaining = 0;
+    if (budget != 0) {
+        // always allow at least one posting through, otherwise a segment that starts
+        // already at its budget would make no progress and the walk would not terminate
+        remaining = (scored_in_segment >= budget) ? 1 : (budget - scored_in_segment);
+    }
+
+    uint32_t stop_id = 0;
+    size_t scored = 0;
+    const bool finished = score_leaf_chunk(l, score_fn, fn_obj, from_id, remaining,
+                                           running_max, stop_id, scored, id_buf);
+    scored_in_segment += scored;
+
+    if (!finished) {
+        cursor.leaf_partial = true;
+        cursor.next_id = stop_id;
+        cursor.partial_max = running_max;
+        return false;
+    }
+
+    l->max_score = running_max;
+    cursor.leaf_partial = false;
+    cursor.next_id = 0;
+    cursor.partial_max = INT64_MIN;
+    return true;
+}
+
+/**
+ * Rebuilds the ancestor stack for the position the cursor names, descending from the
+ * root the same way art_search does. For every node on the path the frame's running max
+ * is seeded from the children that sort before the cursor: those subtrees were finished
+ * in an earlier segment and their scores are already final, so they only need reading,
+ * not revisiting.
+ */
+static void seed_stack(art_tree* t, const art_rebuild_cursor_t& cursor,
+                       std::vector<rebuild_frame_t>& stack) {
+    art_node* buf[256];
+    unsigned char byte_buf[256];
+
+    art_node* n = t->root;
+    int depth = 0;
+
+    const unsigned char* ckey = cursor.key.data();
+    const int ckey_len = (int) cursor.key.size();
+
+    while (!IS_LEAF(n)) {
+        rebuild_frame_t frame;
+        frame.node = n;
+        frame.max_score = INT64_MIN;
+
+        const int count = node_children(n, buf, byte_buf);
+        frame.children.assign(buf, buf + count);
+        frame.bytes.assign(byte_buf, byte_buf + count);
+
+        // the cursor key should run straight through this node's compressed path. when it
+        // does not, a writer reshaped the path while the lock was down. redo the subtree
+        // from its first child rather than guess which side of the cursor it fell on:
+        // rescoring a leaf is idempotent, whereas marking one done that never ran would
+        // leave the node holding INT64_MIN
+        const int prefix_cmp_len = min(min((int) n->partial_len, MAX_PREFIX_LEN),
+                                       ckey_len - depth);
+
+        if (prefix_cmp_len < 0 ||
+            (prefix_cmp_len > 0 && memcmp(n->partial, ckey + depth, prefix_cmp_len) != 0)) {
+            frame.next_child = 0;
+            stack.push_back(std::move(frame));
+            return;
+        }
+
+        depth += n->partial_len;
+
+        if (depth >= ckey_len) {
+            // the key ends inside the path, so the walk cannot tell where it resumes here
+            frame.next_child = 0;
+            stack.push_back(std::move(frame));
+            return;
+        }
+
+        const unsigned char c = ckey[depth];
+
+        size_t i = 0;
+        while (i < (size_t) count && frame.bytes[i] < c) {
+            frame.max_score = MAX(frame.max_score, child_max_score(frame.children[i]));
+            i++;
+        }
+
+        frame.next_child = i;
+
+        if (i == (size_t) count || frame.bytes[i] > c) {
+            // nothing left here at the cursor byte: either this node is done, in which
+            // case the main loop pops it straight away, or the key diverged and every
+            // remaining child is unprocessed. both are handled by the normal walk
+            stack.push_back(std::move(frame));
+            return;
+        }
+
+        art_node* child = frame.children[i];
+        depth++;
+
+        if (IS_LEAF(child)) {
+            art_leaf* l = (art_leaf*) LEAF_RAW(child);
+
+            if (!(cursor.leaf_partial && leaf_key_equals(l, cursor))) {
+                // that leaf is already finished, so step over it. a partial one is left
+                // under next_child instead, for the main loop to re-enter and resume
+                frame.max_score = MAX(frame.max_score, l->max_score);
+                frame.next_child = i + 1;
+            }
+
+            stack.push_back(std::move(frame));
+            return;
+        }
+
+        // the child goes on the stack as its own frame, so the parent has to point past
+        // it or the walk re-enters the subtree it is already inside
+        frame.next_child = i + 1;
+        stack.push_back(std::move(frame));
+        n = child;
+    }
+}
+
+/**
+ * Runs one locked segment of the walk. Returns true when the tree is exhausted, false
+ * when the budget ran out and the caller should yield and come back.
+ */
+static bool rebuild_segment(art_tree* t, art_score_fn score_fn, void* fn_obj,
+                            size_t budget, art_rebuild_cursor_t& cursor,
+                            std::vector<uint32_t>& id_buf) {
+    if (!t->root) {
+        return true;
+    }
+
+    size_t scored_in_segment = 0;
+
+    if (IS_LEAF(t->root)) {
+        // a single leaf root has no inner nodes to fix up, but it can still be large
+        // enough to need chunking
+        return score_leaf((art_leaf*) LEAF_RAW(t->root), score_fn, fn_obj,
+                          budget, scored_in_segment, cursor, id_buf);
+    }
+
+    art_node* buf[256];
+    unsigned char byte_buf[256];
+
+    std::vector<rebuild_frame_t> stack;
+
+    if (!cursor.started) {
+        rebuild_frame_t root_frame;
+        root_frame.node = t->root;
+        root_frame.next_child = 0;
+        root_frame.max_score = INT64_MIN;
+
+        const int count = node_children(t->root, buf, byte_buf);
+        root_frame.children.assign(buf, buf + count);
+        root_frame.bytes.assign(byte_buf, byte_buf + count);
+        stack.push_back(std::move(root_frame));
+    } else {
+        seed_stack(t, cursor, stack);
+    }
+
+    while (!stack.empty()) {
+        rebuild_frame_t& top = stack.back();
+
+        if (top.next_child == top.children.size()) {
+            const int64_t node_score = top.max_score;
+            top.node->max_score = node_score;
+            stack.pop_back();
+
+            if (!stack.empty()) {
+                stack.back().max_score = MAX(stack.back().max_score, node_score);
+            }
+
+            continue;
+        }
+
+        art_node* child = top.children[top.next_child];
+        top.next_child++;
+
+        if (IS_LEAF(child)) {
+            art_leaf* l = (art_leaf*) LEAF_RAW(child);
+
+            if (!score_leaf(l, score_fn, fn_obj, budget, scored_in_segment, cursor, id_buf)) {
+                return false;
+            }
+
+            top.max_score = MAX(top.max_score, l->max_score);
+
+            if (budget != 0 && scored_in_segment >= budget) {
+                return false;
+            }
+
+            continue;
+        }
+
+        // `top` is invalidated by the push below, so it must not be touched after this
+        rebuild_frame_t frame;
+        frame.node = child;
+        frame.next_child = 0;
+        frame.max_score = INT64_MIN;
+
+        const int count = node_children(child, buf, byte_buf);
+        frame.children.assign(buf, buf + count);
+        frame.bytes.assign(byte_buf, byte_buf + count);
+        stack.push_back(std::move(frame));
+    }
+
+    return true;
+}
+
+void art_rebuild_max_scores(art_tree* t, art_score_fn score_fn, art_yield_fn yield_fn,
+                            void* fn_obj, size_t yield_budget) {
+    if (!t->root || score_fn == NULL) {
+        return;
+    }
+
+    // with nothing to yield to there is no point splitting the walk up, and no budget
+    // to honour either
+    const size_t budget = (yield_fn == NULL) ? 0 : MAX(yield_budget, (size_t) 1);
+
+    art_rebuild_cursor_t cursor;
+
+    // reused across every leaf and segment so the gather buffer is allocated once
+    std::vector<uint32_t> id_buf;
+    id_buf.reserve(REBUILD_GATHER_BATCH);
+
+    while (!rebuild_segment(t, score_fn, fn_obj, budget, cursor, id_buf)) {
+        yield_fn(fn_obj);
+    }
+}
 
 const uint32_t* get_allowed_doc_ids(art_tree *t, const std::string& prev_token,
                                     const uint32_t* filter_ids, const size_t filter_ids_length,

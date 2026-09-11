@@ -1809,3 +1809,388 @@ TEST(ArtTest, test_encode_float_positive_negative) {
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
 }
+
+static int64_t test_map_score_fn(void* obj, uint32_t id) {
+    auto scores = (std::map<uint32_t, int64_t>*) obj;
+    const auto& it = scores->find(id);
+    return (it == scores->end()) ? INT64_MIN : it->second;
+}
+
+static int test_yield_count = 0;
+
+static void test_counting_yield_fn(void* obj) {
+    test_yield_count++;
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc1(1, 10, {0});
+    art_insert(&t, (const unsigned char *) "apple", 6, &doc1);
+
+    art_document doc2(2, 5, {0});
+    art_insert(&t, (const unsigned char *) "apricot", 8, &doc2);
+
+    art_leaf* apple = (art_leaf *) art_search(&t, (const unsigned char *) "apple", 6);
+    art_leaf* apricot = (art_leaf *) art_search(&t, (const unsigned char *) "apricot", 8);
+    ASSERT_EQ(10, apple->max_score);
+    ASSERT_EQ(5, apricot->max_score);
+
+    // root is an inner node holding both keys
+    ASSERT_EQ(0, ((uintptr_t) t.root & 1));
+    ASSERT_EQ(10, t.root->max_score);
+
+    // a decrease and a raise land in the same pass, and the root follows both
+    std::map<uint32_t, int64_t> scores = {{1, 2}, {2, 100}};
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+
+    ASSERT_EQ(2, apple->max_score);
+    ASSERT_EQ(100, apricot->max_score);
+    ASSERT_EQ(100, t.root->max_score);
+
+    // the root comes back down too, which the insert path can never do
+    scores[2] = 3;
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+
+    ASSERT_EQ(2, apple->max_score);
+    ASSERT_EQ(3, apricot->max_score);
+    ASSERT_EQ(3, t.root->max_score);
+
+    // a null score fn leaves everything alone
+    art_rebuild_max_scores(&t, NULL, NULL, &scores, 0);
+    ASSERT_EQ(3, t.root->max_score);
+
+    art_tree_destroy(&t);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_multi_doc_leaf) {
+    art_tree t;
+    art_tree_init(&t);
+
+    // one token shared by three docs, so the leaf max is a real max and not just a copy
+    for(uint32_t i = 1; i <= 3; i++) {
+        art_document doc(i, (int64_t) i * 10, {0});
+        art_insert(&t, (const unsigned char *) "apple", 6, &doc);
+    }
+
+    art_leaf* apple = (art_leaf *) art_search(&t, (const unsigned char *) "apple", 6);
+    ASSERT_EQ(30, apple->max_score);
+
+    // dropping the top scorer must surface the next one down
+    std::map<uint32_t, int64_t> scores = {{1, 10}, {2, 20}, {3, 1}};
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+    ASSERT_EQ(20, apple->max_score);
+
+    // a doc missing from the sort index scores as INT64_MIN and must not win
+    scores.erase(2);
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+    ASSERT_EQ(10, apple->max_score);
+
+    art_tree_destroy(&t);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_yields) {
+    art_tree t;
+    art_tree_init(&t);
+
+    std::map<uint32_t, int64_t> scores;
+
+    for(uint32_t i = 1; i <= 50; i++) {
+        const std::string& key = "token" + std::to_string(i);
+        art_document doc(i, (int64_t) i, {0});
+        art_insert(&t, (const unsigned char *) key.c_str(), (int) key.length() + 1, &doc);
+        scores[i] = (int64_t) i;
+    }
+
+    // budget of 1 posting means a yield after every leaf
+    test_yield_count = 0;
+    art_rebuild_max_scores(&t, test_map_score_fn, test_counting_yield_fn, &scores, 1);
+    ASSERT_EQ(50, test_yield_count);
+
+    // scores still land correctly across all those pauses
+    art_leaf* last = (art_leaf *) art_search(&t, (const unsigned char *) "token50", 8);
+    ASSERT_EQ(50, last->max_score);
+    ASSERT_EQ(50, t.root->max_score);
+
+    // a large budget yields nothing
+    test_yield_count = 0;
+    art_rebuild_max_scores(&t, test_map_score_fn, test_counting_yield_fn, &scores, 1000000);
+    ASSERT_EQ(0, test_yield_count);
+
+    art_tree_destroy(&t);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_single_leaf_root) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc1(1, 10, {0});
+    art_insert(&t, (const unsigned char *) "apple", 6, &doc1);
+
+    // root is the leaf itself, which the walk has to special case
+    ASSERT_EQ(1, ((uintptr_t) t.root & 1));
+
+    std::map<uint32_t, int64_t> scores = {{1, 4}};
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+
+    art_leaf* apple = (art_leaf *) art_search(&t, (const unsigned char *) "apple", 6);
+    ASSERT_EQ(4, apple->max_score);
+
+    art_tree_destroy(&t);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_empty_tree) {
+    art_tree t;
+    art_tree_init(&t);
+
+    std::map<uint32_t, int64_t> scores;
+    art_rebuild_max_scores(&t, test_map_score_fn, NULL, &scores, 0);
+
+    art_tree_destroy(&t);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_wide_nodes) {
+    // the other rebuild tests build trees that only ever reach NODE4 and NODE16, so the
+    // NODE48 and NODE256 branches of the child walk never run
+    art_tree t48;
+    art_tree_init(&t48);
+
+    std::map<uint32_t, int64_t> scores;
+
+    // 40 distinct second bytes under a shared first byte lands in NODE48
+    for(uint32_t i = 1; i <= 40; i++) {
+        unsigned char key[3] = {'a', (unsigned char) i, '\0'};
+        art_document doc(i, (int64_t) i, {0});
+        art_insert(&t48, key, 3, &doc);
+        scores[i] = (int64_t) i;
+    }
+
+    ASSERT_EQ(NODE48, t48.root->type);
+    ASSERT_EQ(40, t48.root->num_children);
+
+    art_rebuild_max_scores(&t48, test_map_score_fn, NULL, &scores, 0);
+    ASSERT_EQ(40, t48.root->max_score);
+
+    for(uint32_t i = 1; i <= 40; i++) {
+        unsigned char key[3] = {'a', (unsigned char) i, '\0'};
+        art_leaf* l = (art_leaf *) art_search(&t48, key, 3);
+        ASSERT_EQ((int64_t) i, l->max_score);
+    }
+
+    art_tree_destroy(&t48);
+
+    art_tree t256;
+    art_tree_init(&t256);
+    scores.clear();
+
+    // 200 of them grows it to NODE256
+    for(uint32_t i = 1; i <= 200; i++) {
+        unsigned char key[3] = {'a', (unsigned char) i, '\0'};
+        art_document doc(i, (int64_t) i, {0});
+        art_insert(&t256, key, 3, &doc);
+        scores[i] = (int64_t) i;
+    }
+
+    ASSERT_EQ(NODE256, t256.root->type);
+
+    art_rebuild_max_scores(&t256, test_map_score_fn, NULL, &scores, 0);
+    ASSERT_EQ(200, t256.root->max_score);
+
+    for(uint32_t i = 1; i <= 200; i++) {
+        unsigned char key[3] = {'a', (unsigned char) i, '\0'};
+        art_leaf* l = (art_leaf *) art_search(&t256, key, 3);
+        ASSERT_EQ((int64_t) i, l->max_score);
+    }
+
+    art_tree_destroy(&t256);
+}
+
+static void seed_rebuild_tree(art_tree* t, std::map<uint32_t, int64_t>& scores) {
+    // shared prefixes of differing length, so the tree has real inner nodes and some
+    // keys terminate inside another key's path
+    const char* words[] = {"apple", "applesauce", "apply", "apron", "april",
+                           "banana", "band", "bandana", "bar", "barn", "bat"};
+    uint32_t id = 1;
+
+    for(const char* word: words) {
+        const size_t len = strlen(word);
+
+        // a few docs per token so the leaf max is a real max
+        for(uint32_t k = 0; k < 3; k++) {
+            art_document doc(id, (int64_t) id, {0});
+            art_insert(t, (const unsigned char *) word, (int) len + 1, &doc);
+            scores[id] = (int64_t) id;
+            id++;
+        }
+    }
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_resume_matches_single_pass) {
+    // the walk drops its lock periodically and re-descends from the root to a saved key.
+    // chunked and unchunked runs have to land on exactly the same scores
+    art_tree single;
+    art_tree chunked;
+    art_tree_init(&single);
+    art_tree_init(&chunked);
+
+    std::map<uint32_t, int64_t> scores;
+    std::map<uint32_t, int64_t> ignored;
+    seed_rebuild_tree(&single, scores);
+    seed_rebuild_tree(&chunked, ignored);
+
+    art_rebuild_max_scores(&single, test_map_score_fn, NULL, &scores, 0);
+
+    // budget of 1 posting forces a yield inside almost every leaf
+    test_yield_count = 0;
+    art_rebuild_max_scores(&chunked, test_map_score_fn, test_counting_yield_fn, &scores, 1);
+    ASSERT_TRUE(test_yield_count > 10);
+
+    const char* words[] = {"apple", "applesauce", "apply", "apron", "april",
+                           "banana", "band", "bandana", "bar", "barn", "bat"};
+
+    for(const char* word: words) {
+        const int len = (int) strlen(word) + 1;
+        art_leaf* a = (art_leaf *) art_search(&single, (const unsigned char *) word, len);
+        art_leaf* b = (art_leaf *) art_search(&chunked, (const unsigned char *) word, len);
+        ASSERT_TRUE(a != nullptr && b != nullptr);
+        ASSERT_EQ(a->max_score, b->max_score);
+    }
+
+    // and the inner nodes agree too, which is what candidate selection actually reads
+    ASSERT_EQ(single.root->max_score, chunked.root->max_score);
+    ASSERT_EQ(33, chunked.root->max_score);
+
+    art_tree_destroy(&single);
+    art_tree_destroy(&chunked);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_chunks_large_leaf) {
+    // one token in many documents: the budget has to bound work inside the leaf, not just
+    // between leaves, or this holds the index lock for the whole posting list
+    art_tree t;
+    art_tree_init(&t);
+
+    std::map<uint32_t, int64_t> scores;
+
+    for(uint32_t i = 1; i <= 500; i++) {
+        art_document doc(i, (int64_t) i, {0});
+        art_insert(&t, (const unsigned char *) "token", 6, &doc);
+        scores[i] = (int64_t) i;
+    }
+
+    // a single key means the root is the leaf, which used to skip the yield path entirely
+    ASSERT_EQ(1, ((uintptr_t) t.root & 1));
+
+    test_yield_count = 0;
+    art_rebuild_max_scores(&t, test_map_score_fn, test_counting_yield_fn, &scores, 10);
+
+    // 500 postings at 10 per segment
+    ASSERT_TRUE(test_yield_count >= 40);
+
+    art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *) "token", 6);
+    ASSERT_EQ(500, l->max_score);
+
+    // the top scorer dropping must still surface the next one down, across all those pauses
+    scores[500] = 1;
+    test_yield_count = 0;
+    art_rebuild_max_scores(&t, test_map_score_fn, test_counting_yield_fn, &scores, 10);
+    ASSERT_EQ(499, l->max_score);
+
+    art_tree_destroy(&t);
+}
+
+struct test_mutating_ctx_t {
+    art_tree* tree;
+    std::map<uint32_t, int64_t>* scores;
+    std::vector<std::string>* to_delete;
+    size_t next_delete;
+};
+
+static int64_t test_ctx_score_fn(void* obj, uint32_t id) {
+    auto ctx = (test_mutating_ctx_t*) obj;
+    const auto& it = ctx->scores->find(id);
+    return (it == ctx->scores->end()) ? INT64_MIN : it->second;
+}
+
+static void test_deleting_yield_fn(void* obj) {
+    // stands in for a writer that takes the index lock while the rebuild has let go of it.
+    // a multi batch filter delete really does run off the collection's batched indexer
+    // queue, so this is reachable, and art_delete frees and collapses nodes: a walk that
+    // held raw node pointers across the yield would resume on freed memory right here
+    auto ctx = (test_mutating_ctx_t*) obj;
+
+    if(ctx->next_delete >= ctx->to_delete->size()) {
+        return;
+    }
+
+    const std::string& key = (*ctx->to_delete)[ctx->next_delete++];
+    void* values = art_delete(ctx->tree, (const unsigned char *) key.c_str(), (int) key.length() + 1);
+    posting_t::destroy_list(values);
+}
+
+TEST(ArtTest, test_art_rebuild_max_scores_survives_concurrent_delete) {
+    art_tree t;
+    art_tree_init(&t);
+
+    std::map<uint32_t, int64_t> scores;
+    std::vector<std::string> keys;
+
+    for(uint32_t i = 0; i < 300; i++) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "key%03u", i);
+        keys.emplace_back(buf);
+
+        art_document doc(i + 1, (int64_t) (i + 1), {0});
+        art_insert(&t, (const unsigned char *) buf, (int) strlen(buf) + 1, &doc);
+        scores[i + 1] = (int64_t) (i + 1);
+    }
+
+    // delete the odd keys, one per yield. with a budget of one posting the walk yields
+    // after every leaf, so each delete lands ahead of the cursor and takes out siblings
+    // the walk still has pending
+    std::vector<std::string> to_delete;
+    for(uint32_t i = 1; i < 300; i += 2) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "key%03u", i);
+        to_delete.emplace_back(buf);
+    }
+
+    test_mutating_ctx_t ctx;
+    ctx.tree = &t;
+    ctx.scores = &scores;
+    ctx.to_delete = &to_delete;
+    ctx.next_delete = 0;
+
+    art_rebuild_max_scores(&t, test_ctx_score_fn, test_deleting_yield_fn, &ctx, 1);
+
+    ASSERT_EQ(to_delete.size(), ctx.next_delete);
+
+    // every odd key really is gone, and every even one survived
+    for(uint32_t i = 0; i < 300; i++) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "key%03u", i);
+        art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *) buf, (int) strlen(buf) + 1);
+
+        if(i % 2 == 1) {
+            ASSERT_TRUE(l == nullptr) << buf << " should have been deleted";
+        } else {
+            ASSERT_TRUE(l != nullptr) << buf << " should have survived";
+        }
+    }
+
+    // the tree is still walkable and scores correctly: a second clean pass has to reach
+    // every surviving leaf and land on the right value
+    art_rebuild_max_scores(&t, test_ctx_score_fn, NULL, &ctx, 0);
+
+    for(uint32_t i = 0; i < 300; i += 2) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "key%03u", i);
+        art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *) buf, (int) strlen(buf) + 1);
+        ASSERT_EQ((int64_t) (i + 1), l->max_score);
+    }
+
+    ASSERT_EQ(299, t.root->max_score);
+
+    art_tree_destroy(&t);
+}

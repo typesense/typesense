@@ -38,6 +38,8 @@ LRU::Cache<uint64_t, cached_res_t> res_cache;
 std::shared_mutex alter_mutex;
 std::set<std::string> alters_in_progress;
 
+static constexpr const char* REBUILD_TOKEN_SCORES = "rebuild_token_scores";
+
 class alter_guard_t {
     std::string collection_name;
 public:
@@ -362,17 +364,48 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     // The actual check for this, happens in `ReplicationState::write` which is called only during live writes.
     alter_guard_t alter_guard(req->params["collection"]);
 
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        //LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
+    // `collection` is the route path param, the other two are filled in by the http layer
+    // whether or not the client sent them
+    static const std::set<std::string> non_client_params = {
+        "collection", http_req::AUTH_HEADER, http_req::USER_HEADER
+    };
+
+    const bool rebuild_token_scores = req->params.count(REBUILD_TOKEN_SCORES) != 0;
+
+    if(rebuild_token_scores) {
+        if(req->params[REBUILD_TOKEN_SCORES] != "true") {
+            res->set_400("Parameter `" + std::string(REBUILD_TOKEN_SCORES) + "` must be `true`.");
+            return false;
+        }
+
+        for(const auto& param: req->params) {
+            if(param.first != REBUILD_TOKEN_SCORES && non_client_params.count(param.first) == 0) {
+                res->set_400("Parameter `" + std::string(REBUILD_TOKEN_SCORES) +
+                             "` cannot be combined with other parameters.");
+                return false;
+            }
+        }
+
+        if(!req->body.empty()) {
+            res->set_400("Parameter `" + std::string(REBUILD_TOKEN_SCORES) +
+                         "` must be sent without a request body.");
+            return false;
+        }
     }
 
-    if(req_json.empty()) {
-        res->set_400("Alter payload is empty.");
-        return false;
+    if(!rebuild_token_scores) {
+        try {
+            req_json = nlohmann::json::parse(req->body);
+        } catch(const std::exception& e) {
+            //LOG(ERROR) << "JSON error: " << e.what();
+            res->set_400("Bad JSON.");
+            return false;
+        }
+
+        if(req_json.empty()) {
+            res->set_400("Alter payload is empty.");
+            return false;
+        }
     }
 
     for(auto it : req_json.items()) {
@@ -388,6 +421,19 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     if(collection == nullptr) {
         res->set_404("Collection not found");
         return false;
+    }
+
+    if(rebuild_token_scores) {
+        auto rebuild_op = collection->rebuild_token_scores(req->log_index);
+        if(!rebuild_op.ok()) {
+            res->set(rebuild_op.code(), rebuild_op.error());
+            return false;
+        }
+
+        nlohmann::json response;
+        response["rebuild_token_scores"] = true;
+        res->set_200(response.dump());
+        return true;
     }
 
     if(req_json.contains("metadata")) {

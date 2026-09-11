@@ -5142,3 +5142,70 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatF
 
     collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
 }
+
+TEST_F(CollectionSpecificMoreTest, PrefixSearchWithVolatileSortFieldShouldUseCurrentMaxScore) {
+    // ten distinct tokens share the "qua" prefix but only three candidates are
+    // expanded, so candidate selection is decided purely by art token max_score
+
+    std::vector<field> fields = {
+        field("ticker", field_types::STRING, false),
+        field("volume1h", field_types::FLOAT, false)
+    };
+
+    Collection* coll = collectionManager.create_collection("crypto_test", 1, fields, "volume1h").get();
+
+    for(size_t i = 0; i < 10; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["ticker"] = std::string("qua") + std::string(1, 'a' + i);
+        doc["volume1h"] = (i + 1) * 10.0;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto results = coll->search("qua", {"ticker"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 3).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("8", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("7", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // sort-only update of the coldest ticker to the highest volume: its ticker never
+    // re-indexes, so the token score only catches up on a rebuild
+    nlohmann::json doc_update;
+    doc_update["id"] = "0";
+    doc_update["volume1h"] = 100000.0;
+    ASSERT_TRUE(coll->add(doc_update.dump(), UPDATE).ok());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    results = coll->search("qua", {"ticker"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 3).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // and the slot goes back on the way down, which the insert path can never do
+    doc_update["volume1h"] = 1.0;
+    ASSERT_TRUE(coll->add(doc_update.dump(), UPDATE).ok());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    results = coll->search("qua", {"ticker"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 3).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+
+    for(const auto& hit: results["hits"]) {
+        ASSERT_NE("0", hit["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("crypto_test");
+}

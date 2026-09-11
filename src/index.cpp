@@ -252,15 +252,29 @@ Index::~Index() {
     field_geopolygon_index.clear();
 }
 
+int64_t Index::float_points(float value) {
+    // serialize float to an integer and reverse the inverted range
+    int64_t points = 0;
+    memcpy(&points, &value, sizeof(int32_t));
+    points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
+    points = -1 * (INT32_MAX - points);
+    return points;
+}
+
+int64_t Index::sort_index_value_to_points(const field& a_field, int64_t value) {
+    // sort index stores floats via float_to_int64_t, art scores use the float_points encoding
+    if(a_field.type == field_types::FLOAT) {
+        return float_points(int64_t_to_float(value));
+    }
+
+    return value;
+}
+
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
     int64_t points = 0;
 
     if(document[default_sorting_field].is_number_float()) {
-        // serialize float to an integer and reverse the inverted range
-        float n = document[default_sorting_field];
-        memcpy(&points, &n, sizeof(int32_t));
-        points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
-        points = -1 * (INT32_MAX - points);
+        points = float_points(document[default_sorting_field].get<float>());
     } else if(document[default_sorting_field].is_string()) {
         // not much value in supporting default sorting field as string, so we will just dummy it out
         points = 0;
@@ -294,6 +308,81 @@ float Index::int64_t_to_float(int64_t n) {
     return f;
 }
 
+void Index::tokenize_doc_field(const field& the_field,
+                               const nlohmann::json& value,
+                               const std::vector<char>& local_symbols_to_index,
+                               const std::vector<char>& local_token_separators,
+                               std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
+
+    const auto& token_separators = the_field.token_separators.empty() ? local_token_separators : the_field.token_separators;
+    const auto& symbols_to_index = the_field.symbols_to_index.empty() ? local_symbols_to_index : the_field.symbols_to_index;
+
+    // non-string, non-geo faceted field should be indexed as faceted string field as well
+    if(the_field.facet && !the_field.is_string() && !the_field.is_geopoint()) {
+        if(the_field.is_array()) {
+            std::vector<std::string> strings;
+
+            if(the_field.type == field_types::INT32_ARRAY) {
+                for(int32_t v: value){
+                    auto str = std::to_string(v);
+                    strings.emplace_back(std::move(str));
+                }
+            } else if(the_field.type == field_types::INT64_ARRAY) {
+                for(int64_t v: value){
+                    auto str = std::to_string(v);
+                    strings.emplace_back(std::move(str));
+                }
+            } else if(the_field.type == field_types::FLOAT_ARRAY) {
+                for(float v: value){
+                    auto str = StringUtils::float_to_str(v);
+                    strings.emplace_back(std::move(str));
+                }
+            } else if(the_field.type == field_types::BOOL_ARRAY) {
+                for(bool v: value){
+                    auto str = std::to_string(v);
+                    strings.emplace_back(std::move(str));
+                }
+            }
+
+            tokenize_string_array(strings, the_field,
+                                  symbols_to_index, token_separators,
+                                  token_to_offsets);
+        } else {
+            std::string text;
+
+            if(the_field.type == field_types::INT32) {
+                auto val = value.get<int32_t>();
+                text = std::to_string(val);
+            } else if(the_field.type == field_types::INT64) {
+                auto val = value.get<int64_t>();
+                text = std::to_string(val);
+            } else if(the_field.type == field_types::FLOAT) {
+                auto val = value.get<float>();
+                text = StringUtils::float_to_str(val);
+            } else if(the_field.type == field_types::BOOL) {
+                auto val = value.get<bool>();
+                text = std::to_string(val);
+            }
+
+            tokenize_string(text, the_field,
+                            symbols_to_index, token_separators,
+                            token_to_offsets);
+        }
+    }
+
+    if(the_field.is_string()) {
+        if(the_field.type == field_types::STRING) {
+            tokenize_string(value, the_field,
+                            symbols_to_index, token_separators,
+                            token_to_offsets);
+        } else {
+            tokenize_string_array(value, the_field,
+                                  symbols_to_index, token_separators,
+                                  token_to_offsets);
+        }
+    }
+}
+
 void Index::compute_token_offsets_facets(index_record& record,
                                          const tsl::htrie_map<char, field>& search_schema,
                                          const std::vector<char>& local_token_separators,
@@ -309,80 +398,74 @@ void Index::compute_token_offsets_facets(index_record& record,
 
         offsets_facet_hashes_t offset_facet_hashes;
 
-        bool is_facet = search_schema.at(field_name).facet;
-
-        const auto& token_separators = the_field.token_separators.empty() ? local_token_separators : the_field.token_separators;
-        const auto& symbols_to_index = the_field.symbols_to_index.empty() ? local_symbols_to_index : the_field.symbols_to_index;
-
-        // non-string, non-geo faceted field should be indexed as faceted string field as well
-        if(the_field.facet && !the_field.is_string() && !the_field.is_geopoint()) {
-            if(the_field.is_array()) {
-                std::vector<std::string> strings;
-
-                if(the_field.type == field_types::INT32_ARRAY) {
-                    for(int32_t value: document[field_name]){
-                        auto str = std::to_string(value);
-                        strings.emplace_back(std::move(str));
-                    }
-                } else if(the_field.type == field_types::INT64_ARRAY) {
-                    for(int64_t value: document[field_name]){
-                        auto str = std::to_string(value);
-                        strings.emplace_back(std::move(str));
-                    }
-                } else if(the_field.type == field_types::FLOAT_ARRAY) {
-                    for(float value: document[field_name]){
-                        auto str = StringUtils::float_to_str(value);
-                        strings.emplace_back(std::move(str));
-                    }
-                } else if(the_field.type == field_types::BOOL_ARRAY) {
-                    for(bool value: document[field_name]){
-                        auto str = std::to_string(value);
-                        strings.emplace_back(std::move(str));
-                    }
-                }
-
-                tokenize_string_array(strings, the_field,
-                                      symbols_to_index, token_separators,
-                                      offset_facet_hashes.offsets);
-            } else {
-                std::string text;
-
-                if(the_field.type == field_types::INT32) {
-                    auto val = document[field_name].get<int32_t>();
-                    text = std::to_string(val);
-                } else if(the_field.type == field_types::INT64) {
-                    auto val = document[field_name].get<int64_t>();
-                    text = std::to_string(val);
-                } else if(the_field.type == field_types::FLOAT) {
-                    auto val = document[field_name].get<float>();
-                    text = StringUtils::float_to_str(val);
-                } else if(the_field.type == field_types::BOOL) {
-                    auto val = document[field_name].get<bool>();
-                    text = std::to_string(val);
-                }
-
-                tokenize_string(text, the_field,
-                                symbols_to_index, token_separators,
-                                offset_facet_hashes.offsets);
-            }
-        }
-
-        if(the_field.is_string()) {
-            if(the_field.type == field_types::STRING) {
-                tokenize_string(document[field_name], the_field,
-                                symbols_to_index, token_separators,
-                                offset_facet_hashes.offsets);
-            } else {
-                tokenize_string_array(document[field_name], the_field,
-                                      symbols_to_index, token_separators,
-                                      offset_facet_hashes.offsets);
-            }
-        }
+        tokenize_doc_field(the_field, document[field_name], local_symbols_to_index, local_token_separators,
+                           offset_facet_hashes.offsets);
 
         if(!offset_facet_hashes.offsets.empty()) {
             record.field_index.emplace(field_name, std::move(offset_facet_hashes));
         }
     }
+}
+
+struct token_score_rebuild_ctx {
+    Index* index;
+    std::string sort_field;
+    const spp::sparse_hash_map<uint32_t, int64_t, Hasher32>* doc_to_score;
+    bool is_float;
+    std::unique_lock<std::shared_mutex>* ulock;
+};
+
+void Index::rebuild_token_scores(const std::string& default_sorting_field) {
+    // token max_score is set when a document is indexed and only ever raised after that, so a
+    // collection whose sort field values move around ends up ordering prefix candidates on
+    // scores that no longer exist. this recomputes them from the live sort index
+    if(default_sorting_field.empty()) {
+        return;
+    }
+
+    std::unique_lock ulock(mutex);
+
+    auto sort_field_it = search_schema.find(default_sorting_field);
+    auto sort_it = sort_index.find(default_sorting_field);
+
+    if(sort_field_it == search_schema.end() || sort_it == sort_index.end()) {
+        return;
+    }
+
+    token_score_rebuild_ctx ctx;
+    ctx.index = this;
+    ctx.sort_field = default_sorting_field;
+    ctx.doc_to_score = sort_it->second;
+    ctx.is_float = (sort_field_it.value().type == field_types::FLOAT);
+    ctx.ulock = &ulock;
+
+    // the walk below drops the lock periodically, so iterating `search_index` directly would
+    // carry an iterator across a rehash. the trees themselves stay put because Collection holds
+    // its shared alter lock for the length of this request
+    std::vector<art_tree*> trees;
+    trees.reserve(search_index.size());
+    for(const auto& tree_it: search_index) {
+        trees.push_back(tree_it.second);
+    }
+
+    for(art_tree* t: trees) {
+        art_rebuild_max_scores(t, token_score_from_sort_index, yield_index_lock,
+                               &ctx, TOKEN_SCORE_YIELD_BUDGET);
+    }
+}
+
+void Index::yield_index_lock(void* obj) {
+    // searches take a shared lock on the same mutex, so a rebuild that never let go would
+    // stall every query on the collection for the length of the walk
+    auto ctx = (token_score_rebuild_ctx*) obj;
+    ctx->ulock->unlock();
+    std::this_thread::yield();
+    ctx->ulock->lock();
+
+    // a writer may have rehashed the sort index while the lock was down, so resolve the
+    // field again instead of carrying a pointer across the gap
+    auto sort_it = ctx->index->sort_index.find(ctx->sort_field);
+    ctx->doc_to_score = (sort_it == ctx->index->sort_index.end()) ? nullptr : sort_it->second;
 }
 
 bool doc_contains_field(const nlohmann::json& doc, const field& a_field,
@@ -612,7 +695,9 @@ void Index::validate_and_preprocess(Index *index,
                 if(default_sorting_field_it != index->sort_index.end()) {
                     auto seq_id_it = default_sorting_field_it->second->find(index_rec.seq_id);
                     if(seq_id_it != default_sorting_field_it->second->end()) {
-                        points = seq_id_it->second;
+                        auto sort_field_it = search_schema.find(default_sorting_field);
+                        points = (sort_field_it != search_schema.end()) ?
+                                 sort_index_value_to_points(sort_field_it.value(), seq_id_it->second) : seq_id_it->second;
                     } else {
                         points = INT64_MIN;
                     }
@@ -765,8 +850,12 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
     bool is_facet_field = (afield.facet && !afield.is_geopoint() && !afield.is_geopolygon());
 
     if(afield.is_string() || is_facet_field) {
-        std::unordered_map<std::string, std::vector<art_document>> token_to_doc_offsets;
-        int64_t max_score = INT64_MIN;
+        struct token_batch_t {
+            std::vector<art_document> documents;
+            int64_t max_score = INT64_MIN;
+        };
+
+        std::unordered_map<std::string, token_batch_t> token_to_doc_offsets;
 
         std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
@@ -874,12 +963,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 }
             }
 
-            if(record.points > max_score) {
-                max_score = record.points;
-            }
-
             for(auto& token_offsets: field_index_it->second.offsets) {
-                token_to_doc_offsets[token_offsets.first].emplace_back(seq_id, record.points, token_offsets.second);
+                auto& token_batch = token_to_doc_offsets[token_offsets.first];
+                token_batch.documents.emplace_back(seq_id, record.points, token_offsets.second);
+                token_batch.max_score = std::max(token_batch.max_score, record.points);
 
                 if(afield.infix) {
                     auto strhash = StringUtils::hash_wy(token_offsets.first.c_str(), token_offsets.first.size());
@@ -900,13 +987,13 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
         for(auto& token_to_doc: token_to_doc_offsets) {
             const std::string& token = token_to_doc.first;
-            std::vector<art_document>& documents = token_to_doc.second;
+            token_batch_t& token_batch = token_to_doc.second;
 
             const auto *key = (const unsigned char *) token.c_str();
             int key_len = (int) token.length() + 1;  // for the terminating \0 char
 
             //LOG(INFO) << "key: " << key << ", art_doc.id: " << art_doc.id;
-            art_inserts(t, key, key_len, max_score, documents);
+            art_inserts(t, key, key_len, token_batch.max_score, token_batch.documents);
         }
     }
 
@@ -7695,6 +7782,24 @@ art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned c
     std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
     return (art_leaf*) art_search(t, token, (int) token_len);
+}
+
+int64_t Index::token_score_from_sort_index(void* obj, uint32_t seq_id) {
+    auto ctx = (token_score_rebuild_ctx*) obj;
+
+    if(ctx->doc_to_score == nullptr) {
+        // the sort field went away mid-walk, so there is nothing left to score against
+        return INT64_MIN;
+    }
+
+    const auto& doc_it = ctx->doc_to_score->find(seq_id);
+
+    if(doc_it == ctx->doc_to_score->end()) {
+        // matches the insert time fallback for docs missing the sort field
+        return INT64_MIN;
+    }
+
+    return ctx->is_float ? float_points(int64_t_to_float(doc_it->second)) : doc_it->second;
 }
 
 const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() const {
