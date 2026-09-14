@@ -57,6 +57,14 @@ protected:
           ]
         })", 200, {});
     }
+
+    void add_search_params_mock_response(const nlohmann::json& params) {
+        nlohmann::json response = {
+            {"choices", {{{"message", {{"role", "assistant"}, {"content", params.dump()}}},
+                          {"finish_reason", "stop"}}}}
+        };
+        NaturalLanguageSearchModel::add_mock_response(response.dump(), 200, {});
+    }
 };
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
@@ -1349,112 +1357,152 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetNLQueryParamsFromPreset) {
   ASSERT_EQ(req_params["nl_model_id"], model_id);
 }
 
-TEST_F(NaturalLanguageSearchModelManagerTest, HighlightOriginalQuery) {
-    // Mock successful validation for model creation
-  NaturalLanguageSearchModel::add_mock_response(R"({
-    "object": "chat.completion",
-    "model": "gpt-3.5-turbo",
-    "choices": [
-      {
-        "index": 0,
-        "message": {
-          "role": "assistant",
-          "content": "Hello!"
-        },
-        "finish_reason": "stop"
-      }
-    ]
-  })", 200, {});
-  
-  // Mock response for the actual NL query processing
-  NaturalLanguageSearchModel::add_mock_response(R"({
-    "object": "chat.completion",
-    "model": "gpt-3.5-turbo",
-    "choices": [
-      {
-        "index": 0,
-        "message": {
-          "role": "assistant",
-          "content": "{\n  \"q\": \"bar\",\n  \"filter_by\": \"points:>100\",\n  \"sort_by\": \"points:desc\"\n}",
-          "refusal": null,
-          "annotations": []
-        },
-        "logprobs": null,
-        "finish_reason": "stop"
-      }
-    ],
-    "usage": {
-      "prompt_tokens": 920,
-      "completion_tokens": 58,
-      "total_tokens": 978,
-      "prompt_tokens_details": {
-        "cached_tokens": 0,
-        "audio_tokens": 0
-      },
-      "completion_tokens_details": {
-        "reasoning_tokens": 0,
-        "audio_tokens": 0,
-        "accepted_prediction_tokens": 0,
-        "rejected_prediction_tokens": 0
-      }
+TEST_F(NaturalLanguageSearchModelManagerTest, FilterOnlyQueryHighlightsOriginalText) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
+
+    auto schema = R"({
+        "name": "titles",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "tags", "type": "string[]"},
+            {"name": "details", "type": "object"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"foo", "title":"Foo", "tags":["Foo", "Other"],
+                             "details":{"name":"Foo"}, "points":150})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"bar", "title":"Bar", "tags":["Bar"],
+                             "details":{"name":"Bar"}, "points":120})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"excluded", "title":"Foo", "tags":["Foo"],
+                             "details":{"name":"Foo"}, "points":50})").ok());
+
+    for(const std::string query: {"*", ""}) {
+        for(bool union_search: {false, true}) {
+            SCOPED_TRACE(query + (union_search ? " union" : " search"));
+            add_search_params_mock_response({{"q", query}, {"filter_by", "points:>100"},
+                                             {"sort_by", "points:desc"}});
+            std::map<std::string, std::string> params = {
+                {"collection", "titles"}, {"query_by", "title"}, {"nl_query", "true"},
+                {"q", "Foo over 100 points"}, {"highlight_fields", "title,tags,details.name"},
+                {"highlight_full_fields", "title,tags,details.name"}
+            };
+            auto nl_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params);
+            ASSERT_TRUE(nl_op.ok()) << nl_op.error();
+            ASSERT_EQ(query, params["q"]);
+            ASSERT_EQ("Foo over 100 points", params["_original_nl_query"]);
+
+            nlohmann::json results;
+            if(union_search) {
+                std::vector<nlohmann::json> embedded(1, nlohmann::json::object());
+                auto op = collectionManager.do_union(params, embedded,
+                    nlohmann::json::array({{{"collection", "titles"}}}), results, 0);
+                ASSERT_TRUE(op.ok()) << op.error();
+            } else {
+                std::string response;
+                nlohmann::json embedded;
+                auto op = collectionManager.do_search(params, embedded, response, 0);
+                ASSERT_TRUE(op.ok()) << op.error();
+                results = nlohmann::json::parse(response);
+                ASSERT_EQ(query, results["request_params"]["q"]);
+            }
+
+            ASSERT_EQ(2, results["found"]) << results.dump();
+            const auto& hit = results["hits"][0];
+            ASSERT_EQ("foo", hit["document"]["id"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["title"]["snippet"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["title"]["value"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["tags"][0]["snippet"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["details"]["name"]["snippet"]);
+            ASSERT_FALSE(hit["highlights"].empty());
+            ASSERT_EQ("bar", results["hits"][1]["document"]["id"]);
+            ASSERT_TRUE(results["hits"][1]["highlight"].empty());
+        }
     }
-  })", 200, {});
+}
 
-  nlohmann::json titles_schema = R"({
-    "name": "titles",
-    "fields": [
-      {"name": "title", "type": "string"},
-      {"name": "points", "type": "int32"}
-    ]
-  })"_json;
+TEST_F(NaturalLanguageSearchModelManagerTest, GeneratedQueryControlsRetrievalAndHighlightExpansion) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
 
-  auto coll_create_op = collectionManager.create_collection(titles_schema);
-  ASSERT_TRUE(coll_create_op.ok());
-  auto coll = coll_create_op.get();
+    auto schema = R"({
+        "name":"titles",
+        "fields":[{"name":"title", "type":"string"}, {"name":"points", "type":"int32"}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"foo", "title":"Foo", "points":150})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"barrel", "title":"Barrel Foo", "points":120})").ok());
 
-  nlohmann::json doc;
-  doc["title"] = "Foo";
-  doc["points"] = 150;
-  auto insert_op = coll->add(doc.dump());
-  ASSERT_TRUE(insert_op.ok());
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"bar", "<mark>Bar</mark>rel <mark>Foo</mark>"},
+        {"barrelx", "<mark>Barrel</mark> <mark>Foo</mark>"}
+    };
+    for(const auto& test_case: cases) {
+        SCOPED_TRACE(test_case.first);
+        add_search_params_mock_response({{"q", test_case.first}, {"filter_by", "points:>100"}});
+        std::map<std::string, std::string> params = {
+            {"collection", "titles"}, {"query_by", "title"}, {"nl_query", "true"},
+            {"q", "Foo over 100 points"}, {"drop_tokens_threshold", "0"}
+        };
+        auto nl_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params);
+        ASSERT_TRUE(nl_op.ok()) << nl_op.error();
+        // A stale raw_query parameter must never override the generated query.
+        params["raw_query"] = params["_original_nl_query"];
+        std::string response;
+        nlohmann::json embedded;
+        auto op = collectionManager.do_search(params, embedded, response, 0);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto results = nlohmann::json::parse(response);
+        ASSERT_EQ(1, results["found"]);
+        ASSERT_EQ("barrel", results["hits"][0]["document"]["id"]);
+        ASSERT_EQ(test_case.second, results["hits"][0]["highlight"]["title"]["snippet"]);
+        ASSERT_EQ(test_case.second, results["hits"][0]["highlights"][0]["snippet"]);
+        ASSERT_EQ(test_case.first, results["request_params"]["q"]);
+    }
+}
 
-  std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "true";
-  req_params["q"] = "Foo over 100 points";
-  req_params["collection"] = "titles";
-  req_params["query_by"] = "title";
+TEST_F(NaturalLanguageSearchModelManagerTest, WildcardGeneratedQueryReturnsFilteredBooks) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
 
-  nlohmann::json model_config = R"({
-    "model_name": "openai/gpt-3.5-turbo",
-    "api_key": "YOUR_OPENAI_API_KEY",
-    "max_bytes": 1024,
-    "temperature": 0.0
-  })"_json;
-  std::string model_id = "default";
-  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
-  ASSERT_TRUE(result.ok());
+    auto schema = R"({
+        "name":"books",
+        "fields":[{"name":"title", "type":"string"}, {"name":"category", "type":"string", "facet":true}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"title":"Dune", "category":"fiction"})").ok());
+    ASSERT_TRUE(coll->add(R"({"title":"Foundation", "category":"fiction"})").ok());
+    ASSERT_TRUE(coll->add(R"({"title":"A Brief History of Time", "category":"non-fiction"})").ok());
 
-  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
-  ASSERT_TRUE(nl_search_op.ok());
-  ASSERT_EQ(req_params["filter_by"], "points:>100");
-  ASSERT_EQ(req_params["sort_by"], "points:desc");
-  ASSERT_EQ(req_params["q"], "bar");
-  ASSERT_EQ(req_params["processed_by_nl_model"], "true");
-  ASSERT_EQ(req_params["_llm_generated_params"], R"(["filter_by","q","sort_by"])");
-  ASSERT_EQ(req_params["_original_llm_filter_by"], "points:>100");
-  ASSERT_EQ(req_params["llm_generated_filter_by"], "points:>100");
-  ASSERT_EQ(req_params["_original_nl_query"], "Foo over 100 points");
-  ASSERT_EQ(req_params["raw_query"], "Foo over 100 points");
-
-  std::string results_str;
-  nlohmann::json embedded_params;
-  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
-  ASSERT_TRUE(search_op.ok());
-
-  nlohmann::json results_json = nlohmann::json::parse(results_str);
-
-  ASSERT_EQ(results_json["found"], 1);
-  ASSERT_EQ(results_json["hits"][0]["document"]["title"], "Foo");
-  ASSERT_EQ(results_json["hits"][0]["document"]["points"], 150);
-  ASSERT_EQ(results_json["hits"][0]["highlight"]["title"]["snippet"].get<std::string>(), "<mark>Foo</mark>");
+    add_search_params_mock_response({{"q", "*"}, {"filter_by", "category:[`fiction`]"}});
+    std::map<std::string, std::string> params = {
+        {"collection", "books"}, {"query_by", "title"}, {"nl_query", "true"},
+        {"q", "show me fiction books please"}
+    };
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params).ok());
+    std::string response;
+    nlohmann::json embedded;
+    ASSERT_TRUE(collectionManager.do_search(params, embedded, response, 0).ok());
+    auto results = nlohmann::json::parse(response);
+    ASSERT_EQ(2, results["found"]);
+    ASSERT_EQ("*", results["request_params"]["q"]);
+    for(const auto& hit: results["hits"]) {
+        ASSERT_EQ("fiction", hit["document"]["category"]);
+        ASSERT_TRUE(hit["highlight"].empty());
+        ASSERT_TRUE(hit["highlights"].empty());
+    }
 }
