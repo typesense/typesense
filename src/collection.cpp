@@ -1346,14 +1346,23 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             continue;
         }
 
+        // IMPORTANT: we must NOT strip unstored fields / flattened keys from `index_record.doc` /
+        // `new_doc` in place here. Phase 3 (below) still needs to read the FULL document (including
+        // `store:false` fields and the transient flattened dot-keys produced for nested/object fields) in
+        // order to index it correctly -- in the pre-fix code this used to happen naturally because
+        // indexing ran *before* this stripping-for-storage step. Since we now write to the store first,
+        // we serialize a stripped COPY for on-disk storage and leave the original object untouched for
+        // Phase 3 to consume; the original is stripped in place afterwards, in Phase 4, purely to shape
+        // the API response the same way the pre-fix code did.
         if(index_record.is_update) {
-            remove_flat_fields(index_record.new_doc);
+            nlohmann::json doc_to_store = index_record.new_doc;
+            remove_flat_fields(doc_to_store);
             for(auto& field: fields) {
                 if(!field.store) {
-                    index_record.new_doc.erase(field.name);
+                    doc_to_store.erase(field.name);
                 }
             }
-            const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+            const std::string& serialized_json = doc_to_store.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
             bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
@@ -1363,16 +1372,17 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             }
 
         } else {
-            // remove flattened field values before storing on disk
-            remove_flat_fields(index_record.doc);
+            // remove flattened field values before storing on disk (from a copy -- see note above)
+            nlohmann::json doc_to_store = index_record.doc;
+            remove_flat_fields(doc_to_store);
             for(auto& field: fields) {
                 if(!field.store) {
-                    index_record.doc.erase(field.name);
+                    doc_to_store.erase(field.name);
                 }
             }
             const std::string& seq_id_str = std::to_string(index_record.seq_id);
-            const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
-                                                                       nlohmann::detail::error_handler_t::ignore);
+            const std::string& serialized_json = doc_to_store.dump(-1, ' ', false,
+                                                                    nlohmann::detail::error_handler_t::ignore);
 
             rocksdb::WriteBatch batch;
             batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
@@ -1397,6 +1407,19 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
         nlohmann::json res;
 
         if(index_record.indexed.ok()) {
+            // Now that Phase 3 has already indexed the FULL document (including store:false fields and
+            // flattened nested keys), strip it down to its stored form in place -- matching what was
+            // already written to the store in Phase 2 from a separate copy -- so that the response (and
+            // async reference propagation below, for inserts) reflects the stored representation rather
+            // than leaking non-stored fields or internal flattened keys.
+            nlohmann::json& stored_doc = index_record.is_update ? index_record.new_doc : index_record.doc;
+            remove_flat_fields(stored_doc);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    stored_doc.erase(field.name);
+                }
+            }
+
             if(!index_record.is_update && !found_async_referenced_ins.empty()) {
                 auto async_update_op = Index::update_async_references(name, return_doc, return_id,
                                                                       found_async_referenced_ins,  index_record,
