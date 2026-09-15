@@ -402,7 +402,6 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
 
     if(req_params.count("nl_query") != 0 && req_params["nl_query"] == "true" && req_params.count("q") != 0 && !req_params["q"].empty()) {
         nl_query = req_params["q"];
-        req_params["raw_query"] = nl_query;
         req_params["_original_nl_query"] = nl_query;
         has_nl_query = true;
     }

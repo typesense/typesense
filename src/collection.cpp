@@ -3765,10 +3765,10 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     StringUtils::split(highlight_full_fields, highlight_full_field_names, ",");
 
     std::vector<highlight_field_t> highlight_items;
-    if(query != "*") {
+    if(query != "*" || !coll_args.original_nl_query.empty()) {
         process_highlight_fields_with_lock(weighted_search_fields, raw_search_fields, include_fields_full, exclude_fields_full,
                                            highlight_field_names, highlight_full_field_names, infixes, q_tokens,
-                                           search_params->qtoken_set, highlight_items);
+                                           search_params->qtoken_set, highlight_items, coll_args.original_nl_query);
     }
     std::vector<highlight_field_snapshot_t> highlight_snapshots;
     build_highlight_snapshots_with_lock(highlight_items, highlight_snapshots);
@@ -3826,7 +3826,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
 
             nlohmann::json highlight_res;
             nlohmann::json wrapper_doc;
-            do_highlighting(search_schema_snapshot, enable_nested_fields_snapshot, symbols_to_index_snapshot, token_separators_snapshot, query,
+            do_highlighting(search_schema_snapshot, enable_nested_fields_snapshot, symbols_to_index_snapshot, token_separators_snapshot, coll_args.original_nl_query,
                             raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
                             highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                             highlight_full_field_names, highlight_items, highlight_snapshots, index_symbols, field_order_kv, document,
@@ -4005,7 +4005,7 @@ nlohmann::json Collection::preprocess_result_docs_for_conversation(const nlohman
 
 void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                                  const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                                 const string& query, const std::vector<std::string>& raw_search_fields,
+                                 const string& original_nl_query, const std::vector<std::string>& raw_search_fields,
                                  const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
                                  const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
                                  const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
@@ -4034,6 +4034,10 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
     tsl::htrie_set<char> hfield_names;
     tsl::htrie_set<char> h_full_field_names;
 
+    // Keep the executed query's prefix context unless it has no text to highlight.
+    const bool filter_only_query = raw_query.empty() || raw_query == "*";
+    const auto& highlight_query = filter_only_query ? original_nl_query : raw_query;
+
     for(size_t i = 0; i < highlight_items.size(); i++) {
         auto& highlight_item = highlight_items[i];
         const highlight_field_snapshot_t empty_highlight_snapshot;
@@ -4045,7 +4049,7 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
         field search_field = search_schema.at(field_name);
 
-        if(query != "*") {
+        if(!highlight_query.empty()) {
             highlight_t highlight;
             highlight.field = search_field.name;
 
@@ -4053,10 +4057,11 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
             bool found_full_highlight = false;
 
             highlight_result(enable_nested_fields, symbols_to_index, token_separators,
-                             raw_query, search_field, i, highlight_snapshot, field_order_kv,
+                             highlight_query, search_field, i, highlight_snapshot, field_order_kv,
                              document, highlight_res,
                              string_utils, snippet_threshold,
-                             highlight_affix_num_tokens, highlight_item.fully_highlighted, highlight_item.infix,
+                             highlight_affix_num_tokens, highlight_item.fully_highlighted,
+                             highlight_item.infix && !filter_only_query,
                              highlight_start_tag, highlight_end_tag, index_symbols, highlight,
                              found_highlight, found_full_highlight, q_phrases);
             if(!highlight.snippets.empty()) {
@@ -4260,10 +4265,10 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         auto& highlight_full_field_names = highlight_full_field_names_list[search_index];
         StringUtils::split(highlight_full_fields, highlight_full_field_names, ",");
-        if (query != "*") {
+        if (query != "*" || !coll_args.original_nl_query.empty()) {
             coll->process_highlight_fields_with_lock(weighted_search_fields, raw_search_fields, include_fields_full, exclude_fields_full,
                                      highlight_field_names, highlight_full_field_names, infixes, q_tokens,
-                                     search_params->qtoken_set, highlight_items_list[search_index]);
+                                     search_params->qtoken_set, highlight_items_list[search_index], coll_args.original_nl_query);
             coll->build_highlight_snapshots_with_lock(highlight_items_list[search_index],
                                                       highlight_snapshots_list[search_index]);
         }
@@ -4532,7 +4537,6 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             const auto& enable_nested_fields = read_state_snapshot->enable_nested_fields;
             const auto& symbols_to_index = read_state_snapshot->symbols_to_index;
             const auto& token_separators = read_state_snapshot->token_separators;
-            const auto& query = queries[search_index];
             const auto& raw_search_fields = coll_args.search_fields;
             const auto& raw_query = coll_args.raw_query;
             const auto& enable_highlight_v1 = coll_args.enable_highlight_v1;
@@ -4548,7 +4552,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
             nlohmann::json highlight_res;
             nlohmann::json wrapper_doc;
-            coll->do_highlighting(search_schema, enable_nested_fields, symbols_to_index, token_separators, query,
+            coll->do_highlighting(search_schema, enable_nested_fields, symbols_to_index, token_separators, coll_args.original_nl_query,
                                   raw_search_fields, raw_query, enable_highlight_v1, snippet_threshold,
                                   highlight_affix_num_tokens, highlight_start_tag, highlight_end_tag, highlight_field_names,
                                   highlight_full_field_names, highlight_items, highlight_snapshots, index_symbols, kv, document,
@@ -4920,7 +4924,8 @@ void Collection::process_highlight_fields_with_lock(const std::vector<search_fie
                                                     const std::vector<enable_t>& infixes,
                                                     std::vector<std::string>& q_tokens,
                                                     const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                                    std::vector<highlight_field_t>& highlight_items) const {
+                                                    std::vector<highlight_field_t>& highlight_items,
+                                                    const std::string& original_nl_query) const {
     std::shared_lock lock(mutex);
     return process_highlight_fields(search_fields,
                                     raw_search_fields,
@@ -4931,7 +4936,8 @@ void Collection::process_highlight_fields_with_lock(const std::vector<search_fie
                                     infixes,
                                     q_tokens,
                                     qtoken_set,
-                                    highlight_items);
+                                    highlight_items,
+                                    original_nl_query);
 }
 
 void Collection::process_highlight_fields(const std::vector<search_field_t>& search_fields,
@@ -4943,7 +4949,8 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
                                           const std::vector<enable_t>& infixes,
                                           std::vector<std::string>& q_tokens,
                                           const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                          std::vector<highlight_field_t>& highlight_items) const {
+                                          std::vector<highlight_field_t>& highlight_items,
+                                          const std::string& original_nl_query) const {
 
     // identify full highlight fields
     spp::sparse_hash_set<std::string> fields_highlighted_fully_set;
@@ -5045,6 +5052,26 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
                 art_leaf* leaf = index->get_token_leaf(field_name, (const unsigned char*) q_token.c_str(), q_token.size()+1);
                 if(leaf) {
                     highlight_item.qtoken_leaves.insert(q_token, highlight_query_token_t(q_token.size(), 0, false));
+                }
+            }
+        }
+    }
+
+    // The original NL text may contain terms moved into filters by the model.
+    // Add exact highlight candidates without changing retrieval or expanded matches.
+    if(!original_nl_query.empty()) {
+        for(auto& highlight_item: highlight_items) {
+            if(!highlight_item.is_string) {
+                continue;
+            }
+            const auto& search_field = search_schema.at(highlight_item.name);
+            std::vector<std::string> tokens;
+            Tokenizer(original_nl_query, true, false, search_field.locale, symbols_to_index,
+                      token_separators, search_field.get_stemmer()).tokenize(tokens);
+            for(const auto& token: tokens) {
+                if(highlight_item.qtoken_leaves.count(token) == 0 &&
+                   index->get_token_leaf(highlight_item.name, (const unsigned char*) token.c_str(), token.size() + 1)) {
+                    highlight_item.qtoken_leaves.insert(token, highlight_query_token_t(token.size(), 0, false));
                 }
             }
         }
@@ -9527,7 +9554,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
 
     // end check for mandatory params
 
-    const std::string& raw_query = req_params.find(RAW_QUERY) != req_params.end() ? req_params[RAW_QUERY] : req_params[QUERY];
+    const std::string& raw_query = req_params[QUERY];
     std::vector<uint32_t> num_typos = {2};
     size_t min_len_1typo = 4;
     size_t min_len_2typo = 7;
@@ -9923,6 +9950,9 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
                                     personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates, diversity_limit);
+    if(auto it = req_params.find("_original_nl_query"); it != req_params.end()) {
+        args.original_nl_query = it->second;
+    }
     return Option<bool>(true);
 }
 

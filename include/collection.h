@@ -205,9 +205,9 @@ struct collection_search_args_t {
     static constexpr auto DIVERSITY_LAMBDA = "diversity_lambda";
     static constexpr auto DIVERSITY_LIMIT = "diversity_limit";
 
-    static constexpr auto RAW_QUERY = "raw_query";
-
     std::string raw_query;
+    // Used only to supplement highlights after natural language query rewriting.
+    std::string original_nl_query;
     std::vector<std::string> search_fields;
     std::string filter_query;
     std::vector<std::string> facet_fields;
@@ -588,7 +588,7 @@ private:
 
     void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                          const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                         const string& query, const std::vector<std::string>& raw_search_fields,
+                         const string& original_nl_query, const std::vector<std::string>& raw_search_fields,
                          const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
                          const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
                          const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
@@ -1247,7 +1247,8 @@ public:
                                             const std::vector<enable_t>& infixes,
                                             std::vector<std::string>& q_tokens,
                                             const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                            std::vector<highlight_field_t>& highlight_items) const;
+                                            std::vector<highlight_field_t>& highlight_items,
+                                            const std::string& original_nl_query) const;
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const std::vector<std::string>& raw_search_fields,
@@ -1258,7 +1259,8 @@ public:
                                   const std::vector<enable_t>& infixes,
                                   std::vector<std::string>& q_tokens,
                                   const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                  std::vector<highlight_field_t>& highlight_items) const;
+                                  std::vector<highlight_field_t>& highlight_items,
+                                  const std::string& original_nl_query) const;
 
     void build_highlight_snapshots_with_lock(const std::vector<highlight_field_t>& highlight_items,
                                              std::vector<highlight_field_snapshot_t>& highlight_snapshots) const;
