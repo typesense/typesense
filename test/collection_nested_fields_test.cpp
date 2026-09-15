@@ -3589,6 +3589,52 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
+    nlohmann::json schema = R"({
+        "name": "review_tasks",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "title", "type": "string", "optional": true},
+          {"name": "reviewQueue", "type": "object[]", "optional": true},
+          {"name": "reviewQueue.reviewerId", "type": "int64[]", "facet": true, "optional": true},
+          {"name": "reviewQueue.taskIds", "type": "int64[]", "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "reviewQueue": [{"reviewerId": 9001, "taskIds": [11, 22, 33]}]
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "reviewQueue.reviewerId:=9001", {}, {}, {0},
+                                 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    doc = R"({
+        "id": "0",
+        "reviewQueue": []
+    })"_json;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "reviewQueue.reviewerId:=9001", {}, {}, {0},
+                            10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    auto get_op = coll1->get("0");
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_TRUE(get_op.get()["reviewQueue"].empty());
+}
+
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
     nlohmann::json schema = R"({
         "name": "coll1",
