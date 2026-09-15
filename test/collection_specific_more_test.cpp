@@ -3192,6 +3192,79 @@ TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
     ASSERT_TRUE(res.get()["hits"][0]["document"].count("word_not_to_store") == 0);
 }
 
+TEST_F(CollectionSpecificMoreTest, StoreFalseFieldIsStillIndexedAndFilterable) {
+    // Regression test for a bug introduced while fixing https://github.com/typesense/typesense/issues/3028
+    // (bulk-import visibility race). Collection::batch_index() writes a `store:false`-stripped COPY of the
+    // document to RocksDB before making the seq_id searchable, but must still index the FULL, unstripped
+    // document into memory -- otherwise a `store:false` (or nested/object) field would be durably written
+    // to disk correctly but silently never become searchable/filterable at all, even though the import
+    // reports success. Filtering (rather than just searching) on the store:false field is what actually
+    // proves it made it into the in-memory index, since a plain `search("*")` would look identical whether
+    // or not the field was indexed (it's never returned in the response either way).
+    nlohmann::json schema = R"({
+         "name": "coll_store_filter",
+         "fields": [
+           {"name": "title", "type": "string"},
+           {"name": "category", "type": "string", "facet": true, "store": false}
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    nlohmann::json doc;
+    doc["title"] = "wireless mouse";
+    doc["category"] = "electronics";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // Filtering on the store:false field only succeeds if it was actually indexed in-memory.
+    auto filter_res = coll->search("*", {}, "category:= electronics", {"category"}, sort_fields, {0}, 10, 1,
+                                   FREQUENCY, {false});
+    ASSERT_TRUE(filter_res.ok());
+    ASSERT_EQ(1, filter_res.get()["found"].get<int>());
+
+    // Faceting likewise only works off the in-memory facet index.
+    ASSERT_EQ(1, filter_res.get()["facet_counts"].size());
+    ASSERT_EQ("electronics", filter_res.get()["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) filter_res.get()["facet_counts"][0]["counts"][0]["count"]);
+
+    // The field is still never returned in the response, since it's `store:false`.
+    ASSERT_EQ(0, filter_res.get()["hits"][0]["document"].count("category"));
+
+    collectionManager.drop_collection("coll_store_filter");
+}
+
+TEST_F(CollectionSpecificMoreTest, NestedObjectFieldIsStillIndexedAndFilterableAfterBatchIndex) {
+    // Same regression as above (issue #3028 fix), but for the OTHER thing that used to get stripped from
+    // `index_record.doc` in place before Phase 3 could index it: the transient flattened dot-keys that
+    // `remove_flat_fields()` removes. Nested/object fields are indexed off those flattened keys, so if
+    // stripping ran before indexing, a nested field would silently stop being filterable too.
+    nlohmann::json schema = R"({
+         "name": "coll_nested_filter",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "name", "type": "object" }
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    auto doc = R"({
+        "name": {"first": "John", "last": "Smith"}
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc.dump(), CREATE).ok());
+
+    auto filter_res = coll->search("*", {}, "name.first:= John", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(filter_res.ok());
+    ASSERT_EQ(1, filter_res.get()["found"].get<int>());
+
+    collectionManager.drop_collection("coll_nested_filter");
+}
+
 TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
     // a `store: false` field is stripped before the document is written to disk. when the field is
     // also `optional: false`, the reloaded document used to fail validation and the entire
