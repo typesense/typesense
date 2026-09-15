@@ -12,6 +12,11 @@
     constexpr uint32_t COMPUTE_FILTER_ITERATOR_THRESHOLD = 25'000;
 #endif
 
+/// How much wider one side of an `&&` has to be than the other before we stop materializing it and ask it about
+/// the ids of the narrow side instead. Probing costs one seek per narrow id, so it only pays off when the sides
+/// are lopsided.
+constexpr uint32_t AND_PROBE_RATIO = 8;
+
 constexpr size_t DEFAULT_FILTER_BY_CANDIDATES = 4;
 
 enum NUM_COMPARATOR {

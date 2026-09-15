@@ -5444,3 +5444,64 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluationSearchHits) {
 
     collectionManager.drop_collection("products");
 }
+
+TEST_F(CollectionFilteringTest, SelectiveAndDoesNotMaterializeWideSide) {
+    nlohmann::json schema =
+            R"({
+                "name": "and_probe",
+                "fields": [
+                    {"name": "nid", "type": "string"},
+                    {"name": "state", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto coll = collectionManager.create_collection(schema).get();
+
+    // 25 documents match `nid:=sel`, 500 match `state:=active`, and 21 match both: the ids that are a multiple of
+    // 24 and below 500.
+    for (int32_t i = 0; i < 600; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["nid"] = i % 24 == 0 ? "sel" : "other";
+        doc["state"] = i < 500 ? "active" : "inactive";
+        doc["points"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "ASC") };
+
+    auto results = coll->search("*", {}, "nid:=sel", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(25, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "state:=active", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(500, results["found"].get<size_t>());
+
+    std::vector<std::string> expected_ids;
+    for (int32_t i = 0; i < 500; i += 24) {
+        expected_ids.push_back(std::to_string(i));
+    }
+    ASSERT_EQ(21, expected_ids.size());
+
+    // Either operand order returns the same documents, in the same order, and reports no cutoff.
+    for (const auto& filter_by: {"nid:=sel && state:=active", "state:=active && nid:=sel"}) {
+        results = coll->search("*", {}, filter_by, {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+
+        ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>());
+        ASSERT_EQ(expected_ids.size(), results["hits"].size());
+        ASSERT_FALSE(results["search_cutoff"].get<bool>());
+
+        for (size_t i = 0; i < expected_ids.size(); i++) {
+            ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+        }
+    }
+
+    // The same shape with a query term rather than a wildcard.
+    results = coll->search("sel", {"nid"}, "state:=active", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>());
+    for (size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("and_probe");
+}

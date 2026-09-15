@@ -139,6 +139,19 @@ export const searchScenarios = [
     wildCardQuery: true,
   },
   {
+    name: "filter_selective_and",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // A conjunction whose sides differ in selectivity by three orders of magnitude: the artist matches
+      // 431 songs, the release types 960,372 of the million. The result is the size of the narrow side, so
+      // the only thing the wide side can cost is the cost of computing it.
+      filter_by: "primary_artist_name:Nirvana && release_group_types:[Album,Single,Compilation]",
+    },
+    wildCardQuery: true,
+  },
+  {
     name: "sort_simple",
     params: {
       q: "*",

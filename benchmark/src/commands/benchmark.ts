@@ -104,6 +104,16 @@ export const defaultConfig: BenchmarkConfig = {
         percentage: 50,
       },
     },
+    filter_selective_and: {
+      "100vu": {
+        milliseconds: 200,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 200,
+        percentage: 50,
+      },
+    },
     filter_simple: {
       "100vu": {
         milliseconds: 200,
