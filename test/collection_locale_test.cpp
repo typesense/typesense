@@ -977,3 +977,83 @@ TEST_F(CollectionLocaleTest, TranslitPad) {
 
     delete transliterator;
 }*/
+
+TEST_F(CollectionLocaleTest, ThaiQueryTokenizationShouldMatchIndexing) {
+    // https://github.com/typesense/typesense/issues/3025
+    // the query used to be tokenized twice, and the second pass re-segmented thai at the normalized
+    // SARA AM, leaving query tokens that no document token could match. split/join hid it for plain
+    // search, so this asserts an exact match with that fallback off.
+    nlohmann::json schema = R"({
+        "name": "coll_th_tokens",
+        "fields": [
+          {"name": "t", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    const std::vector<std::string> terms = {
+        "น้ำหอม",   // perfume
+        "ทำงาน",    // work
+        "คำถาม",    // question
+        "กำลัง",    // power
+        "น้ำ",      // water
+        "กำไล",     // bangle
+    };
+
+    for(size_t i = 0; i < terms.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["t"] = terms[i];
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    for(size_t i = 0; i < terms.size(); i++) {
+        auto res = coll->search(terms[i], {"t"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 40, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000,
+                                true, false, true, "", false, 6000*1000, 4, 7, off).get();
+
+        ASSERT_EQ(1, res["found"].get<size_t>()) << "no exact match for " << terms[i];
+        ASSERT_EQ(std::to_string(i), res["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("coll_th_tokens");
+}
+
+TEST_F(CollectionLocaleTest, ThaiPhraseSearch) {
+    // https://github.com/typesense/typesense/issues/3025
+    // re-segmenting the query broke phrase matching too, since the phrase was assembled from tokens
+    // the index never held
+    nlohmann::json schema = R"({
+        "name": "coll_th_phrase",
+        "fields": [
+          {"name": "t", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc0;
+    doc0["id"] = "0";
+    doc0["t"] = "น้ำหอม ชาแนล";
+    ASSERT_TRUE(coll->add(doc0.dump()).ok());
+
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["t"] = "น้ำหอม ลิปสติก";
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    auto res = coll->search("\"น้ำหอม ชาแนล\"", {"t"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll->search("น้ำหอม", {"t"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll_th_phrase");
+}

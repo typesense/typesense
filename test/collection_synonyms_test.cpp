@@ -2094,3 +2094,89 @@ TEST_F(CollectionSynonymsTest, SynonymResolutionPreferExactMatch) {
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("headphones", res["hits"][0]["document"]["title"].get<std::string>());
 }
+
+TEST_F(CollectionSynonymsTest, ThaiSaraAmSynonymAtTokenBoundary) {
+    // https://github.com/typesense/typesense/issues/3025
+    nlohmann::json schema = R"({
+        "name": "coll_th_sara_am",
+        "fields": [
+          {"name": "t", "type": "string", "locale": "th"}
+        ],
+        "synonym_sets": ["index"]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["t"] = "item perfume";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // น้ำหอม (perfume) carries SARA AM (U+0E33) at a token boundary
+    nlohmann::json synonym = R"({
+        "id": "perfume-syn",
+        "synonyms": ["น้ำหอม", "perfume"],
+        "locale": "th"
+    })"_json;
+    ASSERT_TRUE(manager.upsert_synonym_item("index", synonym).ok());
+
+    auto res = coll->search("น้ำหอม", {"t"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll_th_sara_am");
+}
+
+TEST_F(CollectionSynonymsTest, ThaiSaraAmSynonymTermVariants) {
+    // https://github.com/typesense/typesense/issues/3025
+    // a th term is unreachable as a synonym whenever re-tokenizing its own token stream splits it,
+    // which happens right after the NFKC-decomposed SARA AM
+    nlohmann::json schema = R"({
+        "name": "coll_th_variants",
+        "fields": [
+          {"name": "t", "type": "string", "locale": "th"}
+        ],
+        "synonym_sets": ["index"]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["t"] = "item zmk";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    const std::vector<std::string> terms = {
+        "น้ำหอม",   // perfume, sara am mid-term
+        "ทำงาน",    // work
+        "คำถาม",    // question
+        "กำลัง",    // power
+        "บำรุง",    // nourish
+        "สำหรับ",   // for
+        "น้ำ",      // water, sara am ends the term
+        "กำไล",     // bangle, sara am followed by a leading vowel
+        "ชาแนล",    // chanel, no sara am
+    };
+
+    for(size_t i = 0; i < terms.size(); i++) {
+        const std::string syn_id = "syn-" + std::to_string(i);
+
+        nlohmann::json synonym;
+        synonym["id"] = syn_id;
+        synonym["synonyms"] = {terms[i], "zmk"};
+        synonym["locale"] = "th";
+        ASSERT_TRUE(manager.upsert_synonym_item("index", synonym).ok());
+
+        auto res = coll->search(terms[i], {"t"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+        ASSERT_EQ(1, res["found"].get<size_t>()) << "no synonym match for " << terms[i];
+        ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+        ASSERT_TRUE(manager.delete_synonym_item("index", syn_id).ok());
+    }
+
+    collectionManager.drop_collection("coll_th_variants");
+}
