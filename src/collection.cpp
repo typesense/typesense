@@ -1401,6 +1401,16 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // above are skipped automatically since their `indexed` status is no longer ok().
     batch_finalize_memory_index(index_records, found_fields);
 
+    // Release `alter_shlock` now that Phase 3 is done -- it only needs to span preprocessing through
+    // finalizing (Phases 1-3), to prevent a schema ALTER from running in between them. Phase 4 below does
+    // cross-collection reference bookkeeping (it takes locks on OTHER collections' `mutex`), which doesn't
+    // need this collection's `alter_mutex` held at all; keeping it held that long would only widen the
+    // lock span unnecessarily and risk lock-ordering issues with the other collection's own locking. This
+    // also restores the pre-fix lock-release timing for that part: the original, unsplit
+    // `batch_index_in_memory()` had already returned (and released its own alter_shlock) well before any
+    // cross-collection work ran.
+    alter_shlock.unlock();
+
     // Phase 4: propagate to referencing collections (only possible now that the document is actually
     // present in this collection's in-memory index) and build the per-document response.
     for(auto& index_record: index_records) {
