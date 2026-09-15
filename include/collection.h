@@ -1026,14 +1026,24 @@ public:
     // documents persisted to the on-disk store) *before* `batch_finalize_memory_index()` is invoked, so
     // that a concurrently running search can never observe a seq_id that is not yet fetchable from the
     // store (see: https://github.com/typesense/typesense/issues/3028).
+    //
+    // IMPORTANT: the caller must hold a shared lock on `alter_mutex` across this call AND the subsequent
+    // `batch_finalize_memory_index()` call (any on-disk store write may safely happen in between, while
+    // still holding that lock). This method does NOT acquire `alter_mutex` itself, so that the caller can
+    // hold a single lock spanning both calls rather than acquiring the same std::shared_mutex twice on one
+    // thread. Without this, a concurrent schema ALTER (`batch_alter_data()`, which takes a unique_lock on
+    // `alter_mutex`) could run between preprocessing and finalizing, causing records validated/coerced for
+    // the old schema to be indexed against a new one.
     void batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                   const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                   const bool generate_embeddings, std::unordered_set<std::string>& found_fields);
 
     // Actually inserts the (already preprocessed) records into the in-memory index, making their seq_ids
     // searchable. Must only be called AFTER the corresponding documents have been durably written to the
-    // on-disk store.
-    size_t batch_finalize_memory_index(std::vector<index_record>& index_records);
+    // on-disk store, and while still holding the SAME `alter_mutex` shared lock that was held across the
+    // preceding `batch_preprocess_records()` call (see the note on that method).
+    size_t batch_finalize_memory_index(std::vector<index_record>& index_records,
+                                       std::unordered_set<std::string>& found_fields);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",

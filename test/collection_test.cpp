@@ -5682,7 +5682,7 @@ TEST_F(CollectionTest, BulkImportStoreWriteMustPrecedeIndexVisibility) {
 
     // Simulate the OLD (buggy) ordering: make the record visible in the index *before* it has been
     // written to the on-disk store.
-    coll1->batch_finalize_memory_index(index_records);
+    coll1->batch_finalize_memory_index(index_records, found_fields);
     ASSERT_TRUE(index_records[0].indexed.ok());
 
     // The seq_id is now searchable...
