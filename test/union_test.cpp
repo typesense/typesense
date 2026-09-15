@@ -377,6 +377,29 @@ protected:
         }
     }
 
+    static constexpr size_t INFIX_DOCS_PER_COLLECTION = 200;
+
+    void setupFilteredInfixCollections() {
+        for(const auto& name: {"infix_0", "infix_1"}) {
+            nlohmann::json schema_json = {
+                    {"name", name},
+                    {"fields", {{{"name", "title"}, {"type", "string"}, {"infix", true}},
+                                {{"name", "category"}, {"type", "string"}}}}
+            };
+            auto collection_create_op = collectionManager.create_collection(schema_json);
+            ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+            auto collection = collection_create_op.get();
+            for(size_t i = 0; i < INFIX_DOCS_PER_COLLECTION; i++) {
+                nlohmann::json document = {
+                        {"title", "restocked" + std::to_string(i)},
+                        {"category", i % 2 == 0 ? "kitchen" : "garden"}
+                };
+                ASSERT_TRUE(collection->add(document.dump()).ok());
+            }
+        }
+    }
+
     static std::string makeScopedSearchKey(const std::string& parent_key, const std::string& custom_params) {
         const std::string scoped_key_payload = StringUtils::hmac(parent_key, custom_params) +
                                                parent_key.substr(0, api_key_t::PREFIX_LEN) + custom_params;
@@ -3131,4 +3154,57 @@ TEST_F(UnionTest, CuratedHitShouldNotSuppressUnrelatedRawHit) {
     ASSERT_EQ(200, json_res["hits"].size());
     ASSERT_EQ("99", json_res["hits"][0]["document"]["id"]);
     ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
+
+TEST_F(UnionTest, SearchCutoffKeepsInfixMatchesFiltered) {
+    setupFilteredInfixCollections();
+
+    searches = R"([
+                    {
+                        "collection": "infix_0",
+                        "q": "stock",
+                        "query_by": "title",
+                        "infix": "always",
+                        "filter_by": "category:=kitchen",
+                        "pinned_hits": "0:1"
+                    },
+                    {
+                        "collection": "infix_1",
+                        "q": "stock",
+                        "query_by": "title",
+                        "infix": "always",
+                        "filter_by": "category:=kitchen",
+                        "pinned_hits": "0:1"
+                    }
+                ])"_json;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+
+    auto assert_only_kitchen = [&]() {
+        for(const auto& hit: json_res["hits"]) {
+            ASSERT_EQ("kitchen", hit["document"]["category"].get<std::string>());
+        }
+    };
+
+    const auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Verify that the query is served by the infix index and normally returns every filtered match.
+    req_params = {{"per_page", "20"}};
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, current_time);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_FALSE(json_res["search_cutoff"].get<bool>());
+    ASSERT_EQ(INFIX_DOCS_PER_COLLECTION, json_res["found"].get<size_t>());
+    assert_only_kitchen();
+
+    json_res.clear();
+    req_params = {{"per_page", "20"}, {"search_cutoff_ms", "1"}};
+    auto expired_start = current_time - std::chrono::duration_cast<std::chrono::microseconds>(
+                                                std::chrono::seconds(1)).count();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, expired_start);
+
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_TRUE(json_res["search_cutoff"].get<bool>());
+    ASSERT_LT(json_res["found"].get<size_t>(), INFIX_DOCS_PER_COLLECTION);
+    ASSERT_FALSE(json_res["hits"].empty());
+    assert_only_kitchen();
 }

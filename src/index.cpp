@@ -6165,10 +6165,19 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         phrase_result_ids = excluded_phrase_result_ids;
     }
 
-    // AND phrase id matches with filter ids
-    if(filter_result_iterator->validity) {
+    // AND phrase id matches with filter ids. A timed out iterator is also passed through
+    // add_phrase_ids so the combined iterator retains the timeout state and fails closed.
+    if(filter_result_iterator->validity != filter_result_iterator_t::invalid) {
         filter_result_iterator_t::add_phrase_ids(filter_result_iterator, phrase_result_ids, phrase_result_count);
+    } else if(filter_result_iterator->is_filter_provided()) {
+        // The filter was provided but matched no documents. Keep that empty filter instead of
+        // replacing it with unfiltered phrase matches. This path is reachable when curation
+        // prevents the search from returning early.
+        delete[] phrase_result_ids;
+        phrase_result_ids = nullptr;
+        phrase_result_count = 0;
     } else {
+        // Without filter_by, the phrase matches themselves become the filter.
         delete filter_result_iterator;
         filter_result_iterator = new filter_result_iterator_t(phrase_result_ids, phrase_result_count);
     }
@@ -6326,6 +6335,13 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
         enable_t field_infix = the_fields[field_id].infix;
 
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
+            // An exhausted or timed out filter cannot safely be applied to another result set.
+            // Preserve the results collected so far instead of admitting unfiltered infix matches.
+            if(filter_result_iterator->validity != filter_result_iterator_t::valid &&
+                    filter_result_iterator->is_filter_provided()) {
+                continue;
+            }
+
             std::vector<uint32_t> infix_ids;
             filter_result_t filtered_infix_ids;
             auto search_infix_op = search_infix(query_tokens[0].value, field_name, infix_ids,
@@ -6338,26 +6354,27 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                 gfx::timsort(infix_ids.begin(), infix_ids.end());
                 infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
 
-                auto& raw_infix_ids = filtered_infix_ids.docs;
-                auto& raw_infix_ids_length = filtered_infix_ids.count;
+                uint32_t* raw_infix_ids = nullptr;
+                size_t raw_infix_ids_length = 0;
 
                 if(!curated_ids_sorted.empty()) {
-                    raw_infix_ids_length = ArrayUtils::exclude_scalar(&infix_ids[0], infix_ids.size(), &curated_ids_sorted[0],
+                    raw_infix_ids_length = ArrayUtils::exclude_scalar(infix_ids.data(), infix_ids.size(),
+                                                                      curated_ids_sorted.data(),
                                                                       curated_ids_sorted.size(), &raw_infix_ids);
+                    filtered_infix_ids.docs = raw_infix_ids;
+                    filtered_infix_ids.count = raw_infix_ids_length;
                     infix_ids.clear();
                 } else {
-                    raw_infix_ids = &infix_ids[0];
+                    raw_infix_ids = infix_ids.data();
                     raw_infix_ids_length = infix_ids.size();
                 }
 
                 if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
                     filter_result_t result;
                     filter_result_iterator->and_scalar(raw_infix_ids, raw_infix_ids_length, result);
-                    if(raw_infix_ids == &infix_ids[0]) {
-                        raw_infix_ids = nullptr;
-                    }
-
                     filtered_infix_ids = std::move(result);
+                    raw_infix_ids = filtered_infix_ids.docs;
+                    raw_infix_ids_length = filtered_infix_ids.count;
                     filter_result_iterator->reset();
                 }
 
@@ -6417,10 +6434,6 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                                            raw_infix_ids_length, &new_all_result_ids);
                 delete[] all_result_ids;
                 all_result_ids = new_all_result_ids;
-
-                if (raw_infix_ids == &infix_ids[0]) {
-                    raw_infix_ids = nullptr;
-                }
 
                 searched_query_tokens.push_back({});
             }

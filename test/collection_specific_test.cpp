@@ -39,6 +39,40 @@ protected:
         curation_index_manager.add_curation_index("index", std::move(curation_index1));
     }
 
+    void setupPhraseFilterCollection() {
+        nlohmann::json schema_json = R"({
+                "name": "phrase_filter",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "category", "type": "string", "facet": true}
+                ]
+            })"_json;
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+        auto collection = collection_create_op.get();
+        for(size_t i = 0; i < 12; i++) {
+            nlohmann::json document = {
+                    {"title", "in stock item" + std::to_string(i)},
+                    {"category", i % 2 == 0 ? "kitchen" : "garden"}
+            };
+            ASSERT_TRUE(collection->add(document.dump()).ok());
+        }
+    }
+
+    nlohmann::json searchPhraseWithEmptyFilter(std::map<std::string, std::string> params) {
+        params.insert({{"collection", "phrase_filter"},
+                       {"query_by", "title"},
+                       {"q", "\"in stock\""},
+                       {"filter_by", "category:=nothing"}});
+
+        nlohmann::json embedded_params = nlohmann::json::object();
+        std::string results_json;
+        auto search_op = CollectionManager::do_search(params, embedded_params, results_json, 0);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+        return search_op.ok() ? nlohmann::json::parse(results_json) : nlohmann::json::object();
+    }
+
     virtual void SetUp() {
         setupCollection();
     }
@@ -2619,6 +2653,53 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, PinnedHitDoesNotAdmitPhraseMatchesWhenFilterMatchesNothing) {
+    setupPhraseFilterCollection();
+
+    auto result = searchPhraseWithEmptyFilter({{"pinned_hits", "5:1"}});
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("5", result["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificTest, HiddenHitDoesNotAdmitPhraseMatchesWhenFilterMatchesNothing) {
+    setupPhraseFilterCollection();
+
+    auto result = searchPhraseWithEmptyFilter({{"hidden_hits", "7"}});
+
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_TRUE(result["hits"].empty());
+}
+
+TEST_F(CollectionSpecificTest, FacetsExcludePhraseMatchesWhenFilterMatchesNothing) {
+    setupPhraseFilterCollection();
+
+    auto result = searchPhraseWithEmptyFilter(
+            {{"pinned_hits", "5:1"}, {"facet_by", "category"}, {"per_page", "0"}});
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    EXPECT_EQ("garden", result["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    EXPECT_EQ(1, result["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificTest, GroupedHitsExcludePhraseMatchesWhenFilterMatchesNothing) {
+    setupPhraseFilterCollection();
+
+    auto result = searchPhraseWithEmptyFilter({{"pinned_hits", "5:1"}, {"group_by", "category"}});
+
+    std::vector<std::string> ids;
+    for(const auto& group: result["grouped_hits"]) {
+        for(const auto& hit: group["hits"]) {
+            ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+    }
+
+    ASSERT_EQ(std::vector<std::string>{"5"}, ids);
 }
 
 TEST_F(CollectionSpecificTest, PhraseSearchMultiBlockToken) {
