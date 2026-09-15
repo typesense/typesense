@@ -1021,6 +1021,20 @@ public:
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings,
                                  std::unordered_set<std::string>& found_fields);
 
+    // Validates, coerces and (if needed) generates embeddings for a batch of records, WITHOUT making the
+    // records visible/searchable in the in-memory index yet. This must be called (and the resulting
+    // documents persisted to the on-disk store) *before* `batch_finalize_memory_index()` is invoked, so
+    // that a concurrently running search can never observe a seq_id that is not yet fetchable from the
+    // store (see: https://github.com/typesense/typesense/issues/3028).
+    void batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                  const bool generate_embeddings, std::unordered_set<std::string>& found_fields);
+
+    // Actually inserts the (already preprocessed) records into the in-memory index, making their seq_ids
+    // searchable. Must only be called AFTER the corresponding documents have been durably written to the
+    // on-disk store.
+    size_t batch_finalize_memory_index(std::vector<index_record>& index_records);
+
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
                                const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT);

@@ -1301,8 +1301,11 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::unordered_set<std::string> found_fields;
-    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
-                          remote_embedding_num_tries, true, found_fields);
+
+    // Phase 1: validate, coerce dirty values and (if needed) generate embeddings. This does NOT touch the
+    // in-memory search index, so no seq_id becomes visible/searchable as a result of this call.
+    batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                             remote_embedding_num_tries, true, found_fields);
 
     // Only update the referencing collections for the documents that have successfully been indexed in-memory and on disk.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
@@ -1319,67 +1322,83 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // We will remove all references to a document that has failed to index.
     std::vector<index_record> remove_async_reference_docs;
 
-    // store only documents that were indexed in-memory successfully
+    // Phase 2: persist every successfully validated document to the on-disk store FIRST, i.e. *before* any
+    // seq_id is made visible/searchable in the in-memory index. This closes the visibility race from
+    // https://github.com/typesense/typesense/issues/3028, where a concurrent search could previously
+    // observe a seq_id that had already been made searchable while its document body was not yet
+    // fetchable from the store (`get_document_from_store()` would fail and the record would silently be
+    // dropped from the response).
+    //
+    // Since the in-memory index has not been touched yet for these records, a store write failure here
+    // simply needs to mark the record as failed -- there is nothing to roll back in the index.
+    for(auto& index_record: index_records) {
+        if(!index_record.indexed.ok()) {
+            continue;
+        }
+
+        if(index_record.is_update) {
+            remove_flat_fields(index_record.new_doc);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    index_record.new_doc.erase(field.name);
+                }
+            }
+            const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+
+            bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+            if(!write_ok) {
+                LOG(ERROR) << "Update to disk failed. Old document remains in-memory and on-disk.";
+                index_record.index_failure(500, "Could not write to on-disk storage.");
+            }
+
+        } else {
+            // remove flattened field values before storing on disk
+            remove_flat_fields(index_record.doc);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    index_record.doc.erase(field.name);
+                }
+            }
+            const std::string& seq_id_str = std::to_string(index_record.seq_id);
+            const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
+                                                                       nlohmann::detail::error_handler_t::ignore);
+
+            rocksdb::WriteBatch batch;
+            batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
+            batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+            bool write_ok = store->batch_write(batch);
+
+            if(!write_ok) {
+                LOG(ERROR) << "Write to disk failed, will not index the document in-memory.";
+                index_record.index_failure(500, "Could not write to on-disk storage.");
+            }
+        }
+    }
+
+    // Phase 3: now that every document that will be indexed is already durable in the store, make the
+    // corresponding seq_ids visible/searchable in the in-memory index. Records whose store write failed
+    // above are skipped automatically since their `indexed` status is no longer ok().
+    batch_finalize_memory_index(index_records);
+
+    // Phase 4: propagate to referencing collections (only possible now that the document is actually
+    // present in this collection's in-memory index) and build the per-document response.
     for(auto& index_record: index_records) {
         nlohmann::json res;
 
         if(index_record.indexed.ok()) {
-            if(index_record.is_update) {
-                remove_flat_fields(index_record.new_doc);
-                for(auto& field: fields) {
-                    if(!field.store) {
-                        index_record.new_doc.erase(field.name);
-                    }
-                }
-                const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-
-                bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
-
-                if(!write_ok) {
-                    // we will attempt to reindex the old doc on a best-effort basis
-                    LOG(ERROR) << "Update to disk failed. Will restore old document";
-                    remove_document(index_record.new_doc, index_record.seq_id, false, false);
-                    index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
-                    index_record.index_failure(500, "Could not write to on-disk storage.");
-                }
-
-            } else {
-                // remove flattened field values before storing on disk
-                remove_flat_fields(index_record.doc);
-                for(auto& field: fields) {
-                    if(!field.store) {
-                        index_record.doc.erase(field.name);
-                    }
-                }
-                const std::string& seq_id_str = std::to_string(index_record.seq_id);
-                const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
-                                                                           nlohmann::detail::error_handler_t::ignore);
-
-                rocksdb::WriteBatch batch;
-                batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
-                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
-                bool write_ok = store->batch_write(batch);
-
-                if(!write_ok) {
+            if(!index_record.is_update && !found_async_referenced_ins.empty()) {
+                auto async_update_op = Index::update_async_references(name, return_doc, return_id,
+                                                                      found_async_referenced_ins,  index_record,
+                                                                      json_out);
+                if (!async_update_op.ok()) {
                     // remove from in-memory store to keep the state synced
-                    LOG(ERROR) << "Write to disk failed, removing the document from in-memory index.";
+                    LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
+
+                    remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
+                                                             index_record.doc, index_record.operation,
+                                                             index_record.dirty_values);
                     remove_document(index_record.doc, index_record.seq_id, false, false);
-                    index_record.index_failure(500, "Could not write to on-disk storage.");
-                }
-
-                if (!found_async_referenced_ins.empty() && index_record.indexed.ok()) {
-                    auto async_update_op = Index::update_async_references(name, return_doc, return_id,
-                                                                          found_async_referenced_ins,  index_record,
-                                                                          json_out);
-                    if (!async_update_op.ok()) {
-                        // remove from in-memory store to keep the state synced
-                        LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
-
-                        remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
-                                                                 index_record.doc, index_record.operation,
-                                                                 index_record.dirty_values);
-                        remove_document(index_record.doc, index_record.seq_id, false, false);
-                    }
                 }
             }
 
@@ -1471,18 +1490,47 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                          const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
+    // NOTE: this combined preprocess + make-visible flow is only safe to use when the documents being
+    // indexed are already known to be durably persisted in the on-disk store (e.g. when rebuilding the
+    // in-memory index from the store during collection load). Fresh writes coming in via `batch_index()`
+    // must instead call `batch_preprocess_records()` and `batch_finalize_memory_index()` separately, with
+    // the store write happening in between, so that a seq_id never becomes searchable before its document
+    // is fetchable from the store.
+    batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                              remote_embedding_num_tries, generate_embeddings, found_fields);
+    return batch_finalize_memory_index(index_records);
+}
+
+void Collection::batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                          const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
     std::shared_lock alter_shlock(alter_mutex);
     std::shared_lock shlock(mutex);
     Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
                     remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
-    shlock.unlock();
+
+    // Collect the set of fields present across the (successfully validated) records. This mirrors the
+    // bookkeeping that `Index::batch_memory_index()` does internally, but we need it available *before*
+    // the records are made visible in the index, since callers (e.g. async reference propagation) rely on
+    // it ahead of that step.
+    for(auto& index_record: index_records) {
+        if(!index_record.indexed.ok()) {
+            continue;
+        }
+        for(const auto& kv: index_record.doc.items()) {
+            found_fields.insert(kv.key());
+        }
+    }
+}
+
+size_t Collection::batch_finalize_memory_index(std::vector<index_record>& index_records) {
     std::unique_lock lock(mutex);
-    const auto collection_name = name;
+    std::unordered_set<std::string> dummy_found_fields;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, found_fields,
+                                                   token_separators, symbols_to_index, dummy_found_fields,
                                                    false, tsl::htrie_map<char, field>());
     num_documents += num_indexed;
 
