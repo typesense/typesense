@@ -382,6 +382,19 @@ class Collection: std::enable_shared_from_this<Collection> {
 private:
 
     mutable std::shared_mutex mutex;
+
+    // Guards against a schema ALTER (`batch_alter_data()`, which takes a unique_lock here) running
+    // concurrently with code that depends on a stable schema across multiple steps (see
+    // `Collection::batch_index()`, `batch_preprocess_records()`, `batch_finalize_memory_index()`).
+    //
+    // KNOWN PRE-EXISTING GAP (not introduced or worsened by the #3028 fix, and out of that fix's scope):
+    // `fields` / `search_schema` have a SECOND mutator that does not take this lock at all --
+    // `add_many()`'s own dynamic-field-detection step (`fields.emplace_back(new_field)` /
+    // `search_schema.emplace(...)`) runs under a plain unique_lock on `mutex` only. So `alter_mutex` has
+    // never been a complete guard against concurrent mutation of `fields`/`search_schema`: it only
+    // protects against explicit ALTER requests, not against another concurrent `add_many()` call growing
+    // the schema via auto-detected/dynamic fields. Unifying these two mutation paths under one lock would
+    // be a deeper locking redesign affecting more than this fix; left as-is.
     mutable std::shared_mutex alter_mutex;
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
