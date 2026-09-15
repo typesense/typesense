@@ -1021,6 +1021,8 @@ public:
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings,
                                  std::unordered_set<std::string>& found_fields);
 
+private:
+
     // Validates, coerces and (if needed) generates embeddings for a batch of records, WITHOUT making the
     // records visible/searchable in the in-memory index yet. This must be called (and the resulting
     // documents persisted to the on-disk store) *before* `batch_finalize_memory_index()` is invoked, so
@@ -1034,6 +1036,12 @@ public:
     // thread. Without this, a concurrent schema ALTER (`batch_alter_data()`, which takes a unique_lock on
     // `alter_mutex`) could run between preprocessing and finalizing, causing records validated/coerced for
     // the old schema to be indexed against a new one.
+    //
+    // Deliberately kept private: the only legitimate callers are `Collection::batch_index()` and
+    // `Collection::batch_index_in_memory()` (both members of this same class, so no friend declaration is
+    // needed), which are the only two places that can uphold the alter_mutex contract above. This
+    // invariant has already caused three separate review-round regressions while these were public; making
+    // them private stops any future caller from reaching them without also going through that contract.
     void batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                   const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                   const bool generate_embeddings, std::unordered_set<std::string>& found_fields);
@@ -1042,8 +1050,12 @@ public:
     // searchable. Must only be called AFTER the corresponding documents have been durably written to the
     // on-disk store, and while still holding the SAME `alter_mutex` shared lock that was held across the
     // preceding `batch_preprocess_records()` call (see the note on that method).
+    //
+    // Deliberately kept private -- see the note on `batch_preprocess_records()` above.
     size_t batch_finalize_memory_index(std::vector<index_record>& index_records,
                                        std::unordered_set<std::string>& found_fields);
+
+public:
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
