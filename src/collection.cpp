@@ -1302,14 +1302,22 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::unordered_set<std::string> found_fields;
 
-    // Hold a shared lock on `alter_mutex` for the ENTIRE span from preprocessing (Phase 1, which
-    // validates/coerces records against the *current* schema) through finalizing them into the in-memory
-    // index (Phase 3, which must index against that SAME schema). This matches the guarantee the original,
-    // unsplit `batch_index_in_memory()` used to provide: `batch_alter_data()` takes a unique_lock on
-    // `alter_mutex`, so a schema ALTER can never run in the middle of this sequence and cause records that
-    // were validated/coerced for the old schema to be indexed against a new one (e.g. stale field types or
-    // mismatched embedding vector dimensions reaching `index_field_in_memory()`). The on-disk store write
-    // in between (Phase 2) doesn't touch the schema, so it's safe to keep it inside this same lock span.
+    // Hold a shared lock on `alter_mutex` for the ENTIRE remainder of this function (it is only released
+    // when `batch_index()` returns and this local destructs). Two independent reasons require this:
+    //
+    // 1. Preprocessing (Phase 1, which validates/coerces records against the *current* schema) through
+    //    finalizing them into the in-memory index (Phase 3, which must index against that SAME schema)
+    //    must not have a schema ALTER (`batch_alter_data()`, which takes a unique_lock on `alter_mutex`)
+    //    run in between them -- otherwise records validated/coerced for the old schema could be indexed
+    //    against a new one (e.g. stale field types or mismatched embedding vector dimensions reaching
+    //    `index_field_in_memory()`). This matches the guarantee the original, unsplit
+    //    `batch_index_in_memory()` used to provide. The on-disk store write in between (Phase 2) doesn't
+    //    touch the schema, so it's safe to keep it inside this same lock span.
+    // 2. Phase 4 (after finalizing) reads the `fields` member vector directly, which is also protected by
+    //    `alter_mutex` -- `batch_alter_data()` mutates `fields` (push_back/erase) under a unique lock on
+    //    it. Releasing this shared lock before Phase 4 would allow a concurrent ALTER to reallocate/shrink
+    //    `fields` while Phase 4 iterates over it on another thread. See the note just before Phase 4 below
+    //    for why an earlier version of this function got this wrong.
     std::shared_lock alter_shlock(alter_mutex);
 
     // Phase 1: validate, coerce dirty values and (if needed) generate embeddings. This does NOT touch the
@@ -1401,16 +1409,16 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // above are skipped automatically since their `indexed` status is no longer ok().
     batch_finalize_memory_index(index_records, found_fields);
 
-    // Release `alter_shlock` now that Phase 3 is done -- it only needs to span preprocessing through
-    // finalizing (Phases 1-3), to prevent a schema ALTER from running in between them. Phase 4 below does
-    // cross-collection reference bookkeeping (it takes locks on OTHER collections' `mutex`), which doesn't
-    // need this collection's `alter_mutex` held at all; keeping it held that long would only widen the
-    // lock span unnecessarily and risk lock-ordering issues with the other collection's own locking. This
-    // also restores the pre-fix lock-release timing for that part: the original, unsplit
-    // `batch_index_in_memory()` had already returned (and released its own alter_shlock) well before any
-    // cross-collection work ran.
-    alter_shlock.unlock();
-
+    // NOTE: `alter_shlock` is deliberately still held here and through the rest of this function (it is
+    // only released by its destructor when `batch_index()` returns). Phase 4 below reads the `fields`
+    // member vector directly (`for (auto& field : fields)`), and `fields` is itself protected by
+    // `alter_mutex`: `batch_alter_data()` mutates it (push_back/erase) under a UNIQUE lock on that exact
+    // mutex. Releasing `alter_shlock` before Phase 4 would let a concurrent `batch_alter_data()` reallocate
+    // or shrink `fields` while Phase 4 is mid-iteration on another thread -- a genuine use-after-free /
+    // iterator-invalidation race, not just a theoretical lock-ordering concern. A shared lock held longer
+    // than strictly necessary is safe as long as there's no actual lock-acquisition cycle; holding it
+    // through Phase 4's cross-collection work is a smaller risk than that confirmed race.
+    //
     // Phase 4: propagate to referencing collections (only possible now that the document is actually
     // present in this collection's in-memory index) and build the per-document response.
     for(auto& index_record: index_records) {
