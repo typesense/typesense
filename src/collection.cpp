@@ -1302,6 +1302,16 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::unordered_set<std::string> found_fields;
 
+    // Hold a shared lock on `alter_mutex` for the ENTIRE span from preprocessing (Phase 1, which
+    // validates/coerces records against the *current* schema) through finalizing them into the in-memory
+    // index (Phase 3, which must index against that SAME schema). This matches the guarantee the original,
+    // unsplit `batch_index_in_memory()` used to provide: `batch_alter_data()` takes a unique_lock on
+    // `alter_mutex`, so a schema ALTER can never run in the middle of this sequence and cause records that
+    // were validated/coerced for the old schema to be indexed against a new one (e.g. stale field types or
+    // mismatched embedding vector dimensions reaching `index_field_in_memory()`). The on-disk store write
+    // in between (Phase 2) doesn't touch the schema, so it's safe to keep it inside this same lock span.
+    std::shared_lock alter_shlock(alter_mutex);
+
     // Phase 1: validate, coerce dirty values and (if needed) generate embeddings. This does NOT touch the
     // in-memory search index, so no seq_id becomes visible/searchable as a result of this call.
     batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
@@ -1379,7 +1389,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // Phase 3: now that every document that will be indexed is already durable in the store, make the
     // corresponding seq_ids visible/searchable in the in-memory index. Records whose store write failed
     // above are skipped automatically since their `indexed` status is no longer ok().
-    batch_finalize_memory_index(index_records);
+    batch_finalize_memory_index(index_records, found_fields);
 
     // Phase 4: propagate to referencing collections (only possible now that the document is actually
     // present in this collection's in-memory index) and build the per-document response.
@@ -1496,15 +1506,26 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     // must instead call `batch_preprocess_records()` and `batch_finalize_memory_index()` separately, with
     // the store write happening in between, so that a seq_id never becomes searchable before its document
     // is fetchable from the store.
+    //
+    // Hold `alter_mutex` (shared) across BOTH steps below, matching the guarantee this method has always
+    // provided: `batch_alter_data()` takes a unique_lock on `alter_mutex`, so a schema ALTER can never run
+    // between preprocessing (validates/coerces against the current schema) and finalizing (indexes against
+    // that same schema). See `Collection::batch_index()` for why this span must not be narrowed to just
+    // one of the two calls.
+    std::shared_lock alter_shlock(alter_mutex);
     batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
                               remote_embedding_num_tries, generate_embeddings, found_fields);
-    return batch_finalize_memory_index(index_records);
+    return batch_finalize_memory_index(index_records, found_fields);
 }
 
 void Collection::batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                           const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                           const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
-    std::shared_lock alter_shlock(alter_mutex);
+    // NOTE: the caller MUST hold a shared lock on `alter_mutex` for its entire call span, from this call
+    // through the subsequent `batch_finalize_memory_index()` call (with any on-disk store write safely
+    // happening in between) -- see `Collection::batch_index()` and `Collection::batch_index_in_memory()`.
+    // This method intentionally does not acquire `alter_mutex` itself, since acquiring the same
+    // std::shared_mutex twice (once here, once in the caller) from the same thread is not guaranteed safe.
     std::shared_lock shlock(mutex);
     Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
@@ -1524,13 +1545,15 @@ void Collection::batch_preprocess_records(std::vector<index_record>& index_recor
     }
 }
 
-size_t Collection::batch_finalize_memory_index(std::vector<index_record>& index_records) {
+size_t Collection::batch_finalize_memory_index(std::vector<index_record>& index_records,
+                                               std::unordered_set<std::string>& found_fields) {
+    // NOTE: see `batch_preprocess_records()` above -- the caller MUST already be holding a shared lock on
+    // `alter_mutex` that spans back to the corresponding `batch_preprocess_records()` call.
     std::unique_lock lock(mutex);
-    std::unordered_set<std::string> dummy_found_fields;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, dummy_found_fields,
+                                                   token_separators, symbols_to_index, found_fields,
                                                    false, tsl::htrie_map<char, field>());
     num_documents += num_indexed;
 
