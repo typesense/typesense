@@ -3266,14 +3266,10 @@ TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
     auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res,
                                                 now_ts - std::chrono::microseconds(std::chrono::seconds(1)).count());
 
-    ASSERT_TRUE(search_op.ok());
-
-    // A union that has nothing left to return after the budget is spent answers
-    // with no result body at all, which is honest about it. A result body is
-    // not, unless it says so.
-    if (!json_res.is_null()) {
-        ASSERT_TRUE(json_res.contains("search_cutoff")) << json_res.dump();
-        ASSERT_TRUE(json_res["search_cutoff"].get<bool>())
-                            << "a sub-search ran out of budget and the union did not say so: " << json_res.dump();
-    }
+    // The first sub-search is cut off before it finds anything and the second
+    // has nothing its filter admits, so the union has nothing to return. It
+    // answers 408 only if the flag it reads says a sub-search was cut off.
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(408, search_op.code());
+    ASSERT_EQ("Request Timeout", search_op.error());
 }

@@ -1602,6 +1602,57 @@ TEST_F(CoreAPIUtilsTest, Union) {
     ASSERT_EQ(20, response["found"]);
 }
 
+TEST_F(CoreAPIUtilsTest, UnionSearchCutoffWithNothingToReturnIsRequestTimeout) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" },
+          {"name": "category", "type": "string" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 200; i++) {
+        nlohmann::json doc;
+        doc["title"] = "widget " + std::to_string(i);
+        doc["category"] = "kitchen";
+        ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    body["union"] = true;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "widget";
+    search["query_by"] = "title";
+    search["filter_by"] = "category:=kitchen";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    // The search's time budget is already spent when it starts, so it is cut off before it finds anything.
+    req->params["search_cutoff_ms"] = "1";
+    req->conn_ts -= std::chrono::microseconds(std::chrono::seconds(1)).count();
+
+    // The handler streams its own response, so it has to mark it final.
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
+    ASSERT_EQ("Request Timeout", nlohmann::json::parse(res->body)["message"]);
+    ASSERT_TRUE(res->final);
+}
+
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
