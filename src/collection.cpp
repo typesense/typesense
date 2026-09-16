@@ -2949,6 +2949,18 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    bool ascii_folding_initialized = false;
+    bool ascii_folding = false;
+    for(const auto& processed_search_field: processed_search_fields) {
+        const field search_field = search_schema.at(processed_search_field.name);
+        if(!ascii_folding_initialized) {
+            ascii_folding = search_field.ascii_folding;
+            ascii_folding_initialized = true;
+        } else if(search_field.ascii_folding != ascii_folding) {
+            return Option<bool>(400, "All `query_by` fields must have the same `ascii_folding` value.");
+        }
+    }
+
     // validate group by fields
     std::vector<std::string> group_by_fields;
     bool skipped_invalid_group_field = false;

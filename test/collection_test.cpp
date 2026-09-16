@@ -4985,7 +4985,9 @@ TEST_F(CollectionTest, AsciiFoldingSearch) {
         "fields": [
             {"name": "title", "type": "string", "locale": "es", "ascii_folding": true},
             {"name": "aliases", "type": "string[]", "locale": "es", "ascii_folding": true},
-            {"name": "plain", "type": "string", "locale": "es"}
+            {"name": "plain", "type": "string", "locale": "es"},
+            {"name": "plain_false", "type": "string", "locale": "es", "ascii_folding": false},
+            {"name": "numeric", "type": "int32"}
         ]
     })"_json;
 
@@ -4994,7 +4996,8 @@ TEST_F(CollectionTest, AsciiFoldingSearch) {
     Collection* coll = coll_op.get();
 
     nlohmann::json document = {
-        {"id", "1"}, {"title", "Dípticos"}, {"aliases", {"Dípticos"}}, {"plain", "Dípticos"}
+        {"id", "1"}, {"title", "Dípticos"}, {"aliases", {"Dípticos"}}, {"plain", "Dípticos"},
+        {"plain_false", "Dípticos"}, {"numeric", 1}
     };
     ASSERT_TRUE(coll->add(document.dump()).ok());
 
@@ -5012,6 +5015,30 @@ TEST_F(CollectionTest, AsciiFoldingSearch) {
 
     result = coll->search("dipticos", {"plain"}, "", {}, {}, {0}).get();
     ASSERT_EQ(0, result["found"]);
+
+    // Fields with the same folding setting, including the schema default false, are compatible.
+    ASSERT_TRUE(coll->search("dípticos", {"title", "aliases"}, "", {}, {}, {0}).ok());
+    ASSERT_TRUE(coll->search("dípticos", {"plain", "plain_false"}, "", {}, {}, {0}).ok());
+
+    const auto mixed_true_false = coll->search("dípticos", {"title", "plain"}, "", {}, {}, {0});
+    ASSERT_FALSE(mixed_true_false.ok());
+    ASSERT_EQ(400, mixed_true_false.code());
+    ASSERT_EQ("All `query_by` fields must have the same `ascii_folding` value.", mixed_true_false.error());
+
+    const auto mixed_false_true = coll->search("dípticos", {"plain", "title"}, "", {}, {}, {0});
+    ASSERT_FALSE(mixed_false_true.ok());
+    ASSERT_EQ(400, mixed_false_true.code());
+    ASSERT_EQ("All `query_by` fields must have the same `ascii_folding` value.", mixed_false_true.error());
+
+    const auto mixed_before_numeric = coll->search("dípticos", {"title", "plain", "numeric"}, "", {}, {}, {0});
+    ASSERT_FALSE(mixed_before_numeric.ok());
+    ASSERT_EQ(400, mixed_before_numeric.code());
+    ASSERT_EQ("Field `numeric` should be a string or a string array.", mixed_before_numeric.error());
+
+    const auto mixed_wildcard = coll->search("dípticos", {"*"}, "", {}, {}, {0});
+    ASSERT_FALSE(mixed_wildcard.ok());
+    ASSERT_EQ(400, mixed_wildcard.code());
+    ASSERT_EQ("All `query_by` fields must have the same `ascii_folding` value.", mixed_wildcard.error());
 
     document["title"] = "Cáfes";
     document["aliases"] = {"Cáfes"};
