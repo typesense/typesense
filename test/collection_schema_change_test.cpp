@@ -622,6 +622,86 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSchemaChangeTest, AlterAsciiFoldingRequiresDropAndReindexesExistingDocuments) {
+    nlohmann::json schema = R"({
+        "name": "ascii_folding_alter",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "es"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto coll = coll_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"0","title":"Dípticos"})").ok());
+
+    auto result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "type": "string", "locale": "es", "ascii_folding": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `title` is already part of the schema: To change this field, drop it first before adding it "
+              "back to the schema.", alter_op.error());
+    ASSERT_FALSE(coll->get_schema()["title"].ascii_folding);
+
+    result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "string", "locale": "es", "ascii_folding": true}
+        ]
+    })"_json;
+
+    alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_TRUE(coll->get_schema()["title"].ascii_folding);
+    ASSERT_TRUE(coll->get_summary_json()["fields"][0][fields::ascii_folding]);
+
+    result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("Dípticos", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("<mark>Dípticos</mark>", result["hits"][0]["highlights"][0]["snippet"]);
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/collection_schema_change");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+    coll = collectionManager.get_collection("ascii_folding_alter").get();
+
+    ASSERT_TRUE(coll->get_schema()["title"].ascii_folding);
+    result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("Dípticos", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("<mark>Dípticos</mark>", result["hits"][0]["highlights"][0]["snippet"]);
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "string", "locale": "es", "ascii_folding": false}
+        ]
+    })"_json;
+
+    alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_FALSE(coll->get_schema()["title"].ascii_folding);
+
+    result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+
+    collectionManager.drop_collection("ascii_folding_alter");
+}
+
 TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
                                  field("points", field_types::INT32, true),};
