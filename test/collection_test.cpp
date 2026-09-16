@@ -4979,6 +4979,56 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
     ASSERT_TRUE(search_res_op.ok());
 }
 
+TEST_F(CollectionTest, AsciiFoldingSearch) {
+    nlohmann::json schema = R"({
+        "name": "ascii_folding_search",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "aliases", "type": "string[]", "locale": "es", "ascii_folding": true},
+            {"name": "plain", "type": "string", "locale": "es"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    nlohmann::json document = {
+        {"id", "1"}, {"title", "Dípticos"}, {"aliases", {"Dípticos"}}, {"plain", "Dípticos"}
+    };
+    ASSERT_TRUE(coll->add(document.dump()).ok());
+
+    auto result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("Dípticos", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("<mark>Dípticos</mark>", result["hits"][0]["highlights"][0]["snippet"]);
+
+    result = coll->search("dípticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+
+    result = coll->search("dipticos", {"aliases"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("Dípticos", result["hits"][0]["document"]["aliases"][0]);
+
+    result = coll->search("dipticos", {"plain"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+
+    document["title"] = "Cáfes";
+    document["aliases"] = {"Cáfes"};
+    ASSERT_TRUE(coll->add(document.dump(), UPSERT).ok());
+
+    result = coll->search("dipticos", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+    result = coll->search("dipticos", {"aliases"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+    result = coll->search("cafes", {"title"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    result = coll->search("cafes", {"aliases"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+
+    collectionManager.drop_collection("ascii_folding_search");
+}
+
 TEST_F(CollectionTest, CreateModelDirIfNotExists) {
     system("mkdir -p /tmp/typesense_test/new_models_dir");
     system("rm -rf /tmp/typesense_test/new_models_dir");

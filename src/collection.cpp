@@ -3262,7 +3262,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer(),
-                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators);
+                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators,
+                           most_weighted_field.ascii_folding);
 
         // process filter curations first, before synonyms (order is important)
 
@@ -4738,7 +4739,8 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
         }
 
         const auto& qtokens = search_params->searched_query_tokens[q_index];
-        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators,
+                            search_field_it->get_stemmer(), false, true, search_field_it->ascii_folding);
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
@@ -5275,7 +5277,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                                     std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
                                     const std::vector<char>& most_weighted_field_symbols_to_index,
-                                    const std::vector<char>& most_weighted_field_token_separators) const {
+                                    const std::vector<char>& most_weighted_field_token_separators,
+                                    const bool ascii_folding) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -5317,9 +5320,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 custom_symbols.push_back('-');
             }
             
-            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer, false, true, ascii_folding).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr, false, true, ascii_folding).tokenize(tokens_non_stemmed);
             }
         }
 
@@ -5606,7 +5609,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
-    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
+    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding).tokenize(raw_query_tokens);
 
     if(raw_query_tokens.empty()) {
         return ;
@@ -5914,10 +5917,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
     const Match& match = match_index.match;
 
-    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
     // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
-    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
     if(search_field.locale == "ko") {
         text = string_utils.unicode_nfkd(text);
@@ -5940,8 +5943,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         };
 
         std::vector<TextToken> text_tokens;
-        Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
-        Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+        Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators,
+                                 search_field.get_stemmer(), false, true, search_field.ascii_folding);
+        Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators,
+                                      search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
         std::string token;
         size_t token_index = 0, tok_start = 0, tok_end = 0;

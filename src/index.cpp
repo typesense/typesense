@@ -1332,7 +1332,7 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
                             const std::vector<char>& token_separators,
                             std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
 
-    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
+    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer(), false, true, a_field.ascii_folding);
     std::string token;
     std::string last_token;
     size_t token_index = 0;
@@ -1365,7 +1365,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
+        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer(), false, true, a_field.ascii_folding);
         std::string token, last_token;
         size_t token_index = 0;
 
@@ -7669,12 +7669,12 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
 
     if(search_field.type == field_types::STRING) {
         Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators,
-                  search_field.get_stemmer()).tokenize(tokens);
+                  search_field.get_stemmer(), false, true, search_field.ascii_folding).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
             Tokenizer(value, true, false, locale, symbols_to_index, token_separators,
-                      search_field.get_stemmer()).tokenize(tokens);
+                      search_field.get_stemmer(), false, true, search_field.ascii_folding).tokenize(tokens);
         }
     }
 
