@@ -26,6 +26,9 @@ private:
     std::string access_log_path;
     std::ofstream access_log;
 
+    // guards `access_log`: written from every HTTP event loop, flushed from a timer on loop 0
+    std::mutex access_log_mutex;
+
     AppMetrics() {
         current_counts = new spp::sparse_hash_map<std::string, uint64_t>();
         counts = new spp::sparse_hash_map<std::string, uint64_t>();

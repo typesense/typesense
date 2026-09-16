@@ -12,6 +12,8 @@ extern "C" {
 #include <map>
 #include <string>
 #include <cstdio>
+#include <thread>
+#include <vector>
 #include "http_data.h"
 #include "option.h"
 #include "threadpool.h"
@@ -90,6 +92,10 @@ public:
         return res->is_alive;
     }
 
+    http_message_dispatcher* res_dispatcher() const {
+        return req->res_dispatcher;
+    }
+
     void req_notify() {
         return req->notify();
     }
@@ -119,20 +125,36 @@ class HttpServer {
 private:
     h2o_globalconf_t config;
     h2o_compress_args_t compress_args;
-    h2o_context_t ctx;
-    h2o_accept_ctx_t* accept_ctx;
     h2o_hostconf_t *hostconf;
-    h2o_socket_t* listener_socket;
+
+    // One HTTP event loop: h2o context, accept context, listener (a dup() of the shared listening
+    // socket) and message dispatcher. Loop 0 runs on the thread that calls run(), the others on
+    // their own threads.
+    // Each connection is owned by exactly one loop: it is accepted, read and written only there,
+    // and responses are delivered through the loop's dispatcher (http_req::res_dispatcher).
+    // Every loop refreshes its own SSL context so that no SSL state is shared across threads.
+    struct ev_loop_t {
+        HttpServer* server = nullptr;
+        size_t index = 0;
+        h2o_context_t ctx;
+        h2o_accept_ctx_t accept_ctx{};
+        h2o_socket_t* listener = nullptr;
+        http_message_dispatcher* dispatcher = nullptr;
+        h2o_custom_timer_t ssl_refresh_timer;
+        std::thread thread;  // unused for loop 0
+    };
+
+    std::vector<ev_loop_t*> loops;
+
+    // handlers registered via on(); each loop's dispatcher receives a copy when run() starts
+    std::map<std::string, bool (*)(void*)> message_handlers;
 
     static const size_t ACTIVE_STREAM_WINDOW_SIZE = 196605;
     static const size_t REQ_TIMEOUT_MS = 60000;
 
     const uint64_t SSL_REFRESH_INTERVAL_MS;
 
-    h2o_custom_timer_t ssl_refresh_timer;
     h2o_custom_timer_t metrics_refresh_timer;
-
-    http_message_dispatcher* message_dispatcher;
 
     ReplicationState* replication_state;
 
@@ -172,7 +194,7 @@ private:
 
     static void on_accept(h2o_socket_t *listener, const char *err);
 
-    int setup_ssl(const char *cert_file, const char *key_file);
+    int setup_ssl(ev_loop_t* loop);
 
     static bool initialize_ssl_ctx(const char *cert_file, const char *key_file, h2o_accept_ctx_t* accept_ctx);
 
@@ -182,7 +204,19 @@ private:
 
     static void on_metrics_refresh_timeout(h2o_timer_t *entry);
 
-    int create_listener();
+    // Binds + listens a single socket on (listen_address, listen_port), returning the fd (or -1).
+    // Every event loop polls its own dup() of this fd — one shared kernel accept queue — and
+    // races non-blocking accepts; the level-triggered evloop keeps waking loops while connections
+    // are pending. This is the same model h2o's own server uses by default (dup_listener in
+    // h2o's src/main.c).
+    int bind_listen_fd();
+
+    // Wraps `fd` (the listen fd or a dup of it) into `loop`'s h2o socket and starts accepting.
+    // `loop` owns `fd` from here on: it is closed on shutdown by the loop (or here, on failure).
+    int create_listener(ev_loop_t* loop, int fd);
+
+    // Runs `loop` until stop() is called; the loop closes its own listener on the way out.
+    void loop_run(ev_loop_t* loop);
 
     h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                      int (*on_req)(h2o_handler_t *, h2o_req_t *));
@@ -215,8 +249,6 @@ public:
 
     ~HttpServer();
 
-    http_message_dispatcher* get_message_dispatcher() const;
-
     ReplicationState* get_replication_state() const;
 
     bool is_alive() const;
@@ -244,7 +276,15 @@ public:
 
     void on(const std::string & message, bool (*handler)(void*));
 
-    void send_message(const std::string & type, void* data);
+    // Deliver a response / request-proceed / deferral on the event loop that owns the request's
+    // connection (req->res_dispatcher) — the ONLY correct way to send these messages. When the
+    // request has no owning loop (a write replayed from the log, or tests), each helper mirrors
+    // the dead-request path of the corresponding message handler.
+    static void deliver_stream_response(async_req_res_t* req_res);
+
+    static void deliver_request_proceed(deferred_req_res_t* req_res);
+
+    static void deliver_defer_processing(defer_processing_t* defer);
 
     static void stream_response(stream_response_state_t& state);
 
