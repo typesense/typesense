@@ -15,6 +15,7 @@ private:
     size_t i;
     const bool normalize;
     const bool no_op;
+    const bool ascii_folding;
 
     size_t token_counter = 0;
     iconv_t cd;
@@ -68,7 +69,8 @@ public:
                        const std::vector<char>& separators = {},
                        std::shared_ptr<Stemmer> stemmer = nullptr,
                        bool is_placeholder = false,
-                       bool do_transliterate = true);
+                       bool do_transliterate = true,
+                       bool ascii_folding = false);
 
     ~Tokenizer() {
         iconv_close(cd);

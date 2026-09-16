@@ -7,8 +7,8 @@
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
                      const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer, bool is_placeholder,
-                     bool do_transliterate) :
-        i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer),
+                     bool do_transliterate, bool ascii_folding) :
+        i(0), normalize(normalize), no_op(no_op), ascii_folding(ascii_folding), locale(locale), stemmer(stemmer),
         is_placeholder(is_placeholder), do_transliterate(do_transliterate) {
 
     for(char c: symbols_to_index) {
@@ -206,6 +206,16 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 if(stemmer && !is_cyrillic(locale)) {
                     // cyrillic is already stemmed prior to transliteration
                     token = stemmer->stem(out);
+                }
+
+                if(ascii_folding) {
+                    auto transliterator = TransliteratorPool::get_instance().acquire("Latin-ASCII");
+                    if(transliterator != nullptr) {
+                        auto unicode_token = icu::UnicodeString::fromUTF8(token);
+                        transliterator->transliterate(unicode_token);
+                        token.clear();
+                        unicode_token.toUTF8String(token);
+                    }
                 }
 
                 out.clear();
