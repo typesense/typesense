@@ -12,10 +12,13 @@
     constexpr uint32_t COMPUTE_FILTER_ITERATOR_THRESHOLD = 25'000;
 #endif
 
-/// How much wider one side of an `&&` has to be than the other before we stop materializing it and ask it about
-/// the ids of the narrow side instead. Probing costs one seek per narrow id, so it only pays off when the sides
-/// are lopsided.
-constexpr uint32_t AND_PROBE_RATIO = 8;
+/// How much wider one side of an `&&` has to be than the other before we stop materializing it and ask it about the
+/// ids of the narrow side instead. Probing costs one seek per narrow id while materializing costs the whole wide
+/// side, so what decides the winner is the ratio between the sides rather than their absolute sizes: measured over
+/// 10,000,000 documents, probing loses by 3x when the wide side is 10x the narrow one -- equally so whether the
+/// narrow side holds 10,000 ids or 100,000 -- breaks even around 32x, and wins by 9.7x at 900x. An absolute bound
+/// on the narrow side cannot express that: the shapes probing loses on have small narrow sides too.
+constexpr uint32_t AND_PROBE_RATIO = 32;
 
 constexpr size_t DEFAULT_FILTER_BY_CANDIDATES = 4;
 

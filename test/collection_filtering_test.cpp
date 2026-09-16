@@ -5458,13 +5458,13 @@ TEST_F(CollectionFilteringTest, SelectiveAndDoesNotMaterializeWideSide) {
 
     auto coll = collectionManager.create_collection(schema).get();
 
-    // 25 documents match `nid:=sel`, 500 match `state:=active`, and 21 match both: the ids that are a multiple of
-    // 24 and below 500.
-    for (int32_t i = 0; i < 600; i++) {
+    // 25 documents match `nid:=sel`, 900 match `state:=active`, and 23 match both: the ids that are a multiple of
+    // 40 and below 900. The wide side is 36x the narrow one, which clears AND_PROBE_RATIO.
+    for (int32_t i = 0; i < 1000; i++) {
         nlohmann::json doc;
         doc["id"] = std::to_string(i);
-        doc["nid"] = i % 24 == 0 ? "sel" : "other";
-        doc["state"] = i < 500 ? "active" : "inactive";
+        doc["nid"] = i % 40 == 0 ? "sel" : "other";
+        doc["state"] = i < 900 ? "active" : "inactive";
         doc["points"] = i;
         ASSERT_TRUE(coll->add(doc.dump()).ok());
     }
@@ -5475,13 +5475,13 @@ TEST_F(CollectionFilteringTest, SelectiveAndDoesNotMaterializeWideSide) {
     ASSERT_EQ(25, results["found"].get<size_t>());
 
     results = coll->search("*", {}, "state:=active", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
-    ASSERT_EQ(500, results["found"].get<size_t>());
+    ASSERT_EQ(900, results["found"].get<size_t>());
 
     std::vector<std::string> expected_ids;
-    for (int32_t i = 0; i < 500; i += 24) {
+    for (int32_t i = 0; i < 900; i += 40) {
         expected_ids.push_back(std::to_string(i));
     }
-    ASSERT_EQ(21, expected_ids.size());
+    ASSERT_EQ(23, expected_ids.size());
 
     // Either operand order returns the same documents, in the same order, and reports no cutoff.
     for (const auto& filter_by: {"nid:=sel && state:=active", "state:=active && nid:=sel"}) {

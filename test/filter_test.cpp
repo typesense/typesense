@@ -3054,14 +3054,14 @@ static void compute_filter_tree(Collection* coll, Store* store, const std::strin
 }
 
 /// A collection whose fields differ in selectivity by a known factor, so that an `&&` of any two of them has a
-/// predictable plan. 200 documents with seq ids 0..199:
+/// predictable plan. 800 documents with seq ids 0..799:
 ///
-///   sel:=yes    -> {5, 25, 45, 65, 150}       (5 ids)
+///   sel:=yes    -> {5, 25, 200, 400, 600}     (5 ids, spread past `edge` so a wide side can run out first)
 ///   n12:=yes    -> ids < 12                   (12 ids, more than `function_call_modulo` of a test build)
-///   mid:=yes    -> ids < 39                   (39 ids, just under AND_PROBE_RATIO x 5)
-///   edge:=yes   -> ids < 40                   (40 ids, exactly AND_PROBE_RATIO x 5)
-///   broad:=yes  -> ids < 120                  (120 ids)
-///   all:=yes    -> every id                   (200 ids)
+///   mid:=yes    -> ids < 159                  (159 ids, just under AND_PROBE_RATIO x 5)
+///   edge:=yes   -> ids < 160                  (160 ids, exactly AND_PROBE_RATIO x 5)
+///   broad:=yes  -> ids < 480                  (480 ids)
+///   all:=yes    -> every id                   (800 ids)
 ///   none:=yes   -> no id
 ///   points      -> the seq id itself
 static Collection* create_probe_collection(CollectionManager& collectionManager) {
@@ -3086,15 +3086,15 @@ static Collection* create_probe_collection(CollectionManager& collectionManager)
     }
     auto coll = op.get();
 
-    const std::set<uint32_t> selective = {5, 25, 45, 65, 150};
-    for (uint32_t i = 0; i < 200; i++) {
+    const std::set<uint32_t> selective = {5, 25, 200, 400, 600};
+    for (uint32_t i = 0; i < 800; i++) {
         nlohmann::json doc;
         doc["id"] = std::to_string(i);
         doc["sel"] = selective.count(i) > 0 ? "yes" : "no";
         doc["n12"] = i < 12 ? "yes" : "no";
-        doc["mid"] = i < 39 ? "yes" : "no";
-        doc["edge"] = i < 40 ? "yes" : "no";
-        doc["broad"] = i < 120 ? "yes" : "no";
+        doc["mid"] = i < 159 ? "yes" : "no";
+        doc["edge"] = i < 160 ? "yes" : "no";
+        doc["broad"] = i < 480 ? "yes" : "no";
         doc["all"] = "yes";
         doc["none"] = "no";
         doc["points"] = i;
@@ -3118,13 +3118,13 @@ TEST_F(FilterTest, AndProbeSelectiveSide) {
     // and both take the probing plan.
     compute_filter_tree(coll, store, "sel:=yes && broad:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     compute_filter_tree(coll, store, "broad:=yes && sel:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
-    // The wide side runs out of ids (at 40) before the narrow side does (at 150). Everything up to that point is a
+    // The wide side runs out of ids (at 160) before the narrow side does (at 600). Everything up to that point is a
     // complete result, not a truncated one.
     compute_filter_tree(coll, store, "sel:=yes && edge:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
@@ -3133,7 +3133,7 @@ TEST_F(FilterTest, AndProbeSelectiveSide) {
     // One side matches every document.
     compute_filter_tree(coll, store, "sel:=yes && all:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65, 150}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), ids);
 
     // One side matches nothing. `none:=yes` is the narrow side, and it computes to an empty result.
     compute_filter_tree(coll, store, "broad:=yes && none:=yes", ids, computed_by_probe);
@@ -3149,21 +3149,21 @@ TEST_F(FilterTest, AndProbeSelectiveSide) {
     // A `!=` leaf as the wide side. `broad:!=no` matches the same 120 ids as `broad:=yes`.
     compute_filter_tree(coll, store, "sel:=yes && broad:!=no", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     // Three leaves. The narrow side of the outer `&&` is itself an `&&` that probes.
     compute_filter_tree(coll, store, "sel:=yes && broad:=yes && all:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     // An operator node as the wide side keeps the intersecting plan, an operator node as the narrow side does not.
-    compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || points:>140)", ids, computed_by_probe);
+    compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || points:>500)", ids, computed_by_probe);
     ASSERT_FALSE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 150}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 600}), ids);
 
     compute_filter_tree(coll, store, "(sel:=yes || none:=yes) && broad:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     collectionManager.drop_collection("AndProbe");
 }
@@ -3175,22 +3175,24 @@ TEST_F(FilterTest, AndProbeNumericSide) {
     std::vector<uint32_t> ids;
     bool computed_by_probe = false;
 
-    // A numeric leaf is only lazy when lazy evaluation is on, so that is the only configuration in which it can be
-    // the probed side of an `&&`.
-    compute_filter_tree(coll, store, "sel:=yes && points:<120", ids, computed_by_probe, true);
-    ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    // A lazy numeric leaf holds one id list iterator for every value its range matches, and `skip_to` walks all of
+    // them on each probe, so one probe costs as much as a pass over the range. Measured on 10,000,000 documents, a
+    // lazy `num:<9000000` wide side takes 134s to probe against 7.6s to intersect, and returns a truncated result
+    // once the search runs out of budget. It keeps the intersecting plan.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
-    compute_filter_tree(coll, store, "sel:=yes && points:[0..119]", ids, computed_by_probe, true);
-    ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    compute_filter_tree(coll, store, "sel:=yes && points:[0..499]", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
-    // Under the default configuration the numeric leaf has materialized itself inside its own `init` before the
-    // `&&` node exists. Probing it is still correct -- every probe is a binary search -- it just cannot give back a
-    // cost that was already paid one level down.
-    compute_filter_tree(coll, store, "sel:=yes && points:<120", ids, computed_by_probe);
-    ASSERT_TRUE(computed_by_probe);
-    ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65}), ids);
+    // Under the default configuration the numeric leaf has materialized itself inside its own `init` before the `&&`
+    // node exists. Probing an id array it has already built saves nothing -- intersecting is a linear merge of the
+    // two, probing a binary search per id -- so that side keeps the intersecting plan as well.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     collectionManager.drop_collection("AndProbe");
 }
@@ -3202,8 +3204,8 @@ TEST_F(FilterTest, AndProbeRatioBoundary) {
     std::vector<uint32_t> ids;
     bool computed_by_probe = false;
 
-    // `sel:=yes` matches 5 ids, so the probing plan starts at a wide side of AND_PROBE_RATIO * 5 = 40 ids.
-    ASSERT_EQ(8, AND_PROBE_RATIO);
+    // `sel:=yes` matches 5 ids, so the probing plan starts at a wide side of AND_PROBE_RATIO * 5 = 160 ids.
+    ASSERT_EQ(32, AND_PROBE_RATIO);
 
     compute_filter_tree(coll, store, "sel:=yes && mid:=yes", ids, computed_by_probe);
     ASSERT_FALSE(computed_by_probe);
@@ -3273,7 +3275,7 @@ TEST_F(FilterTest, AndProbeTimeout) {
         filter_iterator.compute_iterators();
         ASSERT_TRUE(filter_iterator._get_computed_by_probe());
         ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator.validity);
-        ASSERT_EQ((std::vector<uint32_t>{5, 25, 45, 65, 150}), collect(filter_iterator));
+        ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), collect(filter_iterator));
     }
 
     // Without a budget, the same nodes never report a timeout -- not even the one whose wide side runs out of ids
