@@ -924,6 +924,15 @@ public:
 
     Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
+    enum class seq_id_reconcile_t {
+        CANONICAL,  // doc_id key present or repaired: index this record
+        ORPHAN      // stale seq_id key dropped: skip this record
+    };
+
+    // reconciles a seq_id key against its doc_id key on load, repairing a missing
+    // mapping or dropping a stale orphan seq_id key
+    seq_id_reconcile_t reconcile_seq_id_mapping(const std::string& doc_id, uint32_t seq_id);
+
     std::vector<std::string> get_facet_fields();
 
     std::vector<field> get_sort_fields();
