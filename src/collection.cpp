@@ -1668,9 +1668,14 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
 
             auto stemmer = stem ? StemmerManager::get_instance().get_stemmer(locale, dictionary) : nullptr;
 
-            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer);
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer,
+                                false, true, ascii_folding);
             tokenizer.tokenize(tokens);
             return StringUtils::join(tokens, " ");
+        };
+
+        auto normalized_curation_query = [&](const curation_t& curation) {
+            return ascii_folding ? Tokenizer::ascii_fold(curation.rule.normalized_query) : curation.rule.normalized_query;
         };
 
         if(!curation_set_curations.empty()) {
@@ -1694,7 +1699,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                           }
 
                           bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                                ov->rule.normalized_query,
+                                                                normalized_curation_query(*ov),
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -1724,7 +1729,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                       }
 
                       bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                             ov->rule.normalized_query,
+                                                             normalized_curation_query(*ov),
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -1763,7 +1768,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                       query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
                   }
 
-                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
+                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
+                                                        normalized_curation_query(*ov), filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
@@ -3286,7 +3292,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
                                  most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
-                                 most_weighted_field.token_separators);
+                                 most_weighted_field.token_separators, most_weighted_field.ascii_folding);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -5107,7 +5113,8 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
                                           const std::string& query_locale,
                                           std::shared_ptr<Stemmer> stemmer,
                                           const std::vector<char>& query_symbols_to_index,
-                                          const std::vector<char>& query_token_separators) const {
+                                          const std::vector<char>& query_token_separators,
+                                          bool ascii_folding) const {
 
     std::vector<const curation_t*> matched_dynamic_curations;
     auto compute_normalized_query = [&](const curation_t& curation) {
@@ -5122,7 +5129,7 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
 
       std::vector<std::string> tokens;
       Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
+                          use_search_field_stemmer ? stemmer : nullptr, true, true, ascii_folding);
       tokenizer.tokenize(tokens);
       auto query_normalized = StringUtils::join(tokens, " ");
       size_t i = 0;

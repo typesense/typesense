@@ -732,7 +732,8 @@ private:
                                   const std::string& query_locale = "",
                                   std::shared_ptr<Stemmer> stemmer = nullptr,
                                   const std::vector<char>& query_symbols_to_index = {},
-                                  const std::vector<char>& query_token_separators = {}) const;
+                                  const std::vector<char>& query_token_separators = {},
+                                  bool ascii_folding = false) const;
 
     static void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                          const size_t total_tokens);
