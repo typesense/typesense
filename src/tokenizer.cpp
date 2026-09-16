@@ -209,13 +209,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 }
 
                 if(ascii_folding) {
-                    auto transliterator = TransliteratorPool::get_instance().acquire("Latin-ASCII");
-                    if(transliterator != nullptr) {
-                        auto unicode_token = icu::UnicodeString::fromUTF8(token);
-                        transliterator->transliterate(unicode_token);
-                        token.clear();
-                        unicode_token.toUTF8String(token);
-                    }
+                    token = ascii_fold(token);
                 }
 
                 out.clear();
@@ -423,6 +417,19 @@ std::string Tokenizer::normalize_ascii_no_spaces(const std::string& text) {
     }
 
     return analytics_query;
+}
+
+std::string Tokenizer::ascii_fold(const std::string& text) {
+    auto transliterator = TransliteratorPool::get_instance().acquire("Latin-ASCII");
+    if(transliterator == nullptr) {
+        return text;
+    }
+
+    auto unicode_text = icu::UnicodeString::fromUTF8(text);
+    transliterator->transliterate(unicode_text);
+    std::string folded_text;
+    unicode_text.toUTF8String(folded_text);
+    return folded_text;
 }
 
 bool Tokenizer::has_word_tokenizer(const std::string& locale) {

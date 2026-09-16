@@ -102,5 +102,7 @@ public:
 
     static std::string normalize_ascii_no_spaces(const std::string& text);
 
+    static std::string ascii_fold(const std::string& text);
+
     static bool has_word_tokenizer(const std::string& locale);
 };

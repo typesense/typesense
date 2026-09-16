@@ -5339,7 +5339,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
 
-        for (const auto& val: stopwordStruct.stopwords) {
+        const auto& stopwords = ascii_folding ? stopwordStruct.folded_stopwords : stopwordStruct.stopwords;
+        for (const auto& val: stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
             tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }

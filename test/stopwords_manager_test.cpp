@@ -126,6 +126,73 @@ TEST_F(StopwordsManagerTest, GetStopword) {
     ASSERT_EQ(4, stopwordStruct.stopwords.size()); //as United States will be tokenized and counted 2 stopwords
 }
 
+TEST_F(StopwordsManagerTest, AsciiFoldingStopwords) {
+    auto stopwords = R"({"stopwords": ["café", "niño"], "locale": "es"})"_json;
+
+    auto upsert_op = stopwordsManager.upsert_stopword("ascii-folding-spanish", stopwords);
+    ASSERT_TRUE(upsert_op.ok());
+
+    stopword_struct_t stopword_struct;
+    auto get_op = stopwordsManager.get_stopword("ascii-folding-spanish", stopword_struct);
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_TRUE(stopword_struct.stopwords.find("café") != stopword_struct.stopwords.end());
+    ASSERT_TRUE(stopword_struct.stopwords.find("niño") != stopword_struct.stopwords.end());
+    ASSERT_TRUE(stopword_struct.folded_stopwords.find("cafe") != stopword_struct.folded_stopwords.end());
+    ASSERT_TRUE(stopword_struct.folded_stopwords.find("nino") != stopword_struct.folded_stopwords.end());
+
+    auto persisted_view = stopword_struct.to_json();
+    ASSERT_FALSE(persisted_view.dump().find("folded_stopwords") != std::string::npos);
+}
+
+TEST_F(StopwordsManagerTest, AsciiFoldingStopwordsSearch) {
+    auto schema = R"({
+        "name": "ascii_folding_stopwords_search",
+        "fields": [
+            {"name": "folded", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "accent_sensitive", "type": "string", "locale": "es", "ascii_folding": false}
+        ]
+    })"_json;
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    auto* collection = collection_op.get();
+
+    auto document = R"({"id": "1", "folded": "azul", "accent_sensitive": "azul"})"_json;
+    ASSERT_TRUE(collection->add(document.dump(), CREATE).ok());
+
+    auto stopwords = R"({"stopwords": ["café"], "locale": "es"})"_json;
+    ASSERT_TRUE(stopwordsManager.upsert_stopword("ascii-folding-search", stopwords, true).ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    req->params["collection"] = "ascii_folding_stopwords_search";
+    req->params["stopwords"] = "ascii-folding-search";
+    req->params["drop_tokens_threshold"] = "0";
+    req->params["q"] = "cafe azul";
+    req->params["query_by"] = "folded";
+    nlohmann::json embedded_params;
+    std::string json_results;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto folded_result = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(folded_result.ok());
+    ASSERT_EQ(1, nlohmann::json::parse(json_results)["found"]);
+
+    req->params.erase("stopwords");
+    json_results.clear();
+    auto no_stopwords_result = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(no_stopwords_result.ok());
+    ASSERT_EQ(0, nlohmann::json::parse(json_results)["found"]);
+
+    req->params["stopwords"] = "ascii-folding-search";
+    req->params["q"] = "café azul";
+    req->params["query_by"] = "accent_sensitive";
+    json_results.clear();
+    auto accent_sensitive_result = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_TRUE(accent_sensitive_result.ok());
+    ASSERT_EQ(1, nlohmann::json::parse(json_results)["found"]);
+
+    collectionManager.drop_collection("ascii_folding_stopwords_search");
+}
+
 TEST_F(StopwordsManagerTest, DeleteStopword) {
     auto stopwords1 = R"(
                 {"stopwords": ["america", "europe"], "locale": "en"}
@@ -428,7 +495,7 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     Collection *coll1 = op.get();
 
     auto stopword_value = R"(
-        {"stopwords": ["Pop", "Indie", "Rock", "Metal", "Folk"], "locale": "en"}
+        {"stopwords": ["Pop", "Indie", "Rock", "Metal", "Folk", "Café"], "locale": "es"}
     )"_json;
 
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
@@ -446,12 +513,14 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     auto stopword_config = stopwordsManager.get_stopwords();
     ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
 
-    ASSERT_EQ(5, stopword_config["genre"].stopwords.size());
+    ASSERT_EQ(6, stopword_config["genre"].stopwords.size());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("pop") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("indie") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("rock") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("metal") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("folk") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("café") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].folded_stopwords.find("cafe") != stopword_config["genre"].folded_stopwords.end());
 
     //dispose collection manager and reload all stopwords
     collectionManager.dispose();
@@ -469,12 +538,14 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     stopword_config = stopwordsManager.get_stopwords();
     ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
 
-    ASSERT_EQ(5, stopword_config["genre"].stopwords.size());
+    ASSERT_EQ(6, stopword_config["genre"].stopwords.size());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("pop") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("indie") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("rock") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("metal") != stopword_config["genre"].stopwords.end());
     ASSERT_TRUE(stopword_config["genre"].stopwords.find("folk") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("café") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].folded_stopwords.find("cafe") != stopword_config["genre"].folded_stopwords.end());
 
     collectionManager.drop_collection("coll1");
 }
