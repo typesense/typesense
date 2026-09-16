@@ -419,6 +419,32 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionFacetingTest, FacetAsciiFolding) {
+    nlohmann::json schema = R"({
+        "name": "facet_ascii", "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "category", "type": "string", "facet": true, "locale": "es", "ascii_folding": true}
+        ]}
+    )"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"one","category":"Dípticos"})").ok());
+
+    auto result = coll->search("*", {"title"}, "", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false},
+                                       Index::DROP_TOKENS_THRESHOLD, {}, {}, 10).get();
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Dípticos", result["facet_counts"][0]["counts"][0]["value"]);
+
+    result = coll->search("*", {"title"}, "", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false},
+                           Index::DROP_TOKENS_THRESHOLD, {}, {}, 10, "category: dipticos").get();
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Dípticos", result["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>Dípticos</mark>", result["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    collectionManager.drop_collection("facet_ascii");
+}
+
 TEST_F(CollectionFacetingTest, FacetCountsBool) {
     Collection *coll1;
 

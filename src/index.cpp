@@ -6609,7 +6609,8 @@ Option<bool> Index::compute_facet_infos(const std::vector<facet>& facets, facet_
 
             std::vector<std::string> query_tokens;
             Tokenizer(facet_query.query, true, !facet_field.is_string(),
-                      facet_field.locale, symbols_to_index, token_separators).tokenize(query_tokens);
+                      facet_field.locale, symbols_to_index, token_separators, nullptr, false,
+                      true, facet_field.ascii_folding).tokenize(query_tokens);
 
             std::vector<token_t> qtokens;
 

@@ -3748,7 +3748,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
 
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols, separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
+                  symbols, separators, fq_field.get_stemmer(), false, true,
+                  fq_field.ascii_folding).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -10154,7 +10155,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                     std::vector<std::string> fquery_tokens;
                     Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
-                              separators, the_field.get_stemmer()).tokenize(fquery_tokens);
+                              separators, the_field.get_stemmer(), false, true,
+                              the_field.ascii_folding).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -10176,7 +10178,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                         }
 
                         Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
-                                  separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
+                                  separators, the_field.get_stemmer(), false, true,
+                                  the_field.ascii_folding).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -10189,7 +10192,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                     std::vector<std::string> raw_fquery_tokens;
                     Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols,
-                              separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
+                              separators, the_field.get_stemmer(), false, true,
+                              the_field.ascii_folding).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;

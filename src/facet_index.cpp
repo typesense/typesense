@@ -265,7 +265,8 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                 const auto& symbols_to_index = facet_field.symbols_to_index.empty() ? coll_symbols_to_index : facet_field.symbols_to_index;
 
                 Tokenizer(facet_str, true, false, facet_field.locale,
-                          symbols_to_index, token_separators).tokenize(facet_tokens);
+                          symbols_to_index, token_separators, nullptr, false, true,
+                          facet_field.ascii_folding).tokenize(facet_tokens);
             } else {
                 facet_tokens.push_back(facet_str);
             }
