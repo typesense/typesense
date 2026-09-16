@@ -619,7 +619,8 @@ private:
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
                              nlohmann::json& curation_metadata,
-                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos) const;
+                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
+                             bool ascii_folding) const;
 
     Option<bool> curate_results(std::string& actual_query, const std::string& filter_query, bool enable_curations, bool already_segmented,
                         const std::set<std::string>& tags,
@@ -629,7 +630,8 @@ private:
                         std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
-                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
+                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos,
+                        bool ascii_folding) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -1223,7 +1225,7 @@ public:
                            const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix = false, uint32_t synonym_num_typos = 0,
-                           const std::vector<std::string>& = {}) const;
+                           const std::vector<std::string>& = {}, bool ascii_folding = false) const;
 
     spp::sparse_hash_map<std::string, reference_info_t> get_reference_fields();
 

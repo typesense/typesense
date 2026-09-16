@@ -1505,7 +1505,8 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::string& curated_sort_by,
                                      nlohmann::json& curation_metadata,
                                      bool enable_synonyms, bool synonym_prefix,
-                                     uint32_t synonym_num_typos) const {
+                                     uint32_t synonym_num_typos,
+                                     bool ascii_folding) const {
 
     if(!wildcard_tag_matched && !tags_matched && !curation.rule.tags.empty()) {
         // only untagged curations must be considered when no tags are given in the query
@@ -1540,7 +1541,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
             std::vector<std::vector<std::string>> results;
             std::vector<std::string> tokens;
             StringUtils::split(query, tokens, " ");
-            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos);
+            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos, {}, ascii_folding);
 
             if(!results.empty()) {
                 int i = 0;
@@ -1620,7 +1621,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
                                 diversity_t& diversity, bool synonym_prefix,
-                                uint32_t synonym_num_typos) const {
+                                uint32_t synonym_num_typos,
+                                bool ascii_folding) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1697,7 +1699,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
                                                                 curated_sort_by, curation_metadata, ov->rule.synonyms,
-                                                                synonym_prefix, synonym_num_typos);
+                                                                synonym_prefix, synonym_num_typos, ascii_folding);
                           if(match_found) {
                               base_query = compute_base_query();
                               all_tags_found = true;
@@ -1727,7 +1729,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
                                                             curated_sort_by, curation_metadata, ov->rule.synonyms,
-                                                            synonym_prefix, synonym_num_typos);
+                                                            synonym_prefix, synonym_num_typos, ascii_folding);
                       if(match_found) {
                         base_query = compute_base_query();
                         if (!ov->diversity.similarity_equation.empty()) {
@@ -1766,7 +1768,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
-                                                        synonym_num_typos);
+                                                        synonym_num_typos, ascii_folding);
                   if(match_found) {
                       base_query = compute_base_query();
                       if(ov->stop_processing) { break; }
@@ -3186,7 +3188,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
-                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
+                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos, ascii_folding);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }
@@ -7116,7 +7118,8 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix, uint32_t synonym_num_typos,
-                                     const std::vector<std::string>& param_synonym_sets) const {
+                                     const std::vector<std::string>& param_synonym_sets,
+                                     bool ascii_folding) const {
     std::shared_lock lock(mutex);
     //return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
     // Merge with the existing synonym sets
@@ -7126,6 +7129,15 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
             synonym_sets_merged.insert(param_synonym_set);
         }
     }
+
+    std::vector<std::string> folded_tokens;
+    if(ascii_folding) {
+        folded_tokens = tokens;
+        for(auto& token : folded_tokens) {
+            token = Tokenizer::ascii_fold(token);
+        }
+    }
+
     for(const auto& synonym_set : synonym_sets_merged) {
         auto synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_set);
         if(!synonym_index_op.ok()) {
@@ -7134,7 +7146,11 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
             continue;
         }
         auto synonym_index = synonym_index_op.get();
-        synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+        if(ascii_folding) {
+            synonym_index->synonym_reduction(folded_tokens, locale, results, synonym_prefix, synonym_num_typos, true);
+        } else {
+            synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+        }
     }
 }
 
