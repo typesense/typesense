@@ -149,6 +149,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
           "fallback_field_type":"",
           "fields":[
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -166,6 +167,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":true,
@@ -183,6 +185,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":true,
               "index":true,
               "infix":false,
@@ -200,6 +203,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":true,
               "index":true,
               "infix":false,
@@ -217,6 +221,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -234,6 +239,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":false,
               "infix":false,
@@ -251,6 +257,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -268,6 +275,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -286,6 +294,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "hnsw_params": {"M": 16, "ef_construction": 200},
               "index":true,
@@ -308,6 +317,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
             {
               "async_reference":true,
               "cascade_delete":true,
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -326,6 +336,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "truncate_len": 100
             },
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -1990,6 +2001,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
             "fallback_field_type":"",
             "fields":[
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2008,6 +2020,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "truncate_len": 100
                 },
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2025,6 +2038,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2042,6 +2056,7 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
