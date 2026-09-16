@@ -53,6 +53,7 @@ protected:
         auto collection = collection_create_op.get();
         for(size_t i = 0; i < 12; i++) {
             nlohmann::json document = {
+                    {"id", std::to_string(i)},
                     {"title", "in stock item" + std::to_string(i)},
                     {"category", i % 2 == 0 ? "kitchen" : "garden"}
             };
@@ -65,6 +66,42 @@ protected:
                        {"query_by", "title"},
                        {"q", "\"in stock\""},
                        {"filter_by", "category:=nothing"}});
+
+        nlohmann::json embedded_params = nlohmann::json::object();
+        std::string results_json;
+        auto search_op = CollectionManager::do_search(params, embedded_params, results_json, 0);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+        return search_op.ok() ? nlohmann::json::parse(results_json) : nlohmann::json::object();
+    }
+
+    void setupInfixFilterCollection() {
+        nlohmann::json schema_json = R"({
+                "name": "infix_filter",
+                "fields": [
+                    {"name": "title", "type": "string", "infix": true},
+                    {"name": "category", "type": "string", "facet": true}
+                ]
+            })"_json;
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+        auto collection = collection_create_op.get();
+        for(size_t i = 0; i < 12; i++) {
+            // "stock" matches these titles only as an infix, so only the infix search can find them.
+            nlohmann::json document = {
+                    {"id", std::to_string(i)},
+                    {"title", "restocked" + std::to_string(i)},
+                    {"category", i % 2 == 0 ? "kitchen" : "garden"}
+            };
+            ASSERT_TRUE(collection->add(document.dump()).ok());
+        }
+    }
+
+    nlohmann::json searchInfix(std::map<std::string, std::string> params) {
+        params.insert({{"collection", "infix_filter"},
+                       {"query_by", "title"},
+                       {"q", "stock"},
+                       {"infix", "always"}});
 
         nlohmann::json embedded_params = nlohmann::json::object();
         std::string results_json;
@@ -2700,6 +2737,60 @@ TEST_F(CollectionSpecificTest, GroupedHitsExcludePhraseMatchesWhenFilterMatchesN
     }
 
     ASSERT_EQ(std::vector<std::string>{"5"}, ids);
+}
+
+TEST_F(CollectionSpecificTest, PinnedHitDoesNotAdmitInfixMatchesWhenFilterMatchesNothing) {
+    setupInfixFilterCollection();
+
+    // Without a filter, every document is an infix match.
+    ASSERT_EQ(12, searchInfix({})["found"].get<size_t>());
+
+    auto result = searchInfix({{"filter_by", "category:=nothing"}, {"pinned_hits", "5:1"}});
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("5", result["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificTest, HiddenHitDoesNotAdmitInfixMatchesWhenFilterMatchesNothing) {
+    setupInfixFilterCollection();
+
+    auto result = searchInfix({{"filter_by", "category:=nothing"}, {"hidden_hits", "7"}});
+
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_TRUE(result["hits"].empty());
+}
+
+TEST_F(CollectionSpecificTest, FacetsExcludeInfixMatchesWhenFilterMatchesNothing) {
+    setupInfixFilterCollection();
+
+    auto result = searchInfix({{"filter_by", "category:=nothing"}, {"pinned_hits", "5:1"},
+                               {"facet_by", "category"}, {"per_page", "0"}});
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    EXPECT_EQ("garden", result["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    EXPECT_EQ(1, result["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificTest, GroupedHitsExcludeInfixMatchesWhenFilterMatchesNothing) {
+    setupInfixFilterCollection();
+
+    auto result = searchInfix({{"filter_by", "category:=nothing"}, {"pinned_hits", "5:1"},
+                               {"group_by", "category"}});
+
+    // The pinned hit is the only hit, so it is also the only group. `found` counts the
+    // groups, while `found_docs` counts the documents that matched: a curated hit is not
+    // one of them, so it is 0 here.
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["found_docs"].get<size_t>());
+    ASSERT_EQ(1, result["grouped_hits"].size());
+
+    const auto& group = result["grouped_hits"][0];
+    ASSERT_EQ(nlohmann::json::array({"garden"}), group["group_key"]);
+    ASSERT_EQ(1, group["hits"].size());
+    ASSERT_EQ("5", group["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificTest, PhraseSearchMultiBlockToken) {
