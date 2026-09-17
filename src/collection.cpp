@@ -4184,9 +4184,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto found_docs = 0;
     std::unordered_map<uint32_t, std::unique_ptr<id_list_t>> union_result_seq_ids_by_collection;
 
-    // Every sub-search clears search_cutoff before it runs, so the flag left
-    // behind belongs to the last one. The union spends one budget across all of
-    // them and reports one flag, which has to mean any of them ran out of it.
+    // each sub-search resets search_cutoff. preserve if any search was cut off.
     bool union_search_cutoff = false;
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {

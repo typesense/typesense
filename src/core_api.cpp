@@ -1148,9 +1148,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     if (is_union) {
         Option<bool> union_op = CollectionManager::do_union(req->params, req->embedded_params_vec, searches,
                                                             response, req->conn_ts, union_remove_duplicates);
-        if(!union_op.ok() && union_op.code() == 408) {
+        if(!union_op.ok()) {
             res->set(union_op.code(), union_op.error());
-            req->overloaded = true;
+            if(union_op.code() == 408) {
+                req->overloaded = true;
+            }
             res->final = true;
             stream_response(req, res);
             return false;

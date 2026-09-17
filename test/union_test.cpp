@@ -434,32 +434,6 @@ protected:
         }
     }
 
-    // Two collections for one union: the first holds documents the search has
-    // to work through, the second holds none that filter_by admits, so its
-    // search returns before it ever reads the clock.
-    void setupCutoffCollections() {
-        for (const auto& name: {"cutoff_0", "cutoff_1"}) {
-            nlohmann::json schema_json = {
-                    {"name",   name},
-                    {"fields", {{{"name", "title"},    {"type", "string"}},
-                                {{"name", "category"}, {"type", "string"}}}}
-            };
-            auto collection_create_op = collectionManager.create_collection(schema_json);
-            ASSERT_TRUE(collection_create_op.ok());
-
-            auto collection = collection_create_op.get();
-            for (auto i = 0; i < 200; i++) {
-                nlohmann::json document = {
-                        {"title",    "widget " + std::to_string(i)},
-                        // Only the first collection holds the category the
-                        // search filters on.
-                        {"category", std::string(name) == "cutoff_0" ? "kitchen" : "garden"}
-                };
-                ASSERT_TRUE(collection->add(document.dump()).ok());
-            }
-        }
-    }
-
     virtual void SetUp() {
         setupCollection();
     }
@@ -3235,41 +3209,62 @@ TEST_F(UnionTest, SearchCutoffKeepsInfixMatchesFiltered) {
     assert_only_kitchen();
 }
 
-// A union reports search_cutoff for the whole request, so a sub-search that ran
-// out of the shared time budget has to be visible in it however the later
-// sub-searches fared. Each sub-search starts by clearing the flag, and a search
-// that finds nothing its filter admits returns before it reads the clock at
-// all, so the last sub-search in a union is not a reliable place to read it
-// from.
+// Each sub-search resets the thread-local search_cutoff, so the union has to
+// carry an earlier sub-search's cutoff past the ones that run after it.
 TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
-    setupCutoffCollections();
+    const size_t docs_per_collection = 20;
+    for (const auto& name: {"cutoff_0", "cutoff_1"}) {
+        nlohmann::json schema_json = {
+                {"name",   name},
+                {"fields", {{{"name", "title"},    {"type", "string"}},
+                            {{"name", "category"}, {"type", "string"}}}}
+        };
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (size_t i = 0; i < docs_per_collection; i++) {
+            nlohmann::json document = {{"title", "widget " + std::to_string(i)}, {"category", "kitchen"}};
+            ASSERT_TRUE(collection_create_op.get()->add(document.dump()).ok());
+        }
+    }
 
+    // Only the first sub-search has its budget spent. The second runs with the
+    // default budget, so any cutoff the union reports is the first one's.
     searches = R"([
                     {
                         "collection": "cutoff_0",
                         "q": "widget",
                         "query_by": "title",
-                        "filter_by": "category:=kitchen"
+                        "filter_by": "category:=kitchen",
+                        "search_cutoff_ms": 0
                     },
                     {
                         "collection": "cutoff_1",
                         "q": "widget",
                         "query_by": "title",
-                        "filter_by": "category:=kitchen"
+                        "filter_by": "category:=office"
                     }
                 ])"_json;
     embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
-
-    // Begun with the budget already spent, which is the state every sub-search
-    // of a union is in once an earlier one has used it up.
-    req_params = {{"per_page", "20"}, {"search_cutoff_ms", "1"}};
-    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res,
-                                                now_ts - std::chrono::microseconds(std::chrono::seconds(1)).count());
+    req_params.clear();
 
     // The first sub-search is cut off before it finds anything and the second
-    // has nothing its filter admits, so the union has nothing to return. It
-    // answers 408 only if the flag it reads says a sub-search was cut off.
+    // matches nothing, so the union has nothing to return and answers 408.
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ(408, search_op.code());
     ASSERT_EQ("Request Timeout", search_op.error());
+
+    // With a pinned hit in the first sub-search and real hits from the second,
+    // the union succeeds but still has to report the cutoff.
+    searches[0]["pinned_hits"] = "0:1";
+    searches[1]["filter_by"] = "category:=kitchen";
+    // do_union leaves the last sub-search's merged params behind in req_params.
+    req_params.clear();
+    json_res.clear();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_TRUE(json_res["search_cutoff"].get<bool>());
+    ASSERT_EQ(1 + docs_per_collection, json_res["found"].get<size_t>());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
 }

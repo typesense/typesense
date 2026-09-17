@@ -1606,8 +1606,7 @@ TEST_F(CoreAPIUtilsTest, UnionSearchCutoffWithNothingToReturnIsRequestTimeout) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
-          {"name": "title", "type": "string" },
-          {"name": "category", "type": "string" }
+          {"name": "title", "type": "string" }
         ]
     })"_json;
 
@@ -1615,41 +1614,48 @@ TEST_F(CoreAPIUtilsTest, UnionSearchCutoffWithNothingToReturnIsRequestTimeout) {
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
-    for(size_t i = 0; i < 200; i++) {
+    for(size_t i = 0; i < 10; i++) {
         nlohmann::json doc;
         doc["title"] = "widget " + std::to_string(i);
-        doc["category"] = "kitchen";
         ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
     }
 
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
     nlohmann::json body;
-
     body["union"] = true;
     body["searches"] = nlohmann::json::array();
     nlohmann::json search;
     search["collection"] = "coll1";
     search["q"] = "widget";
     search["query_by"] = "title";
-    search["filter_by"] = "category:=kitchen";
     body["searches"].push_back(search);
 
-    req->body = body.dump();
-    nlohmann::json embedded_params;
-    req->embedded_params_vec.push_back(embedded_params);
+    auto make_req = [&body]() {
+        auto req = std::make_shared<http_req>();
+        req->body = body.dump();
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        // The search's budget is spent before it starts, so it is cut off before it finds anything.
+        req->params["search_cutoff_ms"] = "0";
+        req->params["use_cache"] = "true";
+        return req;
+    };
 
-    // The search's time budget is already spent when it starts, so it is cut off before it finds anything.
-    req->params["search_cutoff_ms"] = "1";
-    req->conn_ts -= std::chrono::microseconds(std::chrono::seconds(1)).count();
-
+    auto req = make_req();
+    auto res = std::make_shared<http_res>(nullptr);
     // The handler streams its own response, so it has to mark it final.
     res->final = false;
 
     ASSERT_FALSE(post_multi_search(req, res));
     ASSERT_EQ(408, res->status_code);
     ASSERT_EQ("Request Timeout", nlohmann::json::parse(res->body)["message"]);
+    ASSERT_TRUE(res->final);
+
+    // The 408 asks the client to retry, so it must not have been cached as the answer to that retry.
+    req = make_req();
+    res = std::make_shared<http_res>(nullptr);
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
     ASSERT_TRUE(res->final);
 }
 
