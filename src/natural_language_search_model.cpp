@@ -102,6 +102,15 @@ Option<bool> NaturalLanguageSearchModel::validate_jev_model(const nlohmann::json
         }
     }
 
+    if(model_config.count("timeout_ms") != 0 &&
+       (!model_config["timeout_ms"].is_number_unsigned() ||
+        model_config["timeout_ms"].get<size_t>() < JevClient::MIN_TIMEOUT_MS ||
+        model_config["timeout_ms"].get<size_t>() > JevClient::MAX_TIMEOUT_MS)) {
+        return Option<bool>(400, "Property `timeout_ms` must be an integer between " +
+                                 std::to_string(JevClient::MIN_TIMEOUT_MS) + " and " +
+                                 std::to_string(JevClient::MAX_TIMEOUT_MS) + ".");
+    }
+
     // a bad threshold 400s at model creation, not at search time
     jev_options_t opts;
     auto opts_op = JevSearchParams::options_from_config(model_config, opts);

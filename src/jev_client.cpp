@@ -43,12 +43,22 @@ static std::string extract_error(const std::string& response, long status_code) 
     return response.substr(0, 512);
 }
 
+bool JevClient::is_jev_model(const nlohmann::json& model_config) {
+    const std::string model_name = model_config.is_object() ?
+                                   model_config.value("model_name", std::string("")) : "";
+    return model_name.rfind("jev/", 0) == 0;
+}
+
 Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
                                       const nlohmann::json& questions,
-                                      const nlohmann::json& model_config,
-                                      long timeout_ms) {
+                                      const nlohmann::json& model_config) {
     if(!questions.is_object() || questions.empty()) {
         return Option<nlohmann::json>(400, "Jev request must carry at least one question.");
+    }
+
+    long timeout_ms = DEFAULT_TIMEOUT_MS;
+    if(model_config.contains("timeout_ms") && model_config["timeout_ms"].is_number_unsigned()) {
+        timeout_ms = model_config["timeout_ms"].get<long>();
     }
 
     nlohmann::json request_body;

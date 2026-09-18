@@ -2379,6 +2379,139 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevScopedSamplingHonorsEmbeddedFil
   JevClient::clear_mock_responses();
 }
 
+TEST_F(NaturalLanguageSearchModelManagerTest, JevRerankReordersHitsThroughSearch) {
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+  // one noul per hit in original rank order, points desc pins that order
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "cand0": {"type": "noul", "noul": 0.1},
+      "cand1": {"type": "noul", "noul": 0.9},
+      "cand2": {"type": "noul", "noul": 0.5}
+    },
+    "usage": {"input_tokens": 100, "output_tokens": 1}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_rerank_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "genre", "type": "string", "facet": true},
+      {"name": "points", "type": "int32"}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "pasta bar", "genre": "casual", "points": 30})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "pasta house", "genre": "casual", "points": 20})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "pasta corner", "genre": "fancy", "points": 10})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test"
+  })"_json;
+  std::string model_id = "jev_rerank_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["collection"] = "jev_rerank_coll";
+  req_params["q"] = "pasta";
+  req_params["query_by"] = "title";
+  req_params["sort_by"] = "points:desc";
+  req_params["jev_rerank"] = "true";
+  req_params["jev_rerank_model_id"] = model_id;
+
+  std::string results_str;
+  nlohmann::json embedded_params;
+  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
+  ASSERT_TRUE(search_op.ok());
+
+  nlohmann::json results_json = nlohmann::json::parse(results_str);
+  ASSERT_EQ(3, results_json["hits"].size());
+  ASSERT_EQ("pasta house", results_json["hits"][0]["document"]["title"]);
+  ASSERT_EQ("pasta corner", results_json["hits"][1]["document"]["title"]);
+  ASSERT_EQ("pasta bar", results_json["hits"][2]["document"]["title"]);
+  ASSERT_DOUBLE_EQ(0.9, results_json["hits"][0]["jev_rerank_score"].get<double>());
+  ASSERT_DOUBLE_EQ(0.5, results_json["hits"][1]["jev_rerank_score"].get<double>());
+  ASSERT_DOUBLE_EQ(0.1, results_json["hits"][2]["jev_rerank_score"].get<double>());
+
+  // a grouped search ignores the rerank, reordering across groups changes grouping semantics
+  std::map<std::string, std::string> group_params = req_params;
+  group_params["group_by"] = "genre";
+  std::string group_results_str;
+  auto group_op = collectionManager.do_search(group_params, embedded_params, group_results_str, 0);
+  ASSERT_TRUE(group_op.ok());
+  ASSERT_EQ(std::string::npos, group_results_str.find("jev_rerank_score"));
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevRerankTopKParamIsValidated) {
+  nlohmann::json schema = R"({
+    "name": "jev_rerank_topk_coll",
+    "fields": [{"name": "title", "type": "string"}]
+  })"_json;
+  ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["collection"] = "jev_rerank_topk_coll";
+  req_params["q"] = "pasta";
+  req_params["query_by"] = "title";
+  req_params["jev_rerank"] = "true";
+  req_params["jev_rerank_top_k"] = "0";
+
+  std::string results_str;
+  nlohmann::json embedded_params;
+  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
+  ASSERT_FALSE(search_op.ok());
+  ASSERT_EQ(400, search_op.code());
+
+  req_params["jev_rerank_top_k"] = "51";
+  auto search_op2 = collectionManager.do_search(req_params, embedded_params, results_str, 0);
+  ASSERT_FALSE(search_op2.ok());
+  ASSERT_EQ(400, search_op2.code());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevTimeoutMsKnobIsValidated) {
+  // a hung typesafe connect on the search path must be boundable per model config
+  JevClient::clear_mock_responses();
+
+  nlohmann::json bad_type = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "timeout_ms": "fast"
+  })"_json;
+  auto op = NaturalLanguageSearchModelManager::add_model(bad_type, "jev_bad_timeout_type", false);
+  ASSERT_FALSE(op.ok());
+  ASSERT_EQ(400, op.code());
+
+  nlohmann::json too_small = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "timeout_ms": 5
+  })"_json;
+  auto op2 = NaturalLanguageSearchModelManager::add_model(too_small, "jev_timeout_too_small", false);
+  ASSERT_FALSE(op2.ok());
+  ASSERT_EQ(400, op2.code());
+
+  nlohmann::json too_big = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "timeout_ms": 600000
+  })"_json;
+  auto op3 = NaturalLanguageSearchModelManager::add_model(too_big, "jev_timeout_too_big", false);
+  ASSERT_FALSE(op3.ok());
+  ASSERT_EQ(400, op3.code());
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+  nlohmann::json good = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "timeout_ms": 2500
+  })"_json;
+  auto op4 = NaturalLanguageSearchModelManager::add_model(good, "jev_timeout_good", false);
+  ASSERT_TRUE(op4.ok());
+
+  JevClient::clear_mock_responses();
+}
+
 TEST_F(NaturalLanguageSearchModelManagerTest, FieldDescriptionRoundTrips) {
   nlohmann::json schema = R"({
     "name": "described_coll",

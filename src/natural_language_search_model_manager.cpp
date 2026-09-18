@@ -1,6 +1,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
 #include "jev_search_params.h"
+#include "jev_client.h"
 #include "collection_manager.h"
 #include "auth_manager.h"
 #include "logger.h"
@@ -490,8 +491,7 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
     }
 
     // jev takes no schema prompt at all, the schema is enumerated into question criteria instead
-    const std::string model_name = model_config.value("model_name", std::string(""));
-    if(model_name.rfind("jev/", 0) == 0) {
+    if(JevClient::is_jev_model(model_config)) {
         // jev cannot pick a value it was never offered, an untouched default widens before the catalog is built
         schema_prompt_params_t jev_params = prompt_params;
         if(!jev_params.schema_sample_values_set) {

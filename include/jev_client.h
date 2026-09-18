@@ -18,7 +18,8 @@ public:
     };
 
 private:
-    static constexpr const size_t DEFAULT_TIMEOUT_MS = 60000;
+    // the search path fails fast by default, a hung connect must not read as a server hang
+    static constexpr const size_t DEFAULT_TIMEOUT_MS = 5000;
     static constexpr const size_t VALIDATION_TIMEOUT_MS = 30000;
 
     static inline bool use_mock_response = false;
@@ -37,11 +38,15 @@ public:
     // reserved none of the above key, jev needs an escape hatch or it is forced to pick
     static constexpr const char* NONE_OPTION = "__none__";
 
-    // one batched call. questions is an object of id -> question, all of them scored against the same state
+    static constexpr const size_t MIN_TIMEOUT_MS = 100;
+    static constexpr const size_t MAX_TIMEOUT_MS = 60000;
+
+    static bool is_jev_model(const nlohmann::json& model_config);
+
+    // state. the timeout comes off the model config's `timeout_ms` knob
     static Option<nlohmann::json> ask(const nlohmann::json& state,
                                       const nlohmann::json& questions,
-                                      const nlohmann::json& model_config,
-                                      long timeout_ms = DEFAULT_TIMEOUT_MS);
+                                      const nlohmann::json& model_config);
 
     static Option<bool> verify_api_key(const nlohmann::json& model_config);
 

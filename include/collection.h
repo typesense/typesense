@@ -24,6 +24,7 @@
 #include "synonym_index.h"
 #include "vq_model_manager.h"
 #include "join.h"
+#include "jev_rerank.h"
 
 struct doc_seq_id_t {
     uint32_t seq_id;
@@ -205,6 +206,10 @@ struct collection_search_args_t {
     static constexpr auto DIVERSITY_LAMBDA = "diversity_lambda";
     static constexpr auto DIVERSITY_LIMIT = "diversity_limit";
 
+    static constexpr auto JEV_RERANK = "jev_rerank";
+    static constexpr auto JEV_RERANK_MODEL_ID = "jev_rerank_model_id";
+    static constexpr auto JEV_RERANK_TOP_K = "jev_rerank_top_k";
+
     std::string raw_query;
     // Used only to supplement highlights after natural language query rewriting.
     std::string original_nl_query;
@@ -298,6 +303,13 @@ struct collection_search_args_t {
     size_t diversity_limit;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
+
+    // jev rerank rides outside the constructor, init fills these after parsing
+    bool jev_rerank = false;
+    std::string jev_rerank_model_id;
+    size_t jev_rerank_top_k = JevRerank::DEFAULT_TOP_K;
+    // judged against what the user typed, jev's q rewrite erases raw_query
+    std::string jev_rerank_query;
 
     collection_search_args_t(std::string raw_query, std::vector<std::string> search_fields, std::string filter_query,
                              std::vector<std::string> facet_fields, std::vector<sort_by> sort_fields,
