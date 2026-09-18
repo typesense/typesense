@@ -2358,7 +2358,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
+            // analytics logs the typed text, not the nl rewritten q
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(
+                    args.original_nl_query.empty() ? args.raw_query : args.original_nl_query);
             search_internal_event_t internal_event = {
                 SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
