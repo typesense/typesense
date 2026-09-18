@@ -2631,12 +2631,11 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     if (!union_op.ok()) {
         if (union_op.code() == 408) {
-            return result_op;
+            return union_op;
         }
 
         response["error"] = union_op.error();
         response["code"] = union_op.code();
-        return Option<bool>(true);
     }
 
     return Option<bool>(true);

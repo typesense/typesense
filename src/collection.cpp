@@ -4184,6 +4184,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     auto found_docs = 0;
     std::unordered_map<uint32_t, std::unique_ptr<id_list_t>> union_result_seq_ids_by_collection;
 
+    // each sub-search resets search_cutoff. preserve if any search was cut off.
+    bool union_search_cutoff = false;
+
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
         auto& coll_args = searches[search_index];
@@ -4231,6 +4234,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
         }
 
         const auto search_op = coll->run_search_with_lock(search_params_guard.get());
+        union_search_cutoff = union_search_cutoff || search_cutoff;
 
         searchTimeMillis.emplace_back(std::chrono::duration_cast<std::chrono::milliseconds>(
                                             std::chrono::high_resolution_clock::now() - begin).count());
@@ -4349,6 +4353,8 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
             first_request_default_sorting_field_used = default_sorting_field_used;
         }
     }
+
+    search_cutoff = union_search_cutoff;
 
     if (search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
