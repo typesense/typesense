@@ -4148,11 +4148,11 @@ Option<bool> Collection::run_search_with_lock(search_args* search_params) const 
     std::shared_lock lock(mutex);
     return index->run_search(search_params);
 }
-Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
+Option<bool> Collection::do_union(const std::vector<std::shared_ptr<Collection>>& collections,
                                   std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
                                   const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
-    if (searches.size() != collection_ids.size()) {
-        return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
+    if (searches.size() != collections.size()) {
+        return Option<bool>(400, "Expected `collections` and `searches` size to be equal.");
     }
 
     const auto& size = searches.size();
@@ -4187,13 +4187,9 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto begin = std::chrono::high_resolution_clock::now();
         auto& coll_args = searches[search_index];
-        const auto& coll_id = collection_ids[search_index];
 
-        auto& cm = CollectionManager::get_instance();
-        auto coll = cm.get_collection_with_id(coll_id);
-        if (coll == nullptr) {
-            return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
-        }
+        const auto& coll = collections[search_index];
+        const uint32_t coll_id = coll->get_collection_id();
 
         auto& search_params_guard = search_params_guards[search_index];
         auto& query = queries[search_index];
@@ -4374,6 +4370,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
     for (size_t search_index = 0; search_index < searches.size(); search_index++) {
         auto& search_param = search_params_guards[search_index];
+        const uint32_t coll_id = collections[search_index]->get_collection_id();
 
         size_t results_added = 0;
         size_t raw_result_index = 0;
@@ -4384,7 +4381,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 const auto curation_kv = search_param->curation_result_kvs[curation_result_index][0];
                 const auto curation_position = static_cast<size_t>(-curation_kv->scores[0]);
                 if(results_added + 1 == curation_position) {
-                    Union_KV kv(*curation_kv, search_index, collection_ids[search_index], should_remove_duplicates);
+                    Union_KV kv(*curation_kv, search_index, coll_id, should_remove_duplicates);
                     curations_topster->add(&kv);
                     curation_result_index++;
                     results_added++;
@@ -4392,7 +4389,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 }
             }
 
-            Union_KV kv(*search_param->raw_result_kvs[raw_result_index][0], search_index, collection_ids[search_index],
+            Union_KV kv(*search_param->raw_result_kvs[raw_result_index][0], search_index, coll_id,
                         should_remove_duplicates);
             union_topster->add(&kv);
             raw_result_index++;
@@ -4401,7 +4398,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         while(results_added < search_param->fetch_size && curation_result_index < search_param->curation_result_kvs.size()) {
             Union_KV kv(*search_param->curation_result_kvs[curation_result_index][0], search_index,
-                        collection_ids[search_index], should_remove_duplicates);
+                        coll_id, should_remove_duplicates);
             curations_topster->add(&kv);
             curation_result_index++;
             results_added++;
@@ -4502,12 +4499,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         for (const Union_KV* kv: kv_group) {
             const auto& search_index = kv->search_index;
-            const auto& coll_id = collection_ids.at(search_index);
-            auto& cm = CollectionManager::get_instance();
-            auto coll = cm.get_collection_with_id(coll_id);
-            if (coll == nullptr) {
-                return Option<bool>(400, "Collection having `coll_id: " + std::to_string(coll_id) + "` not found.");
-            }
+            const auto& coll = collections.at(search_index);
             const auto read_state_snapshot = coll->get_read_state_snapshot();
             if(read_state_snapshot == nullptr) {
                 return Option<bool>(500, "Collection read state unavailable.");
@@ -4693,9 +4685,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
 
         if(!search_params->facets.empty()) {
             const auto& coll_args = searches[search_index];
-            const auto& coll_id = collection_ids[search_index];
-
-            auto coll = CollectionManager::get_instance().get_collection_with_id(coll_id);
+            const auto& coll = collections[search_index];
 
             coll->populate_facets(search_params->facets, coll_args.max_facet_values, coll_args.facet_return_parent,
                                   search_params->facet_query, coll_args.highlight_affix_num_tokens,
