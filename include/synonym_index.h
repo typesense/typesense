@@ -55,6 +55,7 @@ struct synonym_node_t {
     std::unordered_map<std::string, synonym_node_t*> children;
     art_tree* children_tree;
     size_t children_tree_index = 0;
+    bool has_long_child = false;
     std::vector<std::string> terminal_synonym_ids;
     std::string token;
 
@@ -82,6 +83,8 @@ struct synonym_node_t {
         children_tree = other.children_tree;
         other.children_tree = nullptr;
         children_tree_index = other.children_tree_index;
+        has_long_child = other.has_long_child;
+        other.has_long_child = false;
         token = std::move(other.token);
     }
 
@@ -93,6 +96,8 @@ struct synonym_node_t {
             children_tree = other.children_tree;
             other.children_tree = nullptr;
             children_tree_index = other.children_tree_index;
+            has_long_child = other.has_long_child;
+            other.has_long_child = false;
             token = std::move(other.token);
         }
         return *this;
