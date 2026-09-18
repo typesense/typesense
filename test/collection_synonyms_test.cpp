@@ -1466,7 +1466,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
 }
 
 TEST_F(CollectionSynonymsTest, LongCompressedPrefixFullKeyValidation) {
-    SynonymIndex index(store, "issue3029_ascii");
+    SynonymIndex index(store, "long_compressed_prefix_ascii");
     synonym_t synonym;
     ASSERT_TRUE(synonym_t::parse({
         {"id", "long-bookkeeping"},
@@ -1495,10 +1495,18 @@ TEST_F(CollectionSynonymsTest, LongCompressedPrefixFullKeyValidation) {
     results.clear();
     index.synonym_reduction({"bookkeepinhy"}, "", results, false, 1);
     ASSERT_TRUE(results.empty());
+
+    results.clear();
+    index.synonym_reduction({"bookkeeping"}, "", results, true, 0);
+    ASSERT_EQ(4, results.size());
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingx"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingz"}));
 }
 
 TEST_F(CollectionSynonymsTest, LongCompressedPrefixAndMultibyteValidation) {
-    SynonymIndex index(store, "issue3029_prefix");
+    SynonymIndex index(store, "long_compressed_prefix");
     synonym_t synonym;
     ASSERT_TRUE(synonym_t::parse({
         {"id", "long-prefix"},
@@ -1527,7 +1535,7 @@ TEST_F(CollectionSynonymsTest, LongCompressedPrefixAndMultibyteValidation) {
     ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
                                        std::vector<std::string>{"ledger"}));
 
-    SynonymIndex thai_index(store, "issue3029_thai");
+    SynonymIndex thai_index(store, "long_compressed_prefix_thai");
     synonym_t thai_synonym;
     ASSERT_TRUE(synonym_t::parse({
         {"id", "thai-long-key"},

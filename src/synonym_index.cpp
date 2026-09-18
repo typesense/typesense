@@ -498,6 +498,9 @@ std::vector<synonym_node_t*> synonym_node_t::get_matching_children(const std::st
         return {it->second};
     }
 
+    if (num_typos == 0 && !synonym_prefix) {
+        return {};
+    }
 
     // do fuzzy search if the token is not found
     auto term_len = synonym_prefix ? token.size() : token.size() + 1;
@@ -515,7 +518,12 @@ std::vector<synonym_node_t*> synonym_node_t::get_matching_children(const std::st
         std::vector<synonym_node_t*> matching_children;
         for (const auto &leaf: leaves) {
             const std::string candidate(reinterpret_cast<const char*>(leaf->key), leaf->key_len - 1);
-            if ((token.size() > MAX_PREFIX_LEN || candidate.size() > MAX_PREFIX_LEN) &&
+            if (num_typos == 0 && synonym_prefix &&
+                (candidate.size() < token.size() || candidate.compare(0, token.size(), token) != 0)) {
+                continue;
+            }
+
+            if (num_typos > 0 && (token.size() > MAX_PREFIX_LEN || candidate.size() > MAX_PREFIX_LEN) &&
                 !within_synonym_distance(token, candidate, num_typos, synonym_prefix)) {
                 continue;
             }
