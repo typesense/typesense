@@ -160,11 +160,17 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
 std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>& req) {
     std::string& coll_name = req->params["collection"];
+    route_path* rpath = nullptr;
+    const bool route_found = server != nullptr && server->get_route(req->route_hash, &rpath);
+
+    // Alias updates must remain associated with the alias throughout enqueue, replay and completion. In particular,
+    // do not resolve a previously cached alias name to its current target here.
+    if (route_found && rpath->handler == put_upsert_alias) {
+        coll_name = req->params["alias"];
+        return coll_name;
+    }
 
     if(coll_name.empty()) {
-        route_path* rpath = nullptr;
-        bool route_found = server->get_route(req->route_hash, &rpath);
-
         // ensure that collection creation is sent to the same queue as writes to that collection
         if(route_found && rpath->handler == post_create_collection) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
@@ -1021,7 +1027,8 @@ void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& 
     const bool route_found = server != nullptr && server->get_route(req->route_hash, &found_rpath);
     if (!route_found || (found_rpath->handler != post_create_collection &&
                          found_rpath->handler != patch_update_collection &&
-                         found_rpath->handler != post_import_documents)) {
+                         found_rpath->handler != post_import_documents &&
+                         found_rpath->handler != put_upsert_alias)) {
         std::unique_lock lk(mutex);
         if (!coll_name.empty() && coll_to_references.count(coll_name) == 0) {
             coll_to_references[coll_name] = CollectionManager::get_instance().get_collection_references(coll_name);
@@ -1033,7 +1040,15 @@ void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& 
     std::unordered_set<std::string> referenced_collections;
     std::unordered_set<std::string> dropped_referenced_collections;
     std::string parsed_coll_name = coll_name;
-    if (found_rpath->handler == post_import_documents) {
+    if (found_rpath->handler == put_upsert_alias) {
+        const auto body = nlohmann::json::parse(req->body, nullptr, false);
+        if (body.is_discarded() || !body.is_object() || !body.contains("collection_name") ||
+            !body["collection_name"].is_string()) {
+            return;
+        }
+
+        referenced_collections.insert(body["collection_name"]);
+    } else if (found_rpath->handler == post_import_documents) {
         std::unique_lock lk(mutex);
         auto it = coll_to_references.find(parsed_coll_name);
         if (it != coll_to_references.end()) {
@@ -1044,9 +1059,11 @@ void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& 
         parsed_coll_name = get_ref_coll_names(req->body, referenced_collections, dropped_referenced_collections);
     }
 
-    auto symlink_op = cm.resolve_symlink(parsed_coll_name);
-    if (symlink_op.ok()) {
-        parsed_coll_name = symlink_op.get();
+    if (found_rpath->handler != put_upsert_alias) {
+        auto symlink_op = cm.resolve_symlink(parsed_coll_name);
+        if (symlink_op.ok()) {
+            parsed_coll_name = symlink_op.get();
+        }
     }
     if (parsed_coll_name.empty()) {
         return;
@@ -1081,12 +1098,24 @@ void BatchedIndexer::update_coll_to_references_after_request(const std::shared_p
     const bool route_found = server->get_route(req->route_hash, &found_rpath);
     if (!route_found || (found_rpath->handler != post_create_collection &&
                          found_rpath->handler != patch_update_collection &&
-                         found_rpath->handler != del_drop_collection)) {
+                         found_rpath->handler != del_drop_collection &&
+                         found_rpath->handler != put_upsert_alias)) {
         return;
     }
 
     auto it = coll_to_references.find(coll_name);
     if (it == coll_to_references.end()) {
+        return;
+    }
+
+    if (found_rpath->handler == put_upsert_alias) {
+        auto alias_op = CollectionManager::get_instance().resolve_symlink(coll_name);
+        if (!alias_op.ok()) {
+            coll_to_references.erase(it);
+            return;
+        }
+
+        it->second = {alias_op.get()};
         return;
     }
 

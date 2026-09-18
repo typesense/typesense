@@ -9,7 +9,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core_api.h"
+#include "http_server.h"
 #include "string_utils.h"
+#include "threadpool.h"
 
 #define private public
 #include "batched_indexer.h"
@@ -60,6 +63,52 @@ TEST(BatchedIndexerTest, UsesLatestChunkLogIndexForReferenceDependencies) {
     EXPECT_EQ(1, wait_on.size());
     EXPECT_EQ(1, wait_on.count(earlier_req->start_ts));
     EXPECT_EQ(0, wait_on.count(later_req->start_ts));
+}
+
+TEST(BatchedIndexerTest, OrdersAliasUpsertsWithTheirTargetAndReferencingCollections) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+    ThreadPool thread_pool(1);
+    {
+        HttpServer server("test", "127.0.0.1", 0, "", "", 0, false, {}, &thread_pool);
+        server.put("/aliases/:alias", put_upsert_alias);
+        BatchedIndexer indexer(&server, nullptr, nullptr, 1, config, skip_writes);
+
+        auto alias_req = std::make_shared<http_req>();
+        alias_req->start_ts = 30;
+        alias_req->params["alias"] = "parent";
+        alias_req->body = R"({"collection_name":"parent_bad"})";
+        route_path* route = nullptr;
+        alias_req->route_hash = server.find_route({"aliases", "parent"}, "PUT", &route);
+        ASSERT_NE(nullptr, route);
+
+        EXPECT_EQ("parent", indexer.get_collection_name(alias_req));
+        // A cached collection parameter must not resolve the alias to its current target during replay.
+        EXPECT_EQ("parent", indexer.get_collection_name(alias_req));
+
+        indexer.update_coll_to_references(alias_req, "parent");
+        ASSERT_EQ(1, indexer.coll_to_references.count("parent"));
+        EXPECT_EQ(1, indexer.coll_to_references.at("parent").count("parent_bad"));
+        indexer.coll_to_references["children"] = {"parent"};
+
+        const auto add_request = [&indexer](const uint64_t request_id, const std::string& collection) {
+            auto req = make_req(request_id, request_id, collection);
+            indexer.req_res_map.emplace(request_id,
+                                        BatchedIndexer::req_res_t(request_id, "", req, make_res(), 0, 1, 0, true,
+                                                                  request_id));
+            indexer.collection_request_tails[collection] = request_id;
+        };
+        add_request(10, "parent_bad");
+        add_request(20, "children");
+        indexer.req_res_map.emplace(alias_req->start_ts,
+                                    BatchedIndexer::req_res_t(alias_req->start_ts, "", alias_req, make_res(), 0, 1,
+                                                              0, true, alias_req->start_ts));
+
+        const auto wait_on = indexer.get_requests_to_wait_on(alias_req->start_ts, "parent");
+        EXPECT_EQ(1, wait_on.count(10));
+        EXPECT_EQ(1, wait_on.count(20));
+    }
+    thread_pool.shutdown();
 }
 
 TEST(BatchedIndexerTest, KeepsRelatedRequestDependenciesBoundedByCollectionTails) {
