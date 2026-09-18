@@ -6724,3 +6724,103 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
     const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
     ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
 }
+
+TEST_F(CollectionCurationTest, FilterCuratedHitsWithGroupByOnMissingGroupField) {
+    // a pinned doc that has no value for the group_by field must still be dropped by filter_curated_hits
+    auto schema = R"({
+        "name": "repro_fch_groupby",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string", "facet": true},
+            {"name": "group_field", "type": "string", "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    // beta-no-group is the only doc without group_field
+    ASSERT_TRUE(coll->add(R"({"id":"alpha-1","title":"alpha one","brand":"alpha","group_field":"g1"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"alpha-2","title":"alpha two","brand":"alpha","group_field":"g2"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"beta-with-group","title":"beta with group","brand":"beta","group_field":"g3"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"beta-no-group","title":"beta no group","brand":"beta"})").ok());
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // A: pinned doc HAS group_field, group_by active
+    std::map<std::string, std::string> req_params = {
+            {"collection", "repro_fch_groupby"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"filter_by", "brand:=alpha"},
+            {"pinned_hits", "beta-with-group:1"},
+            {"filter_curated_hits", "true"},
+            {"group_by", "group_field"},
+            {"group_limit", "1"}
+    };
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["grouped_hits"].size());
+    ASSERT_EQ("alpha-2", result["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha-1", result["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    // B: pinned doc has NO group_field, group_by active
+    req_params["pinned_hits"] = "beta-no-group:1";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["grouped_hits"].size());
+    ASSERT_EQ("alpha-2", result["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha-1", result["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    // group_missing_values=false must not change the outcome
+    req_params["group_missing_values"] = "false";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["grouped_hits"].size());
+    ASSERT_EQ("alpha-2", result["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha-1", result["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    req_params.erase("group_missing_values");
+
+    // C: pinned doc HAS group_field, no group_by
+    req_params.erase("group_by");
+    req_params.erase("group_limit");
+    req_params["pinned_hits"] = "beta-with-group:1";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("alpha-2", result["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha-1", result["hits"][1]["document"]["id"].get<std::string>());
+
+    // D: pinned doc has NO group_field, no group_by
+    req_params["pinned_hits"] = "beta-no-group:1";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("alpha-2", result["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha-1", result["hits"][1]["document"]["id"].get<std::string>());
+}
