@@ -2214,7 +2214,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevWordNumberRoundBindsSpelledOutL
 
   nlohmann::json model_config = R"({
     "model_name": "jev/jev-latest",
-    "api_key": "ts-test"
+    "api_key": "ts-test",
+    "word_numbers": true
   })"_json;
   std::string model_id = "jev_word_number_model";
   ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
@@ -2280,7 +2281,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevConsumedCheckRoundPrunesExpress
 
   nlohmann::json model_config = R"({
     "model_name": "jev/jev-latest",
-    "api_key": "ts-test"
+    "api_key": "ts-test",
+    "consumed_check": true
   })"_json;
   std::string model_id = "jev_consumed_model";
   ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());

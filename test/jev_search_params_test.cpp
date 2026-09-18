@@ -1390,7 +1390,10 @@ TEST_F(JevSearchParamsTest, BuildQuestionsAsksNumeralQuestionsOnlyWhenDigitless)
     catalog.collection_name = "restaurants";
     catalog.numeric_fields.push_back({"service", field_types::FLOAT});
 
-    auto digitless = JevSearchParams::build_questions(catalog, facts_for("five star service"), jev_options_t());
+    jev_options_t on;
+    on.word_numbers = true;
+
+    auto digitless = JevSearchParams::build_questions(catalog, facts_for("five star service"), on);
     ASSERT_TRUE(digitless.ok());
     ASSERT_TRUE(digitless.get().contains("q0__num"));
     ASSERT_TRUE(digitless.get()["q0__num"]["criteria"].contains("5"));
@@ -1398,14 +1401,13 @@ TEST_F(JevSearchParamsTest, BuildQuestionsAsksNumeralQuestionsOnlyWhenDigitless)
     // no digits found means no binding questions yet, they run in the follow up round on a hit
     ASSERT_FALSE(digitless.get().contains("num0__field"));
 
-    auto with_digits = JevSearchParams::build_questions(catalog, facts_for("5 star service"), jev_options_t());
+    auto with_digits = JevSearchParams::build_questions(catalog, facts_for("5 star service"), on);
     ASSERT_TRUE(with_digits.ok());
     ASSERT_FALSE(with_digits.get().contains("q0__num"));
     ASSERT_TRUE(with_digits.get().contains("num0__field"));
 
-    jev_options_t off;
-    off.word_numbers = false;
-    auto disabled = JevSearchParams::build_questions(catalog, facts_for("five star service"), off);
+    // the shipping default asks no numeral questions at all
+    auto disabled = JevSearchParams::build_questions(catalog, facts_for("five star service"), jev_options_t());
     ASSERT_TRUE(disabled.ok());
     ASSERT_FALSE(disabled.get().contains("q0__num"));
 }
@@ -1414,15 +1416,14 @@ TEST_F(JevSearchParamsTest, OptionsFromConfigReadsAndValidatesKnobs) {
     jev_options_t opts;
     nlohmann::json config = R"json({
         "model_name": "jev/jev-latest", "api_key": "ts-test",
-        "present_threshold": 0.7, "max_token_questions": 40, "word_numbers": false
+        "present_threshold": 0.7, "max_token_questions": 40, "word_numbers": true
     })json"_json;
     ASSERT_TRUE(JevSearchParams::options_from_config(config, opts).ok());
     ASSERT_EQ(0.7, opts.present_threshold);
     ASSERT_EQ(40, opts.max_token_questions);
-    ASSERT_FALSE(opts.word_numbers);
-    // untouched knobs keep their defaults
+    ASSERT_TRUE(opts.word_numbers);
     ASSERT_EQ(0.5, opts.confidence_threshold);
-    ASSERT_TRUE(opts.consumed_check);
+    ASSERT_FALSE(opts.consumed_check);
 
     nlohmann::json out_of_range = R"json({"present_threshold": 1.5})json"_json;
     auto op = JevSearchParams::options_from_config(out_of_range, opts);

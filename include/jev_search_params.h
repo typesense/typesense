@@ -58,11 +58,11 @@ struct jev_options_t {
     size_t max_clauses = 40;
     size_t max_sort_fields = 3;
 
-    // a digitless query gets per token numeral questions and, on a hit, a second binding round
-    bool word_numbers = true;
+    // a digitless query gets numeral questions and, on a hit, a second round, each an extra api call
+    bool word_numbers = false;
     size_t max_word_number_literals = 3;
     // surviving q tokens are judged against the emitted filters in a follow up round
-    bool consumed_check = true;
+    bool consumed_check = false;
 };
 
 class JevSearchParams {
