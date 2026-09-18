@@ -3254,6 +3254,58 @@ TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
     collectionManager.drop_collection("listings");
 }
 
+TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidStoredRecord) {
+    // A snapshot is a copy of RocksDB. If it contains a document that cannot be indexed on cold load,
+    // the loader must not publish a collection where that document is still readable from RocksDB but
+    // absent from the in-memory search index.
+    nlohmann::json schema = R"({
+         "name": "cold_load_ghost_document",
+         "fields": [
+           {"name": "title", "type": "string", "optional": false}
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"indexed before reload"})").ok());
+    auto seq_id_op = coll->doc_id_to_seq_id("1");
+    ASSERT_TRUE(seq_id_op.ok());
+
+    // Simulate the persisted record supplied by a snapshot. Keep its ID-to-sequence mapping so GET
+    // and export can still find it, but make the stored document fail re-index validation.
+    const std::string seq_id_key = coll->get_seq_id_collection_prefix() + "_" +
+                                   StringUtils::serialize_uint32_t(seq_id_op.get());
+    ASSERT_TRUE(store->insert(seq_id_key, R"({"id":"1","title":null})"));
+
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+
+    const std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    store = new Store(state_dir_path);
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+
+    coll = collectionManager.get_collection("cold_load_ghost_document").get();
+    ASSERT_NE(nullptr, coll);
+
+    nlohmann::json stored_document;
+    ASSERT_TRUE(coll->get_document_from_store(seq_id_op.get(), stored_document).ok());
+    ASSERT_EQ("1", stored_document["id"].get<std::string>());
+
+    auto search_op = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(search_op.ok());
+
+    // This is the regression assertion. Current behavior returns 0: the record is retained in
+    // RocksDB but silently skipped while rebuilding the index.
+    ASSERT_EQ(1, search_op.get()["found"].get<size_t>());
+
+    collectionManager.drop_collection("cold_load_ghost_document");
+}
+
 TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     nlohmann::json schema = R"({
         "name": "coll1",
