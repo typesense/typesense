@@ -2817,14 +2817,15 @@ bool Index::static_filter_query_eval(const curation_t* curation,
                                      const std::string& curation_normalized_query,
                                      std::vector<std::string>& tokens,
                                      std::unique_ptr<filter_node_t>& filter_tree_root,
-                                     const bool& validate_field_names) const {
+                                     const bool& validate_field_names,
+                                     const bool force_apply) const {
     std::string query = StringUtils::join(tokens, " ");
     bool tag_matched = (!curation->rule.tags.empty() && curation->rule.filter_by.empty() &&
                          curation->rule.query.empty());
 
     bool wildcard_tag_matched = (curation->rule.tags.size() == 1 && *curation->rule.tags.begin() == "*");
 
-    if (tag_matched || wildcard_tag_matched ||
+    if (force_apply || tag_matched || wildcard_tag_matched ||
         (curation->rule.match == curation_t::MATCH_EXACT && curation_normalized_query == query) ||
         (curation->rule.match == curation_t::MATCH_CONTAINS &&
          StringUtils::contains_word(query, curation_normalized_query))) {
@@ -2950,6 +2951,7 @@ bool Index::resolve_curation(const std::vector<std::string>& rule_tokens, const 
 }
 
 void Index::process_filter_sort_curations(const std::vector<const curation_t*>& filter_sort_curations,
+                                     const std::set<const curation_t*>& matched_filter_curations,
                                      std::vector<std::string>& curation_normalized_queries,
                                      const std::vector<std::set<std::string>>& curation_rule_token_sets,
                                      std::vector<std::string>& query_tokens,
@@ -2968,14 +2970,18 @@ void Index::process_filter_sort_curations(const std::vector<const curation_t*>& 
         if (!curation->rule.dynamic_query && !curation->rule.dynamic_filter) {
             // Simple static filtering: add to filter_by and rewrite query if needed.
             // Check the original query and then the synonym variants until a rule matches.
+            // A rule already matched during curation (before replace_query/stopword rewrites) is
+            // force applied so it doesn't get silently dropped by re-matching the rewritten query.
+            const bool force_apply = matched_filter_curations.count(curation) != 0;
             bool resolved_curation = static_filter_query_eval(curation, curation_normalized_queries[i], query_tokens, filter_tree_root,
-                                                              validate_field_names);
+                                                              validate_field_names, force_apply);
 
             if (resolved_curation) {
                 if(curation_metadata.empty()) {
                     curation_metadata = curation->metadata;
                 }
-                if (curation->remove_matched_tokens) {
+                // don't strip rule tokens when replace_query already rewrote the query wholesale
+                if (curation->remove_matched_tokens && curation->replace_query.empty()) {
                     remove_matched_tokens(query_tokens, curation_rule_token_sets[i]);
                 }
 

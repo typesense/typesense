@@ -573,7 +573,8 @@ private:
                    std::unordered_map<std::string, reference_filter_result_t>* reference_facet_ids) const;
 
     bool static_filter_query_eval(const curation_t* curation, const std::string& curation_normalized_query, std::vector<std::string>& tokens,
-                                  std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names) const;
+                                  std::unique_ptr<filter_node_t>& filter_tree_root, const bool& validate_field_names,
+                                  const bool force_apply = false) const;
 
     bool resolve_curation(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
@@ -1188,6 +1189,7 @@ public:
                                      int64_t& out_best_field_match_score);
 
     void process_filter_sort_curations(const std::vector<const curation_t*>& filter_curations,
+                                  const std::set<const curation_t*>& matched_filter_curations,
                                   std::vector<std::string>& curation_normalized_queries,
                                   const std::vector<std::set<std::string>>& curation_rule_token_sets,
                                   std::vector<std::string>& query_tokens,
