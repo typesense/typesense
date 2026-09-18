@@ -3999,3 +3999,85 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
 }
+
+TEST_F(CoreAPIUtilsTest, RebuildTokenScoresParamValidation) {
+    nlohmann::json schema = R"({
+        "name": "token_score_api",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ],
+        "default_sorting_field": "points"
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    // the http layer always fills these in, they must not count as client supplied
+    req->params["collection"] = "token_score_api";
+    req->params["x-typesense-user-id"] = "127.0.0.1";
+    req->params["rebuild_token_scores"] = "true";
+    req->body = "";
+    req->log_index = 1234;
+
+    ASSERT_TRUE(patch_update_collection(req, res));
+    ASSERT_EQ(R"({"rebuild_token_scores":true})", res->body);
+
+    std::string rebuilt_at_log_index;
+    const std::string rebuild_log_key = std::to_string(coll_op.get()->get_collection_id()) + "_" +
+                                        Collection::TOKEN_SCORE_REBUILD_LOG_PREFIX;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(rebuild_log_key, rebuilt_at_log_index));
+    ASSERT_EQ("1234", rebuilt_at_log_index);
+
+    // must be sent by itself
+    req->params["metadata"] = "{}";
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\":\"Parameter `rebuild_token_scores` cannot be combined with other parameters.\"}",
+              res->body);
+    req->params.erase("metadata");
+
+    // must be sent without a body
+    req->body = R"({"metadata": {}})";
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\":\"Parameter `rebuild_token_scores` must be sent without a request body.\"}", res->body);
+    req->body = "";
+
+    // only `true` is meaningful
+    req->params["rebuild_token_scores"] = "false";
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\":\"Parameter `rebuild_token_scores` must be `true`.\"}", res->body);
+
+    // an empty body is still rejected for a normal alter
+    req->params.erase("rebuild_token_scores");
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\":\"Bad JSON.\"}", res->body);
+
+    collectionManager.drop_collection("token_score_api");
+}
+
+TEST_F(CoreAPIUtilsTest, RebuildTokenScoresRejectedWithoutSortingField) {
+    nlohmann::json schema = R"({
+        "name": "token_score_api_unranked",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "token_score_api_unranked";
+    req->params["rebuild_token_scores"] = "true";
+    req->body = "";
+
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ(400, res->status_code);
+
+    collectionManager.drop_collection("token_score_api_unranked");
+}

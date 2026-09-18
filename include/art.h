@@ -219,6 +219,33 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len);
  */
 void* art_search(const art_tree *t, const unsigned char *key, int key_len);
 
+/* Returns the current score of a document, used to recompute a leaf's max_score. */
+typedef int64_t (*art_score_fn)(void* obj, uint32_t id);
+
+/* Invoked between leaves so the caller can release and reacquire its index lock. */
+typedef void (*art_yield_fn)(void* obj);
+
+/**
+ * Recomputes every leaf's max_score from live document scores and rebuilds inner
+ * node scores bottom-up. Only valid on score ordered trees: a frequency ordered
+ * tree stores document counts in max_score and must not be passed here.
+ *
+ * yield_fn is called once roughly every yield_budget scored postings, letting the
+ * caller drop its lock so searches are not blocked for the whole walk. The budget
+ * bounds work inside a single leaf as well as across leaves, so one very common
+ * token cannot hold the lock for its whole posting list.
+ *
+ * No node pointer is held across a yield. Each segment re-descends from the root to
+ * a saved key, so a writer that frees or collapses nodes while the lock is released
+ * cannot leave the walk holding freed memory. The tree may legitimately change under
+ * it: a token written during a yield keeps whatever score the insert path gave it,
+ * which is the same best effort the rest of this scoring is.
+ *
+ * Passing a NULL yield_fn runs the whole tree in one go and ignores the budget.
+ */
+void art_rebuild_max_scores(art_tree* t, art_score_fn score_fn, art_yield_fn yield_fn,
+                            void* fn_obj, size_t yield_budget);
+
 /**
  * Returns the minimum valued leaf
  * @return The minimum leaf or NULL
