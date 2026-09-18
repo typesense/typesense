@@ -135,7 +135,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
             return Option<bool>(400, "Vocab file not found");
         }
 
-        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip" && config["model_type"].get<std::string>() != "siglip") {
+        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip" && config["model_type"].get<std::string>() != "siglip" && config["model_type"].get<std::string>() != "qwen") {
             LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
             return Option<bool>(400, "Invalid model type");
         }
@@ -254,6 +254,8 @@ const TokenizerType EmbedderManager::get_tokenizer_type(const nlohmann::json& mo
             return TokenizerType::clip;
         } else if(tokenizer_type == "siglip") {
             return TokenizerType::siglip;
+        } else if(tokenizer_type == "qwen") {
+            return TokenizerType::qwen;
         } else {
             return TokenizerType::bert;
         }
