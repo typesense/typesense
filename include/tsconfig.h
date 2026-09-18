@@ -69,6 +69,12 @@ private:
 
     std::atomic<bool> skip_writes;
 
+    // When true, run as a single node WITHOUT Raft: writes are applied directly (no replication
+    // log, no leader election) for much higher write throughput, and the document store opens
+    // with the RocksDB WAL enabled so writes remain crash-durable. Single-node only; there is no
+    // replication or consensus in this mode.
+    bool standalone = false;
+
     std::atomic<int> log_slow_searches_time_ms;
 
     std::atomic<bool> reset_peers_on_error;
@@ -516,6 +522,10 @@ public:
 
     const std::atomic<bool>& get_skip_writes() const {
         return skip_writes;
+    }
+
+    bool get_standalone() const {
+        return standalone;
     }
 
     int get_max_per_page() const {

@@ -8,6 +8,8 @@
 #include <braft/protobuf_file.h>         // braft::ProtoBufFile
 #include <rocksdb/db.h>
 #include <future>
+#include <array>
+#include <mutex>
 
 #include "http_data.h"
 #include "threadpool.h"
@@ -118,7 +120,6 @@ private:
     Store* analytics_store;
 
     ThreadPool* thread_pool;
-    http_message_dispatcher* message_dispatcher;
 
     const bool api_uses_ssl;
 
@@ -152,6 +153,15 @@ private:
 
     butil::EndPoint peering_endpoint;
 
+    // --standalone only: a monotonic sequence used in place of the Raft log index, and a bank of
+    // mutexes that serialize writes per collection (hash(collection) % size) so two concurrent
+    // requests to the same collection never run together while different collections run in
+    // parallel. This reproduces the per-collection serialization that BatchedIndexer's queues
+    // provide on the Raft path.
+    std::atomic<int64_t> standalone_seq{1};
+    static constexpr size_t NUM_WRITE_STRIPES = 256;
+    std::array<std::mutex, NUM_WRITE_STRIPES> write_stripes;
+
 public:
 
     static constexpr const char* log_dir_name = "log";
@@ -159,7 +169,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* analytics_store,
-                     ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+                     ThreadPool* thread_pool,
                      bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
@@ -168,6 +178,10 @@ public:
               int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
               const std::string & raft_dir, const std::string & nodes,
               const std::atomic<bool>& quit_abruptly);
+
+    // Starts the state machine in --standalone mode (no Raft): loads collections from the
+    // durable store and marks the node ready/leader. Writes are applied directly (see write()).
+    int start_standalone(int api_port);
 
     // Generic write method for synchronizing all writes
     void write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
@@ -222,8 +236,6 @@ public:
     void do_snapshot(const std::string& nodes);
 
     void persist_applying_index();
-
-    http_message_dispatcher* get_message_dispatcher() const;
 
     void wait() {
         auto lk = std::unique_lock<std::mutex>(mcv);

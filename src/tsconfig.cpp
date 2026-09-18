@@ -274,6 +274,7 @@ void Config::load_config_env() {
     }
 
     this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+    this->standalone = ("TRUE" == get_env("TYPESENSE_STANDALONE"));
     this->enable_lazy_filter = ("TRUE" == get_env("TYPESENSE_ENABLE_LAZY_FILTER"));
     this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
 
@@ -543,6 +544,10 @@ void Config::load_config_file(cmdline::parser& options) {
         this->skip_writes = (skip_writes_str == "true");
     }
 
+    if(reader.Exists("server", "standalone")) {
+        this->standalone = (reader.Get("server", "standalone", "false") == "true");
+    }
+
     if(reader.Exists("server", "reset-peers-on-error")) {
         auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
         this->reset_peers_on_error = (reset_peers_on_error_str == "true");
@@ -767,6 +772,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("skip-writes")) {
         this->skip_writes = options.get<bool>("skip-writes");
+    }
+
+    if(options.exist("standalone")) {
+        this->standalone = options.get<bool>("standalone");
     }
 
     if(options.exist("reset-peers-on-error")) {

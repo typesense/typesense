@@ -211,12 +211,15 @@ std::string AppMetrics::format_access_log(const uint64_t epoch_millis, const cha
 void AppMetrics::write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path,
                                   const std::string& api_key_prefix) {
     if(!access_log_path.empty()) {
-        access_log << format_access_log(epoch_millis, remote_ip, path, api_key_prefix);
+        const std::string& line = format_access_log(epoch_millis, remote_ip, path, api_key_prefix);
+        std::lock_guard<std::mutex> lk(access_log_mutex);
+        access_log << line;
     }
 }
 
 void AppMetrics::flush_access_log() {
     if(!access_log_path.empty()) {
+        std::lock_guard<std::mutex> lk(access_log_mutex);
         access_log << std::flush;
     }
 }
