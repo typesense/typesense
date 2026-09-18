@@ -755,6 +755,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     LOG(INFO) << "CURL clean up";
 
+    HttpClient::shutdown_curl_pool();
     curl_global_cleanup();
 
     LOG(INFO) << "Deleting server";
