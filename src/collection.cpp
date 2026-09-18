@@ -1301,8 +1301,29 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
                              const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::unordered_set<std::string> found_fields;
-    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
-                          remote_embedding_num_tries, true, found_fields);
+
+    // Hold a shared lock on `alter_mutex` for the ENTIRE remainder of this function (it is only released
+    // when `batch_index()` returns and this local destructs). Two independent reasons require this:
+    //
+    // 1. Preprocessing (Phase 1, which validates/coerces records against the *current* schema) through
+    //    finalizing them into the in-memory index (Phase 3, which must index against that SAME schema)
+    //    must not have a schema ALTER (`batch_alter_data()`, which takes a unique_lock on `alter_mutex`)
+    //    run in between them -- otherwise records validated/coerced for the old schema could be indexed
+    //    against a new one (e.g. stale field types or mismatched embedding vector dimensions reaching
+    //    `index_field_in_memory()`). This matches the guarantee the original, unsplit
+    //    `batch_index_in_memory()` used to provide. The on-disk store write in between (Phase 2) doesn't
+    //    touch the schema, so it's safe to keep it inside this same lock span.
+    // 2. Phase 4 (after finalizing) reads the `fields` member vector directly, which is also protected by
+    //    `alter_mutex` -- `batch_alter_data()` mutates `fields` (push_back/erase) under a unique lock on
+    //    it. Releasing this shared lock before Phase 4 would allow a concurrent ALTER to reallocate/shrink
+    //    `fields` while Phase 4 iterates over it on another thread. See the note just before Phase 4 below
+    //    for why an earlier version of this function got this wrong.
+    std::shared_lock alter_shlock(alter_mutex);
+
+    // Phase 1: validate, coerce dirty values and (if needed) generate embeddings. This does NOT touch the
+    // in-memory search index, so no seq_id becomes visible/searchable as a result of this call.
+    batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                             remote_embedding_num_tries, true, found_fields);
 
     // Only update the referencing collections for the documents that have successfully been indexed in-memory and on disk.
     spp::sparse_hash_map<std::string, std::set<reference_pair_t>> found_async_referenced_ins;
@@ -1319,67 +1340,116 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // We will remove all references to a document that has failed to index.
     std::vector<index_record> remove_async_reference_docs;
 
-    // store only documents that were indexed in-memory successfully
+    // Phase 2: persist every successfully validated document to the on-disk store FIRST, i.e. *before* any
+    // seq_id is made visible/searchable in the in-memory index. This closes the visibility race from
+    // https://github.com/typesense/typesense/issues/3028, where a concurrent search could previously
+    // observe a seq_id that had already been made searchable while its document body was not yet
+    // fetchable from the store (`get_document_from_store()` would fail and the record would silently be
+    // dropped from the response).
+    //
+    // Since the in-memory index has not been touched yet for these records, a store write failure here
+    // simply needs to mark the record as failed -- there is nothing to roll back in the index.
+    for(auto& index_record: index_records) {
+        if(!index_record.indexed.ok()) {
+            continue;
+        }
+
+        // IMPORTANT: we must NOT strip unstored fields / flattened keys from `index_record.doc` /
+        // `new_doc` in place here. Phase 3 (below) still needs to read the FULL document (including
+        // `store:false` fields and the transient flattened dot-keys produced for nested/object fields) in
+        // order to index it correctly -- in the pre-fix code this used to happen naturally because
+        // indexing ran *before* this stripping-for-storage step. Since we now write to the store first,
+        // we serialize a stripped COPY for on-disk storage and leave the original object untouched for
+        // Phase 3 to consume; the original is stripped in place afterwards, in Phase 4, purely to shape
+        // the API response the same way the pre-fix code did.
+        if(index_record.is_update) {
+            nlohmann::json doc_to_store = index_record.new_doc;
+            remove_flat_fields(doc_to_store);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    doc_to_store.erase(field.name);
+                }
+            }
+            const std::string& serialized_json = doc_to_store.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+
+            bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+            if(!write_ok) {
+                LOG(ERROR) << "Update to disk failed. Old document remains in-memory and on-disk.";
+                index_record.index_failure(500, "Could not write to on-disk storage.");
+            }
+
+        } else {
+            // remove flattened field values before storing on disk (from a copy -- see note above)
+            nlohmann::json doc_to_store = index_record.doc;
+            remove_flat_fields(doc_to_store);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    doc_to_store.erase(field.name);
+                }
+            }
+            const std::string& seq_id_str = std::to_string(index_record.seq_id);
+            const std::string& serialized_json = doc_to_store.dump(-1, ' ', false,
+                                                                    nlohmann::detail::error_handler_t::ignore);
+
+            rocksdb::WriteBatch batch;
+            batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
+            batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+            bool write_ok = store->batch_write(batch);
+
+            if(!write_ok) {
+                LOG(ERROR) << "Write to disk failed, will not index the document in-memory.";
+                index_record.index_failure(500, "Could not write to on-disk storage.");
+            }
+        }
+    }
+
+    // Phase 3: now that every document that will be indexed is already durable in the store, make the
+    // corresponding seq_ids visible/searchable in the in-memory index. Records whose store write failed
+    // above are skipped automatically since their `indexed` status is no longer ok().
+    batch_finalize_memory_index(index_records, found_fields);
+
+    // NOTE: `alter_shlock` is deliberately still held here and through the rest of this function (it is
+    // only released by its destructor when `batch_index()` returns). Phase 4 below reads the `fields`
+    // member vector directly (`for (auto& field : fields)`), and `fields` is itself protected by
+    // `alter_mutex`: `batch_alter_data()` mutates it (push_back/erase) under a UNIQUE lock on that exact
+    // mutex. Releasing `alter_shlock` before Phase 4 would let a concurrent `batch_alter_data()` reallocate
+    // or shrink `fields` while Phase 4 is mid-iteration on another thread -- a genuine use-after-free /
+    // iterator-invalidation race, not just a theoretical lock-ordering concern. A shared lock held longer
+    // than strictly necessary is safe as long as there's no actual lock-acquisition cycle; holding it
+    // through Phase 4's cross-collection work is a smaller risk than that confirmed race.
+    //
+    // Phase 4: propagate to referencing collections (only possible now that the document is actually
+    // present in this collection's in-memory index) and build the per-document response.
     for(auto& index_record: index_records) {
         nlohmann::json res;
 
         if(index_record.indexed.ok()) {
-            if(index_record.is_update) {
-                remove_flat_fields(index_record.new_doc);
-                for(auto& field: fields) {
-                    if(!field.store) {
-                        index_record.new_doc.erase(field.name);
-                    }
+            // Now that Phase 3 has already indexed the FULL document (including store:false fields and
+            // flattened nested keys), strip it down to its stored form in place -- matching what was
+            // already written to the store in Phase 2 from a separate copy -- so that the response (and
+            // async reference propagation below, for inserts) reflects the stored representation rather
+            // than leaking non-stored fields or internal flattened keys.
+            nlohmann::json& stored_doc = index_record.is_update ? index_record.new_doc : index_record.doc;
+            remove_flat_fields(stored_doc);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    stored_doc.erase(field.name);
                 }
-                const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+            }
 
-                bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
-
-                if(!write_ok) {
-                    // we will attempt to reindex the old doc on a best-effort basis
-                    LOG(ERROR) << "Update to disk failed. Will restore old document";
-                    remove_document(index_record.new_doc, index_record.seq_id, false, false);
-                    index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
-                    index_record.index_failure(500, "Could not write to on-disk storage.");
-                }
-
-            } else {
-                // remove flattened field values before storing on disk
-                remove_flat_fields(index_record.doc);
-                for(auto& field: fields) {
-                    if(!field.store) {
-                        index_record.doc.erase(field.name);
-                    }
-                }
-                const std::string& seq_id_str = std::to_string(index_record.seq_id);
-                const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
-                                                                           nlohmann::detail::error_handler_t::ignore);
-
-                rocksdb::WriteBatch batch;
-                batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
-                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
-                bool write_ok = store->batch_write(batch);
-
-                if(!write_ok) {
+            if(!index_record.is_update && !found_async_referenced_ins.empty()) {
+                auto async_update_op = Index::update_async_references(name, return_doc, return_id,
+                                                                      found_async_referenced_ins,  index_record,
+                                                                      json_out);
+                if (!async_update_op.ok()) {
                     // remove from in-memory store to keep the state synced
-                    LOG(ERROR) << "Write to disk failed, removing the document from in-memory index.";
+                    LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
+
+                    remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
+                                                             index_record.doc, index_record.operation,
+                                                             index_record.dirty_values);
                     remove_document(index_record.doc, index_record.seq_id, false, false);
-                    index_record.index_failure(500, "Could not write to on-disk storage.");
-                }
-
-                if (!found_async_referenced_ins.empty() && index_record.indexed.ok()) {
-                    auto async_update_op = Index::update_async_references(name, return_doc, return_id,
-                                                                          found_async_referenced_ins,  index_record,
-                                                                          json_out);
-                    if (!async_update_op.ok()) {
-                        // remove from in-memory store to keep the state synced
-                        LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
-
-                        remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
-                                                                 index_record.doc, index_record.operation,
-                                                                 index_record.dirty_values);
-                        remove_document(index_record.doc, index_record.seq_id, false, false);
-                    }
                 }
             }
 
@@ -1471,14 +1541,56 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
                                          const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
+    // NOTE: this combined preprocess + make-visible flow is only safe to use when the documents being
+    // indexed are already known to be durably persisted in the on-disk store (e.g. when rebuilding the
+    // in-memory index from the store during collection load). Fresh writes coming in via `batch_index()`
+    // must instead call `batch_preprocess_records()` and `batch_finalize_memory_index()` separately, with
+    // the store write happening in between, so that a seq_id never becomes searchable before its document
+    // is fetchable from the store.
+    //
+    // Hold `alter_mutex` (shared) across BOTH steps below, matching the guarantee this method has always
+    // provided: `batch_alter_data()` takes a unique_lock on `alter_mutex`, so a schema ALTER can never run
+    // between preprocessing (validates/coerces against the current schema) and finalizing (indexes against
+    // that same schema). See `Collection::batch_index()` for why this span must not be narrowed to just
+    // one of the two calls.
     std::shared_lock alter_shlock(alter_mutex);
+    batch_preprocess_records(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                              remote_embedding_num_tries, generate_embeddings, found_fields);
+    return batch_finalize_memory_index(index_records, found_fields);
+}
+
+void Collection::batch_preprocess_records(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                          const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                                          const bool generate_embeddings, std::unordered_set<std::string>& found_fields) {
+    // NOTE: the caller MUST hold a shared lock on `alter_mutex` for its entire call span, from this call
+    // through the subsequent `batch_finalize_memory_index()` call (with any on-disk store write safely
+    // happening in between) -- see `Collection::batch_index()` and `Collection::batch_index_in_memory()`.
+    // This method intentionally does not acquire `alter_mutex` itself, since acquiring the same
+    // std::shared_mutex twice (once here, once in the caller) from the same thread is not guaranteed safe.
     std::shared_lock shlock(mutex);
     Index::batch_validate_and_preprocess(index, index_records, default_sorting_field, search_schema, embedding_fields,
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
                     remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
-    shlock.unlock();
+
+    // Collect the set of fields present across the (successfully validated) records. This mirrors the
+    // bookkeeping that `Index::batch_memory_index()` does internally, but we need it available *before*
+    // the records are made visible in the index, since callers (e.g. async reference propagation) rely on
+    // it ahead of that step.
+    for(auto& index_record: index_records) {
+        if(!index_record.indexed.ok()) {
+            continue;
+        }
+        for(const auto& kv: index_record.doc.items()) {
+            found_fields.insert(kv.key());
+        }
+    }
+}
+
+size_t Collection::batch_finalize_memory_index(std::vector<index_record>& index_records,
+                                               std::unordered_set<std::string>& found_fields) {
+    // NOTE: see `batch_preprocess_records()` above -- the caller MUST already be holding a shared lock on
+    // `alter_mutex` that spans back to the corresponding `batch_preprocess_records()` call.
     std::unique_lock lock(mutex);
-    const auto collection_name = name;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
