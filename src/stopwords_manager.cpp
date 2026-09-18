@@ -58,6 +58,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
     std::vector<std::string> tokens;
     spp::sparse_hash_set<std::string> stopwords_set;
+    spp::sparse_hash_set<std::string> folded_stopwords_set;
     const auto& stopwords = stopwords_json[STOPWORD_VALUES];
 
     for (const auto &stopword: stopwords.items()) {
@@ -66,10 +67,11 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
         for(const auto& tok : tokens) {
             stopwords_set.emplace(tok);
+            folded_stopwords_set.emplace(Tokenizer::ascii_fold(tok));
         }
         tokens.clear();
     }
-    stopword_configs[stopword_name] = stopword_struct_t{stopword_name, stopwords_set, locale};
+    stopword_configs[stopword_name] = stopword_struct_t{stopword_name, stopwords_set, folded_stopwords_set, locale};
     return Option<bool>(true);
 }
 

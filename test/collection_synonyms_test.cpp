@@ -198,6 +198,83 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("Synonym `symbols_to_index` should be an array of single character symbols.", syn_op.error().c_str());
 }
 
+TEST_F(CollectionSynonymsTest, AsciiFoldingSynonymsUseFieldSpecificRepresentations) {
+    nlohmann::json schema = R"({
+        "name": "ascii_folding_synonyms",
+        "fields": [
+            {"name": "folded", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "plain", "type": "string", "locale": "es", "ascii_folding": false}
+        ],
+        "synonym_sets": ["index"]
+    })"_json;
+
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    Collection* coll = collection_op.get();
+
+    nlohmann::json accented_document = {
+        {"id", "accented"},
+        {"folded", "árbol"},
+        {"plain", "árbol"}
+    };
+    ASSERT_TRUE(coll->add(accented_document.dump()).ok());
+
+    nlohmann::json replacement_document = {
+        {"id", "replacement"},
+        {"folded", "flor"},
+        {"plain", "flor"}
+    };
+    ASSERT_TRUE(coll->add(replacement_document.dump()).ok());
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({
+        "id": "spanish-accented",
+        "root": "corazón",
+        "synonyms": ["árbol"],
+        "locale": "es"
+    })"_json).ok());
+
+    std::vector<std::vector<std::string>> results;
+    coll->synonym_reduction({"corazon"}, "es", results, false, 0, {}, true);
+    ASSERT_EQ(1, results.size());
+    ASSERT_EQ(std::vector<std::string>({"arbol"}), results[0]);
+
+    results.clear();
+    coll->synonym_reduction({"corazon"}, "es", results);
+    ASSERT_TRUE(results.empty());
+
+    coll->synonym_reduction({"corazón"}, "es", results);
+    ASSERT_EQ(1, results.size());
+    ASSERT_EQ(std::vector<std::string>({"árbol"}), results[0]);
+
+    auto search_result = coll->search("corazon", {"folded"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, search_result["found"]);
+    ASSERT_EQ("accented", search_result["hits"][0]["document"]["id"]);
+
+    search_result = coll->search("corazon", {"plain"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, search_result["found"]);
+
+    search_result = coll->search("corazón", {"plain"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, search_result["found"]);
+    ASSERT_EQ("accented", search_result["hits"][0]["document"]["id"]);
+
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({
+        "id": "spanish-accented",
+        "root": "corazón",
+        "synonyms": ["flor"],
+        "locale": "es"
+    })"_json).ok());
+
+    search_result = coll->search("corazon", {"folded"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, search_result["found"]);
+    ASSERT_EQ("replacement", search_result["hits"][0]["document"]["id"]);
+
+    ASSERT_TRUE(manager.delete_synonym_item("index", "spanish-accented").ok());
+    search_result = coll->search("corazon", {"folded"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, search_result["found"]);
+
+    collectionManager.drop_collection("ascii_folding_synonyms");
+}
+
 TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     std::vector<std::vector<std::string>> results;
 
