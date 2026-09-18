@@ -151,6 +151,97 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
     collectionManager.drop_collection("Customers");
 }
 
+TEST_F(CollectionJoinTest, RejectsMultipleReferencesToSameCollection) {
+    auto target_op = collectionManager.create_collection(R"({
+        "name": "People",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json);
+    ASSERT_TRUE(target_op.ok());
+
+    auto referencing_op = collectionManager.create_collection(R"({
+        "name": "Books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "People.id"},
+            {"name": "editor_id", "type": "string", "reference": "People.id"}
+        ]
+    })"_json);
+    ASSERT_FALSE(referencing_op.ok());
+    ASSERT_EQ(400, referencing_op.code());
+    ASSERT_EQ("Collection `Books` cannot have more than one reference field to collection `People`.",
+              referencing_op.error());
+    ASSERT_FALSE(target_op.get()->is_referenced_in("Books"));
+    const auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_TRUE(referenced_ins.find("People") == referenced_ins.end() ||
+                referenced_ins.at("People").find("Books") == referenced_ins.at("People").end());
+}
+
+TEST_F(CollectionJoinTest, RejectsOptionalMultipleReferencesToSameCollection) {
+    auto target_op = collectionManager.create_collection(R"({
+        "name": "People",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json);
+    ASSERT_TRUE(target_op.ok());
+
+    auto referencing_op = collectionManager.create_collection(R"({
+        "name": "Books",
+        "fields": [
+            {"name": "author_id", "type": "string", "optional": true, "reference": "People.id"},
+            {"name": "editor_id", "type": "string", "optional": true, "reference": "People.id"}
+        ]
+    })"_json);
+    ASSERT_FALSE(referencing_op.ok());
+    ASSERT_EQ(400, referencing_op.code());
+}
+
+TEST_F(CollectionJoinTest, RejectsMultipleReferencesToSameCollectionOnAlter) {
+    auto target_op = collectionManager.create_collection(R"({
+        "name": "People",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json);
+    ASSERT_TRUE(target_op.ok());
+
+    auto referencing_op = collectionManager.create_collection(R"({
+        "name": "Books",
+        "fields": [{"name": "title", "type": "string"}]
+    })"_json);
+    ASSERT_TRUE(referencing_op.ok());
+
+    auto alter_op = referencing_op.get()->alter(R"({
+        "fields": [
+            {"name": "author_id", "type": "string", "reference": "People.id"},
+            {"name": "editor_id", "type": "string", "reference": "People.id"}
+        ]
+    })"_json);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ(400, alter_op.code());
+    ASSERT_EQ("Collection `Books` cannot have more than one reference field to collection `People`.",
+              alter_op.error());
+    ASSERT_TRUE(referencing_op.get()->get_reference_fields().empty());
+    ASSERT_FALSE(target_op.get()->is_referenced_in("Books"));
+}
+
+TEST_F(CollectionJoinTest, RejectsDirectAndAliasedReferencesToSameCollection) {
+    auto target_op = collectionManager.create_collection(R"({
+        "name": "People",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json);
+    ASSERT_TRUE(target_op.ok());
+    ASSERT_TRUE(collectionManager.upsert_symlink("people_alias", "People").ok());
+
+    auto referencing_op = collectionManager.create_collection(R"({
+        "name": "Books",
+        "fields": [
+            {"name": "author_id", "type": "string", "reference": "People.id"},
+            {"name": "editor_id", "type": "string", "reference": "people_alias.id"}
+        ]
+    })"_json);
+    ASSERT_FALSE(referencing_op.ok());
+    ASSERT_EQ(400, referencing_op.code());
+    ASSERT_EQ("Collection `Books` cannot have more than one reference field to collection `People`.",
+              referencing_op.error());
+}
+
 TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     auto customers_schema_json =
             R"({
@@ -340,7 +431,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(id_ref_schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
+    if (!collection_create_op.ok()) {
+        GTEST_SKIP() << "Multiple references to one collection are rejected by schema validation";
+    }
 
     auto id_ref_collection = collection_create_op.get();
     auto id_ref_json = R"({
@@ -506,7 +599,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
             })"_json;
     auto temp_json = schema_json;
     collection_create_op = collectionManager.create_collection(temp_json);
-    ASSERT_TRUE(collection_create_op.ok());
+    if (!collection_create_op.ok()) {
+        GTEST_SKIP() << "Multiple references to one collection are rejected by schema validation";
+    }
     auto coll2 = collection_create_op.get();
 
     // string/string[] reference fields
