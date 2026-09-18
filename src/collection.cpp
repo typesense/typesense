@@ -919,6 +919,10 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
         field_json[fields::track_missing_values] = coll_field.track_missing_values;
 
+        if(!coll_field.description.empty()) {
+            field_json[fields::description] = coll_field.description;
+        }
+
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
         }

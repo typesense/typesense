@@ -272,6 +272,10 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             f.sort = field_obj[fields::sort];
         }
 
+        if(field_obj.count(fields::description) != 0 && field_obj[fields::description].is_string()) {
+            f.description = field_obj[fields::description];
+        }
+
         fields.push_back(f);
     }
 
