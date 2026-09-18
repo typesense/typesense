@@ -11410,6 +11410,92 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasCreatedBeforeTargetHydratesReferenc
     ASSERT_EQ(2, res_obj["found"].get<size_t>()) << json_res;
 }
 
+TEST_F(CollectionJoinTest, FailedAliasSwapKeepsAsyncReferenceTargetAfterRestart) {
+    const std::string parent_alias_name = "parent_alias_failed_swap_restart";
+    const std::string parent_v1_collection_name = "parent_v1_failed_swap_restart";
+    const std::string parent_bad_collection_name = "parent_bad_failed_swap_restart";
+    const std::string child_collection_name = "child_failed_swap_restart";
+
+    auto schema_json = R"({
+        "fields": [
+            {"name": "code", "type": "string", "facet": true}
+        ]
+    })"_json;
+    schema_json["name"] = parent_v1_collection_name;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto parent_v1 = collection_create_op.get();
+
+    auto upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_v1_collection_name);
+    ASSERT_TRUE(upsert_op.ok()) << upsert_op.error();
+
+    schema_json = R"({
+        "fields": [
+            {"name": "parent_code", "type": "string", "reference": "parent_alias_failed_swap_restart.code",
+             "async_reference": true}
+        ]
+    })"_json;
+    schema_json["name"] = child_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto child = collection_create_op.get();
+
+    auto add_op = parent_v1->add(R"({"id":"p-1","code":"ok"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto parent_seq_id_op = parent_v1->doc_id_to_seq_id("p-1");
+    ASSERT_TRUE(parent_seq_id_op.ok()) << parent_seq_id_op.error();
+
+    add_op = child->add(R"({"id":"c-1","parent_code":"ok"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto child_doc = child->get("c-1").get();
+    ASSERT_EQ(parent_seq_id_op.get(), child_doc["parent_code_sequence_id"]);
+
+    schema_json = R"({
+        "fields": [
+            {"name": "other", "type": "string"}
+        ]
+    })"_json;
+    schema_json["name"] = parent_bad_collection_name;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+    upsert_op = collectionManager.upsert_symlink(parent_alias_name, parent_bad_collection_name);
+    ASSERT_FALSE(upsert_op.ok());
+    ASSERT_EQ("Referenced field `code` not found in the collection `" + parent_bad_collection_name + "`.",
+              upsert_op.error());
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    auto alias_op = collectionManager.resolve_symlink(parent_alias_name);
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+    ASSERT_EQ(parent_v1_collection_name, alias_op.get());
+
+    auto child_coll = collectionManager.get_collection(child_collection_name);
+    ASSERT_NE(nullptr, child_coll);
+    child_doc = child_coll->get("c-1").get();
+    ASSERT_EQ(parent_seq_id_op.get(), child_doc["parent_code_sequence_id"]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", child_collection_name},
+            {"q", "*"},
+            {"query_by", "parent_code"},
+            {"filter_by", "$" + parent_alias_name + "(code:=`ok`)"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_EQ(1, nlohmann::json::parse(json_res)["found"].get<size_t>()) << json_res;
+}
+
 TEST_F(CollectionJoinTest, FailedSymlinkUpsertBackfillPropagatesFilterValueErrors) {
     const std::string parent_alias_v1_name = "parent_alias_v1_invalid_filter_value";
     const std::string parent_v1_collection_name = "parent_v1_invalid_filter_values";
