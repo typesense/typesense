@@ -1,6 +1,8 @@
 #include <regex>
 #include <iterator>
 #include "natural_language_search_model.h"
+#include "jev_client.h"
+#include "jev_search_params.h"
 #include "text_embedder_remote.h"
 #include "string_utils.h"
 #include "logger.h"
@@ -52,12 +54,18 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
         return Option<bool>(400, "Property `system_prompt` is not a string.");
     }
 
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    // max_bytes is an llm token budget, jev returns typed judgments over closed sets and has no use for it
+    if(model_namespace == "jev") {
+        return validate_jev_model(model_config);
+    }
+
     if(model_config.count("max_bytes") == 0 || !model_config["max_bytes"].is_number_unsigned() || 
        model_config["max_bytes"].get<size_t>() == 0) {
         return Option<bool>(400, "Property `max_bytes` is not provided or not a positive integer.");
     }
 
-    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
         return validate_openai_model(model_config);
     } else if(model_namespace == "cloudflare") {
@@ -73,6 +81,35 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
+}
+
+Option<bool> NaturalLanguageSearchModel::validate_jev_model(const nlohmann::json& model_config) {
+    if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() ||
+       model_config["api_key"].get<std::string>().empty()) {
+        return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
+    }
+
+    // jev has no sampling temperature, it returns a calibrated distribution
+    if(model_config.count("temperature") != 0) {
+        return Option<bool>(400, "Property `temperature` is not supported for the `jev` namespace.");
+    }
+
+    // a wrong typed url would throw out of the json accessors inside the client
+    for(const char* url_key : {"api_url", "models_url"}) {
+        if(model_config.count(url_key) != 0 &&
+           (!model_config[url_key].is_string() || model_config[url_key].get<std::string>().empty())) {
+            return Option<bool>(400, "Property `" + std::string(url_key) + "` must be a non-empty string.");
+        }
+    }
+
+    // a bad threshold 400s at model creation, not at search time
+    jev_options_t opts;
+    auto opts_op = JevSearchParams::options_from_config(model_config, opts);
+    if(!opts_op.ok()) {
+        return opts_op;
+    }
+
+    return JevClient::verify_api_key(model_config);
 }
 
 Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(

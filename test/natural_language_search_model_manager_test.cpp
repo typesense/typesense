@@ -4,6 +4,7 @@
 #include "store.h"
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
+#include "jev_client.h"
 #include "collection_manager.h"
 #include "field.h"
 #include "raft_server.h"
@@ -415,14 +416,14 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetSchemaPromptSuccess) {
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
 Database Schema:
-Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]
 
-| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
-|------------|-----------|------------|------------|-------------|
-| price | int32 | Yes | No | N/A |
-| category | string | Yes | Yes | [clothing, home] |
-| title | string | Yes | No | N/A |
-| tags | string[] | Yes | Yes | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
+| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |
+|------------|-----------|------------|------------|-------------|-------------|
+| price | int32 | Yes | No | N/A | N/A |
+| category | string | Yes | Yes | N/A | [clothing, home] |
+| title | string | Yes | No | N/A | N/A |
+| tags | string[] | Yes | Yes | N/A | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
 
 Instructions:
 1. Find all search terms that match fields in the schema.
@@ -487,7 +488,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
   // defaults are unchanged: 20 values fetched, first 10 listed
   auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(collection_name);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | "
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | "
                                      "[cat01, cat02, cat03, cat04, cat05, cat06, cat07, cat08, cat09, cat10, ...] |"),
             std::string::npos);
 
@@ -498,7 +499,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
   schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
       collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, all_values);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | "
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | "
                                      "[cat01, cat02, cat03, cat04, cat05, cat06, cat07, cat08, cat09, cat10, cat11, cat12] |"),
             std::string::npos);
 
@@ -508,7 +509,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
   schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
       collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, fewer_shown);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [cat01, cat02, cat03, ...] |"),
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | [cat01, cat02, cat03, ...] |"),
             std::string::npos);
 
   // the collection cap truncates before the display cap is applied
@@ -517,7 +518,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
   schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
       collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, fewer_fetched);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [cat01, cat02] |"), std::string::npos);
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | [cat01, cat02] |"), std::string::npos);
 
   // nothing listed, but the field is still flagged as having values
   schema_prompt_params_t none_shown;
@@ -525,7 +526,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
   schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
       collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, none_shown);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [...] |"), std::string::npos);
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | [...] |"), std::string::npos);
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetFieldsSelection) {
@@ -559,8 +560,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetFieldsSelection) 
   auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
       collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, only_category);
   ASSERT_TRUE(schema_prompt.ok());
-  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [clothing, home] |"), std::string::npos);
-  ASSERT_NE(schema_prompt.get().find("| tags | string[] | Yes | Yes | [Faceted field with unique values] |"),
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | N/A | [clothing, home] |"), std::string::npos);
+  ASSERT_NE(schema_prompt.get().find("| tags | string[] | Yes | Yes | N/A | [Faceted field with unique values] |"),
             std::string::npos);
 
   schema_prompt_params_t unknown_field;
@@ -1058,14 +1059,14 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnCollectio
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
 Database Schema:
-Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]
 
-| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
-|------------|-----------|------------|------------|-------------|
-| price | int32 | Yes | No | N/A |
-| category | string | Yes | Yes | [Faceted field with unique values] |
-| title | string | Yes | No | N/A |
-| tags | string[] | Yes | Yes | [Faceted field with unique values] |
+| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |
+|------------|-----------|------------|------------|-------------|-------------|
+| price | int32 | Yes | No | N/A | N/A |
+| category | string | Yes | Yes | N/A | [Faceted field with unique values] |
+| title | string | Yes | No | N/A | N/A |
+| tags | string[] | Yes | Yes | N/A | [Faceted field with unique values] |
 
 Instructions:
 1. Find all search terms that match fields in the schema.
@@ -1115,13 +1116,13 @@ The output should be in JSON format like this:
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
 Database Schema:
-Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]
 
-| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
-|------------|-----------|------------|------------|-------------|
-| price | int32 | Yes | No | N/A |
-| category | string | Yes | Yes | [Faceted field with unique values] |
-| title | string | Yes | No | N/A |
+| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |
+|------------|-----------|------------|------------|-------------|-------------|
+| price | int32 | Yes | No | N/A | N/A |
+| category | string | Yes | Yes | N/A | [Faceted field with unique values] |
+| title | string | Yes | No | N/A | N/A |
 
 Instructions:
 1. Find all search terms that match fields in the schema.
@@ -1174,14 +1175,14 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnTTL) {
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
 Database Schema:
-Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]
 
-| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
-|------------|-----------|------------|------------|-------------|
-| price | int32 | Yes | No | N/A |
-| category | string | Yes | Yes | [Faceted field with unique values] |
-| title | string | Yes | No | N/A |
-| tags | string[] | Yes | Yes | [Faceted field with unique values] |
+| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |
+|------------|-----------|------------|------------|-------------|-------------|
+| price | int32 | Yes | No | N/A | N/A |
+| category | string | Yes | Yes | N/A | [Faceted field with unique values] |
+| title | string | Yes | No | N/A | N/A |
+| tags | string[] | Yes | Yes | N/A | [Faceted field with unique values] |
 
 Instructions:
 1. Find all search terms that match fields in the schema.
@@ -1226,14 +1227,14 @@ The output should be in JSON format like this:
   ASSERT_EQ(schema_prompt.get(), R"(You are given the database schema structure below. Your task is to extract relevant SQL-like query parameters from the user's search query.
 
 Database Schema:
-Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]
+Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]
 
-| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |
-|------------|-----------|------------|------------|-------------|
-| price | int32 | Yes | No | N/A |
-| category | string | Yes | Yes | [clothing, home] |
-| title | string | Yes | No | N/A |
-| tags | string[] | Yes | Yes | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
+| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |
+|------------|-----------|------------|------------|-------------|-------------|
+| price | int32 | Yes | No | N/A | N/A |
+| category | string | Yes | Yes | N/A | [clothing, home] |
+| title | string | Yes | No | N/A | N/A |
+| tags | string[] | Yes | Yes | N/A | [trousers, tag7, tag6, tag5, tag4, tag3, tag2, tag1, cool, utensils, ...] |
 
 Instructions:
 1. Find all search terms that match fields in the schema.
@@ -2087,4 +2088,332 @@ TEST_F(NaturalLanguageSearchModelManagerTest, WildcardGeneratedQueryReturnsFilte
         ASSERT_TRUE(hit["highlight"].empty());
         ASSERT_TRUE(hit["highlights"].empty());
     }
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevGeneratedQIsExecutedVerbatim) {
+  // the llm path keeps `raw_query`, jev's q is assembled from judged tokens and must run verbatim
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "f0__present": {"type": "noul", "noul": 0.94},
+      "f0__negate": {"type": "noul", "noul": 0.03},
+      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}}
+    },
+    "usage": {"input_tokens": 200, "output_tokens": 10}
+  })", 200, {});
+
+  nlohmann::json restaurants_schema = R"({
+    "name": "jev_restaurants_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(restaurants_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "Osteria", "meals": "Dinner"})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "Dinner Diner", "meals": "Lunch"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test"
+  })"_json;
+  std::string model_id = "jev_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "dinner";
+  req_params["collection"] = "jev_restaurants_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "meals:=Dinner");
+  // the dinner token is consumed by the meals clause, q falls back to the star
+  ASSERT_EQ(req_params["q"], "*");
+  ASSERT_EQ(req_params["_original_nl_query"], "dinner");
+  ASSERT_EQ(0, req_params.count("raw_query"));
+
+  std::string results_str;
+  nlohmann::json embedded_params;
+  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
+  ASSERT_TRUE(search_op.ok());
+
+  nlohmann::json results_json = nlohmann::json::parse(results_str);
+
+  // both dinner serving restaurants, not just the one with dinner in its text
+  ASSERT_EQ(2, results_json["found"].get<size_t>());
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevWordNumberRoundBindsSpelledOutLiterals) {
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "q0": {"type": "choice", "choice": "filler",
+             "probabilities": {"content": 0.1, "excluded": 0.02, "filler": 0.88}},
+      "q1": {"type": "choice", "choice": "filler",
+             "probabilities": {"content": 0.15, "excluded": 0.02, "filler": 0.83}},
+      "q2": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.6, "excluded": 0.02, "filler": 0.38}},
+      "q0__num": {"type": "choice", "choice": "5", "confidence": 0.92,
+                  "probabilities": {"5": 0.92, "4": 0.02, "__none__": 0.06}},
+      "q1__num": {"type": "choice", "choice": "__none__", "confidence": 0.95,
+                  "probabilities": {"__none__": 0.95}},
+      "q2__num": {"type": "choice", "choice": "__none__", "confidence": 0.97,
+                  "probabilities": {"__none__": 0.97}},
+      "sort__field": {"type": "choice", "choice": "__none__", "confidence": 0.9,
+                      "probabilities": {"service": 0.1, "__none__": 0.9}},
+      "sort0__dir": {"type": "choice", "choice": "desc", "confidence": 0.6,
+                     "probabilities": {"asc": 0.4, "desc": 0.6}}
+    },
+    "usage": {"input_tokens": 300, "output_tokens": 12}
+  })", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "num0__field": {"type": "choice", "choice": "service", "confidence": 0.9,
+                      "probabilities": {"service": 0.9, "__none__": 0.1}},
+      "num0__op": {"type": "choice", "choice": "eq", "confidence": 0.88,
+                   "probabilities": {"eq": 0.88, "gte": 0.08, "lte": 0.04}}
+    },
+    "usage": {"input_tokens": 80, "output_tokens": 4}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_word_number_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "service", "type": "float"}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "service": 5.0})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "Osteria", "service": 3.5})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test"
+  })"_json;
+  std::string model_id = "jev_word_number_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "five star service";
+  req_params["collection"] = "jev_word_number_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "service:5");
+  // five is consumed through its span, star and service through role and field name, q is the star
+  ASSERT_EQ(req_params["q"], "*");
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevConsumedCheckRoundPrunesExpressedTokens) {
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "f0__present": {"type": "noul", "noul": 0.94},
+      "f0__negate": {"type": "noul", "noul": 0.03},
+      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "q0": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
+      "q1": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.8, "excluded": 0.02, "filler": 0.18}}
+    },
+    "usage": {"input_tokens": 250, "output_tokens": 10}
+  })", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "c0": {"type": "noul", "noul": 0.9}
+    },
+    "usage": {"input_tokens": 40, "output_tokens": 2}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_consumed_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "Osteria", "meals": "Dinner"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test"
+  })"_json;
+  std::string model_id = "jev_consumed_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "tasty dinner";
+  req_params["collection"] = "jev_consumed_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "meals:=Dinner");
+  // `tasty` was judged already expressed by the filter, nothing else survives
+  ASSERT_EQ(req_params["q"], "*");
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevRejectsWrongTypedUrls) {
+  // a numeric url would throw out of the client's json accessors instead of returning a 400
+  JevClient::clear_mock_responses();
+
+  nlohmann::json bad_models_url = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "models_url": 42
+  })"_json;
+  auto op = NaturalLanguageSearchModelManager::add_model(bad_models_url, "jev_bad_models_url", false);
+  ASSERT_FALSE(op.ok());
+  ASSERT_EQ(400, op.code());
+
+  nlohmann::json bad_api_url = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "api_url": 42
+  })"_json;
+  auto op2 = NaturalLanguageSearchModelManager::add_model(bad_api_url, "jev_bad_api_url", false);
+  ASSERT_FALSE(op2.ok());
+  ASSERT_EQ(400, op2.code());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevScopedSamplingHonorsEmbeddedFilter) {
+  // nl_query_debug echoes sampled values back, a scoped key's embedded filter must scope them too
+  JevClient::clear_mock_responses();
+  JevClient::enable_request_capture();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0", "answers": {}, "usage": {"input_tokens": 10, "output_tokens": 1}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_scoped_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "tenant", "type": "string", "facet": true},
+      {"name": "category", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "A", "tenant": "acme", "category": "AcmeOnly"})").ok());
+  ASSERT_TRUE(coll->add(R"({"title": "B", "tenant": "globex", "category": "GlobexOnly"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test"
+  })"_json;
+  std::string model_id = "jev_scoped_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "food";
+  req_params["collection"] = "jev_scoped_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  nlohmann::json embedded_params = R"({"filter_by": "tenant:=acme"})"_json;
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(
+      req_params, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, embedded_params);
+  ASSERT_TRUE(nl_search_op.ok());
+
+  std::string judgment_body;
+  for(const auto& captured : JevClient::get_captured_requests()) {
+    if(captured.body.find("questions") != std::string::npos) {
+      judgment_body = captured.body;
+    }
+  }
+  ASSERT_FALSE(judgment_body.empty());
+  ASSERT_TRUE(judgment_body.find("AcmeOnly") != std::string::npos);
+  ASSERT_TRUE(judgment_body.find("GlobexOnly") == std::string::npos);
+
+  JevClient::disable_request_capture();
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, FieldDescriptionRoundTrips) {
+  nlohmann::json schema = R"({
+    "name": "described_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "service", "type": "float",
+       "description": "staff service rating, 0 to 5, higher is better"}
+    ]
+  })"_json;
+
+  auto create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(create_op.ok());
+  auto coll = create_op.get();
+
+  ASSERT_EQ("staff service rating, 0 to 5, higher is better",
+            coll->get_schema().at("service").description);
+
+  bool found_field = false;
+  const auto summary = coll->get_summary_json();
+  for(const auto& f : summary["fields"]) {
+    if(f["name"] == "service") {
+      ASSERT_EQ("staff service rating, 0 to 5, higher is better", f["description"].get<std::string>());
+      found_field = true;
+    } else {
+      // fields without a description do not carry an empty one
+      ASSERT_EQ(0, f.count("description"));
+    }
+  }
+  ASSERT_TRUE(found_field);
+
+  nlohmann::json bad = R"({
+    "name": "described_bad",
+    "fields": [{"name": "service", "type": "float", "description": 5}]
+  })"_json;
+  auto bad_op = collectionManager.create_collection(bad);
+  ASSERT_FALSE(bad_op.ok());
+  ASSERT_TRUE(bad_op.error().find("should be a string") != std::string::npos);
 }

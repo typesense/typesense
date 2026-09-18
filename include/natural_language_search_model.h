@@ -55,6 +55,9 @@ public:
                                                         const std::string& client_id, 
                                                         const std::string& client_secret);
 
+    // jev generates no text, its params are assembled by JevSearchParams instead of generate_search_params()
+    static Option<bool> validate_jev_model(const nlohmann::json& model_config);
+
     static Option<bool> validate_azure_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> azure_generate_search_params(const std::string& query, 
                                                              const std::string& collection_schema_prompt,
