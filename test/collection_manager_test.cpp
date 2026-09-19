@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
+#include <core_api_utils.h>
 #include "analytics_manager.h"
 #include "string_utils.h"
 #include "collection.h"
@@ -1284,6 +1285,26 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
+}
+
+TEST_F(CollectionManagerTest, DropCollectionKeepsDeferredRequestStateCollectionsAlive) {
+    auto collection = collectionManager.get_collection("collection1");
+    ASSERT_NE(nullptr, collection.get());
+
+    export_state_t export_state;
+    export_state.collection = collection;
+    deletion_state_t deletion_state;
+    deletion_state.collection = collection;
+    collection.reset();
+
+    auto drop_op = collectionManager.drop_collection("collection1");
+    ASSERT_TRUE(drop_op.ok());
+    ASSERT_EQ(nullptr, collectionManager.get_collection("collection1").get());
+
+    ASSERT_NE(nullptr, export_state.collection);
+    ASSERT_EQ("collection1", export_state.collection->get_name());
+    ASSERT_NE(nullptr, deletion_state.collection);
+    ASSERT_EQ("collection1", deletion_state.collection->get_name());
 }
 
 TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
