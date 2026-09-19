@@ -1286,6 +1286,45 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     delete it;
 }
 
+TEST_F(CollectionManagerTest, DropCollectionViaAliasRemovesReferencesByResolvedName) {
+    nlohmann::json products_schema = R"({
+        "name": "alias_products",
+        "fields": [
+            {"name": "product_id", "type": "string"}
+        ]
+    })"_json;
+    auto products_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(products_op.ok());
+
+    nlohmann::json orders_schema = R"({
+        "name": "alias_orders",
+        "fields": [
+            {"name": "product_id", "type": "string", "reference": "alias_products.product_id"}
+        ]
+    })"_json;
+    auto orders_op = collectionManager.create_collection(orders_schema);
+    ASSERT_TRUE(orders_op.ok());
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count("alias_products"));
+    ASSERT_EQ(1, referenced_ins.at("alias_products").count("alias_orders"));
+    ASSERT_TRUE(products_op.get()->get_referenced_in_field_with_lock("alias_orders").ok());
+
+    auto symlink_op = collectionManager.upsert_symlink("alias_orders_link", "alias_orders");
+    ASSERT_TRUE(symlink_op.ok());
+
+    auto drop_op = collectionManager.drop_collection("alias_orders_link");
+    ASSERT_TRUE(drop_op.ok());
+
+    referenced_ins = collectionManager._get_referenced_ins();
+    if (referenced_ins.count("alias_products") != 0) {
+        ASSERT_EQ(0, referenced_ins.at("alias_products").count("alias_orders"));
+    }
+    ASSERT_FALSE(products_op.get()->get_referenced_in_field_with_lock("alias_orders").ok());
+
+    collectionManager.drop_collection("alias_products");
+}
+
 TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
     api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
     collectionManager.getAuthManager().create_key(key1);
