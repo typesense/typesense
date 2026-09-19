@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <map>
 #include <curl/curl.h>
@@ -9,6 +10,17 @@
 /*
   NOTE: This is a really primitive blocking client meant only for specific Typesense use cases.
 */
+
+// timing split of the last blocking transfer on this thread, num_connects > 0 means a fresh connection
+struct http_transfer_metrics_t {
+    double namelookup_ms = 0;
+    double connect_ms = 0;
+    double appconnect_ms = 0;
+    double starttransfer_ms = 0;
+    double total_ms = 0;
+    long num_connects = 0;
+};
+
 class HttpClient {
 public:
     enum class SSLVerifyMode {
@@ -67,6 +79,20 @@ public:
     void operator=(HttpClient const&) = delete;
 
     void init(const std::string & api_key, const std::string& ca_cert_path = "");
+
+    // call before curl_global_cleanup, waits briefly for leased handles and drains the idle pool
+    static void shutdown_curl_pool();
+
+    static http_transfer_metrics_t get_last_transfer_metrics();
+
+    // compare before and after a call to attribute the metrics above to it
+    static uint64_t get_transfer_count();
+
+    static size_t get_idle_handle_count();
+
+    // test seams over the pool internals
+    static CURL* lease_handle_for_test();
+    static void release_handle_for_test(CURL* curl);
 
     static long download_file(const std::string& url, const std::string& file_path,
                               SSLVerifyMode ssl_verify_mode = SSLVerifyMode::NO_VERIFY);
