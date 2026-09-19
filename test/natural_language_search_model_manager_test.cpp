@@ -2514,6 +2514,393 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevTimeoutMsKnobIsValidated) {
   JevClient::clear_mock_responses();
 }
 
+TEST_F(NaturalLanguageSearchModelManagerTest, JevTotalTimeoutMsKnobIsValidated) {
+  // the whole interpretation's wall budget across rounds, not the per call timeout
+  JevClient::clear_mock_responses();
+
+  nlohmann::json bad_type = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "total_timeout_ms": "slow"
+  })"_json;
+  auto op = NaturalLanguageSearchModelManager::add_model(bad_type, "jev_bad_total_type", false);
+  ASSERT_FALSE(op.ok());
+  ASSERT_EQ(400, op.code());
+
+  nlohmann::json too_small = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "total_timeout_ms": 5
+  })"_json;
+  auto op2 = NaturalLanguageSearchModelManager::add_model(too_small, "jev_total_too_small", false);
+  ASSERT_FALSE(op2.ok());
+  ASSERT_EQ(400, op2.code());
+
+  nlohmann::json too_big = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "total_timeout_ms": 240000
+  })"_json;
+  auto op3 = NaturalLanguageSearchModelManager::add_model(too_big, "jev_total_too_big", false);
+  ASSERT_FALSE(op3.ok());
+  ASSERT_EQ(400, op3.code());
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+  nlohmann::json good = R"({
+    "model_name": "jev/jev-latest", "api_key": "ts-test", "total_timeout_ms": 12000
+  })"_json;
+  auto op4 = NaturalLanguageSearchModelManager::add_model(good, "jev_total_good", false);
+  ASSERT_TRUE(op4.ok());
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevFailedConsumedRoundStillRecordsRoundStats) {
+  // a failed auxiliary call spent wall time and request bytes, the round accounting must show it
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "f0__present": {"type": "noul", "noul": 0.94},
+      "f0__negate": {"type": "noul", "noul": 0.03},
+      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "q0": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
+      "q1": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.8, "excluded": 0.02, "filler": 0.18}}
+    },
+    "usage": {"input_tokens": 250, "output_tokens": 10}
+  })", 200, {});
+
+  JevClient::add_mock_response("", 500, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_round_stats_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test",
+    "consumed_check": true
+  })"_json;
+  std::string model_id = "jev_round_stats_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "tasty dinner";
+  req_params["collection"] = "jev_round_stats_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "meals:=Dinner");
+  // the failed round could not prune anything, the leftover token survives
+  ASSERT_EQ(req_params["q"], "tasty");
+
+  ASSERT_TRUE(req_params.count("llm_response_str") != 0);
+  auto llm_response = nlohmann::json::parse(req_params["llm_response_str"]);
+  const auto& rounds = llm_response["debug"]["rounds"];
+  ASSERT_TRUE(rounds.is_array());
+  ASSERT_EQ(2, rounds.size());
+
+  ASSERT_EQ("main", rounds[0]["purpose"]);
+  ASSERT_EQ(200, rounds[0]["status"].get<long>());
+  ASSERT_EQ(250, rounds[0]["input_tokens"].get<long>());
+  ASSERT_GT(rounds[0]["request_bytes"].get<size_t>(), 0);
+
+  ASSERT_EQ("consumed_check", rounds[1]["purpose"]);
+  ASSERT_EQ(500, rounds[1]["status"].get<long>());
+  // no usage came back, unknown stays distinct from a real zero
+  ASSERT_EQ(-1, rounds[1]["input_tokens"].get<long>());
+  ASSERT_GT(rounds[1]["request_bytes"].get<size_t>(), 0);
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevConsumedCheckSkippedWhenBudgetExhausted) {
+  // an optional round that cannot get the minimum call timeout is refused, not rushed
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "f0__present": {"type": "noul", "noul": 0.94},
+      "f0__negate": {"type": "noul", "noul": 0.03},
+      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "q0": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
+      "q1": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.8, "excluded": 0.02, "filler": 0.18}}
+    },
+    "usage": {"input_tokens": 250, "output_tokens": 10}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_budget_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test",
+    "consumed_check": true,
+    "total_timeout_ms": 100
+  })"_json;
+  std::string model_id = "jev_budget_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  // the mocked main round burns past the whole budget
+  JevClient::set_mock_response_delay(150);
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "tasty dinner";
+  req_params["collection"] = "jev_budget_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["filter_by"], "meals:=Dinner");
+  // the consumed check never ran, the leftover token survives
+  ASSERT_EQ(req_params["q"], "tasty");
+
+  auto llm_response = nlohmann::json::parse(req_params["llm_response_str"]);
+  ASSERT_EQ(1, llm_response["debug"]["rounds"].size());
+
+  bool skip_traced = false;
+  for(const auto& entry : llm_response["debug"]["trace"]) {
+    if(entry.value("stage", "") == "consumed_check" &&
+       entry.value("outcome", "") == "skipped, time budget exhausted") {
+      skip_traced = true;
+    }
+  }
+  ASSERT_TRUE(skip_traced);
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevWordNumberBindingSkippedWhenBudgetExhausted) {
+  // numeral hits drop rather than spend a binding round the deadline cannot fund
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "q0": {"type": "choice", "choice": "filler",
+             "probabilities": {"content": 0.1, "excluded": 0.02, "filler": 0.88}},
+      "q1": {"type": "choice", "choice": "filler",
+             "probabilities": {"content": 0.15, "excluded": 0.02, "filler": 0.83}},
+      "q2": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.6, "excluded": 0.02, "filler": 0.38}},
+      "q0__num": {"type": "choice", "choice": "5", "confidence": 0.92,
+                  "probabilities": {"5": 0.92, "4": 0.02, "__none__": 0.06}},
+      "q1__num": {"type": "choice", "choice": "__none__", "confidence": 0.95,
+                  "probabilities": {"__none__": 0.95}},
+      "q2__num": {"type": "choice", "choice": "__none__", "confidence": 0.97,
+                  "probabilities": {"__none__": 0.97}},
+      "sort__field": {"type": "choice", "choice": "__none__", "confidence": 0.9,
+                      "probabilities": {"service": 0.1, "__none__": 0.9}},
+      "sort0__dir": {"type": "choice", "choice": "desc", "confidence": 0.6,
+                     "probabilities": {"asc": 0.4, "desc": 0.6}}
+    },
+    "usage": {"input_tokens": 300, "output_tokens": 12}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_wn_budget_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "service", "type": "float"}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  ASSERT_TRUE(coll->add(R"({"title": "Trattoria", "service": 5.0})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test",
+    "word_numbers": true,
+    "total_timeout_ms": 100
+  })"_json;
+  std::string model_id = "jev_wn_budget_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  JevClient::set_mock_response_delay(150);
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "five star service";
+  req_params["collection"] = "jev_wn_budget_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  // no binding round ran, so no numeric filter may be emitted from the dropped literal
+  ASSERT_TRUE(req_params.count("filter_by") == 0);
+
+  auto llm_response = nlohmann::json::parse(req_params["llm_response_str"]);
+  ASSERT_EQ(1, llm_response["debug"]["rounds"].size());
+
+  bool skip_traced = false;
+  for(const auto& entry : llm_response["debug"]["trace"]) {
+    if(entry.value("stage", "") == "word_numbers" &&
+       entry.value("outcome", "") == "skipped, time budget exhausted") {
+      skip_traced = true;
+    }
+  }
+  ASSERT_TRUE(skip_traced);
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevDeadlineCapsTheEffectiveCallTimeout) {
+  // the per call timeout shrinks to what is left of total_timeout_ms, round stats expose the clamped value
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0", "answers": {}, "usage": {"input_tokens": 10, "output_tokens": 1}
+  })", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_clamp_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  ASSERT_TRUE(coll_create_op.get()->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test",
+    "timeout_ms": 5000,
+    "total_timeout_ms": 200
+  })"_json;
+  std::string model_id = "jev_clamp_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "dinner";
+  req_params["collection"] = "jev_clamp_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+
+  auto llm_response = nlohmann::json::parse(req_params["llm_response_str"]);
+  const auto& rounds = llm_response["debug"]["rounds"];
+  ASSERT_EQ(1, rounds.size());
+  const long effective_timeout = rounds[0]["timeout_ms"].get<long>();
+  // clamped below the remaining 200ms budget yet above the 100ms floor, never the raw 5000
+  ASSERT_GT(effective_timeout, 100);
+  ASSERT_LE(effective_timeout, 200);
+  // mocked rounds never hit the wire, transport timing must not leak in from another call
+  ASSERT_TRUE(rounds[0].count("transport") == 0);
+
+  JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevMalformedOkResponseCountsAsFailedRound) {
+  // a 200 whose body cannot be parsed did not help anyone, the round stats must not call it a success
+  JevClient::clear_mock_responses();
+
+  JevClient::add_mock_response(R"({"models": ["jev-1.13.0"]})", 200, {});
+
+  JevClient::add_mock_response(R"({
+    "model": "jev-1.13.0",
+    "answers": {
+      "f0__present": {"type": "noul", "noul": 0.94},
+      "f0__negate": {"type": "noul", "noul": 0.03},
+      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "q0": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
+      "q1": {"type": "choice", "choice": "content",
+             "probabilities": {"content": 0.8, "excluded": 0.02, "filler": 0.18}}
+    },
+    "usage": {"input_tokens": 250, "output_tokens": 10}
+  })", 200, {});
+
+  JevClient::add_mock_response("{\"answers\": {\"c0\"", 200, {});
+
+  nlohmann::json schema = R"({
+    "name": "jev_malformed_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "meals", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  ASSERT_TRUE(coll_create_op.get()->add(R"({"title": "Trattoria", "meals": "Dinner"})").ok());
+
+  nlohmann::json model_config = R"({
+    "model_name": "jev/jev-latest",
+    "api_key": "ts-test",
+    "consumed_check": true
+  })"_json;
+  std::string model_id = "jev_malformed_model";
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(model_config, model_id, false).ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "tasty dinner";
+  req_params["collection"] = "jev_malformed_coll";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = model_id;
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  // the broken round pruned nothing
+  ASSERT_EQ(req_params["q"], "tasty");
+
+  auto llm_response = nlohmann::json::parse(req_params["llm_response_str"]);
+  const auto& rounds = llm_response["debug"]["rounds"];
+  ASSERT_EQ(2, rounds.size());
+  ASSERT_EQ("consumed_check", rounds[1]["purpose"]);
+  ASSERT_EQ(500, rounds[1]["status"].get<long>());
+  ASSERT_EQ(-1, rounds[1]["input_tokens"].get<long>());
+
+  JevClient::clear_mock_responses();
+}
+
 TEST_F(NaturalLanguageSearchModelManagerTest, FieldDescriptionRoundTrips) {
   nlohmann::json schema = R"({
     "name": "described_coll",

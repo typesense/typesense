@@ -1510,6 +1510,7 @@ Option<bool> JevSearchParams::options_from_config(const nlohmann::json& model_co
         {"max_clauses", 1, 50, &opts.max_clauses},
         {"max_sort_fields", 1, 3, &opts.max_sort_fields},
         {"max_word_number_literals", 0, 8, &opts.max_word_number_literals},
+        {"total_timeout_ms", JevClient::MIN_TIMEOUT_MS, JevClient::MAX_TOTAL_TIMEOUT_MS, &opts.total_timeout_ms},
     };
     for(const auto& [key, min_value, max_value, out] : counts) {
         auto op = read_count(model_config, key, min_value, max_value, *out);
@@ -1585,8 +1586,8 @@ static nlohmann::json consumed_question(const std::string& word) {
 
 static void consumed_check_round(const std::string& context, const nlohmann::json& model_config,
                                  const jev_query_facts_t& facts, const jev_options_t& opts,
-                                 nlohmann::json& params, long& ms_api, size_t& num_questions,
-                                 size_t& request_bytes, size_t& rounds) {
+                                 nlohmann::json& params, long remaining_budget_ms,
+                                 std::vector<jev_round_stats_t>& round_stats) {
     if(!params.contains("filter_by") && !params.contains("sort_by")) {
         return;
     }
@@ -1609,6 +1610,12 @@ static void consumed_check_round(const std::string& context, const nlohmann::jso
         return;
     }
 
+    if(remaining_budget_ms < (long)JevClient::MIN_TIMEOUT_MS) {
+        params["llm_response"]["debug"]["trace"].push_back(
+                {{"stage", "consumed_check"}, {"outcome", "skipped, time budget exhausted"}});
+        return;
+    }
+
     nlohmann::json questions = nlohmann::json::object();
     for(size_t i = 0; i < positives.size(); i++) {
         questions["c" + std::to_string(i)] = consumed_question(q_tokens[positives[i]]);
@@ -1622,9 +1629,10 @@ static void consumed_check_round(const std::string& context, const nlohmann::jso
         state["context"] = context;
     }
 
-    const auto t_api = std::chrono::steady_clock::now();
-    auto response_op = JevClient::ask(state, questions, model_config);
-    ms_api += elapsed_ms(t_api);
+    jev_round_stats_t stats;
+    stats.purpose = "consumed_check";
+    auto response_op = JevClient::ask(state, questions, model_config, &stats, remaining_budget_ms);
+    round_stats.push_back(stats);
 
     if(!response_op.ok() || !response_op.get().contains("answers") ||
        !response_op.get()["answers"].is_object()) {
@@ -1632,10 +1640,6 @@ static void consumed_check_round(const std::string& context, const nlohmann::jso
                      << (response_op.ok() ? "malformed answers" : response_op.error());
         return;
     }
-
-    num_questions += questions.size();
-    request_bytes += questions.dump().size() + state.dump().size();
-    rounds++;
 
     // get() returns by value, binding a reference into the temporary would dangle
     const nlohmann::json answers = response_op.get()["answers"];
@@ -1717,18 +1721,31 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
                                 model_config["system_prompt"].get<std::string>() : "";
     const nlohmann::json state = build_state(facts, catalog, context);
 
-    size_t num_questions = questions_op.get().size();
-    size_t request_bytes = questions_op.get().dump().size() + state.dump().size();
-    size_t rounds = 1;
-    const auto t_api = std::chrono::steady_clock::now();
+    const long per_call_timeout_ms = model_config.contains("timeout_ms") &&
+                                     model_config["timeout_ms"].is_number_unsigned() ?
+                                     model_config["timeout_ms"].get<long>() :
+                                     (long)JevClient::DEFAULT_TIMEOUT_MS;
+    const long total_budget_ms = opts.total_timeout_ms > 0 ? (long)opts.total_timeout_ms
+                                                           : 2 * per_call_timeout_ms;
 
-    // one batched request, questions are scored independently against the same state
-    auto response_op = JevClient::ask(state, questions_op.get(), model_config);
+    std::vector<jev_round_stats_t> round_stats;
+
+    jev_round_stats_t main_stats;
+    main_stats.purpose = "main";
+
+    // the main round is never skipped, a spent budget still buys it the minimum call timeout
+    auto response_op = JevClient::ask(state, questions_op.get(), model_config, &main_stats,
+                                      std::max<long>(total_budget_ms - elapsed_ms(t_start),
+                                                     (long)JevClient::MIN_TIMEOUT_MS));
+    round_stats.push_back(main_stats);
+
     if(!response_op.ok()) {
+        LOG(INFO) << "jev timing: main round failed, status=" << main_stats.status
+                  << " api=" << main_stats.wall_ms << "ms total=" << elapsed_ms(t_start)
+                  << "ms asked=" << main_stats.num_questions
+                  << " req_bytes=" << main_stats.request_bytes;
         return Option<nlohmann::json>(response_op.code(), response_op.error());
     }
-
-    long ms_api = elapsed_ms(t_api);
 
     const nlohmann::json response = response_op.get();
     nlohmann::json answers = response.contains("answers") && response["answers"].is_object() ?
@@ -1742,28 +1759,35 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
        facts.tokens.size() <= opts.max_token_questions) {
         nlohmann::json wn_entry;
         if(word_number_hits(answers, opts, final_facts, wn_entry)) {
-            nlohmann::json binding_questions = nlohmann::json::object();
-            add_numeric_questions(catalog, final_facts, opts, binding_questions);
-            const nlohmann::json binding_state = build_state(final_facts, catalog, context);
-
-            const auto t_api2 = std::chrono::steady_clock::now();
-            auto binding_op = JevClient::ask(binding_state, binding_questions, model_config);
-            ms_api += elapsed_ms(t_api2);
-
-            if(binding_op.ok() && binding_op.get().contains("answers") &&
-               binding_op.get()["answers"].is_object()) {
-                answers.update(binding_op.get()["answers"]);
-                questions.update(binding_questions);
-                num_questions += binding_questions.size();
-                request_bytes += binding_questions.dump().size() + binding_state.dump().size();
-                rounds++;
-            } else {
-                // the binding round failed, the literals are dropped rather than guessed at
-                LOG(WARNING) << "jev word number binding round failed: "
-                             << (binding_op.ok() ? "malformed answers" : binding_op.error());
+            if(total_budget_ms - elapsed_ms(t_start) < (long)JevClient::MIN_TIMEOUT_MS) {
                 final_facts.numbers.clear();
                 final_facts.number_spans.clear();
-                wn_entry["outcome"] = "binding round failed";
+                wn_entry["outcome"] = "skipped, time budget exhausted";
+            } else {
+                nlohmann::json binding_questions = nlohmann::json::object();
+                add_numeric_questions(catalog, final_facts, opts, binding_questions);
+                const nlohmann::json binding_state = build_state(final_facts, catalog, context);
+
+                jev_round_stats_t binding_stats;
+                binding_stats.purpose = "word_number_binding";
+                // refloored again, a zero or negative cap here would read as no cap at all
+                auto binding_op = JevClient::ask(binding_state, binding_questions, model_config,
+                                                 &binding_stats,
+                                                 std::max<long>(total_budget_ms - elapsed_ms(t_start),
+                                                                (long)JevClient::MIN_TIMEOUT_MS));
+                round_stats.push_back(binding_stats);
+
+                if(binding_op.ok() && binding_op.get().contains("answers") &&
+                   binding_op.get()["answers"].is_object()) {
+                    answers.update(binding_op.get()["answers"]);
+                    questions.update(binding_questions);
+                } else {
+                    LOG(WARNING) << "jev word number binding round failed: "
+                                 << (binding_op.ok() ? "malformed answers" : binding_op.error());
+                    final_facts.numbers.clear();
+                    final_facts.number_spans.clear();
+                    wn_entry["outcome"] = "binding round failed";
+                }
             }
         }
         word_number_entry = wn_entry;
@@ -1808,8 +1832,41 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
 
     if(opts.consumed_check && !final_facts.has_query_operators) {
         consumed_check_round(context, model_config, final_facts, opts, params,
-                             ms_api, num_questions, request_bytes, rounds);
+                             total_budget_ms - elapsed_ms(t_start), round_stats);
     }
+
+    long ms_api = 0;
+    long known_input_tokens = 0;
+    size_t unknown_usage_rounds = 0;
+    size_t failed_rounds = 0;
+    size_t num_questions = 0;
+    size_t request_bytes = 0;
+    nlohmann::json rounds_json = nlohmann::json::array();
+    for(const auto& stats : round_stats) {
+        ms_api += stats.wall_ms;
+        num_questions += stats.num_questions;
+        request_bytes += stats.request_bytes;
+        if(stats.status != 200) {
+            failed_rounds++;
+        }
+        if(stats.input_tokens >= 0) {
+            known_input_tokens += stats.input_tokens;
+        } else {
+            unknown_usage_rounds++;
+        }
+        rounds_json.push_back(stats.to_json());
+    }
+    params["llm_response"]["debug"]["rounds"] = rounds_json;
+
+    LOG(INFO) << "jev timing: catalog=" << ms_catalog << "ms questions=" << ms_questions
+              << "ms api=" << ms_api << "ms assemble=" << ms_assemble
+              << "ms total=" << elapsed_ms(t_start) << "ms budget=" << total_budget_ms
+              << "ms asked=" << num_questions
+              << " rounds=" << round_stats.size()
+              << " failed_rounds=" << failed_rounds
+              << " req_bytes=" << request_bytes
+              << " input_tokens=" << known_input_tokens
+              << " unknown_usage_rounds=" << unknown_usage_rounds;
 
     return Option<nlohmann::json>(params);
 }

@@ -155,11 +155,15 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
         candidates.push_back(candidate_from_hit(hits[slots[j]], query_by_per_search));
     }
 
+    jev_round_stats_t stats;
+    stats.purpose = "rerank";
     auto response_op = JevClient::ask(build_state(query, candidates), build_questions(slots.size()),
-                                      model_config);
+                                      model_config, &stats);
 
     if(!response_op.ok()) {
         LOG(WARNING) << "jev rerank failed, original order stands: " << response_op.error();
+        LOG(INFO) << "jev timing: rerank status=" << stats.status << " api=" << stats.wall_ms
+                  << "ms judged=0 req_bytes=" << stats.request_bytes;
         return;
     }
 
@@ -189,6 +193,10 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
     for(size_t j = 0; j < slots.size(); j++) {
         hits[slots[j]] = std::move(judged[ranked[j].second]);
     }
+
+    LOG(INFO) << "jev timing: rerank api=" << stats.wall_ms << "ms judged=" << slots.size()
+              << " req_bytes=" << stats.request_bytes
+              << " input_tokens=" << stats.input_tokens;
 }
 
 void JevRerank::rerank(nlohmann::json& hits, const std::string& query,

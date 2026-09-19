@@ -58,6 +58,9 @@ struct jev_options_t {
     size_t max_clauses = 40;
     size_t max_sort_fields = 3;
 
+    // 0 derives twice the per call timeout, optional rounds are skipped when the leftover budget cannot fund one
+    size_t total_timeout_ms = 0;
+
     // a digitless query gets numeral questions and, on a hit, a second round, each an extra api call
     bool word_numbers = false;
     size_t max_word_number_literals = 3;

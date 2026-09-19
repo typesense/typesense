@@ -2,7 +2,35 @@
 #include "http_client.h"
 #include "logger.h"
 
+#include <algorithm>
 #include <chrono>
+#include <thread>
+
+nlohmann::json jev_round_stats_t::to_json() const {
+    nlohmann::json stats_json;
+    stats_json["purpose"] = purpose;
+    stats_json["status"] = status;
+    stats_json["wall_ms"] = wall_ms;
+    stats_json["timeout_ms"] = timeout_ms;
+    stats_json["request_bytes"] = request_bytes;
+    stats_json["response_bytes"] = response_bytes;
+    stats_json["num_questions"] = num_questions;
+    stats_json["input_tokens"] = input_tokens;
+    if(!model.empty()) {
+        stats_json["model"] = model;
+    }
+    if(has_transport) {
+        stats_json["transport"] = {
+            {"namelookup_ms", transport.namelookup_ms},
+            {"connect_ms", transport.connect_ms},
+            {"appconnect_ms", transport.appconnect_ms},
+            {"starttransfer_ms", transport.starttransfer_ms},
+            {"total_ms", transport.total_ms},
+            {"num_connects", transport.num_connects},
+        };
+    }
+    return stats_json;
+}
 
 static std::string model_name_on_the_wire(const nlohmann::json& model_config) {
     const std::string& model_name = model_config.value("model_name", std::string("jev/jev-latest"));
@@ -51,7 +79,9 @@ bool JevClient::is_jev_model(const nlohmann::json& model_config) {
 
 Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
                                       const nlohmann::json& questions,
-                                      const nlohmann::json& model_config) {
+                                      const nlohmann::json& model_config,
+                                      jev_round_stats_t* stats,
+                                      long max_timeout_ms) {
     if(!questions.is_object() || questions.empty()) {
         return Option<nlohmann::json>(400, "Jev request must carry at least one question.");
     }
@@ -59,6 +89,10 @@ Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
     long timeout_ms = DEFAULT_TIMEOUT_MS;
     if(model_config.contains("timeout_ms") && model_config["timeout_ms"].is_number_unsigned()) {
         timeout_ms = model_config["timeout_ms"].get<long>();
+    }
+    if(max_timeout_ms > 0) {
+        // the call must fit the search's remaining deadline, floored at the validated minimum
+        timeout_ms = std::max<long>(std::min<long>(timeout_ms, max_timeout_ms), MIN_TIMEOUT_MS);
     }
 
     nlohmann::json request_body;
@@ -72,10 +106,30 @@ Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
 
     std::string response;
     std::map<std::string, std::string> response_headers;
-
     const std::string body = request_body.dump();
+
+    if(stats != nullptr) {
+        stats->request_bytes = body.size();
+        stats->num_questions = questions.size();
+        stats->timeout_ms = timeout_ms;
+    }
+
+    const uint64_t transfers_before = HttpClient::get_transfer_count();
+    const auto t_http = std::chrono::steady_clock::now();
     long status_code = post_response(api_url, body, response, response_headers,
                                      auth_headers(model_config), timeout_ms);
+
+    if(stats != nullptr) {
+        stats->status = status_code;
+        stats->wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - t_http).count();
+        stats->response_bytes = response.size();
+        // a transfer count that moved is the only proof this round actually hit the wire, mocks and failed handle setup must not inherit another call's timing split
+        if(HttpClient::get_transfer_count() != transfers_before) {
+            stats->has_transport = true;
+            stats->transport = HttpClient::get_last_transfer_metrics();
+        }
+    }
 
     if(status_code == 408) {
         return Option<nlohmann::json>(408, "Jev API timeout.");
@@ -90,10 +144,28 @@ Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
     try {
         response_json = nlohmann::json::parse(response);
     } catch(const std::exception& e) {
+        // a 200 with an unusable body is a failed round, the recorded status must say so
+        if(stats != nullptr) {
+            stats->status = 500;
+        }
         return Option<nlohmann::json>(500, "Got malformed response from the Jev API.");
     }
 
+    if(stats != nullptr) {
+        if(response_json.contains("usage") && response_json["usage"].is_object() &&
+           response_json["usage"].contains("input_tokens") &&
+           response_json["usage"]["input_tokens"].is_number()) {
+            stats->input_tokens = response_json["usage"]["input_tokens"].get<long>();
+        }
+        if(response_json.contains("model") && response_json["model"].is_string()) {
+            stats->model = response_json["model"].get<std::string>();
+        }
+    }
+
     if(!response_json.contains("answers") || !response_json["answers"].is_object()) {
+        if(stats != nullptr) {
+            stats->status = 500;
+        }
         return Option<nlohmann::json>(500, "Jev response is missing the `answers` object.");
     }
 
@@ -204,6 +276,9 @@ long JevClient::post_response(const std::string& url, const std::string& body, s
     }
 
     if(use_mock_response && !mock_responses.empty() && mock_response_index < mock_responses.size()) {
+        if(mock_response_delay_ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(mock_response_delay_ms));
+        }
         auto& [mock_body, status, mock_headers] = mock_responses[mock_response_index++];
         response = mock_body;
         res_headers = mock_headers;
@@ -241,5 +316,6 @@ void JevClient::clear_mock_responses() {
     use_mock_response = false;
     mock_responses.clear();
     mock_response_index = 0;
+    mock_response_delay_ms = 0;
     captured_requests.clear();
 }

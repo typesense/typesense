@@ -757,9 +757,13 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
     }
 
+    const auto nl_start = std::chrono::steady_clock::now();
     auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl,
                                                                                               req->embedded_params_vec[0]);
-    uint64_t nl_search_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
+    // a failed nl round still spent real time, reporting zero would hide it from the client
+    uint64_t nl_search_time_ms = nl_search_op.ok() ? nl_search_op.get() :
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - nl_start).count();
 
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
@@ -1178,14 +1182,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 prompt_cache_ttl = std::stoull(req->params["nl_query_prompt_cache_ttl"]);
             }
 
+            const auto nl_start = std::chrono::steady_clock::now();
             auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req->params, prompt_cache_ttl,
                                                                                                        req->embedded_params_vec[i]);
+            // a failed nl round still spent real time, reporting zero would hide it from the client
+            uint64_t nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() :
+                                             std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                 std::chrono::steady_clock::now() - nl_start).count();
 
             std::string results_json_str;
             Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
                                                                   results_json_str, req->conn_ts);
-
-            auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
             if(search_op.ok()) {
                 auto results_json = nlohmann::json::parse(results_json_str);
                 if(conversation) {
