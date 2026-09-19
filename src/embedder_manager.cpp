@@ -69,6 +69,22 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
+Option<bool> EmbedderManager::init_remote_model_without_validation(const nlohmann::json& model_config,
+                                                                   size_t num_dims) {
+    try {
+        std::unique_lock<std::mutex> lock(text_embedders_mutex);
+        const auto& model_key = RemoteEmbedder::get_model_key(model_config, num_dims);
+        auto text_embedder_it = text_embedders.find(model_key);
+        if(text_embedder_it == text_embedders.end()) {
+            text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, true));
+        }
+    } catch(const std::exception& e) {
+        return Option<bool>(400, "Error initializing remote model: " + std::string(e.what()));
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const auto& model_key = RemoteEmbedder::get_model_key(model_config, num_dims);
