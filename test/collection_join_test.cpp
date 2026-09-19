@@ -1118,6 +1118,245 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Cannot add a reference to `coll1.object_array_field` of type `object[]`.", add_doc_op.error());
 }
 
+TEST_F(CollectionJoinTest, UpdateOptionalNestedReferenceInObjectArrayViaPatchPath) {
+    auto objects_schema_json =
+            R"({
+                "name": "objects_patch",
+                "fields": [
+                    {"name": "title", "type": "string" },
+                    {"name": "code", "type": "string" }
+                ]
+            })"_json;
+
+    auto objects_collection_op = collectionManager.create_collection(objects_schema_json);
+    ASSERT_TRUE(objects_collection_op.ok());
+    auto objects_collection = objects_collection_op.get();
+
+    ASSERT_TRUE(objects_collection->add(R"({"id":"obj-123","title":"Sample Object","code":"OBJ001"})").ok());
+
+    auto items_schema_json =
+            R"({
+                "name": "items_patch",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "recordidentifier", "type": "string" },
+                    {"name": "title", "type": "string" },
+                    {"name": "relatedassetsdata", "type": "object[]", "optional": true },
+                    {"name": "relatedassetsdata.id", "type": "int32[]", "optional": true },
+                    {"name": "relatedassetsdata.relationtype", "type": "string[]", "optional": true },
+                    {"name": "relatedassetsdata.childobjectid", "type": "string[]", "reference": "objects_patch.id", "optional": true }
+                ]
+            })"_json;
+
+    auto items_collection_op = collectionManager.create_collection(items_schema_json);
+    ASSERT_TRUE(items_collection_op.ok());
+    auto items_collection = items_collection_op.get();
+
+    nlohmann::json create_doc = R"({
+        "id": "item-001",
+        "recordidentifier": "REC001",
+        "title": "Test Item with Null Reference",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectid": null
+            }
+        ]
+    })"_json;
+    auto add_op = items_collection->add(create_doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    nlohmann::json update_doc = R"({
+        "title": "Updated Test Item - Reference Still Null",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectid": null
+            }
+        ]
+    })"_json;
+    std::string dirty_values;
+    auto update_op = items_collection->update_matching_filter("id:=item-001", update_doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    auto get_op = items_collection->get("item-001");
+    ASSERT_TRUE(get_op.ok());
+    auto doc = get_op.get();
+    ASSERT_EQ("Updated Test Item - Reference Still Null", doc["title"]);
+    ASSERT_EQ(1, doc.count("relatedassetsdata"));
+    ASSERT_EQ(1, doc["relatedassetsdata"].size());
+    ASSERT_EQ(0, doc["relatedassetsdata"][0].count("childobjectid"));
+}
+
+TEST_F(CollectionJoinTest, UpdateOptionalNestedReferenceInObjectArrayViaPatchPathOnCodeField) {
+    auto objects_schema_json =
+            R"({
+                "name": "objects_patch_code",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "code", "type": "string"}
+                ]
+            })"_json;
+
+    auto objects_collection_op = collectionManager.create_collection(objects_schema_json);
+    ASSERT_TRUE(objects_collection_op.ok());
+    auto objects_collection = objects_collection_op.get();
+
+    ASSERT_TRUE(objects_collection->add(R"({
+        "id": "obj-123",
+        "title": "Sample Object",
+        "code": "OBJ001"
+    })").ok());
+
+    auto items_schema_json =
+            R"({
+                "name": "items_patch_code",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "recordidentifier", "type": "string"},
+                    {"name": "title", "type": "string"},
+                    {"name": "relatedassetsdata", "type": "object[]", "optional": true},
+                    {"name": "relatedassetsdata.id", "type": "int32[]", "optional": true},
+                    {"name": "relatedassetsdata.relationtype", "type": "string[]", "optional": true},
+                    {"name": "relatedassetsdata.childobjectcode", "type": "string[]", "reference": "objects_patch_code.code", "optional": true}
+                ]
+            })"_json;
+
+    auto items_collection_op = collectionManager.create_collection(items_schema_json);
+    ASSERT_TRUE(items_collection_op.ok());
+    auto items_collection = items_collection_op.get();
+
+    ASSERT_TRUE(items_collection->add(R"({
+        "id": "item-001",
+        "recordidentifier": "REC001",
+        "title": "Test Item with Null Reference",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectcode": null
+            }
+        ]
+    })", CREATE).ok());
+
+    std::string dirty_values;
+    auto update_op = items_collection->update_matching_filter("id:=item-001", R"({
+        "title": "Updated Test Item - Reference Still Null",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectcode": null
+            }
+        ]
+    })", dirty_values);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    auto get_op = items_collection->get("item-001");
+    ASSERT_TRUE(get_op.ok());
+    auto doc = get_op.get();
+    ASSERT_EQ("Updated Test Item - Reference Still Null", doc["title"]);
+    ASSERT_EQ(1, doc.count("relatedassetsdata"));
+    ASSERT_EQ(1, doc["relatedassetsdata"].size());
+    ASSERT_EQ(0, doc["relatedassetsdata"][0].count("childobjectcode"));
+}
+
+TEST_F(CollectionJoinTest, AsyncOptionalNestedReferenceInObjectArraySkipsNullSlots) {
+    auto objects_schema_json =
+            R"({
+                "name": "objects_async_patch",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "code", "type": "string"}
+                ]
+            })"_json;
+
+    auto objects_collection_op = collectionManager.create_collection(objects_schema_json);
+    ASSERT_TRUE(objects_collection_op.ok());
+    auto objects_collection = objects_collection_op.get();
+    ASSERT_TRUE(objects_collection->add(R"({
+        "id": "obj-123",
+        "title": "Sample Object",
+        "code": "OBJ001"
+    })").ok());
+
+    auto items_schema_json =
+            R"({
+                "name": "items_async_patch",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "recordidentifier", "type": "string"},
+                    {"name": "title", "type": "string"},
+                    {"name": "relatedassetsdata", "type": "object[]", "optional": true},
+                    {"name": "relatedassetsdata.id", "type": "int32[]", "optional": true},
+                    {"name": "relatedassetsdata.relationtype", "type": "string[]", "optional": true},
+                    {"name": "relatedassetsdata.childobjectcode", "type": "string[]", "reference": "objects_async_patch.code", "optional": true, "async_reference": true}
+                ]
+            })"_json;
+
+    auto items_collection_op = collectionManager.create_collection(items_schema_json);
+    ASSERT_TRUE(items_collection_op.ok());
+    auto items_collection = items_collection_op.get();
+
+    ASSERT_TRUE(items_collection->add(R"({
+        "id": "item-async-001",
+        "recordidentifier": "RECASYNC001",
+        "title": "Async Item with Mixed Nested References",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectcode": null
+            },
+            {
+                "id": 2,
+                "relationtype": "Related",
+                "childobjectcode": null
+            }
+        ]
+    })", CREATE).ok());
+
+    nlohmann::json update_doc = R"({
+        "id": "item-async-001",
+        "title": "Updated Async Item",
+        "relatedassetsdata": [
+            {
+                "id": 1,
+                "relationtype": "Related",
+                "childobjectcode": null
+            },
+            {
+                "id": 2,
+                "relationtype": "Related",
+                "childobjectcode": "missing-code"
+            }
+        ]
+    })"_json;
+    auto update_op = items_collection->add(update_doc.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok()) << update_op.error();
+
+    auto get_op = items_collection->get("item-async-001");
+    ASSERT_TRUE(get_op.ok());
+    auto doc = get_op.get();
+    ASSERT_EQ("Updated Async Item", doc["title"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("relatedassetsdata.childobjectcode_sequence_id", doc[".ref"][0]);
+    ASSERT_EQ(1, doc.count("relatedassetsdata.childobjectcode_sequence_id"));
+    ASSERT_EQ(1, doc["relatedassetsdata.childobjectcode_sequence_id"].size());
+    ASSERT_EQ(2, doc["relatedassetsdata.childobjectcode_sequence_id"][0].size());
+    ASSERT_EQ(1, doc["relatedassetsdata.childobjectcode_sequence_id"][0][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value, doc["relatedassetsdata.childobjectcode_sequence_id"][0][1]);
+    ASSERT_EQ(2, doc["relatedassetsdata"].size());
+    ASSERT_EQ(0, doc["relatedassetsdata"][0].count("childobjectcode"));
+    ASSERT_EQ(1, doc["relatedassetsdata"][1].count("childobjectcode"));
+    ASSERT_EQ("missing-code", doc["relatedassetsdata"][1]["childobjectcode"]);
+}
+
 TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     auto schema_json =
             R"({
