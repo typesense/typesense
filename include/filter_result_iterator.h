@@ -288,6 +288,10 @@ private:
     filter_result_t filter_result{};
     bool is_filter_result_initialized = false;
 
+    /// Set when `compute_iterators()` computed an `&&` node by materializing its narrow side only and probing the
+    /// wide side for each of its ids.
+    bool computed_by_probe = false;
+
     /// Initialized in case of filter on string field.
     /// Sample filter values: ["foo bar", "baz"]. Each filter value is split into tokens. We get posting list iterator
     /// for each token.
@@ -340,6 +344,14 @@ private:
 
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();
+
+    /// Returns true if any leaf of the subtree filters on a referenced collection.
+    static bool has_referenced_filter(const filter_node_t* const node);
+
+    /// Decides whether this `&&` node can be computed by materializing `narrow_it` alone and asking `wide_it`
+    /// about each of the ids it yields.
+    bool can_probe_wide_side(const filter_result_iterator_t* const narrow_it,
+                             const filter_result_iterator_t* const wide_it) const;
 
     /// Performs OR on the subtrees of operator.
     void or_filter_iterators();
@@ -469,6 +481,10 @@ public:
 
     [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;
+    }
+
+    [[nodiscard]] bool _get_computed_by_probe() const {
+        return computed_by_probe;
     }
 
     [[nodiscard]] filter_result_iterator_t* _get_left_it() const {

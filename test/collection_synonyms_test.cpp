@@ -1465,6 +1465,117 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
     ASSERT_EQ("Value of `synonym_num_typos` must not be greater than 2.",search_op.error());
 }
 
+TEST_F(CollectionSynonymsTest, LongCompressedPrefixFullKeyValidation) {
+    SynonymIndex index(store, "long_compressed_prefix_ascii");
+    synonym_t synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "long-bookkeeping"},
+        {"synonyms", {"bookkeepingx", "ledger"}}
+    }, synonym).ok());
+    ASSERT_TRUE(index.add_synonym(synonym, false).ok());
+    synonym_t sibling_synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "long-bookkeeping-sibling"},
+        {"synonyms", {"bookkeepingz", "journal"}}
+    }, sibling_synonym).ok());
+    ASSERT_TRUE(index.add_synonym(sibling_synonym, false).ok());
+
+    std::vector<std::vector<std::string>> results;
+    index.synonym_reduction({"bookkeepinhx"}, "", results, false, 0);
+    ASSERT_TRUE(results.empty());
+
+    results.clear();
+    index.synonym_reduction({"bookkeepinhx"}, "", results, false, 1);
+    ASSERT_EQ(2, results.size());
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingx"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"ledger"}));
+
+    results.clear();
+    index.synonym_reduction({"bookkeepinhy"}, "", results, false, 1);
+    ASSERT_TRUE(results.empty());
+
+    results.clear();
+    index.synonym_reduction({"bookkeeping"}, "", results, true, 0);
+    ASSERT_EQ(4, results.size());
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingx"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingz"}));
+}
+
+TEST_F(CollectionSynonymsTest, LongCompressedPrefixAndMultibyteValidation) {
+    SynonymIndex index(store, "long_compressed_prefix");
+    synonym_t synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "long-prefix"},
+        {"synonyms", {"bookkeepingx", "ledger"}}
+    }, synonym).ok());
+    ASSERT_TRUE(index.add_synonym(synonym, false).ok());
+    synonym_t sibling_synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "long-prefix-sibling"},
+        {"synonyms", {"bookkeepingz", "journal"}}
+    }, sibling_synonym).ok());
+    ASSERT_TRUE(index.add_synonym(sibling_synonym, false).ok());
+
+    std::vector<std::vector<std::string>> results;
+    index.synonym_reduction({"bookkeepinh"}, "", results, true, 0);
+    ASSERT_TRUE(results.empty());
+
+    index.synonym_reduction({"bookkeepinh"}, "", results, true, 1);
+    ASSERT_EQ(4, results.size());
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingx"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"bookkeepingz"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"journal"}));
+    ASSERT_NE(results.end(), std::find(results.begin(), results.end(),
+                                       std::vector<std::string>{"ledger"}));
+
+    SynonymIndex thai_index(store, "long_compressed_prefix_thai");
+    synonym_t thai_synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "thai-long-key"},
+        {"synonyms", {"ประเทศไทย", "country"}}
+    }, thai_synonym).ok());
+    ASSERT_TRUE(thai_index.add_synonym(thai_synonym, false).ok());
+    synonym_t thai_sibling_synonym;
+    ASSERT_TRUE(synonym_t::parse({
+        {"id", "thai-long-key-sibling"},
+        {"synonyms", {"ประเทศไทน", "nation"}}
+    }, thai_sibling_synonym).ok());
+    ASSERT_TRUE(thai_index.add_synonym(thai_sibling_synonym, false).ok());
+
+    results.clear();
+    thai_index.synonym_reduction({"ประเทษไทย"}, "", results, false, 0);
+    ASSERT_TRUE(results.empty());
+}
+
+TEST_F(CollectionSynonymsTest, LongCompressedPrefixCandidateCap) {
+    synonym_node_t root;
+    const std::vector<std::string> candidates = {
+        "bookkeepinga", "bookkeepingb", "bookkeepingc", "bookkeepingd",
+        "bookkeepinge", "bookkeepingf", "bookkeepingg", "bookkeepingh",
+        "bookkeepingi", "bookkeepingj", "bookkeepingk"
+    };
+
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        synonym_t synonym;
+        ASSERT_TRUE(synonym_t::parse({
+            {"id", "candidate-cap-" + std::to_string(i)},
+            {"synonyms", {candidates[i]}}
+        }, synonym).ok());
+        ASSERT_TRUE(root.add(synonym).ok());
+    }
+
+    const auto matches = root.get_matching_children("bookkeepinha", 1, false);
+    ASSERT_EQ(1, matches.size());
+    ASSERT_EQ("bookkeepinga", matches[0]->token);
+}
+
 TEST_F(CollectionSynonymsTest, SynonymPrefix) {
     nlohmann::json schema = R"({
         "name": "coll3",

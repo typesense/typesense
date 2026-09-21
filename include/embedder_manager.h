@@ -84,6 +84,7 @@ public:
     Option<bool> validate_and_init_remote_model(const nlohmann::json& model_config, size_t& num_dims);
     Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
     Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
+    Option<bool> init_remote_model_without_validation(const nlohmann::json& model_config, size_t num_dims);
 
     Option<bool> update_remote_model_apikey(const nlohmann::json& model_config, const std::string& new_apikey, size_t num_dims = 0);
 
@@ -105,4 +106,3 @@ private:
 
     bool is_model_public(const std::string& model_name);
 };
-
