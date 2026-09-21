@@ -4503,3 +4503,411 @@ TEST_F(CollectionSortingTest, EvalSumReferencedValidationFailureDoesNotLeak) {
     collectionManager.drop_collection("es_stock");
     collectionManager.drop_collection("es_products");
 }
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildFollowsSortFieldIncrease) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_raise", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "apple";
+    doc1["points"] = 100;
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "apricot";
+    doc2["points"] = 10;
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    // max_candidates=1: only the token with the highest max_score gets expanded
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // update only the sort field of the apricot doc: nothing re-indexes its title,
+    // so the token score is stale until a rebuild is asked for
+    nlohmann::json doc2_update;
+    doc2_update["id"] = "1";
+    doc2_update["points"] = 1000;
+    ASSERT_TRUE(coll->add(doc2_update.dump(), UPDATE).ok());
+
+    results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_score_raise");
+}
+
+static bool token_score_node_is_leaf(const art_node* node) {
+    return (reinterpret_cast<uintptr_t>(node) & 1U) != 0;
+}
+
+static int64_t assert_token_score_subtree_max(const art_node* node) {
+    if(token_score_node_is_leaf(node)) {
+        auto leaf = reinterpret_cast<const art_leaf*>(reinterpret_cast<uintptr_t>(node) & ~uintptr_t(1));
+        return leaf->max_score;
+    }
+
+    std::vector<const art_node*> children;
+    switch(node->type) {
+        case NODE4: {
+            auto n = reinterpret_cast<const art_node4*>(node);
+            children.assign(n->children, n->children + n->n.num_children);
+            break;
+        }
+        case NODE16: {
+            auto n = reinterpret_cast<const art_node16*>(node);
+            children.assign(n->children, n->children + n->n.num_children);
+            break;
+        }
+        case NODE48: {
+            auto n = reinterpret_cast<const art_node48*>(node);
+            for(const art_node* child: n->children) {
+                if(child != nullptr) {
+                    children.push_back(child);
+                }
+            }
+            break;
+        }
+        case NODE256: {
+            auto n = reinterpret_cast<const art_node256*>(node);
+            for(const art_node* child: n->children) {
+                if(child != nullptr) {
+                    children.push_back(child);
+                }
+            }
+            break;
+        }
+        default:
+            ADD_FAILURE() << "Unknown ART node type " << static_cast<int>(node->type);
+            return INT64_MIN;
+    }
+
+    int64_t subtree_max = INT64_MIN;
+    for(const art_node* child: children) {
+        subtree_max = std::max(subtree_max, assert_token_score_subtree_max(child));
+    }
+
+    EXPECT_EQ(subtree_max, node->max_score);
+    return subtree_max;
+}
+
+TEST_F(CollectionSortingTest, BulkIndexUsesPerTokenMaxForArtNodes) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_bulk", 1, fields, "points").get();
+
+    // These documents are indexed in one batch. The high score belongs outside the
+    // `aa` subtree, so stamping the batch maximum on each token corrupts that subtree.
+    // Negative values also ensure a newly allocated node does not start with a synthetic 0.
+    std::vector<std::string> docs = {
+        R"({"id":"0","title":"aaa","points":-3})",
+        R"({"id":"1","title":"aab","points":-2})",
+        R"({"id":"2","title":"aac","points":-1})",
+        R"({"id":"3","title":"zzz","points":1000})"
+    };
+    nlohmann::json document;
+    auto import_result = coll->add_many(docs, document, CREATE);
+    ASSERT_EQ(4, import_result["num_imported"].get<size_t>());
+
+    const auto& search_index = coll->_get_index()->_get_search_index();
+    ASSERT_EQ(1, search_index.count("title"));
+    ASSERT_NE(nullptr, search_index.at("title")->root);
+    ASSERT_EQ(1000, assert_token_score_subtree_max(search_index.at("title")->root));
+
+    collectionManager.drop_collection("token_score_bulk");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildIsDeduplicatedByRaftLogIndex) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_replay", 1, fields, "points").get();
+
+    nlohmann::json doc = {{"id", "0"}, {"title", "apple"}, {"points", 10}};
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    auto first_rebuild = coll->rebuild_token_scores(100);
+    ASSERT_TRUE(first_rebuild.ok());
+    ASSERT_TRUE(first_rebuild.get());
+
+    // Recreate the collection manager to prove that deduplication comes from persisted
+    // application state, not an in-memory flag that disappears on restart.
+    collectionManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/collection_sorting");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+
+    coll = collectionManager.get_collection("token_score_replay").get();
+    ASSERT_NE(nullptr, coll);
+
+    auto replayed_rebuild = coll->rebuild_token_scores(100);
+    ASSERT_TRUE(replayed_rebuild.ok());
+    ASSERT_FALSE(replayed_rebuild.get());
+
+    auto newer_rebuild = coll->rebuild_token_scores(101);
+    ASSERT_TRUE(newer_rebuild.ok());
+    ASSERT_TRUE(newer_rebuild.get());
+
+    collectionManager.drop_collection("token_score_replay");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildRepairsLargeLeafDecrease) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_repair", 1, fields, "points").get();
+
+    // 130 docs share the apple token: the old inline repair capped out at 128 and left
+    // this leaf stale forever, which is exactly the case the rebuild has to cover
+    for(size_t i = 0; i < 130; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "apple";
+        doc["points"] = (i == 0) ? 1000 : 50;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    nlohmann::json doc2;
+    doc2["id"] = "130";
+    doc2["title"] = "apricot";
+    doc2["points"] = 100;
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ("apple", results["hits"][0]["document"]["title"].get<std::string>());
+
+    nlohmann::json doc_update;
+    doc_update["id"] = "0";
+    doc_update["points"] = 1;
+    ASSERT_TRUE(coll->add(doc_update.dump(), UPDATE).ok());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    // apple now tops out at 50, so apricot at 100 takes the only candidate slot
+    results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("130", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_score_repair");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildRepairsDeletedTopScorer) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_delete", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "apple pie";
+    doc1["points"] = 1000;
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "apple tart";
+    doc2["points"] = 1;
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "apricot";
+    doc3["points"] = 100;
+    ASSERT_TRUE(coll->add(doc3.dump()).ok());
+
+    // deleting the doc that set the apple max never lowered the leaf
+    ASSERT_TRUE(coll->remove("0").ok());
+
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_score_delete");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildCoversNonStoredFields) {
+    // the update path could never fix these: a store:false field is absent from the
+    // persisted doc, so there is no text left to re-tokenize
+    field title_field("title", field_types::STRING, false);
+    title_field.store = false;
+
+    std::vector<field> fields = {title_field, field("points", field_types::INT32, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_nostore", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "apple";
+    doc1["points"] = 100;
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "apricot";
+    doc2["points"] = 10;
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc2_update;
+    doc2_update["id"] = "1";
+    doc2_update["points"] = 1000;
+    ASSERT_TRUE(coll->add(doc2_update.dump(), UPDATE).ok());
+
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_score_nostore");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildWithFloatSortField) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("volume", field_types::FLOAT, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_float", 1, fields, "volume").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "apple";
+    doc1["volume"] = 100.5;
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "apricot";
+    doc2["volume"] = 10.5;
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    nlohmann::json doc2_update;
+    doc2_update["id"] = "1";
+    doc2_update["volume"] = 5000.5;
+    ASSERT_TRUE(coll->add(doc2_update.dump(), UPDATE).ok());
+
+    // sort_index keeps floats in a different encoding than art scores, so a rebuild
+    // that skipped the conversion would order these backwards
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    doc2_update["volume"] = 0.5;
+    ASSERT_TRUE(coll->add(doc2_update.dump(), UPDATE).ok());
+    ASSERT_TRUE(coll->rebuild_token_scores().ok());
+
+    results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                           spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                           10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                           false, true, "", false, 6000 * 1000, 4, 7, fallback, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("token_score_float");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildRejectedForStringSortingField) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1),
+                                 field("name", field_types::STRING, false, false, true, "", 1)};
+
+    Collection* coll = collectionManager.create_collection("token_score_str_sort", 1, fields, "name").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "apple";
+    doc["name"] = "aaa";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // a string sort field lives in str_sort_index, so the walk would read nothing from
+    // sort_index and still report success. reject instead of lying
+    auto rebuild_op = coll->rebuild_token_scores();
+    ASSERT_FALSE(rebuild_op.ok());
+    ASSERT_EQ(400, rebuild_op.code());
+    ASSERT_TRUE(rebuild_op.error().find("string field") != std::string::npos);
+
+    collectionManager.drop_collection("token_score_str_sort");
+}
+
+TEST_F(CollectionSortingTest, TokenScoreRebuildRejectedWithoutSortingField) {
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+
+    Collection* coll = collectionManager.create_collection("token_score_unranked", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "apple";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "apricot";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // frequency ordered trees keep document counts in max_score, rebuilding would corrupt them
+    auto rebuild_op = coll->rebuild_token_scores();
+    ASSERT_FALSE(rebuild_op.ok());
+    ASSERT_EQ(400, rebuild_op.code());
+
+    auto results = coll->search("ap", {"title"}, "", {}, {}, {0}, 10, 1, NOT_SET, {true}, 0,
+                                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                10, "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true,
+                                false, true, "", false, 6000 * 1000, 4, 7, fallback, 4).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("token_score_unranked");
+}
