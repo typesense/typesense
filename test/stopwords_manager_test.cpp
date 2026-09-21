@@ -21,6 +21,8 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
         stopwordsManager.init(store);
+        // manager is a singleton, clear configs leaked by prior tests for a clean slate
+        stopwordsManager.dispose();
     }
 
     virtual void TearDown() {
