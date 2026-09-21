@@ -3409,6 +3409,14 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
         references.insert(ref_pair.collection);
     }
 
+    // Scheduler dependencies need the declared alias too. Runtime reference fields contain the resolved target,
+    // which would otherwise discard the alias edge when a schema request completes or after a store reload.
+    for (const auto& field : coll->get_fields()) {
+        if (!field.reference.empty()) {
+            references.insert(field.reference.substr(0, field.reference.find('.')));
+        }
+    }
+
     return references;
 }
 

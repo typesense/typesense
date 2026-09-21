@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <string>
@@ -17,6 +19,8 @@
 #define private public
 #include "batched_indexer.h"
 #undef private
+
+#include "collection_manager.h"
 
 namespace {
 
@@ -34,6 +38,188 @@ std::shared_ptr<http_res> make_res() {
 }
 
 }  // namespace
+
+class BatchedIndexerAliasTest : public ::testing::Test {
+protected:
+    std::atomic<bool> quit{false};
+    ThreadPool thread_pool{1};
+    std::string state_dir;
+    std::unique_ptr<Store> store;
+    std::unique_ptr<HttpServer> server;
+    std::unique_ptr<BatchedIndexer> indexer;
+    CollectionManager& cm = CollectionManager::get_instance();
+
+    void SetUp() override {
+        char path[] = "/tmp/typesense-alias-ordering-XXXXXX";
+        const auto directory = mkdtemp(path);
+        ASSERT_NE(nullptr, directory);
+        state_dir = directory;
+        store = std::make_unique<Store>(state_dir);
+        cm.init(store.get(), 1.0, "auth_key", quit);
+        ASSERT_TRUE(cm.load(1, 1000).ok());
+        server = std::make_unique<HttpServer>("test", "127.0.0.1", 0, "", "", 0, false,
+                                               std::set<std::string>{}, &thread_pool);
+        server->put("/aliases/:alias", put_upsert_alias);
+        server->del("/aliases/:alias", del_alias);
+        server->post("/collections", post_create_collection);
+        indexer = std::make_unique<BatchedIndexer>(server.get(), store.get(), store.get(), 4,
+                                                   Config::get_instance(), quit);
+    }
+
+    void TearDown() override {
+        indexer.reset();
+        server.reset();
+        cm.dispose();
+        store.reset();
+        thread_pool.shutdown();
+        if (!state_dir.empty()) {
+            std::filesystem::remove_all(state_dir);
+        }
+    }
+
+    std::shared_ptr<http_req> enqueue(const uint64_t id, const std::string& method,
+                                       const std::string& body, const bool alias = true) {
+        auto req = make_req(id, id, "");
+        req->body = body;
+        req->last_chunk_aggregate = true;
+        if (alias) {
+            req->params["alias"] = "parent";
+        }
+        route_path* route = nullptr;
+        req->route_hash = server->find_route(alias ? std::vector<std::string>{"aliases", "parent"} :
+                                                     std::vector<std::string>{"collections"}, method, &route);
+        EXPECT_NE(nullptr, route);
+        indexer->enqueue(req, make_res());
+        return req;
+    }
+
+    void expect_waits_on(const uint64_t request, const uint64_t dependency) {
+        const auto it = indexer->reference_q_by_request.find(request);
+        ASSERT_NE(indexer->reference_q_by_request.end(), it);
+        EXPECT_EQ(1, it->second->waiting_on_requests.count(dependency));
+    }
+
+    // Drain a selected worker queue synchronously, exercising the real handlers and completion bookkeeping.
+    void complete(const std::shared_ptr<http_req>& req, const bool success = true) {
+        const auto name = indexer->get_collection_name(req);
+        auto& queue = indexer->queues[StringUtils::hash_wy(name.c_str(), name.size()) % 4];
+        ASSERT_FALSE(queue.empty());
+        ASSERT_EQ(req->start_ts, queue.front());
+        queue.pop_front();
+        route_path* route = nullptr;
+        ASSERT_TRUE(server->get_route(req->route_hash, &route));
+        auto res = make_res();
+        EXPECT_EQ(success, route->handler(req, res)) << res->body;
+        indexer->update_coll_to_references_after_request(req, name);
+        indexer->req_res_map.erase(req->start_ts);
+        indexer->queued_writes--;
+        const auto tail = indexer->collection_request_tails.find(name);
+        if (tail != indexer->collection_request_tails.end() && tail->second == req->start_ts) {
+            indexer->collection_request_tails.erase(tail);
+        }
+        indexer->process_reference_queue_with_lock(req->start_ts);
+    }
+
+    void round_trip() {
+        nlohmann::json state;
+        indexer->serialize_state(state);
+        indexer->load_state(state);
+    }
+};
+
+TEST_F(BatchedIndexerAliasTest, ResolvedAliasSchemaStillOrdersFailedSwapAfterChildCreation) {
+    auto schema = nlohmann::json::parse(
+        R"({"name":"parent_v1","fields":[{"name":"code","type":"string"}]})");
+    ASSERT_TRUE(cm.create_collection(schema).ok());
+    ASSERT_TRUE(cm.upsert_symlink("parent", "parent_v1").ok());
+    schema = nlohmann::json::parse(
+        R"({"name":"parent_bad","fields":[{"name":"other","type":"string"}]})");
+    ASSERT_TRUE(cm.create_collection(schema).ok());
+
+    auto child = enqueue(10, "POST", R"({"name":"children","fields":[
+        {"name":"parent_code","type":"string","reference":"parent.code","async_reference":true}]})", false);
+    EXPECT_EQ(1, indexer->coll_to_references.at("children").count("parent"));
+    EXPECT_EQ(1, indexer->coll_to_references.at("children").count("parent_v1"));
+    auto swap = enqueue(20, "PUT", R"({"collection_name":"parent_bad"})");
+    expect_waits_on(20, 10);
+    round_trip();
+    expect_waits_on(20, 10);
+    complete(child);
+    EXPECT_EQ(1, indexer->coll_to_references.at("children").count("parent"));
+    complete(swap, false);
+    EXPECT_EQ("parent_v1", cm.resolve_symlink("parent").get());
+    EXPECT_EQ(std::unordered_set<std::string>{"parent_v1"}, indexer->coll_to_references.at("parent"));
+    EXPECT_TRUE(indexer->pending_alias_targets.empty());
+}
+
+TEST_F(BatchedIndexerAliasTest, DeleteWaitsForBlockedUpsertAcrossSnapshotRestore) {
+    auto target = enqueue(10, "POST", R"({"name":"parent_v1","fields":[{"name":"code","type":"string"}]})", false);
+    auto put = enqueue(20, "PUT", R"({"collection_name":"parent_v1"})");
+    auto del = enqueue(30, "DELETE", "");
+    EXPECT_EQ("parent", indexer->get_collection_name(del));
+    expect_waits_on(20, 10);
+    expect_waits_on(30, 20);
+    round_trip();
+    expect_waits_on(30, 20);
+    complete(target);
+    complete(put);
+    complete(del);
+    EXPECT_FALSE(cm.resolve_symlink("parent").ok());
+    EXPECT_EQ(0, indexer->coll_to_references.count("parent"));
+    EXPECT_TRUE(indexer->pending_alias_targets.empty());
+}
+
+TEST_F(BatchedIndexerAliasTest, EarlierCompletionPreservesEveryPendingAliasTarget) {
+    auto first = enqueue(10, "PUT", R"({"collection_name":"old_target"})");
+    auto second = enqueue(20, "PUT", R"({"collection_name":"next_target"})");
+    auto third = enqueue(30, "PUT", R"({"collection_name":"last_target"})");
+    expect_waits_on(20, 10);
+    expect_waits_on(30, 20);
+    round_trip();
+    complete(first);
+    EXPECT_EQ((std::unordered_set<std::string>{"old_target", "next_target", "last_target"}),
+              indexer->coll_to_references.at("parent"));
+    // This target creation comes AFTER the swaps and must not overtake them.
+    auto target = enqueue(40, "POST", R"({"name":"next_target","fields":[{"name":"code","type":"string"}]})", false);
+    expect_waits_on(40, 30);
+    complete(second);
+    EXPECT_EQ((std::unordered_set<std::string>{"next_target", "last_target"}),
+              indexer->coll_to_references.at("parent"));
+    complete(third);
+    complete(target);
+    EXPECT_EQ("last_target", cm.resolve_symlink("parent").get());
+    EXPECT_TRUE(indexer->pending_alias_targets.empty());
+}
+
+TEST_F(BatchedIndexerAliasTest, FailedEarlierAliasRequestPreservesPendingTarget) {
+    auto first = enqueue(10, "PUT", "{}");
+    auto second = enqueue(20, "PUT", R"({"collection_name":"next_target"})");
+    complete(first, false);
+    EXPECT_EQ(std::unordered_set<std::string>{"next_target"}, indexer->coll_to_references.at("parent"));
+    auto target = enqueue(30, "POST", R"({"name":"next_target","fields":[{"name":"code","type":"string"}]})", false);
+    expect_waits_on(30, 20);
+    complete(second);
+    complete(target);
+    EXPECT_TRUE(indexer->pending_alias_targets.empty());
+}
+
+TEST_F(BatchedIndexerAliasTest, DeleteCompletionPreservesLaterUpsertTarget) {
+    auto first = enqueue(10, "PUT", R"({"collection_name":"old_target"})");
+    auto del = enqueue(20, "DELETE", "");
+    auto next = enqueue(30, "PUT", R"({"collection_name":"next_target"})");
+    expect_waits_on(20, 10);
+    expect_waits_on(30, 20);
+    complete(first);
+    complete(del);
+    EXPECT_FALSE(cm.resolve_symlink("parent").ok());
+    EXPECT_EQ(std::unordered_set<std::string>{"next_target"}, indexer->coll_to_references.at("parent"));
+    auto target = enqueue(40, "POST", R"({"name":"next_target","fields":[{"name":"code","type":"string"}]})", false);
+    expect_waits_on(40, 30);
+    complete(next);
+    complete(target);
+    EXPECT_EQ("next_target", cm.resolve_symlink("parent").get());
+    EXPECT_TRUE(indexer->pending_alias_targets.empty());
+}
 
 TEST(BatchedIndexerTest, UsesLatestChunkLogIndexForReferenceDependencies) {
     std::atomic<bool> skip_writes(false);
