@@ -3391,3 +3391,160 @@ TEST_F(FilterTest, AndProbeKeepsReferences) {
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
 }
+
+TEST_F(FilterTest, RangeIndexPositiveIteratorReusesNumericPostings) {
+    nlohmann::json schema =
+            R"({
+                "name": "RangeIteratorCollection",
+                "fields": [
+                    {"name": "age", "type": "int32", "range_index": true},
+                    {"name": "years", "type": "int32[]", "range_index": true},
+                    {"name": "rating", "type": "float", "range_index": true},
+                    {"name": "tall", "type": "int64", "range_index": true},
+                    {"name": "scores", "type": "float[]", "range_index": true}
+                ]
+            })"_json;
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    auto* coll = collection_op.get();
+
+    const std::vector<nlohmann::json> documents = {
+            R"({"age": 10, "years": [1, 5, 5], "rating": 1.25, "tall": 10000000000, "scores": [1.25, 5, 5]})"_json,
+            R"({"age": 20, "years": [2, 4], "rating": 2.5, "tall": 20000000000, "scores": [2.5, 4]})"_json,
+            R"({"age": 30, "years": [3, 5], "rating": 3.75, "tall": 30000000000, "scores": [3.75, 5]})"_json,
+            R"({"age": 40, "years": [4, 6, 6], "rating": 4.5, "tall": 40000000000, "scores": [4.5, 6, 6]})"_json,
+            R"({"age": 50, "years": [5, 7], "rating": 5.25, "tall": 50000000000, "scores": [5.25, 7]})"_json,
+    };
+    for (const auto& document : documents) {
+        ASSERT_TRUE(coll->add(document.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+    auto assert_lazy_ids = [&](const std::string& query, const std::vector<uint32_t>& expected) {
+        filter_node_t* raw_root = nullptr;
+        ASSERT_TRUE(filter::parse_filter_query(query, coll->get_schema(), store, doc_id_prefix, raw_root).ok());
+        std::unique_ptr<filter_node_t> root(raw_root);
+        filter_result_iterator_t iterator(coll->get_name(), coll->_get_index(), root.get(), true);
+        ASSERT_TRUE(iterator.init_status().ok());
+        ASSERT_FALSE(iterator._get_is_filter_result_initialized());
+
+        for (const auto id : expected) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+            ASSERT_EQ(id, iterator.seq_id);
+            iterator.next();
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iterator.validity);
+    };
+
+    assert_lazy_ids("age:=30", {2});
+    assert_lazy_ids("age:>20", {2, 3, 4});
+    assert_lazy_ids("age:>=30", {2, 3, 4});
+    assert_lazy_ids("age:<30", {0, 1});
+    assert_lazy_ids("age:<=30", {0, 1, 2});
+    assert_lazy_ids("age:20..40", {1, 2, 3});
+    assert_lazy_ids("age:[<20, >=40]", {0, 3, 4});
+    assert_lazy_ids("years:>=5", {0, 2, 3, 4});
+    assert_lazy_ids("rating:>2.5", {2, 3, 4});
+    assert_lazy_ids("tall:>20000000000", {2, 3, 4});
+    assert_lazy_ids("scores:>=5", {0, 2, 3, 4});
+    assert_lazy_ids("age:>99", {});
+
+    filter_node_t* raw_root = nullptr;
+    ASSERT_TRUE(filter::parse_filter_query("age:>=20", coll->get_schema(), store, doc_id_prefix, raw_root).ok());
+    std::unique_ptr<filter_node_t> root(raw_root);
+    filter_result_iterator_t iterator(coll->get_name(), coll->_get_index(), root.get(), true);
+    ASSERT_TRUE(iterator.init_status().ok());
+    ASSERT_EQ(1, iterator.seq_id);
+    ASSERT_EQ(1, iterator.is_valid(3));
+    ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+    ASSERT_EQ(3, iterator.seq_id);
+    iterator.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+    ASSERT_EQ(1, iterator.seq_id);
+
+    iterator.next();
+    ASSERT_EQ(2, iterator.seq_id);
+    iterator.compute_iterators();
+    ASSERT_TRUE(iterator._get_is_filter_result_initialized());
+    uint32_t* ids = nullptr;
+    ASSERT_EQ(4, iterator.to_filter_id_array(ids));
+    ASSERT_EQ((std::vector<uint32_t>{1, 2, 3, 4}), std::vector<uint32_t>(ids, ids + 4));
+    delete [] ids;
+
+    iterator.reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+    ASSERT_EQ(1, iterator.seq_id);
+
+    for (uint32_t i = 0; i < 70; i++) {
+        ASSERT_TRUE(coll->add(nlohmann::json{{"age", -1000},
+                                              {"years", {0}},
+                                              {"rating", 0.0},
+                                              {"tall", -1},
+                                              {"scores", {0.0}}}.dump()).ok());
+    }
+
+    filter_node_t* source_raw_root = nullptr;
+    ASSERT_TRUE(filter::parse_filter_query("tall:<0", coll->get_schema(), store, doc_id_prefix, source_raw_root).ok());
+    std::unique_ptr<filter_node_t> source_root(source_raw_root);
+    filter_node_t* target_raw_root = nullptr;
+    ASSERT_TRUE(filter::parse_filter_query("age:=10", coll->get_schema(), store, doc_id_prefix, target_raw_root).ok());
+    std::unique_ptr<filter_node_t> target_root(target_raw_root);
+    filter_result_iterator_t moved_iterator(coll->get_name(), coll->_get_index(), target_root.get(), true);
+    {
+        filter_result_iterator_t source_iterator(coll->get_name(), coll->_get_index(), source_root.get(), true);
+        ASSERT_EQ(5, source_iterator.seq_id);
+        moved_iterator = std::move(source_iterator);
+    }
+    ASSERT_EQ(5, moved_iterator.seq_id);
+    moved_iterator.next();
+    ASSERT_EQ(6, moved_iterator.seq_id);
+    moved_iterator.reset();
+    ASSERT_EQ(5, moved_iterator.seq_id);
+    moved_iterator.compute_iterators();
+    uint32_t* moved_ids = nullptr;
+    ASSERT_EQ(70, moved_iterator.to_filter_id_array(moved_ids));
+    ASSERT_EQ(5, moved_ids[0]);
+    ASSERT_EQ(74, moved_ids[69]);
+    delete [] moved_ids;
+    moved_iterator.reset();
+    ASSERT_EQ(5, moved_iterator.seq_id);
+}
+
+TEST_F(FilterTest, RangeIndexNegationStaysEager) {
+    nlohmann::json schema =
+            R"({
+                "name": "RangeIteratorNegationCollection",
+                "fields": [
+                    {"name": "age", "type": "int32", "range_index": true}
+                ]
+            })"_json;
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    auto* coll = collection_op.get();
+    for (const auto age : {10, 20, 30, 40, 50}) {
+        ASSERT_TRUE(coll->add(nlohmann::json{{"age", age}}.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+    auto assert_eager_ids = [&](const std::string& query) {
+        filter_node_t* raw_root = nullptr;
+        ASSERT_TRUE(filter::parse_filter_query(query, coll->get_schema(), store, doc_id_prefix, raw_root).ok());
+        std::unique_ptr<filter_node_t> root(raw_root);
+        filter_result_iterator_t iterator(coll->get_name(), coll->_get_index(), root.get(), true);
+        ASSERT_TRUE(iterator.init_status().ok());
+        ASSERT_TRUE(iterator._get_is_filter_result_initialized());
+
+        const std::vector<uint32_t> expected = {0, 1, 3, 4};
+        for (const auto id : expected) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+            ASSERT_EQ(id, iterator.seq_id);
+            iterator.next();
+        }
+        ASSERT_EQ(filter_result_iterator_t::invalid, iterator.validity);
+    };
+
+    assert_eager_ids("age:!=30");
+    assert_eager_ids("age:![30]");
+}

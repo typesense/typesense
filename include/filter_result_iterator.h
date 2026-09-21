@@ -368,6 +368,12 @@ private:
     /// Computes the match for a filter on numeric field.
     void get_numeric_filter_match(const bool init = false);
 
+    /// Converts borrowed numeric postings into iterator groups and retains any
+    /// compact-list conversions until this filter iterator is destroyed.
+    void append_numeric_postings(const std::vector<void*>& raw_posting_lists);
+
+    void initialize_numeric_posting_iterators();
+
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.

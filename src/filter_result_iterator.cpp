@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <memory>
+#include <limits>
 #include <queue>
 #include <id_list.h>
 #include <s2/s2point.h>
@@ -990,6 +992,30 @@ void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
     validity = one_is_valid ? valid : invalid;
 }
 
+void filter_result_iterator_t::append_numeric_postings(const std::vector<void*>& raw_posting_lists) {
+    std::vector<id_list_t*> lists;
+    ids_t::to_expanded_id_lists(raw_posting_lists, lists, expanded_id_lists);
+
+    std::vector<id_list_t::iterator_t> iterators;
+    iterators.reserve(lists.size());
+    for (auto* list : lists) {
+        iterators.emplace_back(list->new_iterator());
+        const auto count = static_cast<uint64_t>(list->num_ids());
+        approx_filter_ids_length = count > std::numeric_limits<uint32_t>::max() - approx_filter_ids_length ?
+                                    std::numeric_limits<uint32_t>::max() :
+                                    static_cast<uint32_t>(approx_filter_ids_length + count);
+    }
+
+    id_lists.emplace_back(std::move(lists));
+    id_list_iterators.emplace_back(std::move(iterators));
+}
+
+void filter_result_iterator_t::initialize_numeric_posting_iterators() {
+    seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
+    get_numeric_filter_match(true);
+    last_valid_id = index->seq_ids->last_id();
+}
+
 void filter_result_iterator_t::next() {
     if (validity != valid) {
         return;
@@ -1427,6 +1453,31 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         if (f.range_index) {
             auto const& trie = index->range_index.at(a_filter.field_name);
 
+            const auto has_not_equals = a_filter.apply_not_equals || std::any_of(
+                    a_filter.comparators.begin(), a_filter.comparators.end(),
+                    [](const NUM_COMPARATOR comparator) { return comparator == NOT_EQUALS; });
+            if (enable_lazy_evaluation && !has_not_equals) {
+                for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                    const auto value = static_cast<int64_t>(std::stol(a_filter.values[fi]));
+                    const auto comparator = a_filter.comparators[fi];
+                    std::vector<void*> raw_posting_lists;
+                    if (comparator == RANGE_INCLUSIVE && fi + 1 < a_filter.values.size()) {
+                        const auto range_end_value = static_cast<int64_t>(std::stol(a_filter.values[++fi]));
+                        trie->search_range(value, true, range_end_value, true, raw_posting_lists);
+                    } else if (comparator == EQUALS) {
+                        trie->search_equal_to(value, raw_posting_lists);
+                    } else if (comparator == GREATER_THAN || comparator == GREATER_THAN_EQUALS) {
+                        trie->search_greater_than(value, comparator == GREATER_THAN_EQUALS, raw_posting_lists);
+                    } else if (comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
+                        trie->search_less_than(value, comparator == LESS_THAN_EQUALS, raw_posting_lists);
+                    }
+                    append_numeric_postings(raw_posting_lists);
+                }
+
+                initialize_numeric_posting_iterators();
+                return;
+            }
+
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
                 auto const& value = (int64_t)std::stol(filter_value);
@@ -1584,6 +1635,32 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     } else if (f.is_float()) {
         if (f.range_index) {
             auto const& trie = index->range_index.at(a_filter.field_name);
+
+            const auto has_not_equals = a_filter.apply_not_equals || std::any_of(
+                    a_filter.comparators.begin(), a_filter.comparators.end(),
+                    [](const NUM_COMPARATOR comparator) { return comparator == NOT_EQUALS; });
+            if (enable_lazy_evaluation && !has_not_equals) {
+                for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                    const auto value = Index::float_to_int64_t(static_cast<float>(std::atof(a_filter.values[fi].c_str())));
+                    const auto comparator = a_filter.comparators[fi];
+                    std::vector<void*> raw_posting_lists;
+                    if (comparator == RANGE_INCLUSIVE && fi + 1 < a_filter.values.size()) {
+                        const auto range_end_value = Index::float_to_int64_t(
+                                static_cast<float>(std::atof(a_filter.values[++fi].c_str())));
+                        trie->search_range(value, true, range_end_value, true, raw_posting_lists);
+                    } else if (comparator == EQUALS) {
+                        trie->search_equal_to(value, raw_posting_lists);
+                    } else if (comparator == GREATER_THAN || comparator == GREATER_THAN_EQUALS) {
+                        trie->search_greater_than(value, comparator == GREATER_THAN_EQUALS, raw_posting_lists);
+                    } else if (comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
+                        trie->search_less_than(value, comparator == LESS_THAN_EQUALS, raw_posting_lists);
+                    }
+                    append_numeric_postings(raw_posting_lists);
+                }
+
+                initialize_numeric_posting_iterators();
+                return;
+            }
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
                 const std::string& filter_value = a_filter.values[fi];
@@ -2970,10 +3047,14 @@ filter_result_iterator_t::~filter_result_iterator_t() {
         delete expanded_plist;
     }
 
-    // In case the filter was on int/float field.
-    for (auto item: expanded_id_lists) {
-        delete item;
+    // Numeric iterators borrow entries from id_lists. Destroy them before
+    // releasing compact-list conversions owned by expanded_id_lists.
+    id_list_iterators.clear();
+    id_lists.clear();
+    for (auto expanded_id_list : expanded_id_lists) {
+        delete expanded_id_list;
     }
+    expanded_id_lists.clear();
 
     if (delete_filter_node) {
         delete filter_node;
@@ -2993,6 +3074,13 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
         delete expanded_plist;
     }
 
+    id_list_iterators.clear();
+    id_lists.clear();
+    for (auto expanded_id_list : expanded_id_lists) {
+        delete expanded_id_list;
+    }
+    expanded_id_lists.clear();
+
     delete left_it;
     delete right_it;
 
@@ -3011,6 +3099,17 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
 
     posting_list_iterators = std::move(obj.posting_list_iterators);
     expanded_plists = std::move(obj.expanded_plists);
+
+    is_not_equals_iterator = obj.is_not_equals_iterator;
+    equals_iterator_id = obj.equals_iterator_id;
+    is_equals_iterator_valid = obj.is_equals_iterator_valid;
+    last_valid_id = obj.last_valid_id;
+    bool_iterator = std::move(obj.bool_iterator);
+    id_lists = std::move(obj.id_lists);
+    id_list_iterators = std::move(obj.id_list_iterators);
+    expanded_id_lists = std::move(obj.expanded_id_lists);
+    seq_ids = std::move(obj.seq_ids);
+    numerical_not_iterator_index = std::move(obj.numerical_not_iterator_index);
 
     validity = obj.validity;
 
