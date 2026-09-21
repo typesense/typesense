@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <collection_manager.h>
+#include <limits>
 #include "collection.h"
 #include "numeric_range_trie.h"
 
@@ -36,6 +38,251 @@ void reset(uint32_t*& ids, uint32_t& ids_length) {
     delete [] ids;
     ids = nullptr;
     ids_length = 0;
+}
+
+std::vector<uint32_t> collect_expanded_posting_ids(const std::vector<void*>& raw_posting_lists) {
+    std::vector<id_list_t*> id_lists;
+    std::vector<id_list_t*> expanded_id_lists;
+    ids_t::to_expanded_id_lists(raw_posting_lists, id_lists, expanded_id_lists);
+
+    std::vector<uint32_t> ids;
+    for (const auto& id_list : id_lists) {
+        auto iterator = id_list->new_iterator();
+        while (iterator.valid()) {
+            ids.push_back(iterator.id());
+            iterator.next();
+        }
+    }
+
+    for (const auto& expanded_id_list : expanded_id_lists) {
+        delete expanded_id_list;
+    }
+
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    return ids;
+}
+
+enum class numeric_trie_comparison_t {
+    RANGE,
+    LESS_THAN,
+    GREATER_THAN,
+    EQUAL_TO,
+};
+
+struct numeric_trie_query_t {
+    numeric_trie_comparison_t comparison;
+    int64_t low_or_value;
+    bool low_inclusive = true;
+    int64_t high = 0;
+    bool high_inclusive = true;
+};
+
+std::vector<uint32_t> eager_numeric_trie_ids(NumericTrie& trie, const numeric_trie_query_t& query) {
+    uint32_t* ids = nullptr;
+    uint32_t ids_length = 0;
+    switch (query.comparison) {
+        case numeric_trie_comparison_t::RANGE:
+            trie.search_range(query.low_or_value, query.low_inclusive, query.high, query.high_inclusive,
+                              ids, ids_length);
+            break;
+        case numeric_trie_comparison_t::LESS_THAN:
+            trie.search_less_than(query.low_or_value, query.low_inclusive, ids, ids_length);
+            break;
+        case numeric_trie_comparison_t::GREATER_THAN:
+            trie.search_greater_than(query.low_or_value, query.low_inclusive, ids, ids_length);
+            break;
+        case numeric_trie_comparison_t::EQUAL_TO:
+            trie.search_equal_to(query.low_or_value, ids, ids_length);
+            break;
+    }
+
+    std::vector<uint32_t> result;
+    if (ids_length != 0) {
+        result.assign(ids, ids + ids_length);
+    }
+    delete [] ids;
+    return result;
+}
+
+std::vector<uint32_t> raw_numeric_trie_ids(NumericTrie& trie, const numeric_trie_query_t& query) {
+    std::vector<void*> raw_posting_lists;
+    switch (query.comparison) {
+        case numeric_trie_comparison_t::RANGE:
+            trie.search_range(query.low_or_value, query.low_inclusive, query.high, query.high_inclusive,
+                              raw_posting_lists);
+            break;
+        case numeric_trie_comparison_t::LESS_THAN:
+            trie.search_less_than(query.low_or_value, query.low_inclusive, raw_posting_lists);
+            break;
+        case numeric_trie_comparison_t::GREATER_THAN:
+            trie.search_greater_than(query.low_or_value, query.low_inclusive, raw_posting_lists);
+            break;
+        case numeric_trie_comparison_t::EQUAL_TO:
+            trie.search_equal_to(query.low_or_value, raw_posting_lists);
+            break;
+    }
+
+    return collect_expanded_posting_ids(raw_posting_lists);
+}
+
+std::vector<uint32_t> iterator_numeric_trie_ids(NumericTrie& trie, const numeric_trie_query_t& query) {
+    NumericTrie::iterator_t iterator = [&]() {
+        switch (query.comparison) {
+            case numeric_trie_comparison_t::RANGE:
+                return trie.search_range(query.low_or_value, query.low_inclusive, query.high, query.high_inclusive);
+            case numeric_trie_comparison_t::LESS_THAN:
+                return trie.search_less_than(query.low_or_value, query.low_inclusive);
+            case numeric_trie_comparison_t::GREATER_THAN:
+                return trie.search_greater_than(query.low_or_value, query.low_inclusive);
+            case numeric_trie_comparison_t::EQUAL_TO:
+                return trie.search_equal_to(query.low_or_value);
+        }
+        throw std::logic_error("Unknown numeric trie comparison");
+    }();
+
+    std::vector<uint32_t> ids;
+    while (iterator.is_valid) {
+        ids.push_back(iterator.seq_id);
+        iterator.next();
+    }
+    return ids;
+}
+
+TEST_F(NumericRangeTrieTest, ExposesMatchingRawPostings) {
+    NumericTrie trie;
+    for (const auto& pair : std::vector<std::pair<int64_t, uint32_t>>{
+            {-10, 1}, {-5, 2}, {0, 3}, {5, 4}, {10, 5},
+    }) {
+        trie.insert(pair.first, pair.second);
+    }
+
+    std::vector<void*> raw_posting_lists;
+    trie.search_range(-5, false, 5, true, raw_posting_lists);
+    ASSERT_EQ((std::vector<uint32_t>{3, 4}), collect_expanded_posting_ids(raw_posting_lists));
+    ASSERT_FALSE(raw_posting_lists.empty());
+    ASSERT_TRUE(IS_COMPACT_IDS(raw_posting_lists.front()));
+
+    raw_posting_lists.clear();
+    trie.search_less_than(0, false, raw_posting_lists);
+    ASSERT_EQ((std::vector<uint32_t>{1, 2}), collect_expanded_posting_ids(raw_posting_lists));
+
+    raw_posting_lists.clear();
+    trie.search_greater_than(5, false, raw_posting_lists);
+    ASSERT_EQ((std::vector<uint32_t>{5}), collect_expanded_posting_ids(raw_posting_lists));
+
+    for (uint32_t id = 100; id < 165; id++) {
+        trie.insert(42, id);
+    }
+
+    raw_posting_lists.clear();
+    trie.search_equal_to(42, raw_posting_lists);
+    ASSERT_EQ(1, raw_posting_lists.size());
+    ASSERT_FALSE(IS_COMPACT_IDS(raw_posting_lists.front()));
+
+    std::vector<uint32_t> expected_ids;
+    for (uint32_t id = 100; id < 165; id++) {
+        expected_ids.push_back(id);
+    }
+    ASSERT_EQ(expected_ids, collect_expanded_posting_ids(raw_posting_lists));
+
+    const auto raw_posting_count = raw_posting_lists.size();
+    trie.search_equal_to(42, raw_posting_lists);
+    ASSERT_EQ(raw_posting_count * 2, raw_posting_lists.size());
+}
+
+TEST_F(NumericRangeTrieTest, RawPostingQueriesMatchEagerQueriesAtBoundaries) {
+    for (const auto bits : std::vector<char>{1, 4, 8}) {
+        NumericTrie trie(bits * 8);
+        const auto limit = bits == 1 ? int64_t{0xFF} :
+                           bits == 4 ? int64_t{0xFFFFFFFF} : std::numeric_limits<int64_t>::max();
+        for (const auto& pair : std::vector<std::pair<int64_t, uint32_t>>{
+                {-limit, 1}, {-1, 2}, {0, 3}, {1, 4}, {limit, 5},
+        }) {
+            trie.insert(pair.first, pair.second);
+        }
+
+        const std::vector<numeric_trie_query_t> queries = {
+                {numeric_trie_comparison_t::RANGE, 1, true, limit, true},
+                {numeric_trie_comparison_t::RANGE, -1, false, 1, true},
+                {numeric_trie_comparison_t::RANGE, 1, true, -1, true},
+                {numeric_trie_comparison_t::RANGE, std::numeric_limits<int64_t>::min(), true,
+                 std::numeric_limits<int64_t>::max(), true},
+                {numeric_trie_comparison_t::RANGE, std::numeric_limits<int64_t>::min(), false, -limit, false},
+                {numeric_trie_comparison_t::RANGE, limit, false, std::numeric_limits<int64_t>::max(), true},
+                {numeric_trie_comparison_t::LESS_THAN, std::numeric_limits<int64_t>::min(), true},
+                {numeric_trie_comparison_t::LESS_THAN, -limit, false},
+                {numeric_trie_comparison_t::LESS_THAN, -1, true},
+                {numeric_trie_comparison_t::LESS_THAN, 0, false},
+                {numeric_trie_comparison_t::LESS_THAN, limit, false},
+                {numeric_trie_comparison_t::LESS_THAN, std::numeric_limits<int64_t>::max(), true},
+                {numeric_trie_comparison_t::GREATER_THAN, std::numeric_limits<int64_t>::min(), true},
+                {numeric_trie_comparison_t::GREATER_THAN, -limit, false},
+                {numeric_trie_comparison_t::GREATER_THAN, -1, false},
+                {numeric_trie_comparison_t::GREATER_THAN, 0, true},
+                {numeric_trie_comparison_t::GREATER_THAN, limit, false},
+                {numeric_trie_comparison_t::GREATER_THAN, std::numeric_limits<int64_t>::max(), true},
+                {numeric_trie_comparison_t::EQUAL_TO, -limit},
+                {numeric_trie_comparison_t::EQUAL_TO, 0},
+                {numeric_trie_comparison_t::EQUAL_TO, limit},
+                {numeric_trie_comparison_t::EQUAL_TO, std::numeric_limits<int64_t>::min()},
+                {numeric_trie_comparison_t::EQUAL_TO, std::numeric_limits<int64_t>::max()},
+        };
+
+        for (const auto& query : queries) {
+            ASSERT_EQ(eager_numeric_trie_ids(trie, query), raw_numeric_trie_ids(trie, query));
+        }
+
+        if (bits < 8) {
+            const auto out_of_width = limit + 1;
+            const numeric_trie_query_t range_query{numeric_trie_comparison_t::RANGE,
+                                                    out_of_width, true, out_of_width, true};
+            const numeric_trie_query_t less_than_query{numeric_trie_comparison_t::LESS_THAN, out_of_width, true};
+            const numeric_trie_query_t greater_than_query{numeric_trie_comparison_t::GREATER_THAN, out_of_width, true};
+            const numeric_trie_query_t equal_to_query{numeric_trie_comparison_t::EQUAL_TO, out_of_width};
+            ASSERT_EQ(eager_numeric_trie_ids(trie, range_query), raw_numeric_trie_ids(trie, range_query));
+            ASSERT_EQ(eager_numeric_trie_ids(trie, less_than_query), raw_numeric_trie_ids(trie, less_than_query));
+            ASSERT_EQ(eager_numeric_trie_ids(trie, greater_than_query), raw_numeric_trie_ids(trie, greater_than_query));
+            ASSERT_EQ(eager_numeric_trie_ids(trie, equal_to_query), raw_numeric_trie_ids(trie, equal_to_query));
+        }
+    }
+}
+
+TEST_F(NumericRangeTrieTest, SupportsInt64Extrema) {
+    NumericTrie trie(64);
+    const auto minimum = std::numeric_limits<int64_t>::min();
+    const auto maximum = std::numeric_limits<int64_t>::max();
+    trie.insert(minimum, 11);
+    trie.insert(-1, 12);
+    trie.insert(0, 13);
+    trie.insert(1, 14);
+    trie.insert(maximum, 15);
+
+    const std::vector<std::pair<numeric_trie_query_t, std::vector<uint32_t>>> queries = {
+            {{numeric_trie_comparison_t::EQUAL_TO, minimum}, {11}},
+            {{numeric_trie_comparison_t::RANGE, minimum, true, minimum, true}, {11}},
+            {{numeric_trie_comparison_t::RANGE, minimum, true, maximum, true}, {11, 12, 13, 14, 15}},
+            {{numeric_trie_comparison_t::LESS_THAN, minimum, true}, {11}},
+            {{numeric_trie_comparison_t::LESS_THAN, minimum, false}, {}},
+            {{numeric_trie_comparison_t::GREATER_THAN, maximum, true}, {15}},
+            {{numeric_trie_comparison_t::GREATER_THAN, maximum, false}, {}},
+    };
+
+    for (const auto& query : queries) {
+        ASSERT_EQ(query.second, eager_numeric_trie_ids(trie, query.first));
+        ASSERT_EQ(query.second, iterator_numeric_trie_ids(trie, query.first));
+        ASSERT_EQ(query.second, raw_numeric_trie_ids(trie, query.first));
+    }
+
+    trie.remove(minimum, 11);
+    const numeric_trie_query_t equality_query{numeric_trie_comparison_t::EQUAL_TO, minimum};
+    const numeric_trie_query_t range_query{numeric_trie_comparison_t::RANGE, minimum, true, minimum, true};
+    ASSERT_TRUE(eager_numeric_trie_ids(trie, equality_query).empty());
+    ASSERT_TRUE(iterator_numeric_trie_ids(trie, equality_query).empty());
+    ASSERT_TRUE(raw_numeric_trie_ids(trie, equality_query).empty());
+    ASSERT_TRUE(eager_numeric_trie_ids(trie, range_query).empty());
+    ASSERT_TRUE(iterator_numeric_trie_ids(trie, range_query).empty());
+    ASSERT_TRUE(raw_numeric_trie_ids(trie, range_query).empty());
 }
 
 TEST_F(NumericRangeTrieTest, SearchRange) {
