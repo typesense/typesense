@@ -2110,12 +2110,7 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
                                 model_config["system_prompt"].get<std::string>() : "";
     const nlohmann::json state = build_state(facts, catalog, context);
 
-    const long per_call_timeout_ms = model_config.contains("timeout_ms") &&
-                                     model_config["timeout_ms"].is_number_unsigned() ?
-                                     model_config["timeout_ms"].get<long>() :
-                                     (long)JevClient::DEFAULT_TIMEOUT_MS;
-    const long total_budget_ms = opts.total_timeout_ms > 0 ? (long)opts.total_timeout_ms
-                                                           : 2 * per_call_timeout_ms;
+    const long total_budget_ms = JevClient::budget_ms(model_config, opts.total_timeout_ms);
 
     std::vector<jev_round_stats_t> round_stats;
 

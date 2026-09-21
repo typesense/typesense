@@ -3523,7 +3523,7 @@ static void maybe_jev_rerank(const collection_search_args_t& coll_args, size_t g
     }
 
     JevRerank::rerank(result["hits"], coll_args.jev_rerank_query, query_by_per_search,
-                      coll_args.jev_rerank_model_id, coll_args.jev_rerank_top_k);
+                      coll_args.jev_rerank_model_id, coll_args.jev_rerank_top_k, coll_args.start_ts);
 }
 
 Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {

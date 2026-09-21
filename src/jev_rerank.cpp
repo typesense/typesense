@@ -127,7 +127,8 @@ nlohmann::json JevRerank::build_questions(size_t num_candidates) {
 
 void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query,
                                   const std::vector<std::vector<std::string>>& query_by_per_search,
-                                  const nlohmann::json& model_config, size_t top_k) {
+                                  const nlohmann::json& model_config, size_t top_k,
+                                  uint64_t start_ts) {
     if(!hits.is_array() || hits.empty()) {
         return;
     }
@@ -155,10 +156,24 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
         candidates.push_back(candidate_from_hit(hits[slots[j]], query_by_per_search));
     }
 
+    // interpretation and rerank share one jev budget, the deadline starts at the connection timestamp before interpretation runs
+    long remaining_ms = 0;
+    if(start_ts > 0) {
+        const long long now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        const long elapsed_ms = now_us > (long long)start_ts ?
+                                (long)((now_us - (long long)start_ts) / 1000) : 0;
+        remaining_ms = JevClient::budget_ms(model_config) - elapsed_ms;
+        if(remaining_ms < (long)JevClient::MIN_TIMEOUT_MS) {
+            LOG(INFO) << "jev timing: rerank skipped, budget spent after " << elapsed_ms << "ms";
+            return;
+        }
+    }
+
     jev_round_stats_t stats;
     stats.purpose = "rerank";
     auto response_op = JevClient::ask(build_state(query, candidates), build_questions(slots.size()),
-                                      model_config, &stats);
+                                      model_config, &stats, remaining_ms);
 
     if(!response_op.ok()) {
         LOG(WARNING) << "jev rerank failed, original order stands: " << response_op.error();
@@ -201,7 +216,7 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
 
 void JevRerank::rerank(nlohmann::json& hits, const std::string& query,
                        const std::vector<std::vector<std::string>>& query_by_per_search,
-                       const std::string& model_id, size_t top_k) {
+                       const std::string& model_id, size_t top_k, uint64_t start_ts) {
     if(model_id.empty()) {
         static std::atomic<bool> warned_missing{false};
         warn_once(warned_missing, "jev_rerank skipped: `jev_rerank_model_id` is required");
@@ -222,5 +237,5 @@ void JevRerank::rerank(nlohmann::json& hits, const std::string& query,
         return;
     }
 
-    rerank_with_model(hits, query, query_by_per_search, model_config, top_k);
+    rerank_with_model(hits, query, query_by_per_search, model_config, top_k, start_ts);
 }

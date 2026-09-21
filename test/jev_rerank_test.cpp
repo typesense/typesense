@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <chrono>
 #include "jev_rerank.h"
 #include "jev_client.h"
 #include "json.hpp"
@@ -15,6 +16,12 @@ protected:
         JevClient::disable_request_capture();
     }
 };
+
+// matches the clock and unit http_req uses to stamp conn_ts
+static uint64_t now_us() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+}
 
 static nlohmann::json jev_config() {
     return nlohmann::json{{"model_name", "jev/jev-latest"}, {"api_key", "ts-test"}};
@@ -196,6 +203,39 @@ TEST_F(JevRerankTest, RerankMissingAnswerSortsAsZero) {
     ASSERT_EQ("first", hits[1]["document"]["title"]);
     ASSERT_EQ("second", hits[2]["document"]["title"]);
     ASSERT_FALSE(hits[2].contains("jev_rerank_score"));
+}
+
+TEST_F(JevRerankTest, RerankSkipsWhenTheRequestBudgetIsSpent) {
+    nlohmann::json hits = three_title_hits();
+    JevClient::add_mock_response(answers_body({0.2, 0.9, 0.5}), 200, {});
+
+    // a connection a minute old means interpretation already spent the shared budget
+    JevRerank::rerank_with_model(hits, "pasta", {{"title"}}, jev_config(), 20,
+                                 now_us() - 60ULL * 1000 * 1000);
+
+    ASSERT_EQ(0, JevClient::get_num_captured_requests());
+    ASSERT_EQ("first", hits[0]["document"]["title"]);
+    ASSERT_EQ("second", hits[1]["document"]["title"]);
+    ASSERT_FALSE(hits[0].contains("jev_rerank_score"));
+}
+
+TEST_F(JevRerankTest, RerankRunsWithBudgetLeftAndWithoutADeadline) {
+    nlohmann::json hits = three_title_hits();
+    JevClient::add_mock_response(answers_body({0.2, 0.9, 0.5}), 200, {});
+
+    JevRerank::rerank_with_model(hits, "pasta", {{"title"}}, jev_config(), 20, now_us());
+
+    ASSERT_EQ(1, JevClient::get_num_captured_requests());
+    ASSERT_EQ("second", hits[0]["document"]["title"]);
+
+    // zero start_ts is the no-deadline case for callers without a request clock
+    nlohmann::json undated = three_title_hits();
+    JevClient::add_mock_response(answers_body({0.2, 0.9, 0.5}), 200, {});
+
+    JevRerank::rerank_with_model(undated, "pasta", {{"title"}}, jev_config(), 20, 0);
+
+    ASSERT_EQ(2, JevClient::get_num_captured_requests());
+    ASSERT_EQ("second", undated[0]["document"]["title"]);
 }
 
 TEST_F(JevRerankTest, RerankByModelIdSkipsUnknownModel) {

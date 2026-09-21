@@ -77,6 +77,24 @@ bool JevClient::is_jev_model(const nlohmann::json& model_config) {
     return model_name.rfind("jev/", 0) == 0;
 }
 
+long JevClient::budget_ms(const nlohmann::json& model_config, size_t total_timeout_ms) {
+    if(total_timeout_ms == 0 && model_config.contains("total_timeout_ms") &&
+       model_config["total_timeout_ms"].is_number_unsigned()) {
+        total_timeout_ms = model_config["total_timeout_ms"].get<size_t>();
+    }
+    if(total_timeout_ms > 0) {
+        // validate_jev_model gates the range but stored configs are typed by no one
+        return std::min<long>(std::max<long>((long)total_timeout_ms, MIN_TIMEOUT_MS),
+                              MAX_TOTAL_TIMEOUT_MS);
+    }
+
+    long timeout_ms = DEFAULT_TIMEOUT_MS;
+    if(model_config.contains("timeout_ms") && model_config["timeout_ms"].is_number_unsigned()) {
+        timeout_ms = model_config["timeout_ms"].get<long>();
+    }
+    return 2 * timeout_ms;
+}
+
 Option<nlohmann::json> JevClient::ask(const nlohmann::json& state,
                                       const nlohmann::json& questions,
                                       const nlohmann::json& model_config,

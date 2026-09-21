@@ -1937,6 +1937,29 @@ TEST_F(JevSearchParamsTest, ClientSendsOneBatchedRequest) {
     ASSERT_EQ(1, body["questions"].size());
 }
 
+TEST_F(JevSearchParamsTest, ClientBudgetSpansEveryCallOfOneRequest) {
+    // total_timeout_ms wins over the doubled per-call timeout when set
+    nlohmann::json with_knob = R"json({"timeout_ms": 5000, "total_timeout_ms": 3000})json"_json;
+    ASSERT_EQ(3000, JevClient::budget_ms(with_knob));
+
+    // unset, the budget is two calls at the configured per call timeout
+    nlohmann::json without_knob = R"json({"timeout_ms": 4000})json"_json;
+    ASSERT_EQ(8000, JevClient::budget_ms(without_knob));
+
+    // two calls at the default timeout when the per call timeout is unset too
+    ASSERT_EQ(2 * (long)JevClient::DEFAULT_TIMEOUT_MS,
+              JevClient::budget_ms(nlohmann::json::object()));
+
+    // validate_jev_model gates the range but a stored config is typed by no one
+    nlohmann::json too_big = R"json({"total_timeout_ms": 999999})json"_json;
+    ASSERT_EQ((long)JevClient::MAX_TOTAL_TIMEOUT_MS, JevClient::budget_ms(too_big));
+
+    // the search path passes the value options_from_config already validated, and it wins
+    ASSERT_EQ(2500, JevClient::budget_ms(with_knob, 2500));
+    // zero there means the caller has no resolved override, true for the rerank path
+    ASSERT_EQ(3000, JevClient::budget_ms(with_knob, 0));
+}
+
 TEST_F(JevSearchParamsTest, ClientSurfacesApiErrors) {
     JevClient::add_mock_response(R"json({"error": {"message": "invalid api key"}})json", 401, {});
 
