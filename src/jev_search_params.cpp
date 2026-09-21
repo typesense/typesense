@@ -11,7 +11,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <regex>
 #include <sstream>
@@ -931,6 +933,8 @@ Option<nlohmann::json> JevSearchParams::build_questions(const jev_catalog_t& cat
 }
 
 namespace {
+    enum class bound_t { none, lower, upper };
+
     struct clause_t {
         std::string field;
         std::string expr;
@@ -938,6 +942,8 @@ namespace {
         bool alternative = false;
         double confidence = 0;
         size_t order = 0;
+        bound_t bound = bound_t::none;
+        std::string literal;
     };
 }
 
@@ -1360,16 +1366,19 @@ static void add_numeric_clauses(const jev_catalog_t& catalog,
 
         const std::string& op = op_choice.get();
         std::string comparator;
+        bound_t bound = bound_t::none;
         if(op == "eq") {
             comparator = "";
         } else if(op == "gt") {
             comparator = ">";
         } else if(op == "gte") {
             comparator = ">=";
+            bound = bound_t::lower;
         } else if(op == "lt") {
             comparator = "<";
         } else if(op == "lte") {
             comparator = "<=";
+            bound = bound_t::upper;
         } else {
             entry["outcome"] = "skipped, unknown op";
             trace.push_back(entry);
@@ -1382,6 +1391,8 @@ static void add_numeric_clauses(const jev_catalog_t& catalog,
         clause.alternative = alternative;
         clause.confidence = std::min(owner_probability, op_confidence);
         clause.order = clauses.size();
+        clause.bound = bound;
+        clause.literal = facts.numbers[k];
         collect_terms(numeric_field->name, clause.terms);
         clause.terms.push_back(facts.numbers[k]);
         if(facts.number_spans[k].find_first_of("0123456789") == std::string::npos) {
@@ -1414,6 +1425,8 @@ static void add_numeric_clauses(const jev_catalog_t& catalog,
             also_clause.alternative = alternative;
             also_clause.confidence = std::min(also, op_confidence);
             also_clause.order = clauses.size();
+            also_clause.bound = bound;
+            also_clause.literal = facts.numbers[k];
             collect_terms(also_field.name, also_clause.terms);
             also_clause.terms.push_back(facts.numbers[k]);
             if(facts.number_spans[k].find_first_of("0123456789") == std::string::npos) {
@@ -1673,6 +1686,62 @@ static std::string build_q(const jev_query_facts_t& facts, const nlohmann::json&
     return consumed.empty() ? facts.query : "*";
 }
 
+static void merge_numeric_ranges(std::vector<clause_t>& clauses, nlohmann::json& trace) {
+    std::map<std::string, std::vector<size_t>> bounds_by_field;
+    for(size_t i = 0; i < clauses.size(); i++) {
+        // an alternative pair sits in the `or` group, folding it would turn a disjunct into a conjunct
+        if(clauses[i].bound != bound_t::none && !clauses[i].alternative) {
+            bounds_by_field[clauses[i].field].push_back(i);
+        }
+    }
+
+    std::unordered_set<size_t> folded;
+    for(const auto& entry : bounds_by_field) {
+        const auto& indices = entry.second;
+        if(indices.size() != 2 || clauses[indices[0]].bound == clauses[indices[1]].bound) {
+            continue;
+        }
+
+        size_t lower = indices[0];
+        size_t upper = indices[1];
+        if(clauses[lower].bound == bound_t::upper) {
+            std::swap(lower, upper);
+        }
+
+        if(std::strtod(clauses[lower].literal.c_str(), nullptr) >
+           std::strtod(clauses[upper].literal.c_str(), nullptr)) {
+            continue;
+        }
+
+        nlohmann::json record;
+        record["stage"] = "range";
+        record["folded"] = nlohmann::json::array({clauses[lower].expr, clauses[upper].expr});
+
+        clauses[lower].expr = entry.first + ":[" + clauses[lower].literal + ".." +
+                              clauses[upper].literal + "]";
+        clauses[lower].confidence = std::min(clauses[lower].confidence, clauses[upper].confidence);
+        clauses[lower].terms.insert(clauses[lower].terms.end(), clauses[upper].terms.begin(),
+                                    clauses[upper].terms.end());
+        clauses[lower].bound = bound_t::none;
+        folded.insert(upper);
+
+        record["expr"] = clauses[lower].expr;
+        trace.push_back(record);
+    }
+
+    if(folded.empty()) {
+        return;
+    }
+
+    std::vector<clause_t> kept;
+    for(size_t i = 0; i < clauses.size(); i++) {
+        if(folded.count(i) == 0) {
+            kept.push_back(std::move(clauses[i]));
+        }
+    }
+    clauses = std::move(kept);
+}
+
 nlohmann::json JevSearchParams::assemble(const jev_catalog_t& catalog, const jev_query_facts_t& facts,
                                          const nlohmann::json& answers, const jev_options_t& opts) {
     nlohmann::json trace = nlohmann::json::array();
@@ -1690,6 +1759,8 @@ nlohmann::json JevSearchParams::assemble(const jev_catalog_t& catalog, const jev
         }
     }
     clauses = std::move(unique_clauses);
+
+    merge_numeric_ranges(clauses, trace);
 
     if(clauses.size() > opts.max_clauses) {
         std::stable_sort(clauses.begin(), clauses.end(), by_confidence_desc);

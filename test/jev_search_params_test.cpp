@@ -656,7 +656,6 @@ TEST_F(JevSearchParamsTest, AssembleKeepsASingleOwnerWhenAlsoNoulsStayLow) {
 }
 
 TEST_F(JevSearchParamsTest, AssembleNumericRangeFromTwoLiterals) {
-    // a range is two literals binding the same field with opposite bounds, there is no range operator
     jev_catalog_t catalog;
     catalog.collection_name = "products";
     catalog.numeric_fields.push_back({"price", field_types::FLOAT});
@@ -674,8 +673,127 @@ TEST_F(JevSearchParamsTest, AssembleNumericRangeFromTwoLiterals) {
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
-    ASSERT_EQ("price:>=100 && price:<=300", params["filter_by"].get<std::string>());
+    ASSERT_EQ("price:[100..300]", params["filter_by"].get<std::string>());
     ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+    ASSERT_EQ(1, params["llm_response"]["clauses"].size());
+    ASSERT_FLOAT_EQ(0.87, params["llm_response"]["clauses"][0]["confidence"].get<double>());
+}
+
+TEST_F(JevSearchParamsTest, AssembleKeepsStrictNumericBoundsSplit) {
+    // the filter parser's only range form is inclusive, a strict pair has to stay two clauses
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+    auto facts = facts_for("headphones over 100 and under 300");
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num0__op": {"type": "choice", "choice": "gt", "confidence": 0.88,
+                     "probabilities": {"eq": 0.02, "gt": 0.88, "gte": 0.06, "lt": 0.02, "lte": 0.02}},
+        "num1__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num1__op": {"type": "choice", "choice": "lt", "confidence": 0.87,
+                     "probabilities": {"eq": 0.02, "gt": 0.02, "gte": 0.02, "lt": 0.87, "lte": 0.07}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("price:>100 && price:<300", params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+}
+
+TEST_F(JevSearchParamsTest, AssembleKeepsInvertedNumericBoundsSplit) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+    auto facts = facts_for("headphones at least 300 and at most 100");
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num0__op": {"type": "choice", "choice": "gte", "confidence": 0.88,
+                     "probabilities": {"eq": 0.02, "gt": 0.06, "gte": 0.88, "lt": 0.02, "lte": 0.02}},
+        "num1__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num1__op": {"type": "choice", "choice": "lte", "confidence": 0.87,
+                     "probabilities": {"eq": 0.02, "gt": 0.02, "gte": 0.03, "lt": 0.06, "lte": 0.87}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("price:>=300 && price:<=100", params["filter_by"].get<std::string>());
+}
+
+TEST_F(JevSearchParamsTest, AssembleKeepsNumericBoundsSplitWhenAFieldCarriesThree) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+    auto facts = facts_for("headphones between 100 and 300 but at least 150");
+    ASSERT_EQ(3, facts.numbers.size());
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num0__op": {"type": "choice", "choice": "gte", "confidence": 0.88,
+                     "probabilities": {"eq": 0.02, "gt": 0.06, "gte": 0.88, "lt": 0.02, "lte": 0.02}},
+        "num1__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num1__op": {"type": "choice", "choice": "lte", "confidence": 0.87,
+                     "probabilities": {"eq": 0.02, "gt": 0.02, "gte": 0.03, "lt": 0.06, "lte": 0.87}},
+        "num2__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num2__op": {"type": "choice", "choice": "gte", "confidence": 0.86,
+                     "probabilities": {"eq": 0.02, "gt": 0.08, "gte": 0.86, "lt": 0.02, "lte": 0.02}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("price:>=100 && price:<=300 && price:>=150", params["filter_by"].get<std::string>());
+}
+
+TEST_F(JevSearchParamsTest, AssembleKeepsAlternativeNumericBoundsSplit) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+    auto facts = facts_for("phones at least 100 or at most 300");
+    ASSERT_TRUE(facts.has_or);
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num0__op": {"type": "choice", "choice": "gte", "confidence": 0.88,
+                     "probabilities": {"eq": 0.02, "gt": 0.06, "gte": 0.88, "lt": 0.02, "lte": 0.02}},
+        "num0__alt": {"type": "noul", "noul": 0.92},
+        "num1__field": {"type": "choice", "choice": "price", "confidence": 0.9,
+                        "probabilities": {"price": 0.9, "__none__": 0.1}},
+        "num1__op": {"type": "choice", "choice": "lte", "confidence": 0.87,
+                     "probabilities": {"eq": 0.02, "gt": 0.02, "gte": 0.03, "lt": 0.06, "lte": 0.87}},
+        "num1__alt": {"type": "noul", "noul": 0.9}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("(price:>=100 || price:<=300)", params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+}
+
+TEST_F(JevSearchParamsTest, AssembleDoesNotFoldBoundsAcrossFields) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "restaurants";
+    catalog.numeric_fields.push_back({"price_min", field_types::INT32});
+    catalog.numeric_fields.push_back({"price_max", field_types::INT32});
+    auto facts = facts_for("a meal between 20 and 40 euros");
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price_min", "confidence": 0.85,
+                        "probabilities": {"price_min": 0.85, "price_max": 0.1, "__none__": 0.05}},
+        "num0__op": {"type": "choice", "choice": "gte", "confidence": 0.88,
+                     "probabilities": {"eq": 0.02, "gt": 0.06, "gte": 0.88, "lt": 0.02, "lte": 0.02}},
+        "num1__field": {"type": "choice", "choice": "price_max", "confidence": 0.85,
+                        "probabilities": {"price_min": 0.1, "price_max": 0.85, "__none__": 0.05}},
+        "num1__op": {"type": "choice", "choice": "lte", "confidence": 0.87,
+                     "probabilities": {"eq": 0.02, "gt": 0.02, "gte": 0.03, "lt": 0.06, "lte": 0.87}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("price_min:>=20 && price_max:<=40", params["filter_by"].get<std::string>());
 }
 
 TEST_F(JevSearchParamsTest, AssembleBindsDuplicateLiteralsIndependently) {
