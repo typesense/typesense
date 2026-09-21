@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <memory>
 #include "jev_search_params.h"
 #include "jev_client.h"
@@ -1305,6 +1306,248 @@ TEST_F(JevSearchParamsTest, AssembleCapsTheNumberOfClauses) {
     ASSERT_EQ("b:true && d:true", params["filter_by"].get<std::string>());
 }
 
+static jev_catalog_t cuisine_catalog(const std::vector<std::string>& values) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "restaurants";
+    catalog.facet_fields.push_back({"cuisines", values});
+    return catalog;
+}
+
+static std::vector<std::string> numbered_values(size_t count) {
+    std::vector<std::string> values;
+    for(size_t i = 0; i < count; i++) {
+        values.push_back("Cuisine" + std::to_string(i));
+    }
+    return values;
+}
+
+TEST_F(JevSearchParamsTest, ShortlistKeepsAVocabularyThatAlreadyFits) {
+    auto catalog = cuisine_catalog({"Greek", "Turkish", "Italian"});
+    auto trace = JevSearchParams::shortlist_values(catalog, facts_for("greek food"), jev_options_t());
+
+    // three values against a cap of forty, narrowing could only lose recall for nothing
+    ASSERT_EQ(3, catalog.facet_fields[0].values.size());
+    ASSERT_EQ(3, catalog.facet_fields[0].vocabulary_size);
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("Greek", catalog.facet_fields[0].values[0]);
+
+    ASSERT_EQ(1, trace.size());
+    ASSERT_EQ("shortlist", trace[0]["stage"].get<std::string>());
+    ASSERT_EQ("cuisines", trace[0]["field"].get<std::string>());
+    ASSERT_EQ(3, trace[0]["vocabulary"].get<size_t>());
+    ASSERT_EQ(1, trace[0]["matched"].get<size_t>());
+    ASSERT_EQ(3, trace[0]["offered"].get<size_t>());
+    ASSERT_EQ("Greek", trace[0]["matched_values"][0].get<std::string>());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistNarrowsAWideVocabularyToMatchesPlusTheFloor) {
+    auto values = numbered_values(200);
+    values.push_back("Greek");
+    auto catalog = cuisine_catalog(values);
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 10;
+    opts.shortlist_floor_values = 4;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("greek food"), opts);
+
+    ASSERT_EQ(201, catalog.facet_fields[0].vocabulary_size);
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ(5, catalog.facet_fields[0].values.size());
+    ASSERT_EQ("Greek", catalog.facet_fields[0].values[0]);
+    ASSERT_EQ("Cuisine0", catalog.facet_fields[0].values[1]);
+    ASSERT_EQ("Cuisine3", catalog.facet_fields[0].values[4]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistFallsBackToTheFrequencyFloorWhenNothingMatches) {
+    auto catalog = cuisine_catalog(numbered_values(100));
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 10;
+    opts.shortlist_floor_values = 6;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("somewhere nice tonight"), opts);
+
+    ASSERT_EQ(0, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ(6, catalog.facet_fields[0].values.size());
+    ASSERT_EQ("Cuisine0", catalog.facet_fields[0].values[0]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistCapBindsOnAFloodOfMatches) {
+    std::vector<std::string> values;
+    for(size_t i = 0; i < 50; i++) {
+        values.push_back("Greek" + std::to_string(i));
+    }
+    auto catalog = cuisine_catalog(values);
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 6;
+    opts.shortlist_floor_values = 4;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("greek food"), opts);
+
+    ASSERT_EQ(6, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ(6, catalog.facet_fields[0].values.size());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistOffOffersTheWholeVocabulary) {
+    auto catalog = cuisine_catalog(numbered_values(100));
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 0;
+
+    auto trace = JevSearchParams::shortlist_values(catalog, facts_for("greek food"), opts);
+
+    ASSERT_EQ(100, catalog.facet_fields[0].values.size());
+    ASSERT_EQ(100, catalog.facet_fields[0].vocabulary_size);
+    ASSERT_EQ(0, catalog.facet_fields[0].num_matched);
+    ASSERT_TRUE(trace.empty());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistMatchesThroughTheStemmer) {
+    auto catalog = cuisine_catalog({"Bakeries", "Pizza"});
+    JevSearchParams::shortlist_values(catalog, facts_for("a good bakery"), jev_options_t());
+
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("Bakeries", catalog.facet_fields[0].values[0]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistMatchesThroughATypoWithinTheEnginesBudget) {
+    // a transposition of the last two letters, exactly what art_fuzzy_search forgives
+    auto catalog = cuisine_catalog({"Japanese", "Pizza"});
+    JevSearchParams::shortlist_values(catalog, facts_for("japanees food"), jev_options_t());
+
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("Japanese", catalog.facet_fields[0].values[0]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistGivesShortWordsNoTypoBudget) {
+    // min_len_1typo is 4, three letter words must not collapse into one another
+    auto catalog = cuisine_catalog({"Tha", "Pizza"});
+    JevSearchParams::shortlist_values(catalog, facts_for("thi food"), jev_options_t());
+
+    ASSERT_EQ(0, catalog.facet_fields[0].num_matched);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistRanksAFullyCoveredValueAboveAClippedOne) {
+    auto catalog = cuisine_catalog({"York Street Diner", "New York"});
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 2;
+    opts.shortlist_floor_values = 0;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("new york"), opts);
+
+    ASSERT_EQ(2, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("New York", catalog.facet_fields[0].values[0]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistPrefersTheValueMatchedByTheRarerQueryWord) {
+    auto catalog = cuisine_catalog({"Barcelona", "Barbecue", "Bartender", "Barrel", "Ramen"});
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 1;
+    opts.shortlist_floor_values = 0;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("bar ram"), opts);
+
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("Ramen", catalog.facet_fields[0].values[0]);
+}
+
+TEST_F(JevSearchParamsTest, ShortlistOnlyEverDropsValues) {
+    const std::vector<std::string> vocabulary = {"Greek", "Turkish", "Italian", "Thai", "Ramen", "Sushi"};
+    auto catalog = cuisine_catalog(vocabulary);
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 3;
+    opts.shortlist_floor_values = 1;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("greek or thai"), opts);
+
+    ASSERT_EQ(2, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ(3, catalog.facet_fields[0].values.size());
+    for(const auto& value : catalog.facet_fields[0].values) {
+        ASSERT_TRUE(std::find(vocabulary.begin(), vocabulary.end(), value) != vocabulary.end());
+    }
+}
+
+TEST_F(JevSearchParamsTest, ShortlistNarrowsEveryFacetFieldIndependently) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "restaurants";
+    auto cuisines = numbered_values(50);
+    cuisines.push_back("Greek");
+    catalog.facet_fields.push_back({"cuisines", cuisines});
+    catalog.facet_fields.push_back({"neighbourhood", {"Kolonaki", "Exarchia"}});
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 4;
+    opts.shortlist_floor_values = 2;
+
+    auto trace = JevSearchParams::shortlist_values(catalog, facts_for("greek food"), opts);
+
+    ASSERT_EQ(2, trace.size());
+    ASSERT_EQ(51, catalog.facet_fields[0].vocabulary_size);
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ(3, catalog.facet_fields[0].values.size());
+
+    ASSERT_EQ(2, catalog.facet_fields[1].vocabulary_size);
+    ASSERT_EQ(0, catalog.facet_fields[1].num_matched);
+    ASSERT_EQ(2, catalog.facet_fields[1].values.size());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistShrinksTheStateAndTheOfferedOptions) {
+    auto values = numbered_values(120);
+    values.push_back("Greek");
+    auto catalog = cuisine_catalog(values);
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 8;
+    opts.shortlist_floor_values = 4;
+
+    auto facts = facts_for("greek food");
+    JevSearchParams::shortlist_values(catalog, facts, opts);
+
+    auto state = JevSearchParams::build_state(facts, catalog);
+    ASSERT_EQ(5, state["values"]["cuisines"].size());
+
+    auto questions_op = JevSearchParams::build_questions(catalog, facts, opts);
+    ASSERT_TRUE(questions_op.ok());
+
+    // five values plus the none escape hatch, down from a hundred and twenty two
+    auto criteria = questions_op.get()["f0__value"]["criteria"];
+    ASSERT_EQ(6, criteria.size());
+    ASSERT_TRUE(criteria.contains("Greek"));
+    ASSERT_TRUE(criteria.contains("__none__"));
+    ASSERT_FALSE(criteria.contains("Cuisine90"));
+}
+
+TEST_F(JevSearchParamsTest, ShortlistHandlesACatalogWithNoFacetFields) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "restaurants";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+
+    auto trace = JevSearchParams::shortlist_values(catalog, facts_for("cheap spots"), jev_options_t());
+    ASSERT_TRUE(trace.empty());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistKnobsComeOffTheModelConfig) {
+    jev_options_t opts;
+
+    nlohmann::json config = R"json({"max_shortlist_values": 12, "shortlist_floor_values": 3})json"_json;
+    ASSERT_TRUE(JevSearchParams::options_from_config(config, opts).ok());
+    ASSERT_EQ(12, opts.max_shortlist_values);
+    ASSERT_EQ(3, opts.shortlist_floor_values);
+
+    // zero is the off switch, not an out of range value
+    nlohmann::json off = R"json({"max_shortlist_values": 0})json"_json;
+    ASSERT_TRUE(JevSearchParams::options_from_config(off, opts).ok());
+    ASSERT_EQ(0, opts.max_shortlist_values);
+
+    nlohmann::json over_cap = R"json({"max_shortlist_values": 900})json"_json;
+    ASSERT_FALSE(JevSearchParams::options_from_config(over_cap, opts).ok());
+}
+
 TEST_F(JevSearchParamsTest, BuildQuestionsBatchesEveryJudgment) {
     jev_catalog_t catalog;
     catalog.collection_name = "products";
@@ -1538,3 +1781,4 @@ TEST_F(JevSearchParamsTest, ClientCapsChoiceOptions) {
     auto question = JevClient::choice_question("pick one", options);
     ASSERT_EQ(JevClient::MAX_CHOICE_OPTIONS, question["criteria"].size());
 }
+

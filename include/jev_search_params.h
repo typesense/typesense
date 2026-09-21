@@ -10,6 +10,10 @@
 struct jev_facet_field_t {
     std::string name;
     std::vector<std::string> values;
+    // count of `values` matched by the query, sorted to the front, zero once the shortlist is off
+    size_t num_matched = 0;
+    // values the shortlist chose from, equals values.size() when nothing was dropped
+    size_t vocabulary_size = 0;
 };
 
 struct jev_numeric_field_t {
@@ -52,6 +56,10 @@ struct jev_options_t {
     double also_bound_threshold = 0.8;
 
     size_t max_options_per_question = 120;
+    // the frequency floor fills what is left. 0 offers the whole sampled vocabulary
+    size_t max_shortlist_values = 40;
+    // a paraphrase the matcher cannot see has to find its value here
+    size_t shortlist_floor_values = 20;
     size_t max_questions = 600;
     size_t max_token_questions = 24;
     // n anded clauses cost 2n-1 postfix tokens against filter_by_max_ops
@@ -88,6 +96,10 @@ public:
                                                const std::string& scope_filter = "");
 
     static jev_query_facts_t pre_parse(const std::string& query);
+
+    // code only retrieves here, the model still decides, return value is the per field trace
+    static nlohmann::json shortlist_values(jev_catalog_t& catalog, const jev_query_facts_t& facts,
+                                           const jev_options_t& opts);
 
     static nlohmann::json build_state(const jev_query_facts_t& facts, const jev_catalog_t& catalog,
                                       const std::string& context = "");

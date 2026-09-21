@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <ctime>
 #include <memory>
 #include <regex>
@@ -82,6 +83,15 @@ static bool has_indexable_token(const std::string& value, const field& f) {
     std::string token;
     size_t token_index = 0;
     return tokenizer.next(token, token_index);
+}
+
+static void collect_terms(const std::string& text, std::vector<std::string>& terms) {
+    Tokenizer tokenizer(text, true, false, "", {}, {'_'});
+    std::string token;
+    size_t token_index = 0;
+    while(tokenizer.next(token, token_index)) {
+        terms.push_back(token);
+    }
 }
 
 std::string JevSearchParams::facet_present_id(size_t i) { return "f" + std::to_string(i) + "__present"; }
@@ -332,6 +342,281 @@ Option<jev_catalog_t> JevSearchParams::build_catalog(const std::string& collecti
     }
 
     return Option<jev_catalog_t>(catalog);
+}
+
+static constexpr int TIER_EXACT = 0;
+static constexpr int TIER_STEM = 1;
+static constexpr int TIER_PREFIX = 2;
+static constexpr int TIER_TYPO = 3;
+static constexpr int TIER_NONE = 4;
+
+// the matched term set rides in a uint32_t mask, a longer query contributes nothing past this
+static constexpr size_t MAX_SHORTLIST_QUERY_TERMS = 32;
+
+static constexpr size_t MAX_TYPO_TERM_CHARS = 32;
+
+// the engine's own budget rather than a jev invention, min_len_1typo 4 and min_len_2typo 7
+static size_t typo_budget(size_t length) {
+    if(length < 4) {
+        return 0;
+    }
+    return length < 7 ? 1 : 2;
+}
+
+static size_t osa_distance(const std::string& a, const std::string& b, size_t max_cost) {
+    const size_t n = a.size();
+    const size_t m = b.size();
+    const size_t over = max_cost + 1;
+
+    if(n > m + max_cost || m > n + max_cost) {
+        return over;
+    }
+    if(max_cost == 0) {
+        return a == b ? 0 : over;
+    }
+    if(n > MAX_TYPO_TERM_CHARS || m > MAX_TYPO_TERM_CHARS) {
+        return over;
+    }
+
+    size_t rows[3][MAX_TYPO_TERM_CHARS + 1];
+    size_t* prev2 = rows[0];
+    size_t* prev = rows[1];
+    size_t* curr = rows[2];
+
+    for(size_t j = 0; j <= m; j++) {
+        prev[j] = j;
+    }
+
+    for(size_t i = 1; i <= n; i++) {
+        curr[0] = i;
+        size_t row_min = curr[0];
+
+        for(size_t j = 1; j <= m; j++) {
+            const size_t cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            size_t best = std::min(curr[j - 1] + 1, std::min(prev[j] + 1, prev[j - 1] + cost));
+            if(i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+                best = std::min(best, prev2[j - 2] + 1);
+            }
+            curr[j] = best;
+            row_min = std::min(row_min, best);
+        }
+
+        if(row_min > max_cost) {
+            return over;
+        }
+
+        size_t* spent = prev2;
+        prev2 = prev;
+        prev = curr;
+        curr = spent;
+    }
+
+    return prev[m] > max_cost ? over : prev[m];
+}
+
+namespace {
+    struct shortlist_term_t {
+        std::string text;
+        std::string stem;
+    };
+
+    struct shortlist_hit_t {
+        size_t index = 0;
+        int tier = TIER_NONE;
+        size_t covered = 0;
+        size_t total = 0;
+        uint32_t matched_terms = 0;
+        double selectivity = 0;
+    };
+}
+
+// Stemmer::stem takes a process wide lock, may_share_stem's 3-char check relies on snowball never rewriting opening letters
+static bool may_share_stem(const std::string& a, const std::string& b) {
+    return a.size() >= 3 && b.size() >= 3 && a.compare(0, 3, b, 0, 3) == 0;
+}
+
+static int term_tier(const shortlist_term_t& query_term, const std::string& value_term,
+                     const std::string& value_stem) {
+    if(query_term.text == value_term) {
+        return TIER_EXACT;
+    }
+    if(!query_term.stem.empty() && query_term.stem == value_stem) {
+        return TIER_STEM;
+    }
+
+    const bool query_shorter = query_term.text.size() < value_term.size();
+    const std::string& shorter = query_shorter ? query_term.text : value_term;
+    const std::string& longer = query_shorter ? value_term : query_term.text;
+    if(shorter.size() >= 3 && longer.compare(0, shorter.size(), shorter) == 0) {
+        return TIER_PREFIX;
+    }
+
+    const size_t budget = typo_budget(std::min(query_term.text.size(), value_term.size()));
+    if(budget > 0 && osa_distance(query_term.text, value_term, budget) <= budget) {
+        return TIER_TYPO;
+    }
+
+    return TIER_NONE;
+}
+
+static bool by_shortlist_rank(const shortlist_hit_t& a, const shortlist_hit_t& b) {
+    if(a.tier != b.tier) {
+        return a.tier < b.tier;
+    }
+
+    const double a_coverage = a.total == 0 ? 0 : (double)a.covered / (double)a.total;
+    const double b_coverage = b.total == 0 ? 0 : (double)b.covered / (double)b.total;
+    if(a_coverage != b_coverage) {
+        return a_coverage > b_coverage;
+    }
+
+    if(a.selectivity != b.selectivity) {
+        return a.selectivity > b.selectivity;
+    }
+
+    return a.index < b.index;
+}
+
+static void shortlist_field(const std::vector<shortlist_term_t>& query_terms,
+                            jev_facet_field_t& facet_field, const jev_options_t& opts,
+                            nlohmann::json& entry) {
+    auto stemmer = StemmerManager::get_instance().get_stemmer("en");
+
+    std::vector<shortlist_hit_t> hits;
+    std::vector<size_t> document_frequency(query_terms.size(), 0);
+
+    std::vector<std::string> value_terms;
+    std::vector<std::string> value_stems;
+
+    for(size_t i = 0; i < facet_field.values.size(); i++) {
+        value_terms.clear();
+        value_stems.clear();
+        collect_terms(facet_field.values[i], value_terms);
+        value_stems.resize(value_terms.size());
+
+        shortlist_hit_t hit;
+        hit.index = i;
+        hit.total = value_terms.size();
+
+        for(size_t v = 0; v < value_terms.size(); v++) {
+            bool covered = false;
+            for(size_t t = 0; t < query_terms.size(); t++) {
+                if(value_stems[v].empty() && stemmer != nullptr && !query_terms[t].stem.empty() &&
+                   may_share_stem(query_terms[t].text, value_terms[v])) {
+                    value_stems[v] = stemmer->stem(value_terms[v]);
+                }
+
+                const int tier = term_tier(query_terms[t], value_terms[v], value_stems[v]);
+                if(tier == TIER_NONE) {
+                    continue;
+                }
+                covered = true;
+                hit.matched_terms |= (uint32_t)1 << t;
+                hit.tier = std::min(hit.tier, tier);
+            }
+            if(covered) {
+                hit.covered++;
+            }
+        }
+
+        if(hit.tier == TIER_NONE) {
+            continue;
+        }
+
+        for(size_t t = 0; t < query_terms.size(); t++) {
+            if((hit.matched_terms & ((uint32_t)1 << t)) != 0) {
+                document_frequency[t]++;
+            }
+        }
+        hits.push_back(hit);
+    }
+
+    const double vocabulary = facet_field.values.empty() ? 1.0 : (double)facet_field.values.size();
+    for(auto& hit : hits) {
+        for(size_t t = 0; t < query_terms.size(); t++) {
+            if((hit.matched_terms & ((uint32_t)1 << t)) != 0) {
+                hit.selectivity = std::max(hit.selectivity,
+                                           1.0 - (double)document_frequency[t] / vocabulary);
+            }
+        }
+    }
+
+    std::stable_sort(hits.begin(), hits.end(), by_shortlist_rank);
+
+    std::vector<std::string> shortlisted;
+    std::unordered_set<size_t> taken;
+    for(const auto& hit : hits) {
+        if(shortlisted.size() >= opts.max_shortlist_values) {
+            break;
+        }
+        shortlisted.push_back(facet_field.values[hit.index]);
+        taken.insert(hit.index);
+    }
+
+    const size_t num_matched = shortlisted.size();
+    entry["matched"] = num_matched;
+    entry["matched_values"] = shortlisted;
+
+    const size_t target = facet_field.values.size() <= opts.max_shortlist_values ?
+                          facet_field.values.size() :
+                          std::min(opts.max_shortlist_values, num_matched + opts.shortlist_floor_values);
+
+    for(size_t i = 0; i < facet_field.values.size() && shortlisted.size() < target; i++) {
+        if(taken.count(i) == 0) {
+            shortlisted.push_back(facet_field.values[i]);
+        }
+    }
+
+    facet_field.num_matched = num_matched;
+    facet_field.values = std::move(shortlisted);
+    entry["offered"] = facet_field.values.size();
+}
+
+nlohmann::json JevSearchParams::shortlist_values(jev_catalog_t& catalog, const jev_query_facts_t& facts,
+                                                 const jev_options_t& opts) {
+    nlohmann::json trace = nlohmann::json::array();
+
+    for(auto& facet_field : catalog.facet_fields) {
+        facet_field.vocabulary_size = facet_field.values.size();
+        facet_field.num_matched = 0;
+    }
+
+    // off means the whole sampled vocabulary is offered, which is what shipped before the shortlist
+    if(opts.max_shortlist_values == 0) {
+        return trace;
+    }
+
+    std::vector<std::string> query_words;
+    collect_terms(facts.query, query_words);
+
+    auto stemmer = StemmerManager::get_instance().get_stemmer("en");
+
+    std::vector<shortlist_term_t> query_terms;
+    std::unordered_set<std::string> seen_terms;
+    for(const auto& word : query_words) {
+        if(query_terms.size() >= MAX_SHORTLIST_QUERY_TERMS) {
+            break;
+        }
+        if(!seen_terms.insert(word).second) {
+            continue;
+        }
+
+        shortlist_term_t term;
+        term.text = word;
+        term.stem = stemmer != nullptr ? stemmer->stem(word) : "";
+        query_terms.push_back(term);
+    }
+
+    for(auto& facet_field : catalog.facet_fields) {
+        nlohmann::json entry;
+        entry["stage"] = "shortlist";
+        entry["field"] = facet_field.name;
+        entry["vocabulary"] = facet_field.vocabulary_size;
+        shortlist_field(query_terms, facet_field, opts, entry);
+        trace.push_back(entry);
+    }
+
+    return trace;
 }
 
 nlohmann::json JevSearchParams::build_state(const jev_query_facts_t& facts, const jev_catalog_t& catalog,
@@ -1504,6 +1789,9 @@ Option<bool> JevSearchParams::options_from_config(const nlohmann::json& model_co
     const std::vector<std::tuple<const char*, size_t, size_t, size_t*>> counts = {
         // one slot below the client's 255 option cap keeps the appended __none__ from truncating away
         {"max_options_per_question", 2, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.max_options_per_question},
+        // 0 switches the shortlist off and offers the whole sampled vocabulary
+        {"max_shortlist_values", 0, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.max_shortlist_values},
+        {"shortlist_floor_values", 0, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.shortlist_floor_values},
         {"max_questions", 1, 10000, &opts.max_questions},
         {"max_token_questions", 0, 255, &opts.max_token_questions},
         // n anded clauses cost 2n-1 postfix tokens against filter_by_max_ops
@@ -1697,10 +1985,16 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     }
 
     const long ms_catalog = elapsed_ms(t_start);
-    const auto t_questions = std::chrono::steady_clock::now();
 
-    const jev_catalog_t catalog = catalog_op.get();
+    jev_catalog_t catalog = catalog_op.get();
     const jev_query_facts_t facts = pre_parse(query);
+
+    const auto t_shortlist = std::chrono::steady_clock::now();
+
+    const nlohmann::json shortlist_trace = shortlist_values(catalog, facts, opts);
+
+    const long ms_shortlist = elapsed_ms(t_shortlist);
+    const auto t_questions = std::chrono::steady_clock::now();
 
     auto questions_op = build_questions(catalog, facts, opts);
     if(!questions_op.ok()) {
@@ -1796,6 +2090,9 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     const auto t_assemble = std::chrono::steady_clock::now();
 
     nlohmann::json params = assemble(catalog, final_facts, answers, opts);
+    for(const auto& entry : shortlist_trace) {
+        params["llm_response"]["debug"]["trace"].push_back(entry);
+    }
     if(!word_number_entry.is_null()) {
         params["llm_response"]["debug"]["trace"].push_back(word_number_entry);
     }
@@ -1812,7 +2109,9 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     catalog_json["facet_fields"] = nlohmann::json::array();
     for(const auto& facet_field : catalog.facet_fields) {
         catalog_json["facet_fields"].push_back({{"name", facet_field.name},
-                                                {"num_values", facet_field.values.size()}});
+                                                {"num_values", facet_field.values.size()},
+                                                {"num_matched", facet_field.num_matched},
+                                                {"vocabulary", facet_field.vocabulary_size}});
     }
     catalog_json["bool_fields"] = catalog.bool_fields;
     catalog_json["sort_fields"] = catalog.sort_fields;
@@ -1858,7 +2157,8 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     }
     params["llm_response"]["debug"]["rounds"] = rounds_json;
 
-    LOG(INFO) << "jev timing: catalog=" << ms_catalog << "ms questions=" << ms_questions
+    LOG(INFO) << "jev timing: catalog=" << ms_catalog << "ms shortlist=" << ms_shortlist
+              << "ms questions=" << ms_questions
               << "ms api=" << ms_api << "ms assemble=" << ms_assemble
               << "ms total=" << elapsed_ms(t_start) << "ms budget=" << total_budget_ms
               << "ms asked=" << num_questions
