@@ -49,17 +49,16 @@ struct jev_options_t {
     double present_threshold = 0.6;
     double confidence_threshold = 0.5;
     double or_min_probability = 0.15;
-    // a second facet value joins its field's clause past this
-    double second_value_threshold = 0.5;
     double token_threshold = 0.5;
     // a literal fans out to a second field past this, and negated clauses need this much conviction
     double also_bound_threshold = 0.8;
 
     size_t max_options_per_question = 120;
-    // the frequency floor fills what is left. 0 offers the whole sampled vocabulary
+    // 0 offers the whole sampled vocabulary, matching still runs for the role questions
     size_t max_shortlist_values = 40;
-    // a paraphrase the matcher cannot see has to find its value here
     size_t shortlist_floor_values = 20;
+    // n required values on an array field cost 2n-1 postfix tokens
+    size_t max_role_values = 8;
     size_t max_questions = 600;
     size_t max_token_questions = 24;
     // n anded clauses cost 2n-1 postfix tokens against filter_by_max_ops
@@ -114,13 +113,23 @@ public:
     static std::string sanitize_filter_value(const std::string& raw_value);
     static std::string escape_filter_value(const std::string& raw_value);
 
+    static size_t num_role_values(const jev_facet_field_t& facet_field, const jev_options_t& opts);
+
     // question ids, derived from the catalog index
     static std::string facet_present_id(size_t i);
-    static std::string facet_value_id(size_t i);
-    static std::string facet_value2_id(size_t i);
-    static std::string facet_both_id(size_t i);
+    // value j of field i, one of required, excluded or unspecified
+    static std::string facet_role_id(size_t i, size_t j);
+    // do the required values have to hold at once, or is any one of them enough
+    static std::string facet_all_id(size_t i);
+    // the value the query means without naming it, picked from what the role questions do not cover
+    static std::string facet_other_id(size_t i);
     static std::string facet_negate_id(size_t i);
     static std::string facet_alt_id(size_t i);
+
+    // role options, the answer keys the assembly reads back
+    static constexpr const char* ROLE_REQUIRED = "required";
+    static constexpr const char* ROLE_EXCLUDED = "excluded";
+    static constexpr const char* ROLE_UNSPECIFIED = "unspecified";
     static std::string bool_alt_id(size_t i);
     static std::string number_alt_id(size_t k);
     static std::string number_field_id(size_t k);

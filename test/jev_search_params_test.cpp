@@ -53,6 +53,19 @@ static jev_catalog_t brand_catalog() {
     return catalog;
 }
 
+static jev_catalog_t matched_catalog(const std::string& collection_name, const std::string& field_name,
+                                     const std::vector<std::string>& values, size_t num_matched) {
+    jev_catalog_t catalog;
+    catalog.collection_name = collection_name;
+    jev_facet_field_t facet_field;
+    facet_field.name = field_name;
+    facet_field.values = values;
+    facet_field.num_matched = num_matched;
+    facet_field.vocabulary_size = values.size();
+    catalog.facet_fields.push_back(facet_field);
+    return catalog;
+}
+
 static jev_query_facts_t facts_for(const std::string& query) {
     return JevSearchParams::pre_parse(query);
 }
@@ -221,7 +234,7 @@ TEST_F(JevSearchParamsTest, AssembleSingleFacetClause) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.95},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.97,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.97,
                       "probabilities": {"Sony": 0.97, "Bose": 0.02, "Sennheiser": 0.01}}
     })json"_json;
 
@@ -230,19 +243,17 @@ TEST_F(JevSearchParamsTest, AssembleSingleFacetClause) {
     ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
 }
 
-TEST_F(JevSearchParamsTest, AssembleOrListFromTheSecondValueQuestion) {
-    // the value choice concentrates its mass on one winner, the second value has its own question
-    auto catalog = brand_catalog();
+TEST_F(JevSearchParamsTest, AssembleOrListFromPerValueRoles) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
     auto facts = facts_for("sony or bose headphones");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.93},
-        "f0__negate": {"type": "noul", "noul": 0.01},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.95,
-                      "probabilities": {"Sony": 0.95, "Bose": 0.03, "Sennheiser": 0.02}},
-        "f0__value2": {"type": "choice", "choice": "Bose", "confidence": 0.88,
-                       "probabilities": {"Sony": 0.02, "Bose": 0.88, "Sennheiser": 0.02, "__none__": 0.08}},
-        "f0__both": {"type": "noul", "noul": 0.05}
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.95,
+                       "probabilities": {"required": 0.95, "excluded": 0.02, "unspecified": 0.03}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.88,
+                       "probabilities": {"required": 0.88, "excluded": 0.02, "unspecified": 0.1}},
+        "f0__all": {"type": "noul", "noul": 0.05}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
@@ -250,21 +261,56 @@ TEST_F(JevSearchParamsTest, AssembleOrListFromTheSecondValueQuestion) {
     ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
 }
 
-TEST_F(JevSearchParamsTest, AssembleAndPairFromTheBothJudgment) {
-    jev_catalog_t catalog;
-    catalog.collection_name = "restaurants";
-    catalog.facet_fields.push_back({"categories", {"Wheelchair Accessible", "Outdoor Seating", "Delivery"}});
+TEST_F(JevSearchParamsTest, AssembleThreeValuesOnOneField) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 3);
+    auto facts = facts_for("sony, bose or sennheiser headphones");
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.94},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.93,
+                       "probabilities": {"required": 0.93, "excluded": 0.02, "unspecified": 0.05}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.9,
+                       "probabilities": {"required": 0.9, "excluded": 0.02, "unspecified": 0.08}},
+        "f0v2__role": {"type": "choice", "choice": "required", "confidence": 0.86,
+                       "probabilities": {"required": 0.86, "excluded": 0.03, "unspecified": 0.11}},
+        "f0__all": {"type": "noul", "noul": 0.04}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("brand:=[Sony,Bose,Sennheiser]", params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+}
+
+TEST_F(JevSearchParamsTest, AssembleMixedPolarityOnOneField) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
+    auto facts = facts_for("sony headphones but not bose");
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.92},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.94,
+                       "probabilities": {"required": 0.94, "excluded": 0.03, "unspecified": 0.03}},
+        "f0v1__role": {"type": "choice", "choice": "excluded", "confidence": 0.9,
+                       "probabilities": {"required": 0.03, "excluded": 0.9, "unspecified": 0.07}},
+        "f0__all": {"type": "noul", "noul": 0.05}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("brand:=Sony && brand:!=Bose", params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+}
+
+TEST_F(JevSearchParamsTest, AssembleAndGroupFromTheConjunctionJudgment) {
+    auto catalog = matched_catalog("restaurants", "categories",
+                                   {"Wheelchair Accessible", "Outdoor Seating", "Delivery"}, 2);
     auto facts = facts_for("wheelchair accessible with outdoor seating");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.95},
-        "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Wheelchair Accessible", "confidence": 0.94,
-                      "probabilities": {"Wheelchair Accessible": 0.94, "Outdoor Seating": 0.04, "Delivery": 0.02}},
-        "f0__value2": {"type": "choice", "choice": "Outdoor Seating", "confidence": 0.9,
-                       "probabilities": {"Wheelchair Accessible": 0.02, "Outdoor Seating": 0.9,
-                                         "Delivery": 0.02, "__none__": 0.06}},
-        "f0__both": {"type": "noul", "noul": 0.91}
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.94,
+                       "probabilities": {"required": 0.94, "excluded": 0.02, "unspecified": 0.04}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.9,
+                       "probabilities": {"required": 0.9, "excluded": 0.02, "unspecified": 0.08}},
+        "f0__all": {"type": "noul", "noul": 0.91}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
@@ -273,41 +319,83 @@ TEST_F(JevSearchParamsTest, AssembleAndPairFromTheBothJudgment) {
     ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
 }
 
-TEST_F(JevSearchParamsTest, AssembleRejectsASecondValueBelowThreshold) {
-    // a confused split must not smuggle a second value in
-    auto catalog = brand_catalog();
+TEST_F(JevSearchParamsTest, AssembleConjoinsThreeValuesOnAnArrayField) {
+    // no contains-all operator exists, n required values cost 2n-1 postfix tokens here
+    auto catalog = matched_catalog("restaurants", "categories",
+                                   {"Wheelchair Accessible", "Outdoor Seating", "Delivery"}, 3);
+    auto facts = facts_for("wheelchair accessible with outdoor seating and delivery");
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.95},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.93,
+                       "probabilities": {"required": 0.93, "excluded": 0.02, "unspecified": 0.05}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.91,
+                       "probabilities": {"required": 0.91, "excluded": 0.02, "unspecified": 0.07}},
+        "f0v2__role": {"type": "choice", "choice": "required", "confidence": 0.87,
+                       "probabilities": {"required": 0.87, "excluded": 0.03, "unspecified": 0.1}},
+        "f0__all": {"type": "noul", "noul": 0.9}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("(categories:=Wheelchair Accessible && categories:=Outdoor Seating && categories:=Delivery)",
+              params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
+}
+
+TEST_F(JevSearchParamsTest, AssembleRejectsARequiredRoleBelowThreshold) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
     auto facts = facts_for("sony headphones not from france");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
-        "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.51,
-                      "probabilities": {"Sony": 0.54, "Bose": 0.46}},
-        "f0__value2": {"type": "choice", "choice": "Bose", "confidence": 0.3,
-                       "probabilities": {"Sony": 0.05, "Bose": 0.35, "Sennheiser": 0.05, "__none__": 0.55}},
-        "f0__both": {"type": "noul", "noul": 0.1}
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.86,
+                       "probabilities": {"required": 0.86, "excluded": 0.04, "unspecified": 0.1}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.35,
+                       "probabilities": {"required": 0.35, "excluded": 0.05, "unspecified": 0.6}},
+        "f0__all": {"type": "noul", "noul": 0.1}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
     ASSERT_EQ("brand:=Sony", params["filter_by"].get<std::string>());
 }
 
-TEST_F(JevSearchParamsTest, AssembleRejectsASecondValueEqualToThePrimary) {
-    auto catalog = brand_catalog();
+TEST_F(JevSearchParamsTest, AssembleReadsRolesOverTheOtherChoice) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 1);
     auto facts = facts_for("sony headphones");
 
     nlohmann::json answers = R"json({
-        "f0__present": {"type": "noul", "noul": 0.9},
-        "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.95,
-                      "probabilities": {"Sony": 0.95, "Bose": 0.03, "Sennheiser": 0.02}},
-        "f0__value2": {"type": "choice", "choice": "Sony", "confidence": 0.7,
-                       "probabilities": {"Sony": 0.7, "Bose": 0.1, "Sennheiser": 0.1, "__none__": 0.1}},
-        "f0__both": {"type": "noul", "noul": 0.1}
+        "f0__present": {"type": "noul", "noul": 0.93},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.95,
+                       "probabilities": {"required": 0.95, "excluded": 0.02, "unspecified": 0.03}},
+        "f0__negate": {"type": "noul", "noul": 0.9},
+        "f0__other": {"type": "choice", "choice": "Bose", "confidence": 0.93,
+                      "probabilities": {"Bose": 0.93, "Sennheiser": 0.04, "__none__": 0.03}}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
     ASSERT_EQ("brand:=Sony", params["filter_by"].get<std::string>());
+}
+
+TEST_F(JevSearchParamsTest, AssembleCapsTheNumberOfRoleValues) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 3);
+    auto facts = facts_for("sony, bose or sennheiser headphones");
+
+    jev_options_t opts;
+    opts.max_role_values = 2;
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.94},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.93,
+                       "probabilities": {"required": 0.93, "excluded": 0.02, "unspecified": 0.05}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.9,
+                       "probabilities": {"required": 0.9, "excluded": 0.02, "unspecified": 0.08}},
+        "f0v2__role": {"type": "choice", "choice": "required", "confidence": 0.86,
+                       "probabilities": {"required": 0.86, "excluded": 0.03, "unspecified": 0.11}},
+        "f0__all": {"type": "noul", "noul": 0.04}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers, opts);
+    ASSERT_EQ("brand:=[Sony,Bose]", params["filter_by"].get<std::string>());
 }
 
 TEST_F(JevSearchParamsTest, AssembleNegatedClause) {
@@ -317,7 +405,7 @@ TEST_F(JevSearchParamsTest, AssembleNegatedClause) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.91},
         "f0__negate": {"type": "noul", "noul": 0.88},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.94,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.94,
                       "probabilities": {"Sony": 0.94, "Bose": 0.04, "Sennheiser": 0.02}}
     })json"_json;
 
@@ -327,18 +415,16 @@ TEST_F(JevSearchParamsTest, AssembleNegatedClause) {
 }
 
 TEST_F(JevSearchParamsTest, AssembleNegatedOrList) {
-    // excluding two values means neither may appear, the both judgment has no say under negation
-    auto catalog = brand_catalog();
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
     auto facts = facts_for("headphones that are neither sony nor bose");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
-        "f0__negate": {"type": "noul", "noul": 0.85},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.9,
-                      "probabilities": {"Sony": 0.9, "Bose": 0.07, "Sennheiser": 0.03}},
-        "f0__value2": {"type": "choice", "choice": "Bose", "confidence": 0.85,
-                       "probabilities": {"Sony": 0.03, "Bose": 0.85, "Sennheiser": 0.04, "__none__": 0.08}},
-        "f0__both": {"type": "noul", "noul": 0.88}
+        "f0v0__role": {"type": "choice", "choice": "excluded", "confidence": 0.9,
+                       "probabilities": {"required": 0.04, "excluded": 0.9, "unspecified": 0.06}},
+        "f0v1__role": {"type": "choice", "choice": "excluded", "confidence": 0.85,
+                       "probabilities": {"required": 0.05, "excluded": 0.85, "unspecified": 0.1}},
+        "f0__all": {"type": "noul", "noul": 0.88}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
@@ -353,7 +439,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsAWeakNegatedClause) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.7},
         "f0__negate": {"type": "noul", "noul": 0.85},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.5,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.5,
                       "probabilities": {"Sony": 0.55, "Bose": 0.3, "Sennheiser": 0.15}}
     })json"_json;
 
@@ -361,23 +447,44 @@ TEST_F(JevSearchParamsTest, AssembleDropsAWeakNegatedClause) {
     ASSERT_FALSE(params.contains("filter_by"));
 }
 
-TEST_F(JevSearchParamsTest, AssembleDemandsConvictionForASecondNegatedValue) {
-    // a negated list holds every named value out of the results, a coin flip second value must not join
-    auto catalog = brand_catalog();
+TEST_F(JevSearchParamsTest, AssembleDemandsConvictionForAnExcludedRole) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
     auto facts = facts_for("headphones that are not sony");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
-        "f0__negate": {"type": "noul", "noul": 0.88},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.92,
-                      "probabilities": {"Sony": 0.92, "Bose": 0.05, "Sennheiser": 0.03}},
-        "f0__value2": {"type": "choice", "choice": "Bose", "confidence": 0.5,
-                       "probabilities": {"Sony": 0.05, "Bose": 0.58, "Sennheiser": 0.05, "__none__": 0.32}},
-        "f0__both": {"type": "noul", "noul": 0.1}
+        "f0v0__role": {"type": "choice", "choice": "excluded", "confidence": 0.92,
+                       "probabilities": {"required": 0.03, "excluded": 0.92, "unspecified": 0.05}},
+        "f0v1__role": {"type": "choice", "choice": "excluded", "confidence": 0.58,
+                       "probabilities": {"required": 0.05, "excluded": 0.58, "unspecified": 0.37}},
+        "f0__all": {"type": "noul", "noul": 0.1}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
     ASSERT_EQ("brand:!=Sony", params["filter_by"].get<std::string>());
+}
+
+TEST_F(JevSearchParamsTest, AssembleKeepsAnExclusionOutOfTheAlternativeGroup) {
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
+    catalog.bool_fields.push_back("in_stock");
+    auto facts = facts_for("sony or in stock headphones but never bose");
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.93},
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.94,
+                       "probabilities": {"required": 0.94, "excluded": 0.03, "unspecified": 0.03}},
+        "f0v1__role": {"type": "choice", "choice": "excluded", "confidence": 0.9,
+                       "probabilities": {"required": 0.03, "excluded": 0.9, "unspecified": 0.07}},
+        "f0__all": {"type": "noul", "noul": 0.05},
+        "f0__alt": {"type": "noul", "noul": 0.9},
+        "b0": {"type": "choice", "choice": "true", "confidence": 0.9,
+               "probabilities": {"true": 0.9, "false": 0.05, "unspecified": 0.05}},
+        "b0__alt": {"type": "noul", "noul": 0.9}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_EQ("brand:!=Bose && (brand:=Sony || in_stock:true)", params["filter_by"].get<std::string>());
+    ASSERT_TRUE(filter_parses(params["filter_by"].get<std::string>()));
 }
 
 TEST_F(JevSearchParamsTest, AssembleDropsClauseWhenPresentIsBelowThreshold) {
@@ -387,7 +494,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsClauseWhenPresentIsBelowThreshold) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.21},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.99,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.99,
                       "probabilities": {"Sony": 0.99, "Bose": 0.005, "Sennheiser": 0.005}}
     })json"_json;
 
@@ -402,7 +509,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsClauseWhenTheDistributionIsFlat) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.82},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.12,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.12,
                       "probabilities": {"Sony": 0.2, "Bose": 0.14, "Sennheiser": 0.13}}
     })json"_json;
 
@@ -418,7 +525,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsTheWholeClauseWhenEverythingScoresNone)
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.88},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "__none__", "confidence": 0.9,
+        "f0__other": {"type": "choice", "choice": "__none__", "confidence": 0.9,
                       "probabilities": {"Sony": 0.03, "Bose": 0.03, "Sennheiser": 0.04, "__none__": 0.9}}
     })json"_json;
 
@@ -435,7 +542,7 @@ TEST_F(JevSearchParamsTest, AssembleEscapesTheChosenFacetValue) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
         "f0__negate": {"type": "noul", "noul": 0.01},
-        "f0__value": {"type": "choice", "choice": "PG (13)", "confidence": 0.93,
+        "f0__other": {"type": "choice", "choice": "PG (13)", "confidence": 0.93,
                       "probabilities": {"Rated R": 0.04, "PG (13)": 0.93, "Tom && Jerry": 0.03}}
     })json"_json;
 
@@ -708,7 +815,7 @@ TEST_F(JevSearchParamsTest, AssembleConjoinsClausesAcrossFieldTypes) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.95},
         "f0__negate": {"type": "noul", "noul": 0.01},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.96,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.96,
                       "probabilities": {"Sony": 0.96, "Bose": 0.04}},
         "num0__field": {"type": "choice", "choice": "price", "confidence": 0.92,
                         "probabilities": {"price": 0.92, "__none__": 0.08}},
@@ -885,7 +992,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsTokensAFilterClauseConsumed) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.94},
         "f0__negate": {"type": "noul", "noul": 0.03},
-        "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
+        "f0__other": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
                       "probabilities": {"Breakfast": 0.01, "Lunch": 0.02, "Dinner": 0.97}}
     })json"_json;
 
@@ -923,7 +1030,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsTokensThatShareAPrefixWithConsumedTerms
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.92},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Accepts Credit Cards", "confidence": 0.95,
+        "f0__other": {"type": "choice", "choice": "Accepts Credit Cards", "confidence": 0.95,
                       "probabilities": {"Accepts Credit Cards": 0.95, "Delivery": 0.05}}
     })json"_json;
     answers["q0"] = token_answer(0.1);
@@ -946,7 +1053,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsTokensAnAbbreviatedValueConsumed) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Mon", "confidence": 0.9,
+        "f0__other": {"type": "choice", "choice": "Mon", "confidence": 0.9,
                       "probabilities": {"Mon": 0.9, "Tue": 0.05, "Sun": 0.05}}
     })json"_json;
     answers["q0"] = token_answer(0.7);
@@ -1034,7 +1141,7 @@ TEST_F(JevSearchParamsTest, AssembleKeepsTokensWithIndependentSignal) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
         "f0__negate": {"type": "noul", "noul": 0.03},
-        "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.95,
+        "f0__other": {"type": "choice", "choice": "Dinner", "confidence": 0.95,
                       "probabilities": {"Breakfast": 0.01, "Lunch": 0.04, "Dinner": 0.95}}
     })json"_json;
     answers["q0"] = token_answer(0.85);
@@ -1132,7 +1239,7 @@ TEST_F(JevSearchParamsTest, AssembleDropsQToStarWhenTokensExceedTheCapAndFilters
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.9},
         "f0__negate": {"type": "noul", "noul": 0.03},
-        "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.9,
+        "f0__other": {"type": "choice", "choice": "Dinner", "confidence": 0.9,
                       "probabilities": {"Breakfast": 0.02, "Lunch": 0.08, "Dinner": 0.9}}
     })json"_json;
 
@@ -1169,7 +1276,7 @@ TEST_F(JevSearchParamsTest, AssembleConsumesAGreekValueAgainstAGreekToken) {
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.93},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Αθήνα", "confidence": 0.95,
+        "f0__other": {"type": "choice", "choice": "Αθήνα", "confidence": 0.95,
                       "probabilities": {"Αθήνα": 0.95, "Θεσσαλονίκη": 0.05}}
     })json"_json;
     answers["q0"] = token_answer(0.9);
@@ -1190,7 +1297,7 @@ TEST_F(JevSearchParamsTest, AssembleConsumesAnAccentedValueAgainstItsAsciiForm) 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.92},
         "f0__negate": {"type": "noul", "noul": 0.02},
-        "f0__value": {"type": "choice", "choice": "Café", "confidence": 0.94,
+        "f0__other": {"type": "choice", "choice": "Café", "confidence": 0.94,
                       "probabilities": {"Café": 0.94, "Bar": 0.06}}
     })json"_json;
     answers["q0"] = token_answer(0.9);
@@ -1233,7 +1340,7 @@ TEST_F(JevSearchParamsTest, AssembleAndsTheAlternativeGroupOntoTheRest) {
         "f0__present": {"type": "noul", "noul": 0.9},
         "f0__negate": {"type": "noul", "noul": 0.02},
         "f0__alt": {"type": "noul", "noul": 0.1},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.95,
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.95,
                       "probabilities": {"Sony": 0.95, "Bose": 0.05}},
         "b0": {"type": "choice", "choice": "true", "confidence": 0.9,
                "probabilities": {"true": 0.9, "false": 0.02, "unspecified": 0.08}},
@@ -1250,18 +1357,17 @@ TEST_F(JevSearchParamsTest, AssembleAndsTheAlternativeGroupOntoTheRest) {
 }
 
 TEST_F(JevSearchParamsTest, AssembleTreatsALoneAlternativeAsARequirement) {
-    auto catalog = brand_catalog();
+    auto catalog = matched_catalog("products", "brand", {"Sony", "Bose", "Sennheiser"}, 2);
     auto facts = facts_for("sony or bose headphones");
 
     nlohmann::json answers = R"json({
         "f0__present": {"type": "noul", "noul": 0.93},
-        "f0__negate": {"type": "noul", "noul": 0.01},
         "f0__alt": {"type": "noul", "noul": 0.95},
-        "f0__value": {"type": "choice", "choice": "Sony", "confidence": 0.93,
-                      "probabilities": {"Sony": 0.93, "Bose": 0.05, "Sennheiser": 0.02}},
-        "f0__value2": {"type": "choice", "choice": "Bose", "confidence": 0.87,
-                       "probabilities": {"Sony": 0.02, "Bose": 0.87, "Sennheiser": 0.03, "__none__": 0.08}},
-        "f0__both": {"type": "noul", "noul": 0.06}
+        "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.93,
+                       "probabilities": {"required": 0.93, "excluded": 0.03, "unspecified": 0.04}},
+        "f0v1__role": {"type": "choice", "choice": "required", "confidence": 0.87,
+                       "probabilities": {"required": 0.87, "excluded": 0.03, "unspecified": 0.1}},
+        "f0__all": {"type": "noul", "noul": 0.06}
     })json"_json;
 
     auto params = JevSearchParams::assemble(catalog, facts, answers);
@@ -1401,7 +1507,22 @@ TEST_F(JevSearchParamsTest, ShortlistOffOffersTheWholeVocabulary) {
     ASSERT_EQ(100, catalog.facet_fields[0].values.size());
     ASSERT_EQ(100, catalog.facet_fields[0].vocabulary_size);
     ASSERT_EQ(0, catalog.facet_fields[0].num_matched);
-    ASSERT_TRUE(trace.empty());
+    ASSERT_EQ(1, trace.size());
+}
+
+TEST_F(JevSearchParamsTest, ShortlistOffStillRecordsTheMatches) {
+    auto values = numbered_values(100);
+    values.push_back("Greek");
+    auto catalog = cuisine_catalog(values);
+
+    jev_options_t opts;
+    opts.max_shortlist_values = 0;
+
+    JevSearchParams::shortlist_values(catalog, facts_for("greek food"), opts);
+
+    ASSERT_EQ(101, catalog.facet_fields[0].values.size());
+    ASSERT_EQ(1, catalog.facet_fields[0].num_matched);
+    ASSERT_EQ("Greek", catalog.facet_fields[0].values[0]);
 }
 
 TEST_F(JevSearchParamsTest, ShortlistMatchesThroughTheStemmer) {
@@ -1514,10 +1635,13 @@ TEST_F(JevSearchParamsTest, ShortlistShrinksTheStateAndTheOfferedOptions) {
     auto questions_op = JevSearchParams::build_questions(catalog, facts, opts);
     ASSERT_TRUE(questions_op.ok());
 
-    // five values plus the none escape hatch, down from a hundred and twenty two
-    auto criteria = questions_op.get()["f0__value"]["criteria"];
-    ASSERT_EQ(6, criteria.size());
-    ASSERT_TRUE(criteria.contains("Greek"));
+    auto questions = questions_op.get();
+    ASSERT_EQ("choice", questions["f0v0__role"]["type"].get<std::string>());
+    ASSERT_TRUE(questions["f0v0__role"]["instructions"].get<std::string>().find("Greek") != std::string::npos);
+
+    auto criteria = questions["f0__other"]["criteria"];
+    ASSERT_EQ(5, criteria.size());
+    ASSERT_FALSE(criteria.contains("Greek"));
     ASSERT_TRUE(criteria.contains("__none__"));
     ASSERT_FALSE(criteria.contains("Cuisine90"));
 }
@@ -1561,14 +1685,14 @@ TEST_F(JevSearchParamsTest, BuildQuestionsBatchesEveryJudgment) {
     ASSERT_TRUE(questions_op.ok());
 
     auto questions = questions_op.get();
-    // 5 facet + (2 + 1 also) per literal + 1 bool + (1 + 1 dir per sort field) + 4 tokens
-    ASSERT_EQ(15, questions.size());
+    // 13 = 3 facet questions (no match yet, no role question) + 3 numeric (field, op, also) + 1 bool + 2 sort (field, dir) + 4 tokens
+    ASSERT_EQ(13, questions.size());
     ASSERT_EQ("noul", questions["f0__present"]["type"].get<std::string>());
-    ASSERT_EQ("choice", questions["f0__value"]["type"].get<std::string>());
-    ASSERT_TRUE(questions["f0__value"]["criteria"].contains("__none__"));
-    ASSERT_EQ("choice", questions["f0__value2"]["type"].get<std::string>());
-    ASSERT_TRUE(questions["f0__value2"]["criteria"].contains("__none__"));
-    ASSERT_EQ("noul", questions["f0__both"]["type"].get<std::string>());
+    ASSERT_EQ("choice", questions["f0__other"]["type"].get<std::string>());
+    ASSERT_TRUE(questions["f0__other"]["criteria"].contains("__none__"));
+    ASSERT_EQ("noul", questions["f0__negate"]["type"].get<std::string>());
+    ASSERT_FALSE(questions.contains("f0__all"));
+    ASSERT_FALSE(questions.contains("f0v0__role"));
     ASSERT_TRUE(questions["sort__field"]["criteria"].contains("__none__"));
     ASSERT_FALSE(questions.contains("q0__num"));
 

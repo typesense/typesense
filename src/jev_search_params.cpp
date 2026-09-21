@@ -95,10 +95,16 @@ static void collect_terms(const std::string& text, std::vector<std::string>& ter
 }
 
 std::string JevSearchParams::facet_present_id(size_t i) { return "f" + std::to_string(i) + "__present"; }
-std::string JevSearchParams::facet_value_id(size_t i) { return "f" + std::to_string(i) + "__value"; }
-std::string JevSearchParams::facet_value2_id(size_t i) { return "f" + std::to_string(i) + "__value2"; }
-std::string JevSearchParams::facet_both_id(size_t i) { return "f" + std::to_string(i) + "__both"; }
+std::string JevSearchParams::facet_role_id(size_t i, size_t j) {
+    return "f" + std::to_string(i) + "v" + std::to_string(j) + "__role";
+}
+std::string JevSearchParams::facet_all_id(size_t i) { return "f" + std::to_string(i) + "__all"; }
+std::string JevSearchParams::facet_other_id(size_t i) { return "f" + std::to_string(i) + "__other"; }
 std::string JevSearchParams::facet_negate_id(size_t i) { return "f" + std::to_string(i) + "__negate"; }
+
+size_t JevSearchParams::num_role_values(const jev_facet_field_t& facet_field, const jev_options_t& opts) {
+    return std::min(facet_field.num_matched, opts.max_role_values);
+}
 std::string JevSearchParams::facet_alt_id(size_t i) { return "f" + std::to_string(i) + "__alt"; }
 std::string JevSearchParams::bool_alt_id(size_t i) { return "b" + std::to_string(i) + "__alt"; }
 std::string JevSearchParams::number_alt_id(size_t k) { return "num" + std::to_string(k) + "__alt"; }
@@ -543,10 +549,13 @@ static void shortlist_field(const std::vector<shortlist_term_t>& query_terms,
 
     std::stable_sort(hits.begin(), hits.end(), by_shortlist_rank);
 
+    const size_t offer_cap = opts.max_shortlist_values == 0 ? facet_field.values.size() :
+                             opts.max_shortlist_values;
+
     std::vector<std::string> shortlisted;
     std::unordered_set<size_t> taken;
     for(const auto& hit : hits) {
-        if(shortlisted.size() >= opts.max_shortlist_values) {
+        if(shortlisted.size() >= offer_cap) {
             break;
         }
         shortlisted.push_back(facet_field.values[hit.index]);
@@ -557,9 +566,9 @@ static void shortlist_field(const std::vector<shortlist_term_t>& query_terms,
     entry["matched"] = num_matched;
     entry["matched_values"] = shortlisted;
 
-    const size_t target = facet_field.values.size() <= opts.max_shortlist_values ?
+    const size_t target = facet_field.values.size() <= offer_cap ?
                           facet_field.values.size() :
-                          std::min(opts.max_shortlist_values, num_matched + opts.shortlist_floor_values);
+                          std::min(offer_cap, num_matched + opts.shortlist_floor_values);
 
     for(size_t i = 0; i < facet_field.values.size() && shortlisted.size() < target; i++) {
         if(taken.count(i) == 0) {
@@ -579,11 +588,6 @@ nlohmann::json JevSearchParams::shortlist_values(jev_catalog_t& catalog, const j
     for(auto& facet_field : catalog.facet_fields) {
         facet_field.vocabulary_size = facet_field.values.size();
         facet_field.num_matched = 0;
-    }
-
-    // off means the whole sampled vocabulary is offered, which is what shipped before the shortlist
-    if(opts.max_shortlist_values == 0) {
-        return trace;
     }
 
     std::vector<std::string> query_words;
@@ -739,10 +743,21 @@ Option<nlohmann::json> JevSearchParams::build_questions(const jev_catalog_t& cat
     const bool ask_word_numbers = opts.word_numbers && ask_tokens && facts.numbers.empty() &&
                                   !catalog.numeric_fields.empty();
 
-    const size_t per_facet = facts.has_or ? 6 : 5;
+    size_t per_facet_total = 0;
+    for(const auto& facet_field : catalog.facet_fields) {
+        const size_t num_roles = num_role_values(facet_field, opts);
+        per_facet_total += 1 + num_roles + (num_roles >= 2 ? 1 : 0);
+        if(num_roles < facet_field.values.size()) {
+            per_facet_total += 2;
+        }
+        if(facts.has_or) {
+            per_facet_total++;
+        }
+    }
+
     const size_t per_number = 2 + std::min(catalog.numeric_fields.size(), opts.max_options_per_question) +
                               (facts.has_or ? 1 : 0);
-    size_t num_questions = catalog.facet_fields.size() * per_facet +
+    size_t num_questions = per_facet_total +
                            catalog.bool_fields.size() * (facts.has_or ? 2 : 1) +
                            (ask_numeric ? facts.numbers.size() * per_number : 0) +
                            (ask_sort ? 1 + std::min(catalog.sort_fields.size(), opts.max_options_per_question) : 0) +
@@ -760,6 +775,7 @@ Option<nlohmann::json> JevSearchParams::build_questions(const jev_catalog_t& cat
     for(size_t i = 0; i < catalog.facet_fields.size(); i++) {
         const auto& facet_field = catalog.facet_fields[i];
         const std::string& name = facet_field.name;
+        const size_t num_roles = num_role_values(facet_field, opts);
 
         questions[facet_present_id(i)] = JevClient::noul_question(
                 "Does the search query itself ask for or rule out one of the " +
@@ -771,47 +787,54 @@ Option<nlohmann::json> JevSearchParams::build_questions(const jev_catalog_t& cat
                 "word is about something else and merely resembles a listed value, the way `italian` "
                 "in `italian food` names the cuisine and not the country `Italy`");
 
-        // speculative for every field, read back only past the present gate
-        std::vector<std::pair<std::string, std::string>> value_options;
-        for(size_t v = 0; v < facet_field.values.size() && v < opts.max_options_per_question; v++) {
-            value_options.emplace_back(facet_field.values[v], "");
+        for(size_t j = 0; j < num_roles; j++) {
+            const std::string& value = facet_field.values[j];
+            questions[facet_role_id(i, j)] = JevClient::choice_question(
+                    "What does the search query ask of the `" + name + "` value `" + value + "`?",
+                    {{ROLE_REQUIRED, "the query asks for results that have `" + value +
+                                     "`, whether it names that value or an obvious rephrasing of it"},
+                     {ROLE_EXCLUDED, "the query rules `" + value + "` out, as in `not " + value +
+                                     "`, `-" + value + "` or `anything but " + value +
+                                     "`, and any term in `excluded_terms` is ruled out this way"},
+                     {ROLE_UNSPECIFIED, "the query says nothing about `" + value + "`, or it is at "
+                                        "most deducible from some other thing the query names, or a "
+                                        "query word merely resembles it while being about something "
+                                        "else, the way `italian` in `italian food` names the cuisine "
+                                        "and not the country `Italy`"}});
         }
-        value_options.emplace_back(JevClient::NONE_OPTION,
-                                   "the query refers to none of these `" + name + "` values");
 
-        questions[facet_value_id(i)] = JevClient::choice_question(
-                "Which `" + name + "` value does the query refer to, whether it wants it or rules it out?",
-                value_options);
-
-        // a choice concentrates its mass on one winner, the second value needs its own premise stated question
-        std::vector<std::pair<std::string, std::string>> value2_options;
-        for(size_t v = 0; v < facet_field.values.size() && v < opts.max_options_per_question; v++) {
-            value2_options.emplace_back(facet_field.values[v], "");
+        if(num_roles >= 2) {
+            questions[facet_all_id(i)] = JevClient::noul_question(
+                    "If the query asks for more than one `" + name + "` value, must a single result "
+                    "carry all of them at once?",
+                    "every wanted value has to hold together, the way `with outdoor seating` adds to "
+                    "`wheelchair accessible`",
+                    "any one of the wanted values on its own is enough, as with `red or blue`, or the "
+                    "query asks for at most one `" + name + "` value");
         }
-        value2_options.emplace_back(JevClient::NONE_OPTION,
-                                    "the query refers to at most one `" + name + "` value");
 
-        questions[facet_value2_id(i)] = JevClient::choice_question(
-                "If the query refers to more than one `" + name +
-                "` value, which is the second one?", value2_options);
+        if(num_roles < facet_field.values.size()) {
+            std::vector<std::pair<std::string, std::string>> other_options;
+            for(size_t v = num_roles; v < facet_field.values.size() &&
+                                      other_options.size() < opts.max_options_per_question; v++) {
+                other_options.emplace_back(facet_field.values[v], "");
+            }
+            other_options.emplace_back(JevClient::NONE_OPTION,
+                                       "the query refers to none of these `" + name + "` values");
 
-        questions[facet_both_id(i)] = JevClient::noul_question(
-                "If the query refers to two `" + name + "` values, must matching results satisfy "
-                "both at the same time?",
-                "the query wants both values to hold at once, the way `with outdoor seating` adds to "
-                "`wheelchair accessible`",
-                "either value on its own is enough, as with `red or blue`, or the query refers to at "
-                "most one `" + name + "` value");
+            questions[facet_other_id(i)] = JevClient::choice_question(
+                    "Which `" + name + "` value does the query refer to, whether it wants it or rules it out?",
+                    other_options);
 
-        // negation is a known jev weakness, the false side covers not-mentioned to avoid vacuous truth
-        questions[facet_negate_id(i)] = JevClient::noul_question(
-                "Does the query rule out one of the `" + name + "` values listed under `" + name +
-                "` in `values`, rather than ask for one?",
-                "an exclusion word points at a listed value itself, as in `not red`, `-red` or "
-                "`anything but red`, and any term in `excluded_terms` is ruled out this way",
-                "the query asks for a listed `" + name + "` value positively or does not mention one, "
-                "or its negation applies to some other thing, the way `not in spain` rules out a "
-                "country and not a cuisine named elsewhere in the query");
+            questions[facet_negate_id(i)] = JevClient::noul_question(
+                    "Does the query rule out one of the `" + name + "` values listed under `" + name +
+                    "` in `values`, rather than ask for one?",
+                    "an exclusion word points at a listed value itself, as in `not red`, `-red` or "
+                    "`anything but red`, and any term in `excluded_terms` is ruled out this way",
+                    "the query asks for a listed `" + name + "` value positively or does not mention one, "
+                    "or its negation applies to some other thing, the way `not in spain` rules out a "
+                    "country and not a cuisine named elsewhere in the query");
+        }
 
         if(facts.has_or) {
             questions[facet_alt_id(i)] = JevClient::noul_question(
@@ -1065,6 +1088,7 @@ static bool numeric_literal_fits(const std::string& literal, const jev_numeric_f
     return filter::validate_numerical_filter_value(f, literal).ok();
 }
 
+// list canonicalization emits at most one positive and one negative leaf per field, value count costs nothing against filter_by_max_ops
 static void add_facet_clauses(const jev_catalog_t& catalog, const jev_query_facts_t& facts,
                              const nlohmann::json& answers,
                              const jev_options_t& opts, std::vector<clause_t>& clauses,
@@ -1084,98 +1108,174 @@ static void add_facet_clauses(const jev_catalog_t& catalog, const jev_query_fact
             continue;
         }
 
-        std::string primary;
-        double mass = 0;
-        if(!selected_value(answers, JevSearchParams::facet_value_id(i), facet_field.values, primary, mass)) {
-            entry["outcome"] = "skipped, no value selected";
-            trace.push_back(entry);
-            continue;
+        const size_t num_roles = JevSearchParams::num_role_values(facet_field, opts);
+        entry["role_values"] = num_roles;
+
+        std::vector<std::string> required;
+        std::vector<std::string> excluded;
+        double required_mass = 1.0;
+        double excluded_mass = 1.0;
+        nlohmann::json rejected = nlohmann::json::array();
+
+        for(size_t j = 0; j < num_roles; j++) {
+            const std::string& value = facet_field.values[j];
+            const std::string role_id = JevSearchParams::facet_role_id(i, j);
+
+            auto role_op = JevClient::get_choice(answers, role_id);
+            if(!role_op.ok() || role_op.get() == JevSearchParams::ROLE_UNSPECIFIED) {
+                continue;
+            }
+
+            const std::string role = role_op.get();
+            const double probability = std::max(probability_of(answers, role_id, role), 0.0);
+
+            const double bar = role == JevSearchParams::ROLE_EXCLUDED ? opts.also_bound_threshold :
+                               opts.confidence_threshold;
+            if(probability < bar) {
+                nlohmann::json miss;
+                miss["value"] = value;
+                miss["role"] = role;
+                miss["probability"] = probability;
+                rejected.push_back(miss);
+                continue;
+            }
+
+            if(role == JevSearchParams::ROLE_REQUIRED) {
+                required.push_back(value);
+                required_mass = std::min(required_mass, probability);
+            } else if(role == JevSearchParams::ROLE_EXCLUDED) {
+                excluded.push_back(value);
+                excluded_mass = std::min(excluded_mass, probability);
+            }
         }
 
-        entry["mass"] = mass;
-        if(mass < opts.confidence_threshold) {
-            entry["values"] = {primary};
-            entry["outcome"] = "skipped, mass below confidence threshold";
-            trace.push_back(entry);
-            continue;
+        if(!rejected.empty()) {
+            entry["rejected_roles"] = rejected;
         }
 
-        const bool negate = noul_or(answers, JevSearchParams::facet_negate_id(i), 0.0) >= opts.present_threshold;
-        entry["negate"] = negate;
+        const bool alternative = facts.has_or &&
+                                 noul_or(answers, JevSearchParams::facet_alt_id(i), 0.0) >= opts.present_threshold;
 
-        // excluding on a weak signal hurts worse than missing a clause, negation demands conviction
-        if(negate && mass < opts.also_bound_threshold) {
-            entry["values"] = {primary};
-            entry["outcome"] = "skipped, negated without conviction";
-            trace.push_back(entry);
-            continue;
-        }
+        // the other choice is a fallback only, running it alongside the role questions would let one field emit a value under two polarities
+        if(required.empty() && excluded.empty()) {
+            std::string primary;
+            double mass = 0;
+            if(!selected_value(answers, JevSearchParams::facet_other_id(i), facet_field.values, primary, mass)) {
+                entry["outcome"] = "skipped, no value selected";
+                trace.push_back(entry);
+                continue;
+            }
 
-        // the second value must differ from the primary and clear a higher bar under negation
-        std::string second;
-        double second_probability = 0;
-        if(selected_value(answers, JevSearchParams::facet_value2_id(i), facet_field.values,
-                          second, second_probability)) {
-            const double second_bar = negate ? opts.also_bound_threshold : opts.second_value_threshold;
-            if(second == primary || second_probability < second_bar) {
-                entry["second_rejected"] = second;
-                entry["second_probability"] = second_probability;
-                second.clear();
+            entry["other"] = primary;
+            entry["mass"] = mass;
+            if(mass < opts.confidence_threshold) {
+                entry["outcome"] = "skipped, mass below confidence threshold";
+                trace.push_back(entry);
+                continue;
+            }
+
+            const bool negate = noul_or(answers, JevSearchParams::facet_negate_id(i), 0.0) >= opts.present_threshold;
+            entry["negate"] = negate;
+            if(negate && mass < opts.also_bound_threshold) {
+                entry["outcome"] = "skipped, negated without conviction";
+                trace.push_back(entry);
+                continue;
+            }
+
+            if(negate) {
+                excluded.push_back(primary);
+                excluded_mass = mass;
             } else {
-                entry["second_value"] = second;
-                entry["second_probability"] = second_probability;
+                required.push_back(primary);
+                required_mass = mass;
             }
         }
 
-        std::vector<std::string> selected = {primary};
-        if(!second.empty()) {
-            selected.push_back(second);
-        }
-        entry["values"] = selected;
+        const bool all = required.size() >= 2 &&
+                         noul_or(answers, JevSearchParams::facet_all_id(i), 0.0) >= opts.present_threshold;
+        entry["required"] = required;
+        entry["excluded"] = excluded;
+        entry["all"] = all;
 
-        std::vector<std::string> escaped;
-        for(const auto& value : selected) {
-            const std::string token = JevSearchParams::escape_filter_value(value);
-            if(!token.empty()) {
-                escaped.push_back(token);
+        std::vector<std::string> emitted;
+        bool emitted_any = false;
+
+        if(!required.empty()) {
+            std::vector<std::string> escaped;
+            for(const auto& value : required) {
+                const std::string token = JevSearchParams::escape_filter_value(value);
+                if(!token.empty()) {
+                    escaped.push_back(token);
+                }
+            }
+
+            if(!escaped.empty()) {
+                clause_t clause;
+                clause.field = facet_field.name;
+                // exact match, jev selected a catalog value and bare `:` would token match `York` against `New York`
+                if(all && escaped.size() >= 2) {
+                    clause.expr = "(";
+                    for(size_t e = 0; e < escaped.size(); e++) {
+                        if(e > 0) {
+                            clause.expr += " && ";
+                        }
+                        clause.expr += facet_field.name + ":=" + escaped[e];
+                    }
+                    clause.expr += ")";
+                } else {
+                    clause.expr = facet_field.name + ":=" +
+                                  (escaped.size() == 1 ? escaped[0] : "[" + join_values(escaped) + "]");
+                }
+                clause.alternative = alternative;
+                clause.confidence = std::min(present, required_mass);
+                clause.order = clauses.size();
+                collect_terms(facet_field.name, clause.terms);
+                for(const auto& value : required) {
+                    collect_terms(value, clause.terms);
+                }
+                clauses.push_back(clause);
+                emitted.push_back(clause.expr);
+                emitted_any = true;
             }
         }
 
-        if(escaped.empty()) {
+        if(!excluded.empty()) {
+            std::vector<std::string> escaped;
+            for(const auto& value : excluded) {
+                const std::string token = JevSearchParams::escape_filter_value(value);
+                if(!token.empty()) {
+                    escaped.push_back(token);
+                }
+            }
+
+            if(!escaped.empty()) {
+                clause_t clause;
+                clause.field = facet_field.name;
+                clause.expr = facet_field.name + ":!=" +
+                              (escaped.size() == 1 ? escaped[0] : "[" + join_values(escaped) + "]");
+                // an exclusion holds over the whole query, the or group would let an unrelated alternative satisfy it
+                clause.alternative = false;
+                clause.confidence = std::min(present, excluded_mass);
+                clause.order = clauses.size();
+                collect_terms(facet_field.name, clause.terms);
+                for(const auto& value : excluded) {
+                    collect_terms(value, clause.terms);
+                }
+                clauses.push_back(clause);
+                emitted.push_back(clause.expr);
+                emitted_any = true;
+            }
+        }
+
+        if(!emitted_any) {
             entry["outcome"] = "skipped, values escaped to nothing";
             trace.push_back(entry);
             continue;
         }
 
-        // negation collapses the and-or distinction, excluding two values means neither may appear
-        const bool both = escaped.size() == 2 && !negate &&
-                          noul_or(answers, JevSearchParams::facet_both_id(i), 0.0) >= opts.present_threshold;
-        entry["both"] = both;
-
-        clause_t clause;
-        clause.field = facet_field.name;
-        // exact match, jev selected a catalog value and bare `:` would token match `York` against `New York`
-        if(both) {
-            // one parenthesized clause keeps the pair intact through the cap, pruning and the or group
-            clause.expr = "(" + facet_field.name + ":=" + escaped[0] + " && " +
-                          facet_field.name + ":=" + escaped[1] + ")";
-        } else {
-            clause.expr = facet_field.name + (negate ? ":!=" : ":=") +
-                          (escaped.size() == 1 ? escaped[0] : "[" + join_values(escaped) + "]");
-        }
-        clause.alternative = facts.has_or &&
-                             noul_or(answers, JevSearchParams::facet_alt_id(i), 0.0) >= opts.present_threshold;
-        clause.confidence = std::min(present, escaped.size() == 2 ? std::min(mass, second_probability) : mass);
-        clause.order = clauses.size();
-        collect_terms(facet_field.name, clause.terms);
-        for(const auto& value : selected) {
-            collect_terms(value, clause.terms);
-        }
-        clauses.push_back(clause);
-
         entry["outcome"] = "clause";
-        entry["expr"] = clause.expr;
-        entry["alt"] = clause.alternative;
+        entry["expr"] = emitted;
+        entry["alt"] = alternative;
         trace.push_back(entry);
     }
 }
@@ -1775,7 +1875,6 @@ Option<bool> JevSearchParams::options_from_config(const nlohmann::json& model_co
         {"present_threshold", &opts.present_threshold},
         {"confidence_threshold", &opts.confidence_threshold},
         {"or_min_probability", &opts.or_min_probability},
-        {"second_value_threshold", &opts.second_value_threshold},
         {"token_threshold", &opts.token_threshold},
         {"also_bound_threshold", &opts.also_bound_threshold},
     };
@@ -1792,6 +1891,7 @@ Option<bool> JevSearchParams::options_from_config(const nlohmann::json& model_co
         // 0 switches the shortlist off and offers the whole sampled vocabulary
         {"max_shortlist_values", 0, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.max_shortlist_values},
         {"shortlist_floor_values", 0, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.shortlist_floor_values},
+        {"max_role_values", 1, JevClient::MAX_CHOICE_OPTIONS - 1, &opts.max_role_values},
         {"max_questions", 1, 10000, &opts.max_questions},
         {"max_token_questions", 0, 255, &opts.max_token_questions},
         // n anded clauses cost 2n-1 postfix tokens against filter_by_max_ops

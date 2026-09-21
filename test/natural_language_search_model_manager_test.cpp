@@ -2100,9 +2100,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevGeneratedQIsExecutedVerbatim) {
     "model": "jev-1.13.0",
     "answers": {
       "f0__present": {"type": "noul", "noul": 0.94},
-      "f0__negate": {"type": "noul", "noul": 0.03},
-      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
-                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}}
+      "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.97,
+                     "probabilities": {"required": 0.97, "excluded": 0.02, "unspecified": 0.01}}
     },
     "usage": {"input_tokens": 200, "output_tokens": 10}
   })", 200, {});
@@ -2245,9 +2244,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevConsumedCheckRoundPrunesExpress
     "model": "jev-1.13.0",
     "answers": {
       "f0__present": {"type": "noul", "noul": 0.94},
-      "f0__negate": {"type": "noul", "noul": 0.03},
-      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
-                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.97,
+                     "probabilities": {"required": 0.97, "excluded": 0.02, "unspecified": 0.01}},
       "q0": {"type": "choice", "choice": "content",
              "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
       "q1": {"type": "choice", "choice": "content",
@@ -2559,9 +2557,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevFailedConsumedRoundStillRecords
     "model": "jev-1.13.0",
     "answers": {
       "f0__present": {"type": "noul", "noul": 0.94},
-      "f0__negate": {"type": "noul", "noul": 0.03},
-      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
-                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.97,
+                     "probabilities": {"required": 0.97, "excluded": 0.02, "unspecified": 0.01}},
       "q0": {"type": "choice", "choice": "content",
              "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
       "q1": {"type": "choice", "choice": "content",
@@ -2637,9 +2634,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevConsumedCheckSkippedWhenBudgetE
     "model": "jev-1.13.0",
     "answers": {
       "f0__present": {"type": "noul", "noul": 0.94},
-      "f0__negate": {"type": "noul", "noul": 0.03},
-      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
-                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.97,
+                     "probabilities": {"required": 0.97, "excluded": 0.02, "unspecified": 0.01}},
       "q0": {"type": "choice", "choice": "content",
              "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
       "q1": {"type": "choice", "choice": "content",
@@ -2846,9 +2842,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevMalformedOkResponseCountsAsFail
     "model": "jev-1.13.0",
     "answers": {
       "f0__present": {"type": "noul", "noul": 0.94},
-      "f0__negate": {"type": "noul", "noul": 0.03},
-      "f0__value": {"type": "choice", "choice": "Dinner", "confidence": 0.97,
-                    "probabilities": {"Dinner": 0.97, "Lunch": 0.03}},
+      "f0v0__role": {"type": "choice", "choice": "required", "confidence": 0.97,
+                     "probabilities": {"required": 0.97, "excluded": 0.02, "unspecified": 0.01}},
       "q0": {"type": "choice", "choice": "content",
              "probabilities": {"content": 0.75, "excluded": 0.03, "filler": 0.22}},
       "q1": {"type": "choice", "choice": "content",
