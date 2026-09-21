@@ -1065,10 +1065,8 @@ static bool selected_value(const nlohmann::json& answers, const std::string& id,
     }
 
     value = choice_op.get();
-    probability = probability_of(answers, id, value);
-    if(probability < 0) {
-        probability = confidence_or(answers, id, 1.0);
-    }
+    // an answer carrying no distribution is missing evidence, not a certain one
+    probability = std::max(probability_of(answers, id, value), 0.0);
     return true;
 }
 
@@ -1343,7 +1341,7 @@ static void add_numeric_clauses(const jev_catalog_t& catalog,
         }
         entry["op"] = op_choice.get();
 
-        const double op_confidence = confidence_or(answers, JevSearchParams::number_op_id(k), 1.0);
+        const double op_confidence = confidence_or(answers, JevSearchParams::number_op_id(k), 0.0);
         entry["op_confidence"] = op_confidence;
         if(op_confidence < opts.confidence_threshold) {
             entry["outcome"] = "skipped, op below confidence threshold";
@@ -1453,7 +1451,7 @@ static void add_bool_clauses(const jev_catalog_t& catalog, const jev_query_facts
             continue;
         }
 
-        const double confidence = confidence_or(answers, JevSearchParams::bool_id(i), 1.0);
+        const double confidence = confidence_or(answers, JevSearchParams::bool_id(i), 0.0);
         entry["confidence"] = confidence;
         if(confidence < opts.confidence_threshold) {
             entry["outcome"] = "skipped, below confidence threshold";
@@ -1936,10 +1934,7 @@ static bool word_number_hits(const nlohmann::json& answers, const jev_options_t&
             continue;
         }
 
-        double probability = probability_of(answers, id, choice_op.get());
-        if(probability < 0) {
-            probability = confidence_or(answers, id, 1.0);
-        }
+        double probability = std::max(probability_of(answers, id, choice_op.get()), 0.0);
         if(probability < opts.confidence_threshold) {
             continue;
         }

@@ -928,6 +928,83 @@ TEST_F(JevSearchParamsTest, AssembleSkipsSortWhenNoFieldIsNamed) {
     ASSERT_FALSE(params.contains("sort_by"));
 }
 
+TEST_F(JevSearchParamsTest, AssembleAbstainsWhenAChoiceCarriesNoDistribution) {
+    // confidence is how concentrated the distribution is, not the chosen option's probability, treating it as one turned a malformed answer into a certain filter
+    auto catalog = brand_catalog();
+    auto facts = facts_for("sony headphones");
+
+    nlohmann::json answers = R"json({
+        "f0__present": {"type": "noul", "noul": 0.95},
+        "f0__negate": {"type": "noul", "noul": 0.02},
+        "f0__other": {"type": "choice", "choice": "Sony", "confidence": 0.97}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_FALSE(params.contains("filter_by"));
+
+    bool abstained = false;
+    for(const auto& entry : params["llm_response"]["debug"]["trace"]) {
+        if(entry.contains("outcome") &&
+           entry["outcome"].get<std::string>() == "skipped, mass below confidence threshold") {
+            ASSERT_EQ(0.0, entry["mass"].get<double>());
+            abstained = true;
+        }
+    }
+    ASSERT_TRUE(abstained);
+}
+
+TEST_F(JevSearchParamsTest, AssembleAbstainsWhenTheNumericOpCarriesNoConfidence) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.numeric_fields.push_back({"price", field_types::FLOAT});
+    auto facts = facts_for("headphones under 200");
+
+    nlohmann::json answers = R"json({
+        "num0__field": {"type": "choice", "choice": "price", "confidence": 0.93,
+                        "probabilities": {"price": 0.93, "__none__": 0.07}},
+        "num0__op": {"type": "choice", "choice": "lte",
+                     "probabilities": {"eq": 0.01, "gt": 0.01, "gte": 0.02, "lt": 0.05, "lte": 0.91}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_FALSE(params.contains("filter_by"));
+
+    bool abstained = false;
+    for(const auto& entry : params["llm_response"]["debug"]["trace"]) {
+        if(entry.contains("outcome") &&
+           entry["outcome"].get<std::string>() == "skipped, op below confidence threshold") {
+            ASSERT_EQ(0.0, entry["op_confidence"].get<double>());
+            abstained = true;
+        }
+    }
+    ASSERT_TRUE(abstained);
+}
+
+TEST_F(JevSearchParamsTest, AssembleAbstainsWhenABoolCarriesNoConfidence) {
+    jev_catalog_t catalog;
+    catalog.collection_name = "products";
+    catalog.bool_fields.push_back("in_stock");
+    auto facts = facts_for("headphones available now");
+
+    nlohmann::json answers = R"json({
+        "b0": {"type": "choice", "choice": "true",
+               "probabilities": {"true": 0.89, "false": 0.02, "unspecified": 0.09}}
+    })json"_json;
+
+    auto params = JevSearchParams::assemble(catalog, facts, answers);
+    ASSERT_FALSE(params.contains("filter_by"));
+
+    bool abstained = false;
+    for(const auto& entry : params["llm_response"]["debug"]["trace"]) {
+        if(entry.contains("outcome") &&
+           entry["outcome"].get<std::string>() == "skipped, below confidence threshold") {
+            ASSERT_EQ(0.0, entry["confidence"].get<double>());
+            abstained = true;
+        }
+    }
+    ASSERT_TRUE(abstained);
+}
+
 TEST_F(JevSearchParamsTest, AssembleRewritesQFromSurvivingTokens) {
     auto catalog = brand_catalog();
     auto facts = facts_for("red shoes under 50");
