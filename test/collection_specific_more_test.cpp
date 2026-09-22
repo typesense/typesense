@@ -3273,6 +3273,10 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
     ASSERT_TRUE(coll->add(R"({"id":"2","title":"healthy control"})").ok());
     auto seq_id_op = coll->doc_id_to_seq_id("1");
     ASSERT_TRUE(seq_id_op.ok());
+    auto control_seq_op = coll->doc_id_to_seq_id("2");
+    ASSERT_TRUE(control_seq_op.ok());
+    const auto control_key = coll->get_seq_id_collection_prefix() + "_" +
+                             StringUtils::serialize_uint32_t(control_seq_op.get());
 
     // Simulate the persisted record supplied by a snapshot. Keep its ID-to-sequence mapping so GET
     // and export can still find it, but make the stored document fail re-index validation.
@@ -3308,6 +3312,35 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
     EXPECT_EQ(R"({"id":"1","title":null})", stored_record);
     ASSERT_EQ(StoreStatus::FOUND, store->get(id_key, stored_mapping));
     EXPECT_EQ(original_mapping, stored_mapping);
+
+    // Repeat with one document per batch, failing after an earlier successful batch.
+    ASSERT_TRUE(store->insert(seq_id_key, R"({"id":"1","title":"repaired"})"));
+    ASSERT_TRUE(store->insert(control_key, R"({"id":"2","title":null})"));
+    auto later_batch_op = CollectionManager::load_collection(meta, 1, StoreStatus::FOUND, quit, {});
+    EXPECT_FALSE(later_batch_op.ok());
+    EXPECT_EQ(nullptr, collectionManager.get_collection("cold_load_ghost_document").get());
+
+    ASSERT_TRUE(store->insert(control_key, R"({"id":"2","title":"healthy control"})"));
+    auto retry_op = CollectionManager::load_collection(meta, 1, StoreStatus::FOUND, quit, {});
+    ASSERT_TRUE(retry_op.ok()) << retry_op.error();
+
+    coll = collectionManager.get_collection("cold_load_ghost_document").get();
+    ASSERT_NE(nullptr, coll);
+
+    nlohmann::json stored_document;
+    ASSERT_TRUE(coll->get_document_from_store(seq_id_op.get(), stored_document).ok());
+    ASSERT_EQ("1", stored_document["id"].get<std::string>());
+
+    auto search_op = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(search_op.ok());
+
+    ASSERT_EQ(2, search_op.get()["found"].get<size_t>());
+    ASSERT_EQ(2, coll->get_num_documents());
+    auto field_op = coll->search("repaired", {"title"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(field_op.ok());
+    ASSERT_EQ(1, field_op.get()["found"].get<size_t>());
+
+    collectionManager.drop_collection("cold_load_ghost_document");
 }
 
 TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
