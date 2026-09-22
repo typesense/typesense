@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 import { z } from "zod";
 import { Phases } from "../src/constants";
 import { fetchSingleNode } from "../src/request";
@@ -49,7 +49,7 @@ function unionSearch(
 }
 
 describe(Phases.SINGLE_FRESH, () => {
-  it("create the union cutoff collections", async () => {
+  beforeAll(async () => {
     for (const name of COLLECTIONS) {
       const created = await fetchSingleNode("/collections", {
         method: "POST",
