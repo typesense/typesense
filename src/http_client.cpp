@@ -120,6 +120,10 @@ namespace {
     }
 
     CURL* lease_pooled_curl() {
+        if(!curl_pool_alive().load()) {
+            return nullptr;
+        }
+
         {
             std::lock_guard<std::mutex> lock(curl_pool_mutex());
             auto& idle = curl_idle_handles();
