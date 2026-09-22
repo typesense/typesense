@@ -2621,6 +2621,57 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     collectionManager.drop_collection("Products");
 }
 
+TEST_F(CollectionJoinTest, RangeIndexReferenceJoinPreservesMetadataAcrossLazyModes) {
+    auto products = R"({
+        "name": "range_join_products",
+        "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "price", "type": "int32", "range_index": true}
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(products);
+    ASSERT_TRUE(op.ok());
+    for (const auto& doc : {R"({"id":"p1","product_id":"p1","price":100})"_json,
+                            R"({"id":"p2","product_id":"p2","price":80})"_json,
+                            R"({"id":"p3","product_id":"p3","price":10})"_json})
+        ASSERT_TRUE(op.get()->add(doc.dump()).ok());
+
+    auto orders = R"({
+        "name": "range_join_orders",
+        "fields": [
+            {"name": "order_id", "type": "string"},
+            {"name": "product_id", "type": "string", "reference": "range_join_products.product_id"},
+            {"name": "status", "type": "string"}
+        ]
+    })"_json;
+    op = collectionManager.create_collection(orders);
+    ASSERT_TRUE(op.ok());
+    for (const auto& doc : {R"({"id":"o1","order_id":"o1","product_id":"p1","status":"paid"})"_json,
+                            R"({"id":"o2","order_id":"o2","product_id":"p1","status":"cancelled"})"_json,
+                            R"({"id":"o3","order_id":"o3","product_id":"p2","status":"paid"})"_json})
+        ASSERT_TRUE(op.get()->add(doc.dump()).ok());
+
+    for (const auto& mode : {std::string(), std::string("false"), std::string("true")}) {
+        std::map<std::string, std::string> params = {
+                {"collection", "range_join_products"}, {"q", "*"},
+                {"filter_by", "price:>50 && $range_join_orders(status:=paid)"},
+                {"include_fields", "$range_join_orders(order_id,status, strategy:nest)"},
+                {"sort_by", "_seq_id:asc"}};
+        if (!mode.empty()) params["enable_lazy_filter"] = mode;
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto search = collectionManager.do_search(params, embedded_params, json_res, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(json_res);
+        ASSERT_EQ(2, result["found"]);
+        ASSERT_EQ("p1", result["hits"][0]["document"]["product_id"]);
+        ASSERT_EQ("o1", result["hits"][0]["document"]["range_join_orders"]["order_id"]);
+        ASSERT_EQ("paid", result["hits"][0]["document"]["range_join_orders"]["status"]);
+        ASSERT_EQ("p2", result["hits"][1]["document"]["product_id"]);
+        ASSERT_EQ("o3", result["hits"][1]["document"]["range_join_orders"]["order_id"]);
+    }
+}
+
 TEST_F(CollectionJoinTest, FilterByReference_MultipleMatch) {
     auto schema_json =
             R"({

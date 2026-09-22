@@ -346,7 +346,7 @@ private:
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
 
     /// Performs AND on the subtrees of operator.
-    void and_filter_iterators();
+    void and_filter_iterators(const bool& curation_timeout = false);
 
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
@@ -361,7 +361,7 @@ private:
                              const filter_result_iterator_t* const wide_it) const;
 
     /// Performs OR on the subtrees of operator.
-    void or_filter_iterators();
+    void or_filter_iterators(const bool& curation_timeout = false);
 
     /// Advances all the token iterators that are at seq_id.
     void advance_string_filter_token_iterators();
@@ -381,6 +381,8 @@ private:
 
     void initialize_numeric_posting_iterators();
 
+    void next(const bool& curation_timeout);
+
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
@@ -393,7 +395,7 @@ private:
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
-    void skip_to(uint32_t id);
+    void skip_to(uint32_t id, const bool& curation_timeout = false);
 
     static bool validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
                                               const filter_node_t* filter_node,
@@ -402,7 +404,7 @@ private:
                                               const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
                                               uint32_t object_index);
 
-    bool validate_object_filter();
+    bool validate_object_filter(const bool& curation_timeout = false);
 
 public:
     uint32_t seq_id = 0;

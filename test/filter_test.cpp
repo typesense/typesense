@@ -3555,6 +3555,7 @@ TEST_F(FilterTest, RangeIndexNestedExpressionDefersUntilFinalCompute) {
                 "name": "RangeNestedIteratorCollection",
                 "fields": [
                     {"name": "show_result", "type": "bool"},
+                    {"name": "tag", "type": "string"},
                     {"name": "expires_at", "type": "int64", "range_index": true},
                     {"name": "ts", "type": "int64", "range_index": true},
                     {"name": "small", "type": "int64", "range_index": true}
@@ -3565,6 +3566,7 @@ TEST_F(FilterTest, RangeIndexNestedExpressionDefersUntilFinalCompute) {
     auto* coll = collection_op.get();
     for (uint32_t i = 0; i < 100; i++) {
         ASSERT_TRUE(coll->add(nlohmann::json{{"show_result", true},
+                                              {"tag", i == 91 || i == 99 ? "allowed" : "blocked"},
                                               {"expires_at", 1780000001LL},
                                               {"ts", i >= 91 ? 1770000001LL : 1770000000LL},
                                               {"small", i}}.dump()).ok());
@@ -3631,6 +3633,17 @@ TEST_F(FilterTest, RangeIndexNestedExpressionDefersUntilFinalCompute) {
     enabled.reset();
     ASSERT_EQ(91, enabled.seq_id);
 
+    auto negated_root = make_root("(tag:!= blocked && expires_at:>1780000000) && ts:>1770000000");
+    filter_result_iterator_t negated(coll->get_name(), coll->_get_index(), negated_root.get(), false);
+    ASSERT_FALSE(negated._get_is_filter_result_initialized());
+    ASSERT_TRUE(negated._get_left_it()->_get_left_it()->_get_is_filter_result_initialized());
+    ASSERT_FALSE(negated._get_left_it()->_get_right_it()->_get_is_filter_result_initialized());
+    negated.compute_iterators();
+    uint32_t* negated_ids = nullptr;
+    ASSERT_EQ(2, negated.to_filter_id_array(negated_ids));
+    ASSERT_EQ((std::vector<uint32_t>{91, 99}), std::vector<uint32_t>(negated_ids, negated_ids + 2));
+    delete [] negated_ids;
+
     auto empty_root = make_root("show_result:false && expires_at:>1780000000");
     filter_result_iterator_t empty(coll->get_name(), coll->_get_index(), empty_root.get(), false);
     ASSERT_TRUE(empty._get_is_filter_result_initialized());
@@ -3663,4 +3676,20 @@ TEST_F(FilterTest, RangeIndexNestedExpressionDefersUntilFinalCompute) {
     ASSERT_FALSE(timed._get_is_filter_result_initialized());
     timed.compute_iterators();
     ASSERT_FALSE(timed._get_is_filter_result_initialized());
+    timed.reset();
+    ASSERT_EQ(filter_result_iterator_t::timed_out, timed.validity);
+    timed.reset(true);
+    ASSERT_EQ(filter_result_iterator_t::valid, timed.validity);
+    ASSERT_EQ(1, timed.is_valid(91, true));
+    ASSERT_EQ(0, timed.is_valid(90, true));
+
+    auto standalone_root = make_root("expires_at:>1780000000");
+    filter_result_iterator_t standalone(coll->get_name(), coll->_get_index(), standalone_root.get(), true,
+                                        DEFAULT_FILTER_BY_CANDIDATES, 0, 0);
+    standalone.compute_iterators();
+    ASSERT_EQ(filter_result_iterator_t::timed_out, standalone.validity);
+    ASSERT_FALSE(standalone._get_is_filter_result_initialized());
+    standalone.reset(true);
+    ASSERT_EQ(filter_result_iterator_t::valid, standalone.validity);
+    ASSERT_EQ(1, standalone.is_valid(0, true));
 }
