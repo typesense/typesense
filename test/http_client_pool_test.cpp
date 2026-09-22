@@ -9,6 +9,7 @@
 #include <openssl/x509.h>
 #include <atomic>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -366,6 +367,43 @@ TEST(HttpClientPoolTest, ReleaseEvictsBeyondTheIdleCap) {
 
     // CURL_POOL_MAX_IDLE, releases past the cap must clean their handle instead of pooling it
     ASSERT_EQ(32, HttpClient::get_idle_handle_count());
+}
+
+// shutdown drains on this counter, so an unbalanced decrement wraps the size_t and makes every
+// later shutdown wait out the full drain before logging a phantom in flight transfer. the pooled
+// path and the unpooled download and stream paths each have to leave the count where they found it
+TEST(HttpClientPoolTest, EveryHandlePathBalancesTheLiveCount) {
+    test_local_server_t server(false);
+    ASSERT_TRUE(server.start());
+
+    const size_t live_before = HttpClient::get_live_handle_count();
+
+    std::string response;
+    std::map<std::string, std::string> res_headers;
+    ASSERT_EQ(200, HttpClient::get_response(server.base_url() + "/pooled", response, res_headers, {}, 5000));
+    ASSERT_EQ(live_before, HttpClient::get_live_handle_count());
+
+    // download_file inits outside the pool, the drain has to see it all the same
+    const std::string download_path = "/tmp/http_client_pool_live_count.txt";
+    ASSERT_EQ(200, HttpClient::download_file(server.base_url() + "/download", download_path));
+    ASSERT_EQ(live_before, HttpClient::get_live_handle_count());
+
+    // a refused connect still owes the count a decrement
+    ASSERT_EQ(-1, HttpClient::download_file("http://127.0.0.1:1/", download_path));
+    ASSERT_EQ(live_before, HttpClient::get_live_handle_count());
+    remove(download_path.c_str());
+
+    async_stream_response_t stream_res;
+    std::map<std::string, std::string> stream_headers;
+    ASSERT_EQ(200, HttpClient::post_response_stream(server.base_url() + "/stream", "{}", stream_res,
+                                                    stream_headers, {}, 5000));
+    ASSERT_EQ(live_before, HttpClient::get_live_handle_count());
+
+    // three of the four calls reached the server, the refused connect never did
+    const std::vector<recorded_request_t> requests = server.requests();
+    ASSERT_EQ(3, requests.size());
+
+    server.stop();
 }
 
 TEST(HttpClientPoolTest, TransferCountAndMetricsAdvancePerTransfer) {

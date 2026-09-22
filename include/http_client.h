@@ -80,7 +80,7 @@ public:
 
     void init(const std::string & api_key, const std::string& ca_cert_path = "");
 
-    // call before curl_global_cleanup, waits briefly for leased handles and drains the idle pool
+    // call before curl_global_cleanup, waits briefly for in flight handles and drains the idle pool
     static void shutdown_curl_pool();
 
     static http_transfer_metrics_t get_last_transfer_metrics();
@@ -89,6 +89,9 @@ public:
     static uint64_t get_transfer_count();
 
     static size_t get_idle_handle_count();
+
+    // handles currently in use by some thread, what shutdown's drain waits on
+    static size_t get_live_handle_count();
 
     // test seams over the pool internals
     static CURL* lease_handle_for_test();

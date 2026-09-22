@@ -45,9 +45,11 @@ namespace {
         return *handles;
     }
 
-    std::atomic<size_t>& curl_active_leases() {
-        static std::atomic<size_t>* active = new std::atomic<size_t>(0);
-        return *active;
+    // handles currently in use by some thread, pooled or not. parked idle handles are not
+    // counted here, shutdown drains those directly
+    std::atomic<size_t>& curl_live_handles() {
+        static std::atomic<size_t>* live = new std::atomic<size_t>(0);
+        return *live;
     }
 
     thread_local http_transfer_metrics_t last_transfer_metrics;
@@ -87,6 +89,36 @@ namespace {
         return share;
     }
 
+    // every curl_easy_init in this file goes through here, the count rises before the handle
+    // exists so shutdown's drain can never observe a handle it has not counted
+    CURL* curl_easy_init_tracked() {
+        if(!curl_pool_alive().load()) {
+            return nullptr;
+        }
+
+        curl_live_handles()++;
+        CURL* curl = curl_easy_init();
+        if(curl == nullptr) {
+            curl_live_handles()--;
+        }
+
+        return curl;
+    }
+
+    void curl_easy_cleanup_tracked(CURL* curl) {
+        if(curl == nullptr) {
+            return;
+        }
+
+        if(curl_pool_alive().load()) {
+            curl_easy_cleanup(curl);
+        }
+
+        // otherwise curl_global_cleanup may already have run and the handle is abandoned.
+        // the count drops last, keeping shutdown's drain wait over this release
+        curl_live_handles()--;
+    }
+
     CURL* lease_pooled_curl() {
         {
             std::lock_guard<std::mutex> lock(curl_pool_mutex());
@@ -94,20 +126,20 @@ namespace {
             if(!idle.empty()) {
                 CURL* curl = idle.back();
                 idle.pop_back();
-                curl_active_leases()++;
+                curl_live_handles()++;
                 return curl;
             }
         }
 
-        CURL* curl = curl_easy_init();
+        CURL* curl = curl_easy_init_tracked();
         if(curl != nullptr) {
             CURLSH* share = get_curl_share();
             if(share != nullptr) {
                 // attached once for the handle's lifetime, curl_easy_reset keeps the share binding
                 curl_easy_setopt(curl, CURLOPT_SHARE, share);
             }
-            curl_active_leases()++;
         }
+
         return curl;
     }
 
@@ -118,8 +150,8 @@ namespace {
 
         if(!curl_pool_alive().load()) {
             // curl_global_cleanup may already have run, abandoning the handle is the only safe
-            // move. the lease count drops last, keeping shutdown's drain wait over the release
-            curl_active_leases()--;
+            // move. the count drops last, keeping shutdown's drain wait over the release
+            curl_live_handles()--;
             return;
         }
 
@@ -139,7 +171,7 @@ namespace {
             curl_easy_cleanup(curl);
         }
 
-        curl_active_leases()--;
+        curl_live_handles()--;
     }
 
     void capture_transfer_metrics(CURL* curl) {
@@ -237,7 +269,7 @@ void HttpClient::shutdown_curl_pool() {
     curl_pool_alive().store(false);
 
     // give in flight transfers a moment to finish, curl_global_cleanup during a live transfer is undefined
-    for(int i = 0; i < 200 && curl_active_leases().load() > 0; i++) {
+    for(int i = 0; i < 200 && curl_live_handles().load() > 0; i++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -262,6 +294,10 @@ uint64_t HttpClient::get_transfer_count() {
 size_t HttpClient::get_idle_handle_count() {
     std::lock_guard<std::mutex> lock(curl_pool_mutex());
     return curl_idle_handles().size();
+}
+
+size_t HttpClient::get_live_handle_count() {
+    return curl_live_handles().load();
 }
 
 CURL* HttpClient::lease_handle_for_test() {
@@ -336,7 +372,7 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
             status_code = res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
         }
     }
-    curl_easy_cleanup(curl);
+    curl_easy_cleanup_tracked(curl);
     curl_slist_free_all(chunk);
 
     return status_code;
@@ -382,7 +418,7 @@ long HttpClient::post_response_sse(const std::string &url, const std::string &bo
             fail_sse_response(req_res, status_code, get_curl_failure_response_body(status_code));
         }
     }
-    curl_easy_cleanup(curl);
+    curl_easy_cleanup_tracked(curl);
     curl_slist_free_all(chunk);
 
     return status_code;
@@ -410,7 +446,7 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
 
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    curl_easy_cleanup_tracked(curl);
 
     curl_slist_free_all(chunk);
 
@@ -760,7 +796,7 @@ static void set_http_version(CURL* curl, const std::string& url) {
 
 CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms,
                                    SSLVerifyMode ssl_verify_mode) {
-    CURL* curl = curl_easy_init();
+    CURL* curl = curl_easy_init_tracked();
     if(curl == nullptr) {
         return nullptr;
     }
@@ -789,7 +825,7 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
 CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
                                 deferred_req_res_t* req_res,
                                 SSLVerifyMode ssl_verify_mode) {
-    CURL* curl = curl_easy_init();
+    CURL* curl = curl_easy_init_tracked();
     if(curl == nullptr) {
         return nullptr;
     }
@@ -816,7 +852,7 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
 
 CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
                                   bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = curl_easy_init_tracked();
 
     if(curl == nullptr) {
         return nullptr;
@@ -903,7 +939,7 @@ size_t HttpClient::curl_write_download(void *ptr, size_t size, size_t nmemb, FIL
 
 long HttpClient::download_file(const std::string& url, const std::string& file_path,
                                SSLVerifyMode ssl_verify_mode) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = curl_easy_init_tracked();
     
 
     if(curl == nullptr) {
@@ -914,7 +950,7 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(fp == nullptr) {
         LOG(ERROR) << "Unable to open file for writing: " << file_path;
-        curl_easy_cleanup(curl);
+        curl_easy_cleanup_tracked(curl);
         return -1;
     }
 
@@ -933,14 +969,14 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(res_code != CURLE_OK) {
         LOG(ERROR) << "Unable to download file: " << url << " to " << file_path << " - " << curl_easy_strerror(res_code);
-        curl_easy_cleanup(curl);
+        curl_easy_cleanup_tracked(curl);
         fclose(fp);
         return -1;
     }
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-    curl_easy_cleanup(curl);
+    curl_easy_cleanup_tracked(curl);
     fclose(fp);
 
     return http_code;
