@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <openssl/evp.h>
@@ -167,6 +169,13 @@ private:
     }
 
     static void handle_connection_thunk(test_local_server_t* self, int fd) {
+        // OpenSSL's socket writes (including SSL_shutdown) can raise SIGPIPE when
+        // the client closes first. Block it only in this short-lived server thread.
+        // a process-wide handler would affect libcurl and other tests.
+        sigset_t blocked_signals;
+        sigemptyset(&blocked_signals);
+        sigaddset(&blocked_signals, SIGPIPE);
+        pthread_sigmask(SIG_BLOCK, &blocked_signals, nullptr);
         self->handle_connection(fd);
     }
 
