@@ -272,9 +272,18 @@ namespace {
 void HttpClient::shutdown_curl_pool() {
     curl_pool_alive().store(false);
 
-    // give in flight transfers a moment to finish, curl_global_cleanup during a live transfer is undefined
+    // every thread that issues outbound http is joined before we get here, so this drain should
+    // observe zero on the first pass. it is a backstop, not the guarantee
     for(int i = 0; i < 200 && curl_live_handles().load() > 0; i++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    const size_t outstanding = curl_live_handles().load();
+    if(outstanding > 0) {
+        // curl_global_cleanup during a live transfer is undefined and there is no curl api that
+        // waits, so all we can do is name the broken invariant before we walk into it
+        LOG(ERROR) << "Proceeding with curl_global_cleanup while " << outstanding
+                   << " transfer(s) are still in flight. A thread issuing outbound HTTP was not joined.";
     }
 
     std::vector<CURL*> drained;
