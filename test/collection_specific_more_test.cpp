@@ -3270,6 +3270,7 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
     Collection* coll = coll_op.get();
 
     ASSERT_TRUE(coll->add(R"({"id":"1","title":"indexed before reload"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"healthy control"})").ok());
     auto seq_id_op = coll->doc_id_to_seq_id("1");
     ASSERT_TRUE(seq_id_op.ok());
 
@@ -3279,6 +3280,13 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
                                    StringUtils::serialize_uint32_t(seq_id_op.get());
     ASSERT_TRUE(store->insert(seq_id_key, R"({"id":"1","title":null})"));
 
+    std::string meta_json;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(Collection::get_meta_key(coll->get_name()), meta_json));
+    const auto meta = nlohmann::json::parse(meta_json);
+    const auto id_key = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_1";
+    std::string original_mapping;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(id_key, original_mapping));
+
     collectionManager.dispose();
     stemmerManager.dispose();
     delete store;
@@ -3287,23 +3295,19 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
     store = new Store(state_dir_path);
     stemmerManager.init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
-    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+    auto load_op = CollectionManager::load_collection(meta, 1000, StoreStatus::FOUND, quit, {});
+    EXPECT_FALSE(load_op.ok());
+    EXPECT_NE(std::string::npos, load_op.error().find("cold_load_ghost_document"));
+    EXPECT_NE(std::string::npos, load_op.error().find("document `1`"));
+    EXPECT_NE(std::string::npos, load_op.error().find("sequence ID " + std::to_string(seq_id_op.get())));
+    EXPECT_NE(std::string::npos, load_op.error().find("title"));
+    EXPECT_EQ(nullptr, collectionManager.get_collection("cold_load_ghost_document").get());
 
-    coll = collectionManager.get_collection("cold_load_ghost_document").get();
-    ASSERT_NE(nullptr, coll);
-
-    nlohmann::json stored_document;
-    ASSERT_TRUE(coll->get_document_from_store(seq_id_op.get(), stored_document).ok());
-    ASSERT_EQ("1", stored_document["id"].get<std::string>());
-
-    auto search_op = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
-    ASSERT_TRUE(search_op.ok());
-
-    // This is the regression assertion. Current behavior returns 0: the record is retained in
-    // RocksDB but silently skipped while rebuilding the index.
-    ASSERT_EQ(1, search_op.get()["found"].get<size_t>());
-
-    collectionManager.drop_collection("cold_load_ghost_document");
+    std::string stored_record, stored_mapping;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(seq_id_key, stored_record));
+    EXPECT_EQ(R"({"id":"1","title":null})", stored_record);
+    ASSERT_EQ(StoreStatus::FOUND, store->get(id_key, stored_mapping));
+    EXPECT_EQ(original_mapping, stored_mapping);
 }
 
 TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
