@@ -9,12 +9,15 @@
 #include <openssl/x509.h>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <future>
 #include <map>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 #include "http_client.h"
 
@@ -34,7 +37,8 @@ struct recorded_request_t {
 // in-memory self-signed cert. records every request and counts accepted connections
 class test_local_server_t {
 public:
-    explicit test_local_server_t(bool use_tls): use_tls(use_tls) {}
+    explicit test_local_server_t(bool use_tls, std::shared_future<void> response_ready = {}):
+        use_tls(use_tls), response_ready(std::move(response_ready)) {}
 
     ~test_local_server_t() {
         stop();
@@ -240,6 +244,10 @@ private:
                 recorded.push_back(request);
             }
 
+            if(response_ready.valid()) {
+                response_ready.wait();
+            }
+
             conn_write(ssl, fd, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                                 "Content-Length: 11\r\nConnection: keep-alive\r\n\r\n{\"ok\":true}");
         }
@@ -287,6 +295,7 @@ private:
     }
 
     const bool use_tls;
+    const std::shared_future<void> response_ready;
     int listen_fd = -1;
     int bound_port = 0;
     SSL_CTX* ssl_ctx = nullptr;
@@ -298,6 +307,68 @@ private:
     std::vector<int> open_fds;
     std::vector<recorded_request_t> recorded;
 };
+
+// Shutdown is permanent, so run in a fresh process without changing other tests' pool state.
+TEST(HttpClientPoolDeathTest, ShutdownWaitsForPooledAndUnpooledTransfers) {
+    const auto previous_style = ::testing::GTEST_FLAG(death_test_style);
+    ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
+    EXPECT_EXIT(([]() {
+        alarm(20);
+        HttpClient::get_instance().init("pool-test-key");
+        std::promise<void> allow_response;
+        test_local_server_t server(false, allow_response.get_future().share());
+        if(!server.start()) {
+            _exit(1);
+        }
+        auto pooled = std::async(std::launch::async, [&]() {
+            std::string response;
+            std::map<std::string, std::string> headers;
+            return HttpClient::get_response(server.base_url() + "/pooled", response, headers, {}, 10000);
+        });
+        auto unpooled = std::async(std::launch::async, [&]() {
+            async_stream_response_t response;
+            std::map<std::string, std::string> headers;
+            const long status = HttpClient::post_response_stream(server.base_url() + "/stream", "{}", response,
+                                                                 headers, {}, 10000);
+            // A successful stream signals ready from its socket cleanup callback.
+            if(!response.ready) {
+                _exit(4);
+            }
+            return status;
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while(server.requests().size() != 2 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if(server.requests().size() != 2 || HttpClient::get_live_handle_count() != 2) {
+            _exit(2);
+        }
+        std::promise<void> shutdown_started;
+        auto started = shutdown_started.get_future();
+        auto shutdown = std::async(std::launch::async, [&]() {
+            shutdown_started.set_value();
+            HttpClient::shutdown_curl_pool();
+        });
+        started.wait();
+        const bool waited = shutdown.wait_for(std::chrono::milliseconds(2500)) == std::future_status::timeout;
+        CURL* late_handle = HttpClient::lease_handle_for_test();
+        const bool rejected_while_draining = late_handle == nullptr;
+        HttpClient::release_handle_for_test(late_handle);
+        allow_response.set_value();
+        const bool succeeded = pooled.get() == 200 && unpooled.get() == 200;
+        shutdown.get();
+        const bool drained = HttpClient::get_live_handle_count() == 0 && HttpClient::get_idle_handle_count() == 0;
+        const bool rejected = HttpClient::lease_handle_for_test() == nullptr;
+        async_stream_response_t response;
+        std::map<std::string, std::string> headers;
+        const bool stream_rejected = HttpClient::post_response_stream(server.base_url(), "{}", response,
+                                                                     headers, {}, 1000) == 500;
+        server.stop();
+        curl_global_cleanup();
+        _exit(waited && rejected_while_draining && succeeded && drained && rejected && stream_rejected ? 0 : 3);
+    }()), ::testing::ExitedWithCode(0), "");
+    ::testing::GTEST_FLAG(death_test_style) = previous_style;
+}
 
 static long do_get(const std::string& url, HttpClient::SSLVerifyMode ssl_verify_mode) {
     std::string response;

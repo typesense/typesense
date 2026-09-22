@@ -80,7 +80,8 @@ public:
 
     void init(const std::string & api_key, const std::string& ca_cert_path = "");
 
-    // call before curl_global_cleanup, waits briefly for in flight handles and drains the idle pool
+    // Call before curl_global_cleanup. Rejects new handles, waits for all in-flight
+    // handles to finish cleanup, and drains the idle pool. Shutdown is permanent.
     static void shutdown_curl_pool();
 
     static http_transfer_metrics_t get_last_transfer_metrics();

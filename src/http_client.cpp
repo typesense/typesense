@@ -1,11 +1,9 @@
 #include "http_client.h"
 #include "file_utils.h"
 #include "logger.h"
-#include <atomic>
-#include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <strings.h>
-#include <thread>
 #include <vector>
 #include <json.hpp>
 #include "http_data.h"
@@ -22,9 +20,10 @@ struct client_state_t: public req_state_t {
 };
 
 namespace {
-    // flipped off before curl_global_cleanup, late exiting threads must not touch curl again
-    std::atomic<bool>& curl_pool_alive() {
-        static std::atomic<bool> alive{true};
+    // Pool state and handle admission are protected by curl_pool_mutex(). Once closed,
+    // existing handles may finish, but no new handles can be acquired.
+    bool& curl_pool_alive() {
+        static bool alive = true;
         return alive;
     }
 
@@ -40,6 +39,11 @@ namespace {
         return *mutex;
     }
 
+    std::condition_variable& curl_pool_drained() {
+        static std::condition_variable* drained = new std::condition_variable();
+        return *drained;
+    }
+
     std::vector<CURL*>& curl_idle_handles() {
         static std::vector<CURL*>* handles = new std::vector<CURL*>();
         return *handles;
@@ -47,9 +51,16 @@ namespace {
 
     // handles currently in use by some thread, pooled or not. parked idle handles are not
     // counted here, shutdown drains those directly
-    std::atomic<size_t>& curl_live_handles() {
-        static std::atomic<size_t>* live = new std::atomic<size_t>(0);
+    size_t& curl_live_handles() {
+        static size_t* live = new size_t(0);
         return *live;
+    }
+
+    void finish_curl_handle() {
+        std::lock_guard<std::mutex> lock(curl_pool_mutex());
+        if(--curl_live_handles() == 0) {
+            curl_pool_drained().notify_all();
+        }
     }
 
     thread_local http_transfer_metrics_t last_transfer_metrics;
@@ -92,40 +103,39 @@ namespace {
     // every curl_easy_init in this file goes through here, the count rises before the handle
     // exists so shutdown's drain can never observe a handle it has not counted
     CURL* curl_easy_init_tracked() {
-        if(!curl_pool_alive().load()) {
-            return nullptr;
+        {
+            std::lock_guard<std::mutex> lock(curl_pool_mutex());
+            if(!curl_pool_alive()) {
+                return nullptr;
+            }
+            curl_live_handles()++;
         }
 
-        curl_live_handles()++;
         CURL* curl = curl_easy_init();
         if(curl == nullptr) {
-            curl_live_handles()--;
+            finish_curl_handle();
         }
 
         return curl;
     }
 
-    void curl_easy_cleanup_tracked(CURL* curl) {
+    void curl_easy_cleanup_tracked(CURL* curl, curl_slist* headers = nullptr) {
         if(curl == nullptr) {
             return;
         }
 
-        if(curl_pool_alive().load()) {
-            curl_easy_cleanup(curl);
-        }
-
-        // otherwise curl_global_cleanup may already have run and the handle is abandoned.
-        // the count drops last, keeping shutdown's drain wait over this release
-        curl_live_handles()--;
+        // Shutdown waits for this count, including cleanup and its socket callbacks.
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+        finish_curl_handle();
     }
 
     CURL* lease_pooled_curl() {
-        if(!curl_pool_alive().load()) {
-            return nullptr;
-        }
-
         {
             std::lock_guard<std::mutex> lock(curl_pool_mutex());
+            if(!curl_pool_alive()) {
+                return nullptr;
+            }
             auto& idle = curl_idle_handles();
             if(!idle.empty()) {
                 CURL* curl = idle.back();
@@ -152,20 +162,13 @@ namespace {
             return;
         }
 
-        if(!curl_pool_alive().load()) {
-            // curl_global_cleanup may already have run, abandoning the handle is the only safe
-            // move. the count drops last, keeping shutdown's drain wait over the release
-            curl_live_handles()--;
-            return;
-        }
-
         // clears every option but keeps live connections, the dns cache, tls sessions and the share
         curl_easy_reset(curl);
 
         bool pooled = false;
         {
             std::lock_guard<std::mutex> lock(curl_pool_mutex());
-            if(curl_pool_alive().load() && curl_idle_handles().size() < CURL_POOL_MAX_IDLE) {
+            if(curl_pool_alive() && curl_idle_handles().size() < CURL_POOL_MAX_IDLE) {
                 curl_idle_handles().push_back(curl);
                 pooled = true;
             }
@@ -175,7 +178,7 @@ namespace {
             curl_easy_cleanup(curl);
         }
 
-        curl_live_handles()--;
+        finish_curl_handle();
     }
 
     void capture_transfer_metrics(CURL* curl) {
@@ -270,30 +273,18 @@ namespace {
 }
 
 void HttpClient::shutdown_curl_pool() {
-    curl_pool_alive().store(false);
+    std::unique_lock<std::mutex> lock(curl_pool_mutex());
+    curl_pool_alive() = false;
 
-    // every thread that issues outbound http is joined before we get here, so this drain should
-    // observe zero on the first pass. it is a backstop, not the guarantee
-    for(int i = 0; i < 200 && curl_live_handles().load() > 0; i++) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    // A deadline cannot make curl_global_cleanup safe: every admitted handle must
+    // finish using libcurl first. Waiting releases the mutex so transfers can return.
+    curl_pool_drained().wait(lock, [] { return curl_live_handles() == 0; });
 
-    const size_t outstanding = curl_live_handles().load();
-    if(outstanding > 0) {
-        // curl_global_cleanup during a live transfer is undefined and there is no curl api that
-        // waits, so all we can do is name the broken invariant before we walk into it
-        LOG(ERROR) << "Proceeding with curl_global_cleanup while " << outstanding
-                   << " transfer(s) are still in flight. A thread issuing outbound HTTP was not joined.";
-    }
-
-    std::vector<CURL*> drained;
-    {
-        std::lock_guard<std::mutex> lock(curl_pool_mutex());
-        drained.swap(curl_idle_handles());
-    }
-    for(CURL* curl : drained) {
+    // Keep concurrent shutdown callers from returning before idle cleanup finishes.
+    for(CURL* curl : curl_idle_handles()) {
         curl_easy_cleanup(curl);
     }
+    curl_idle_handles().clear();
 }
 
 http_transfer_metrics_t HttpClient::get_last_transfer_metrics() {
@@ -310,7 +301,8 @@ size_t HttpClient::get_idle_handle_count() {
 }
 
 size_t HttpClient::get_live_handle_count() {
-    return curl_live_handles().load();
+    std::lock_guard<std::mutex> lock(curl_pool_mutex());
+    return curl_live_handles();
 }
 
 CURL* HttpClient::lease_handle_for_test() {
@@ -385,8 +377,7 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
             status_code = res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
         }
     }
-    curl_easy_cleanup_tracked(curl);
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return status_code;
 }
@@ -431,8 +422,7 @@ long HttpClient::post_response_sse(const std::string &url, const std::string &bo
             fail_sse_response(req_res, status_code, get_curl_failure_response_body(status_code));
         }
     }
-    curl_easy_cleanup_tracked(curl);
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return status_code;
 }
@@ -459,9 +449,7 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
 
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_perform(curl);
-    curl_easy_cleanup_tracked(curl);
-
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return 0;
 }
