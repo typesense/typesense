@@ -2923,7 +2923,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     if (!op.ok()) {
         return Option<bool>(op.code(), op.error());
     }
-    Collection* collection = op.get();
+    std::unique_ptr<Collection> collection(op.get());
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
@@ -3072,12 +3072,22 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false, dummy);
             batch_doc_str_size = 0;
 
-            if(num_indexed != num_records) {
-                const std::string& index_error = get_first_index_error(index_records);
-                if(!index_error.empty()) {
-                    // for now, we will just ignore errors during loading of collection
-                    //return Option<bool>(400, index_error);
+            // The count is calculated before field workers finish, so inspect every result
+            // even when it equals the batch size.
+            for(const auto& record: index_records) {
+                if(!record.indexed.ok()) {
+                    const auto id_it = record.doc.find("id");
+                    const std::string doc_id = id_it != record.doc.end() && id_it->is_string() ?
+                                               id_it->get<std::string>() : "<unavailable>";
+                    return Option<bool>(record.indexed.code(), "Could not load collection `" +
+                        this_collection_name + "`: document `" + doc_id + "` (sequence ID " +
+                        std::to_string(record.seq_id) + "): " + record.indexed.error());
                 }
+            }
+            if(num_indexed != num_records) {
+                return Option<bool>(500, "Could not load collection `" + this_collection_name +
+                    "`: indexed " + std::to_string(num_indexed) + "/" + std::to_string(num_records) +
+                    " documents in a batch without a record error.");
             }
 
             index_records.clear();
@@ -3100,10 +3110,11 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    cm.add_to_collections(collection);
-
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
+
+    // add_to_collections takes ownership through the shared_ptr stored in collections.
+    cm.add_to_collections(collection.release());
 
     return Option<bool>(true);
 }
