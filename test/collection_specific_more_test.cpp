@@ -10,6 +10,9 @@
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
 
+extern bool fail_repair_index_for_test;
+extern bool fail_repair_store_for_test;
+
 static nlohmann::json find_doc_by_id(const nlohmann::json& results, const std::string& doc_id) {
     for (const auto& hit : results["hits"]) {
         if (hit["document"]["id"].get<std::string>() == doc_id) {
@@ -3341,6 +3344,215 @@ TEST_F(CollectionSpecificMoreTest, ColdLoadDoesNotCreateGhostDocumentForInvalidS
     ASSERT_EQ(1, field_op.get()["found"].get<size_t>());
 
     collectionManager.drop_collection("cold_load_ghost_document");
+}
+
+TEST_F(CollectionSpecificMoreTest, FullUpsertRepairsStoredDocumentMissingFromIndex) {
+    auto schema = R"({
+        "name":"upsert_ghost", "fields":[
+            {"name":"title","type":"string"},
+            {"name":"category","type":"string","facet":true},
+            {"name":"points","type":"int32","sort":true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    const auto original = R"({"id":"ghost","title":"unchanged needle","category":"old","points":1})"_json;
+    ASSERT_TRUE(coll->add(original.dump()).ok());
+    const auto seq_op = coll->doc_id_to_seq_id("ghost");
+    ASSERT_TRUE(seq_op.ok());
+    // Model missing membership with residual postings: temporarily hide field values
+    // from removal, then restore the durable payload used to clean up those postings.
+    const auto seq_key = coll->get_seq_id_collection_prefix() + "_" +
+                         StringUtils::serialize_uint32_t(seq_op.get());
+    ASSERT_TRUE(store->insert(seq_key, R"({"id":"ghost"})"));
+    ASSERT_TRUE(coll->remove("ghost", false).ok());
+    ASSERT_TRUE(store->insert(seq_key, original.dump()));
+    ASSERT_TRUE(coll->get("ghost").ok());
+    ASSERT_FALSE(coll->_get_index()->validate_seq_id(seq_op.get()));
+    ASSERT_EQ(0, coll->get_num_documents());
+
+    auto invalid = original;
+    invalid["title"] = nullptr;
+    ASSERT_FALSE(coll->add(invalid.dump(), UPSERT).ok());
+    ASSERT_EQ(original, coll->get("ghost").get());
+    ASSERT_EQ(0, coll->get_num_documents());
+
+    auto replacement = original;
+    replacement["category"] = "repaired";
+    replacement["points"] = 2;
+    for(size_t attempt = 0; attempt < 2; attempt++) {
+        ASSERT_TRUE(coll->add(replacement.dump(), UPSERT).ok());
+        EXPECT_EQ(seq_op.get(), coll->doc_id_to_seq_id("ghost").get());
+        EXPECT_EQ(1, coll->get_num_documents());
+        EXPECT_TRUE(coll->_get_index()->validate_seq_id(seq_op.get()));
+        auto wildcard = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+        ASSERT_TRUE(wildcard.ok());
+        EXPECT_EQ(1, wildcard.get()["found"].get<size_t>());
+        auto text = coll->search("needle", {"title"}, "category:=repaired && points:=2", {}, {},
+                                 {0}, 10, 1, FREQUENCY, {false}, 0);
+        ASSERT_TRUE(text.ok());
+        EXPECT_EQ(1, text.get()["found"].get<size_t>());
+        auto old_values = coll->search("*", {}, "category:=old || points:=1", {}, {},
+                                       {0}, 10, 1, FREQUENCY, {false}, 0);
+        ASSERT_TRUE(old_values.ok());
+        EXPECT_EQ(0, old_values.get()["found"].get<size_t>());
+    }
+
+    // Identical-payload repair and repeated IDs must not depend on changed fields.
+    ASSERT_TRUE(coll->remove("ghost", false).ok());
+    std::vector<std::string> docs = {replacement.dump(), replacement.dump(),
+        R"({"id":"healthy","title":"control","category":"other","points":3})"};
+    nlohmann::json document;
+    auto import_result = coll->add_many(docs, document, UPSERT);
+    ASSERT_TRUE(import_result["success"].get<bool>());
+    EXPECT_EQ(2, coll->get_num_documents());
+    auto all = coll->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(all.ok());
+    EXPECT_EQ(2, all.get()["found"].get<size_t>());
+
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/collection_specific_more");
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+    coll = collectionManager.get_collection("upsert_ghost").get();
+    ASSERT_NE(nullptr, coll);
+    EXPECT_EQ(2, coll->get_num_documents());
+    EXPECT_EQ(seq_op.get(), coll->doc_id_to_seq_id("ghost").get());
+    auto restored = coll->search("needle", {"title"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(restored.ok());
+    EXPECT_EQ(1, restored.get()["found"].get<size_t>());
+    EXPECT_EQ(replacement, coll->get("ghost").get());
+}
+
+TEST_F(CollectionSpecificMoreTest, FullUpsertRepairFailurePreservesStorageAndAllowsRetry) {
+    auto schema = R"({"name":"repair_failures", "fields":[
+        {"name":"title","type":"string"},
+        {"name":"secret","type":"string","store":false},
+        {"name":"points","type":"int32","facet":true,"sort":true}
+    ]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    auto original = R"({"id":"ghost","title":"before","secret":"hidden","points":1})"_json;
+    ASSERT_TRUE(coll->add(original.dump()).ok());
+    auto seq_op = coll->doc_id_to_seq_id("ghost");
+    ASSERT_TRUE(seq_op.ok());
+    ASSERT_TRUE(coll->remove("ghost", false).ok());
+    const auto seq_key = coll->get_seq_id_collection_prefix() + "_" +
+                         StringUtils::serialize_uint32_t(seq_op.get());
+    const std::string corrupt_record = R"({"id":"ghost","title":null,"points":1})";
+    ASSERT_TRUE(store->insert(seq_key, corrupt_record));
+
+    auto replacement = original;
+    replacement["title"] = "repaired";
+    replacement["secret"] = "replacementsecret";
+    replacement["points"] = 2;
+    struct ResetRepairFaults {
+        ~ResetRepairFaults() {
+            fail_repair_index_for_test = false;
+            fail_repair_store_for_test = false;
+        }
+    } reset_faults;
+
+    for(bool fail_store: {false, true}) {
+        fail_repair_index_for_test = !fail_store;
+        fail_repair_store_for_test = fail_store;
+        auto repair_op = coll->add(replacement.dump(), UPSERT);
+        fail_repair_index_for_test = false;
+        fail_repair_store_for_test = false;
+        ASSERT_FALSE(repair_op.ok());
+        EXPECT_EQ(500, repair_op.code());
+        std::string stored;
+        ASSERT_EQ(StoreStatus::FOUND, store->get(seq_key, stored));
+        EXPECT_EQ(corrupt_record, stored);
+        EXPECT_EQ(seq_op.get(), coll->doc_id_to_seq_id("ghost").get());
+        EXPECT_EQ(0, coll->get_num_documents());
+        EXPECT_FALSE(coll->_get_index()->validate_seq_id(seq_op.get()));
+        for(const auto& field: {"title", "secret"}) {
+            auto found = coll->search(field == std::string("title") ? "repaired" : "replacementsecret",
+                                      {field}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+            ASSERT_TRUE(found.ok());
+            EXPECT_EQ(0, found.get()["found"].get<size_t>());
+        }
+        auto filtered = coll->search("*", {}, "points:=2", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+        ASSERT_TRUE(filtered.ok());
+        EXPECT_EQ(0, filtered.get()["found"].get<size_t>());
+    }
+
+    ASSERT_TRUE(coll->add(replacement.dump(), UPSERT).ok());
+    EXPECT_EQ(1, coll->get_num_documents());
+    auto repaired = coll->search("repaired", {"title"}, "points:=2", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(repaired.ok());
+    EXPECT_EQ(1, repaired.get()["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, FullUpsertRepairRebuildsNestedAndVectorFields) {
+    auto schema = R"({"name":"repair_nested", "enable_nested_fields":true, "fields":[
+        {"name":"details","type":"object"},
+        {"name":"details.title","type":"string"},
+        {"name":"vec","type":"float[]","num_dim":2}
+    ]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    const std::string doc = R"({"id":"ghost","details":{"title":"needle"},"vec":[1.0,0.0]})";
+    ASSERT_TRUE(coll->add(doc).ok());
+    ASSERT_TRUE(coll->remove("ghost", false).ok());
+
+    // A rejected repair must remove flattened postings and the supplied vector too.
+    fail_repair_store_for_test = true;
+    auto failed = coll->add(doc, UPSERT);
+    fail_repair_store_for_test = false;
+    ASSERT_FALSE(failed.ok());
+    EXPECT_EQ(0, coll->get_num_documents());
+    auto missing = coll->search("needle", {"details.title"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(missing.ok());
+    EXPECT_EQ(0, missing.get()["found"].get<size_t>());
+
+    ASSERT_TRUE(coll->add(doc, UPSERT).ok());
+    auto found = coll->search("needle", {"details.title"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(found.ok());
+    EXPECT_EQ(1, found.get()["found"].get<size_t>());
+    std::map<std::string, std::string> params = {
+        {"collection", "repair_nested"}, {"q", "*"}, {"vector_query", "vec:([1.0,0.0], k:10)"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    ASSERT_TRUE(collectionManager.do_search(params, embedded_params, response, 0).ok());
+    auto result = nlohmann::json::parse(response);
+    EXPECT_EQ(1, result["found"].get<size_t>());
+    EXPECT_EQ(1, coll->get_num_documents());
+}
+
+TEST_F(CollectionSpecificMoreTest, FullUpsertRepairRegeneratesMissingEmbedding) {
+    auto schema = R"({"name":"repair_embedding", "fields":[
+        {"name":"title","type":"string"},
+        {"name":"embedding","type":"float[]","embed":{
+            "from":["title"],"model_config":{"model_name":"ts/e5-small"}
+        }}
+    ]})"_json;
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    const std::string original = R"({"id":"ghost","title":"butter"})";
+    ASSERT_TRUE(coll->add(original).ok());
+    ASSERT_TRUE(coll->remove("ghost", false).ok());
+    auto repaired = coll->add(R"({"id":"ghost","title":"butterball"})", UPSERT);
+    ASSERT_TRUE(repaired.ok()) << repaired.error();
+    EXPECT_EQ(384, repaired.get()["embedding"].size());
+    EXPECT_EQ(1, coll->get_num_documents());
+    std::map<std::string, std::string> params = {
+        {"collection", "repair_embedding"}, {"q", "butterball"}, {"query_by", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    ASSERT_TRUE(collectionManager.do_search(params, embedded_params, response, 0).ok());
+    EXPECT_EQ(1, nlohmann::json::parse(response)["found"].get<size_t>());
 }
 
 TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {

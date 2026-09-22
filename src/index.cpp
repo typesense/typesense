@@ -41,6 +41,10 @@
                 }
 #define FACET_INDEX_THRESHOLD 1000000000
 
+#ifdef TEST_BUILD
+bool fail_repair_index_for_test = false;
+#endif
+
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::seq_id_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::group_found_sentinel_value;
@@ -546,13 +550,16 @@ void Index::validate_and_preprocess(Index *index,
 
             handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
 
+            index_rec.is_repair = index_rec.is_update && index_rec.operation == UPSERT &&
+                                  !index->validate_seq_id(index_rec.seq_id);
+
             if(do_validation) {
                 Option<uint32_t> validation_op = validator_t::validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                           default_sorting_field,
                                                                           search_schema,
                                                                           embedding_fields,
                                                                           index_rec.operation,
-                                                                          index_rec.is_update,
+                                                                          index_rec.is_update && !index_rec.is_repair,
                                                                           fallback_field_type,
                                                                           index_rec.dirty_values, generate_embeddings);
 
@@ -563,9 +570,16 @@ void Index::validate_and_preprocess(Index *index,
             }
 
             if(index_rec.is_update) {
-                // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.operation, search_schema, embedding_fields,
-                                index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
+                if(index_rec.is_repair) {
+                    // Rebuild unchanged fields too. Treat embeddings like a full insertion:
+                    // use supplied vectors or regenerate them from the replacement's sources.
+                    index_rec.new_doc = index_rec.doc;
+                    index_rec.del_doc = index_rec.old_doc;
+                } else {
+                    // scrub string fields to reduce delete ops
+                    get_doc_changes(index_rec.operation, search_schema, embedding_fields,
+                                    index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
+                }
 
                 /*if(index_rec.seq_id == 0) {
                     LOG(INFO) << "index_rec.doc: " << index_rec.doc;
@@ -671,7 +685,8 @@ size_t Index::batch_memory_index(Index *index,
         }
 
         if(index_rec.is_update) {
-            index->remove(index_rec.seq_id, index_rec.del_doc, {}, index_rec.is_update);
+            index_rec.repair_index_started = index_rec.is_repair;
+            index->remove(index_rec.seq_id, index_rec.del_doc, {}, !index_rec.is_repair);
         } else if(index_rec.indexed.ok()) {
             num_indexed++;
         }
@@ -716,6 +731,16 @@ size_t Index::batch_memory_index(Index *index,
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
     }
 
+#ifdef TEST_BUILD
+    if(fail_repair_index_for_test) {
+        for(auto& record: iter_batch) {
+            if(record.repair_index_started) {
+                record.index_failure(500, "Injected repair indexing failure.");
+            }
+        }
+    }
+#endif
+
     for (const auto& record : iter_batch) {
         if (!record.indexed.ok() || record.operation == DELETE) {
             continue;
@@ -732,6 +757,20 @@ size_t Index::batch_memory_index(Index *index,
         }
     }
 
+    // remove() takes the index lock itself. All field workers have finished, and
+    // the caller still owns the collection write lock throughout cleanup.
+    ulock.unlock();
+    for(auto& record: iter_batch) {
+        if(!record.repair_index_started) {
+            continue;
+        }
+        if(record.indexed.ok()) {
+            num_indexed++;
+        } else {
+            index->remove(record.seq_id, record.doc, {}, false);
+        }
+    }
+
     return num_indexed;
 }
 
@@ -744,7 +783,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 // some records could have been invalidated upstream
                 continue;
             }
-            if(!record.is_update && record.indexed.ok()) {
+            if((!record.is_update || record.is_repair) && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
                 std::unique_lock lock(seq_ids_mutex);
                 seq_ids->upsert(record.seq_id);
