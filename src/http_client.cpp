@@ -308,6 +308,10 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
 
     CURL *curl = init_curl_stream(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
+        // the proxy waits on this flag before reading chunks, bailing without it hangs the caller
+        std::unique_lock<std::mutex> lock(response.mutex);
+        response.ready = true;
+        response.cv.notify_one();
         return 500;
     }
 
@@ -757,6 +761,9 @@ static void set_http_version(CURL* curl, const std::string& url) {
 CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms,
                                    SSLVerifyMode ssl_verify_mode) {
     CURL* curl = curl_easy_init();
+    if(curl == nullptr) {
+        return nullptr;
+    }
 
     configure_ssl(curl, url, ssl_verify_mode);
 
