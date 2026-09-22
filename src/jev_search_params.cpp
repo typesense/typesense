@@ -2150,24 +2150,15 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
         return Option<nlohmann::json>(catalog_op.code(), catalog_op.error());
     }
 
-    const long ms_catalog = elapsed_ms(t_start);
-
     jev_catalog_t catalog = catalog_op.get();
     const jev_query_facts_t facts = pre_parse(query);
 
-    const auto t_shortlist = std::chrono::steady_clock::now();
-
     const nlohmann::json shortlist_trace = shortlist_values(catalog, facts, opts);
-
-    const long ms_shortlist = elapsed_ms(t_shortlist);
-    const auto t_questions = std::chrono::steady_clock::now();
 
     auto questions_op = build_questions(catalog, facts, opts);
     if(!questions_op.ok()) {
         return Option<nlohmann::json>(questions_op.code(), questions_op.error());
     }
-
-    const long ms_questions = elapsed_ms(t_questions);
 
     if(questions_op.get().empty()) {
         nlohmann::json params;
@@ -2195,10 +2186,6 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     round_stats.push_back(main_stats);
 
     if(!response_op.ok()) {
-        LOG(INFO) << "jev timing: main round failed, status=" << main_stats.status
-                  << " api=" << main_stats.wall_ms << "ms total=" << elapsed_ms(t_start)
-                  << "ms asked=" << main_stats.num_questions
-                  << " req_bytes=" << main_stats.request_bytes;
         return Option<nlohmann::json>(response_op.code(), response_op.error());
     }
 
@@ -2248,8 +2235,6 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
         word_number_entry = wn_entry;
     }
 
-    const auto t_assemble = std::chrono::steady_clock::now();
-
     nlohmann::json params = assemble(catalog, final_facts, answers, opts);
     for(const auto& entry : shortlist_trace) {
         params["llm_response"]["debug"]["trace"].push_back(entry);
@@ -2288,46 +2273,17 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
     params["llm_response"]["debug"]["questions"] = questions;
 
     prune_invalid_clauses(collection_name, final_facts, params);
-    const long ms_assemble = elapsed_ms(t_assemble);
 
     if(opts.consumed_check && !final_facts.has_query_operators) {
         consumed_check_round(context, model_config, final_facts, opts, params,
                              total_budget_ms - elapsed_ms(t_start), round_stats);
     }
 
-    long ms_api = 0;
-    long known_input_tokens = 0;
-    size_t unknown_usage_rounds = 0;
-    size_t failed_rounds = 0;
-    size_t num_questions = 0;
-    size_t request_bytes = 0;
     nlohmann::json rounds_json = nlohmann::json::array();
     for(const auto& stats : round_stats) {
-        ms_api += stats.wall_ms;
-        num_questions += stats.num_questions;
-        request_bytes += stats.request_bytes;
-        if(stats.status != 200) {
-            failed_rounds++;
-        }
-        if(stats.input_tokens >= 0) {
-            known_input_tokens += stats.input_tokens;
-        } else {
-            unknown_usage_rounds++;
-        }
         rounds_json.push_back(stats.to_json());
     }
     params["llm_response"]["debug"]["rounds"] = rounds_json;
-
-    LOG(INFO) << "jev timing: catalog=" << ms_catalog << "ms shortlist=" << ms_shortlist
-              << "ms questions=" << ms_questions
-              << "ms api=" << ms_api << "ms assemble=" << ms_assemble
-              << "ms total=" << elapsed_ms(t_start) << "ms budget=" << total_budget_ms
-              << "ms asked=" << num_questions
-              << " rounds=" << round_stats.size()
-              << " failed_rounds=" << failed_rounds
-              << " req_bytes=" << request_bytes
-              << " input_tokens=" << known_input_tokens
-              << " unknown_usage_rounds=" << unknown_usage_rounds;
 
     return Option<nlohmann::json>(params);
 }

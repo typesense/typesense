@@ -165,20 +165,15 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
                                 (long)((now_us - (long long)start_ts) / 1000) : 0;
         remaining_ms = JevClient::budget_ms(model_config) - elapsed_ms;
         if(remaining_ms < (long)JevClient::MIN_TIMEOUT_MS) {
-            LOG(INFO) << "jev timing: rerank skipped, budget spent after " << elapsed_ms << "ms";
             return;
         }
     }
 
-    jev_round_stats_t stats;
-    stats.purpose = "rerank";
     auto response_op = JevClient::ask(build_state(query, candidates), build_questions(slots.size()),
-                                      model_config, &stats, remaining_ms);
+                                      model_config, nullptr, remaining_ms);
 
     if(!response_op.ok()) {
         LOG(WARNING) << "jev rerank failed, original order stands: " << response_op.error();
-        LOG(INFO) << "jev timing: rerank status=" << stats.status << " api=" << stats.wall_ms
-                  << "ms judged=0 req_bytes=" << stats.request_bytes;
         return;
     }
 
@@ -208,10 +203,6 @@ void JevRerank::rerank_with_model(nlohmann::json& hits, const std::string& query
     for(size_t j = 0; j < slots.size(); j++) {
         hits[slots[j]] = std::move(judged[ranked[j].second]);
     }
-
-    LOG(INFO) << "jev timing: rerank api=" << stats.wall_ms << "ms judged=" << slots.size()
-              << " req_bytes=" << stats.request_bytes
-              << " input_tokens=" << stats.input_tokens;
 }
 
 void JevRerank::rerank(nlohmann::json& hits, const std::string& query,
