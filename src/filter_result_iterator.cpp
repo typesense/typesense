@@ -442,7 +442,7 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 }
 
 void filter_result_iterator_t::and_filter_iterators() {
-    while (left_it->validity && right_it->validity) {
+    while (left_it->validity == valid && right_it->validity == valid) {
         if (timeout_info != nullptr && is_timed_out()) {
             return;
         }
@@ -465,7 +465,7 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             if (left_validity == -1) {
-                validity = invalid;
+                validity = left_it->validity == timed_out ? timed_out : invalid;
                 return;
             }
         }
@@ -488,7 +488,7 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
 
             if (right_validity == -1) {
-                validity = invalid;
+                validity = right_it->validity == timed_out ? timed_out : invalid;
                 return;
             }
 
@@ -519,10 +519,15 @@ void filter_result_iterator_t::and_filter_iterators() {
         }
     }
 
-    validity = invalid;
+    validity = (left_it->validity == timed_out || right_it->validity == timed_out) ? timed_out : invalid;
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
+    if (left_it->validity == timed_out || right_it->validity == timed_out) {
+        validity = timed_out;
+        return;
+    }
+
     if (filter_node->is_object_filter_root) {
         while (left_it->validity || right_it->validity) {
             if (timeout_info != nullptr && is_timed_out()) {
@@ -1049,6 +1054,10 @@ void filter_result_iterator_t::next() {
         if (filter_node->filter_operator == AND) {
             left_it->next();
             right_it->next();
+            if (left_it->validity == timed_out || right_it->validity == timed_out) {
+                validity = timed_out;
+                return;
+            }
             and_filter_iterators();
         } else {
             if (left_it->seq_id == seq_id && right_it->seq_id == seq_id) {
@@ -1058,6 +1067,11 @@ void filter_result_iterator_t::next() {
                 left_it->next();
             } else if (right_it->seq_id == seq_id) {
                 right_it->next();
+            }
+
+            if (left_it->validity == timed_out || right_it->validity == timed_out) {
+                validity = timed_out;
+                return;
             }
 
             or_filter_iterators();
@@ -1169,7 +1183,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
         if (filter_node->filter_operator == AND) {
             approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
 
-            if (approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
+            if (!defer_range_subtree && approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
                 compute_iterators();
             } else {
                 and_filter_iterators();
@@ -1850,7 +1864,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
             // For a boolean filter like `in_stock: true` that could match a large number of ids, we use bool_iterator.
             if (a_filter.values.size() == 1 && a_filter.comparators[0] == EQUALS && !a_filter.apply_not_equals &&
-                num_tree->approx_search_count(EQUALS, (a_filter.values[0] == "1" ? 1 : 0)) > bool_filter_ids_threshold) {
+                (defer_range_subtree ||
+                 num_tree->approx_search_count(EQUALS, (a_filter.values[0] == "1" ? 1 : 0)) > bool_filter_ids_threshold)) {
                 bool_iterator = num_tree_t::iterator_t(num_tree, EQUALS, (a_filter.values[0] == "1" ? 1 : 0));
                 if (!bool_iterator.is_valid) {
                     validity = invalid;
@@ -2560,8 +2575,13 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
     }
 
     if (filter_node->isOperator) {
-        // We only need to consider only valid/invalid state since child nodes can never time out.
+        // Child iterators in deferred range subtrees retain their own deadline state.
         auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
+
+        if (left_it->validity == timed_out || right_it->validity == timed_out) {
+            validity = timed_out;
+            return -1;
+        }
 
         if (filter_node->filter_operator == AND) {
             validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
@@ -2791,6 +2811,10 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
         // Reset the subtrees then apply operators to arrive at the first valid doc.
         left_it->reset();
         right_it->reset();
+        if (left_it->validity == timed_out || right_it->validity == timed_out) {
+            validity = timed_out;
+            return;
+        }
         validity = valid;
 
         if (filter_node->filter_operator == AND) {
@@ -3001,7 +3025,8 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
                                                    const filter_node_t *const filter_node,
                                                    const bool& enable_lazy_evaluation, const size_t& max_candidates,
                                                    uint64_t search_begin, uint64_t search_stop,
-                                                   const bool& validate_field_names)  :
+                                                   const bool& validate_field_names,
+                                                   const bool& inherited_range_deferral)  :
         collection_name(collection_name),
         index(index),
         filter_node(filter_node) {
@@ -3015,10 +3040,19 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
         timeout_info = std::make_unique<filter_result_iterator_timeout_info>(search_begin, search_stop);
     }
 
+    defer_range_subtree = inherited_range_deferral ||
+                           (contains_positive_range_index_filter(filter_node, index) &&
+                            is_metadata_free_subtree(filter_node));
+
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
-        left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation,
-                                               max_candidates, validate_field_names);
+        if (defer_range_subtree) {
+            left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, true, max_candidates,
+                                                   search_begin, search_stop, validate_field_names, true);
+        } else {
+            left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, enable_lazy_evaluation,
+                                                   max_candidates, validate_field_names);
+        }
         // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
         if (filter_node->filter_operator == AND && left_it->validity == invalid) {
             validity = invalid;
@@ -3028,13 +3062,18 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
             return;
         }
 
-        right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation,
-                                                max_candidates, validate_field_names);
+        if (defer_range_subtree) {
+            right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, true, max_candidates,
+                                                    search_begin, search_stop, validate_field_names, true);
+        } else {
+            right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, enable_lazy_evaluation,
+                                                    max_candidates, validate_field_names);
+        }
     }
 
     max_filter_by_candidates = max_candidates;
 
-    init(enable_lazy_evaluation, validate_field_names);
+    init(enable_lazy_evaluation || defer_range_subtree, validate_field_names);
 
     if (!validity) {
         this->approx_filter_ids_length = 0;
@@ -3118,6 +3157,8 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     status = std::move(obj.status);
     is_filter_result_initialized = obj.is_filter_result_initialized;
     computed_by_probe = obj.computed_by_probe;
+    defer_range_subtree = obj.defer_range_subtree;
+    timeout_info = std::move(obj.timeout_info);
 
     approx_filter_ids_length = obj.approx_filter_ids_length;
 
@@ -3254,6 +3295,8 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
                                                           fit->max_filter_by_candidates);
     root_iterator->right_it = fit;
     root_iterator->timeout_info = std::move(fit->timeout_info);
+    // The synthetic phrase-id leaf has no reference or object metadata.
+    root_iterator->defer_range_subtree = fit->defer_range_subtree;
 
     root_iterator->and_filter_iterators();
 
@@ -3270,6 +3313,69 @@ bool filter_result_iterator_t::has_referenced_filter(const filter_node_t* const 
     }
 
     return !node->filter_exp.referenced_collection_name.empty();
+}
+
+bool filter_result_iterator_t::contains_positive_range_index_filter(const filter_node_t* const node,
+                                                                     const Index* const index) {
+    if (node == nullptr || index == nullptr) {
+        return false;
+    }
+    if (node->isOperator) {
+        return contains_positive_range_index_filter(node->left, index) ||
+               contains_positive_range_index_filter(node->right, index);
+    }
+
+    const auto& a_filter = node->filter_exp;
+    if (!a_filter.referenced_collection_name.empty() || a_filter.apply_not_equals ||
+        std::any_of(a_filter.comparators.begin(), a_filter.comparators.end(),
+                    [](const NUM_COMPARATOR comparator) {
+                        return comparator == NOT_EQUALS || comparator == MISSING;
+                    }) ||
+        index->search_schema.count(a_filter.field_name) == 0) {
+        return false;
+    }
+
+    const auto& f = index->search_schema.at(a_filter.field_name);
+    return f.range_index && (f.is_integer() || f.is_float());
+}
+
+bool filter_result_iterator_t::is_metadata_free_subtree(const filter_node_t* const node) {
+    if (node == nullptr) {
+        return true;
+    }
+    if (node->is_object_filter_root) {
+        return false;
+    }
+    if (node->isOperator) {
+        return is_metadata_free_subtree(node->left) && is_metadata_free_subtree(node->right);
+    }
+    return node->filter_exp.referenced_collection_name.empty();
+}
+
+bool filter_result_iterator_t::drain_deferred_range_subtree() {
+    reset();
+    if (validity == timed_out) {
+        return false;
+    }
+
+    std::vector<uint32_t> ids;
+    while (validity == valid) {
+        ids.push_back(seq_id);
+        next();
+    }
+    if (validity == timed_out) {
+        return false;
+    }
+
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    if (!ids.empty()) {
+        filter_result.docs = new uint32_t[ids.size()];
+        std::copy(ids.begin(), ids.end(), filter_result.docs);
+        validity = valid;
+    }
+    filter_result.count = ids.size();
+    return true;
 }
 
 bool filter_result_iterator_t::can_probe_wide_side(const filter_result_iterator_t* const narrow_it,
@@ -3327,6 +3433,12 @@ void filter_result_iterator_t::compute_iterators() {
     }
 
     if (filter_node->isOperator) {
+
+        if (defer_range_subtree) {
+            if (!drain_deferred_range_subtree()) {
+                return;
+            }
+        } else {
 
         if (timeout_info != nullptr) {
             // Passing timeout_info into subtree so individual nodes can check for timeout.
@@ -3391,7 +3503,9 @@ void filter_result_iterator_t::compute_iterators() {
             }
         }
 
-        if (left_it->validity == timed_out || right_it->validity == timed_out ||
+        }
+
+        if ((!defer_range_subtree && (left_it->validity == timed_out || right_it->validity == timed_out)) ||
                 (timeout_info != nullptr && is_timed_out(true))) {
             validity = timed_out;
         }
@@ -4163,6 +4277,8 @@ filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operat
         filter_root.reset(root);
     }
     filter_node = filter_root.get();
+    defer_range_subtree = (left_it->defer_range_subtree || right_it->defer_range_subtree) &&
+                           is_metadata_free_subtree(filter_node);
 
-    init(false, false);
+    init(defer_range_subtree, false);
 }

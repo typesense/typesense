@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 #include <collection_manager.h>
 #include "collection.h"
 
@@ -34,6 +36,79 @@ protected:
         delete store;
     }
 };
+
+TEST_F(CollectionFilteringTest, RangeIndexNestedExpressionSearchModes) {
+    auto schema = R"({
+        "name": "range_lazy_public",
+        "fields": [
+            {"name": "show_result", "type": "bool"},
+            {"name": "expires_at", "type": "int64", "range_index": true},
+            {"name": "ts", "type": "int64", "range_index": true}
+        ]
+    })"_json;
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    auto* coll = collection_op.get();
+
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto cutoff = now - 10 * 60;
+    auto add_documents = [&](size_t first, size_t count, bool matching_buckets) {
+        for (size_t i = first; i < first + count; i++) {
+            const auto bucket = i % 100;
+            const auto ts = matching_buckets && bucket < 9 ? cutoff + bucket + 1 : cutoff - bucket - 1;
+            std::ostringstream id;
+            id << "doc-" << std::setfill('0') << std::setw(4) << i;
+            ASSERT_TRUE(coll->add(nlohmann::json{{"id", id.str()},
+                                                   {"show_result", true}, {"expires_at", now + 3600},
+                                                   {"ts", ts}}.dump()).ok());
+        }
+    };
+    add_documents(0, 1000, true);
+
+    std::vector<std::string> expected_ids;
+    for (size_t i = 0; i < 1000; i++) {
+        if (i % 100 >= 9) {
+            continue;
+        }
+        std::ostringstream id;
+        id << "doc-" << std::setfill('0') << std::setw(4) << i;
+        expected_ids.push_back(id.str());
+    }
+    const std::string nested = "(show_result:true && expires_at:>" + std::to_string(now) +
+                               ") && ts:>" + std::to_string(cutoff);
+    const std::string reverse = "ts:>" + std::to_string(cutoff) +
+                                " && (show_result:true && expires_at:>" + std::to_string(now) + ")";
+    auto assert_results = [&](const std::string& filter_by, const std::string& lazy_mode) {
+        std::map<std::string, std::string> req_params = {
+                {"collection", "range_lazy_public"}, {"q", "*"}, {"filter_by", filter_by},
+                {"per_page", "100"}, {"sort_by", "_seq_id:asc"}
+        };
+        if (!lazy_mode.empty()) {
+            req_params["enable_lazy_filter"] = lazy_mode;
+        }
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now * 1000000);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        auto results = nlohmann::json::parse(json_res);
+        ASSERT_EQ(90, results["found"].get<size_t>());
+        ASSERT_EQ(expected_ids.size(), results["hits"].size());
+        for (size_t i = 0; i < expected_ids.size(); i++) {
+            ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+        }
+    };
+    for (const auto& mode : {std::string(), std::string("false"), std::string("true")}) {
+        assert_results(nested, mode);
+        assert_results(reverse, mode);
+    }
+
+    add_documents(1000, 1000, false);
+    for (const auto& mode : {std::string(), std::string("false"), std::string("true")}) {
+        assert_results(nested, mode);
+        assert_results(reverse, mode);
+    }
+}
 
 TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     Collection *coll_array_fields;

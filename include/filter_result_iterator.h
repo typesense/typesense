@@ -292,6 +292,9 @@ private:
     /// wide side for each of its ids.
     bool computed_by_probe = false;
 
+    // Internal policy for metadata-free subtrees containing positive range-index leaves.
+    bool defer_range_subtree = false;
+
     /// Initialized in case of filter on string field.
     /// Sample filter values: ["foo bar", "baz"]. Each filter value is split into tokens. We get posting list iterator
     /// for each token.
@@ -347,6 +350,10 @@ private:
 
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
+
+    static bool contains_positive_range_index_filter(const filter_node_t* const node, const Index* const index);
+    static bool is_metadata_free_subtree(const filter_node_t* const node);
+    bool drain_deferred_range_subtree();
 
     /// Decides whether this `&&` node can be computed by materializing `narrow_it` alone and asking `wide_it`
     /// about each of the ids it yields.
@@ -425,7 +432,8 @@ public:
                                       const bool& enable_lazy_evaluation = false,
                                       const size_t& max_candidates = DEFAULT_FILTER_BY_CANDIDATES,
                                       uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX,
-                                      const bool& validate_field_names = true);
+                                      const bool& validate_field_names = true,
+                                      const bool& inherited_range_deferral = false);
 
     explicit filter_result_iterator_t(FILTER_OPERATOR filter_operator, filter_result_iterator_t* filter_result_iterator,
                                       filter_result_iterator_t* new_iterator,

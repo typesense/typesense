@@ -3548,3 +3548,119 @@ TEST_F(FilterTest, RangeIndexNegationStaysEager) {
     assert_eager_ids("age:!=30");
     assert_eager_ids("age:![30]");
 }
+
+TEST_F(FilterTest, RangeIndexNestedExpressionDefersUntilFinalCompute) {
+    nlohmann::json schema =
+            R"({
+                "name": "RangeNestedIteratorCollection",
+                "fields": [
+                    {"name": "show_result", "type": "bool"},
+                    {"name": "expires_at", "type": "int64", "range_index": true},
+                    {"name": "ts", "type": "int64", "range_index": true},
+                    {"name": "small", "type": "int64", "range_index": true}
+                ]
+            })"_json;
+    auto collection_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_op.ok());
+    auto* coll = collection_op.get();
+    for (uint32_t i = 0; i < 100; i++) {
+        ASSERT_TRUE(coll->add(nlohmann::json{{"show_result", true},
+                                              {"expires_at", 1780000001LL},
+                                              {"ts", i >= 91 ? 1770000001LL : 1770000000LL},
+                                              {"small", i}}.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+    const std::vector<uint32_t> expected = {91, 92, 93, 94, 95, 96, 97, 98, 99};
+    auto assert_uninitialized_tree = [](const filter_result_iterator_t* iterator, const auto& self) -> void {
+        ASSERT_FALSE(iterator->_get_is_filter_result_initialized());
+        if (iterator->_get_left_it() != nullptr) {
+            self(iterator->_get_left_it(), self);
+        }
+        if (iterator->_get_right_it() != nullptr) {
+            self(iterator->_get_right_it(), self);
+        }
+    };
+    auto assert_final_ids = [&](filter_result_iterator_t& iterator) {
+        iterator.compute_iterators();
+        ASSERT_TRUE(iterator._get_is_filter_result_initialized());
+        ASSERT_EQ(filter_result_iterator_t::valid, iterator.validity);
+        uint32_t* ids = nullptr;
+        ASSERT_EQ(expected.size(), iterator.to_filter_id_array(ids));
+        ASSERT_EQ(expected, std::vector<uint32_t>(ids, ids + expected.size()));
+        delete [] ids;
+        ASSERT_EQ(nullptr, iterator._get_left_it());
+        ASSERT_EQ(nullptr, iterator._get_right_it());
+    };
+    auto make_root = [&](const std::string& query) {
+        filter_node_t* raw_root = nullptr;
+        EXPECT_TRUE(filter::parse_filter_query(query, coll->get_schema(), store, doc_id_prefix, raw_root).ok());
+        return std::unique_ptr<filter_node_t>(raw_root);
+    };
+
+    const std::string nested = "(show_result:true && expires_at:>1780000000) && ts:>1770000000";
+    auto omitted_root = make_root(nested);
+    filter_result_iterator_t omitted(coll->get_name(), coll->_get_index(), omitted_root.get());
+    assert_uninitialized_tree(&omitted, assert_uninitialized_tree);
+    ASSERT_EQ(9, omitted.approx_filter_ids_length);
+    ASSERT_EQ(100, std::max(omitted._get_left_it()->approx_filter_ids_length,
+                            omitted._get_right_it()->approx_filter_ids_length));
+    ASSERT_LT(100, 32 * omitted.approx_filter_ids_length);
+    ASSERT_EQ(91, omitted.seq_id);
+    omitted.next();
+    ASSERT_EQ(92, omitted.seq_id);
+    assert_final_ids(omitted);
+    assert_final_ids(omitted);
+    omitted.reset();
+    ASSERT_EQ(91, omitted.seq_id);
+
+    auto false_root = make_root("ts:>1770000000 && (show_result:true && expires_at:>1780000000)");
+    filter_result_iterator_t disabled(coll->get_name(), coll->_get_index(), false_root.get(), false);
+    assert_uninitialized_tree(&disabled, assert_uninitialized_tree);
+    assert_final_ids(disabled);
+
+    auto true_root = make_root("((show_result:true && expires_at:>1780000000) || ts:>1770000000) && ts:>1770000000");
+    filter_result_iterator_t enabled(coll->get_name(), coll->_get_index(), true_root.get(), true);
+    assert_uninitialized_tree(&enabled, assert_uninitialized_tree);
+    while (enabled.validity == filter_result_iterator_t::valid) {
+        enabled.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, enabled.validity);
+    assert_final_ids(enabled);
+    enabled.reset();
+    ASSERT_EQ(91, enabled.seq_id);
+
+    auto empty_root = make_root("show_result:false && expires_at:>1780000000");
+    filter_result_iterator_t empty(coll->get_name(), coll->_get_index(), empty_root.get(), false);
+    ASSERT_TRUE(empty._get_is_filter_result_initialized());
+    ASSERT_EQ(filter_result_iterator_t::invalid, empty.validity);
+    empty.compute_iterators();
+    empty.reset();
+    ASSERT_EQ(filter_result_iterator_t::invalid, empty.validity);
+
+    auto small_root = make_root("(show_result:true && expires_at:>1780000000) && small:>97");
+    filter_result_iterator_t small(coll->get_name(), coll->_get_index(), small_root.get(), false);
+    assert_uninitialized_tree(&small, assert_uninitialized_tree);
+    ASSERT_EQ(2, small.approx_filter_ids_length);
+    small.compute_iterators();
+    uint32_t* small_ids = nullptr;
+    ASSERT_EQ(2, small.to_filter_id_array(small_ids));
+    ASSERT_EQ((std::vector<uint32_t>{98, 99}), std::vector<uint32_t>(small_ids, small_ids + 2));
+    delete [] small_ids;
+
+    auto timed_root = make_root(nested);
+    filter_result_iterator_t timed(coll->get_name(), coll->_get_index(), timed_root.get(), false,
+                                   DEFAULT_FILTER_BY_CANDIDATES, 0, 0);
+    auto* timed_child = timed._get_left_it();
+    ASSERT_NE(nullptr, timed_child);
+    for (uint16_t i = 0; i < function_call_modulo; i++) {
+        timed_child->is_valid(91);
+    }
+    ASSERT_EQ(filter_result_iterator_t::timed_out, timed_child->validity);
+    ASSERT_EQ(-1, timed.is_valid(91));
+    ASSERT_EQ(filter_result_iterator_t::timed_out, timed.validity);
+    ASSERT_FALSE(timed._get_is_filter_result_initialized());
+    timed.compute_iterators();
+    ASSERT_FALSE(timed._get_is_filter_result_initialized());
+}
