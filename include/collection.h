@@ -308,7 +308,6 @@ struct collection_search_args_t {
     bool jev_rerank = false;
     std::string jev_rerank_model_id;
     size_t jev_rerank_top_k = JevRerank::DEFAULT_TOP_K;
-    // judged against what the user typed, jev's q rewrite erases raw_query
     std::string jev_rerank_query;
 
     collection_search_args_t(std::string raw_query, std::vector<std::string> search_fields, std::string filter_query,
