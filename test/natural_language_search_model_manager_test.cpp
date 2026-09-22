@@ -766,6 +766,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptParamsFromRequestAndPr
 
   // the preset API stores the search params object itself, without a `value` wrapper
   nlohmann::json preset_value = R"({
+    "collection": "titles",
     "nl_query": true,
     "nl_max_facet_values": 500,
     "nl_schema_sample_values": 400,
@@ -793,15 +794,39 @@ TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptParamsFromRequestAndPr
   req_params.clear();
   req_params["preset"] = "titles-nl-preset";
   req_params["q"] = "cheap trousers";
-  req_params["collection"] = "titles";
   req_params["query_by"] = "title";
 
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["collection"], "titles");
   ASSERT_EQ(req_params["nl_max_facet_values"], "500");
   ASSERT_EQ(req_params["nl_schema_sample_values"], "400");
   ASSERT_EQ(req_params["nl_facet_fields"], "category");
   ASSERT_EQ(req_params["filter_by"], "category:clothing");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, InvalidPresetFacetLimit) {
+  for(const auto& value : {nlohmann::json(-1), nlohmann::json(2.5)}) {
+    SCOPED_TRACE(value.dump());
+    nlohmann::json preset_value = {
+      {"nl_query", true},
+      {"nl_max_facet_values", value}
+    };
+    ASSERT_TRUE(collectionManager.upsert_preset("invalid-nl-preset", preset_value).ok());
+
+    std::map<std::string, std::string> req_params = {
+      {"preset", "invalid-nl-preset"},
+      {"collection", "products"},
+      {"q", "cheap trousers"}
+    };
+    // No model is registered: validation must reject the limit before model processing.
+    auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Parameter `nl_max_facet_values` must be a positive integer.");
+    ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+    ASSERT_EQ(req_params["q"], "cheap trousers");
+  }
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, PresetFacetFieldsMissingFromCollection) {
@@ -909,6 +934,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, RequestParamsWinOverPreset) {
   ASSERT_TRUE(coll_create_op.ok());
 
   nlohmann::json preset_value = R"({
+    "collection": "preset-collection",
     "nl_query": true,
     "q": "preset query",
     "nl_model_id": "preset_model",
@@ -963,6 +989,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, RequestParamsWinOverPreset) {
   nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
   ASSERT_TRUE(nl_search_op.ok());
   ASSERT_EQ(req_params["_original_nl_query"], "request query");
+  ASSERT_EQ(req_params["collection"], "titles");
   ASSERT_EQ(req_params["nl_model_id"], "default");
   ASSERT_EQ(req_params["nl_max_facet_values"], "30");
   ASSERT_EQ(req_params["nl_facet_fields"], "tags");

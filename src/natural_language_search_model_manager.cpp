@@ -1,6 +1,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
 #include "collection_manager.h"
+#include "auth_manager.h"
 #include "logger.h"
 #include "string_utils.h"
 #include "sole.hpp"
@@ -474,26 +475,9 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
 
 // params the NL pipeline has to resolve before do_search() gets a chance to apply the preset itself
 static const std::vector<std::string> NL_PRESET_PARAMS = {
-    "nl_query", "q", "nl_model_id", "nl_max_facet_values", "nl_schema_sample_values",
+    "collection", "nl_query", "q", "nl_model_id", "nl_max_facet_values", "nl_schema_sample_values",
     "nl_facet_sample_percent", "nl_facet_sample_threshold", "nl_facet_fields"
 };
-
-static void copy_preset_param(const nlohmann::json& preset_json, std::map<std::string, std::string>& req_params,
-                              const std::string& param_name) {
-    // a preset only fills params the request left unset, same precedence apply_preset() applies
-    if(req_params.count(param_name) != 0 || preset_json.count(param_name) == 0) {
-        return;
-    }
-
-    const auto& value = preset_json[param_name];
-    if(value.is_boolean()) {
-        req_params[param_name] = value.get<bool>() ? "true" : "false";
-    } else if(value.is_string() && !value.get<std::string>().empty()) {
-        req_params[param_name] = value.get<std::string>();
-    } else if(value.is_number_unsigned()) {
-        req_params[param_name] = std::to_string(value.get<uint64_t>());
-    }
-}
 
 Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, uint64_t schema_prompt_ttl_seconds) {
 
@@ -507,8 +491,12 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
         // a preset stores the search params object itself, the same shape apply_preset() reads. a preset holding
         // `searches` is a multi search body and replaces the request body elsewhere, so it is not merged here.
         if(preset_op.ok() && preset_json.is_object() && !preset_json.contains("searches")) {
-            for(const auto& param_name : NL_PRESET_PARAMS) {
-                copy_preset_param(preset_json, req_params, param_name);
+            for(const auto& item : preset_json.items()) {
+                // A preset only fills params the request left unset.
+                if(req_params.count(item.key()) == 0 &&
+                   std::find(NL_PRESET_PARAMS.begin(), NL_PRESET_PARAMS.end(), item.key()) != NL_PRESET_PARAMS.end()) {
+                    AuthManager::add_item_to_params(req_params, item, false);
+                }
             }
         }
     }
