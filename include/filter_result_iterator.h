@@ -346,13 +346,13 @@ private:
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
 
     /// Performs AND on the subtrees of operator.
-    void and_filter_iterators(const bool& curation_timeout = false);
+    void and_filter_iterators(const bool& override_timeout = false);
 
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
 
     static bool contains_positive_range_index_filter(const filter_node_t* const node, const Index* const index);
-    static bool is_metadata_free_subtree(const filter_node_t* const node);
+    static bool subtree_contains_reference_or_object_filter(const filter_node_t* const node);
     bool drain_deferred_range_subtree();
 
     /// Decides whether this `&&` node can be computed by materializing `narrow_it` alone and asking `wide_it`
@@ -361,7 +361,7 @@ private:
                              const filter_result_iterator_t* const wide_it) const;
 
     /// Performs OR on the subtrees of operator.
-    void or_filter_iterators(const bool& curation_timeout = false);
+    void or_filter_iterators(const bool& override_timeout = false);
 
     /// Advances all the token iterators that are at seq_id.
     void advance_string_filter_token_iterators();
@@ -381,21 +381,21 @@ private:
 
     void initialize_numeric_posting_iterators();
 
-    void next(const bool& curation_timeout);
+    void next(const bool& override_timeout);
 
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& curation_timeout = false,
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
-    inline bool is_timed_out(const bool& curation_function_call_counter = false);
+    inline bool is_timed_out(const bool& force_timeout_check = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
-    void skip_to(uint32_t id, const bool& curation_timeout = false);
+    void skip_to(uint32_t id, const bool& override_timeout = false);
 
     static bool validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
                                               const filter_node_t* filter_node,
@@ -404,7 +404,7 @@ private:
                                               const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
                                               uint32_t object_index);
 
-    bool validate_object_filter(const bool& curation_timeout = false);
+    bool validate_object_filter(const bool& override_timeout = false);
 
 public:
     uint32_t seq_id = 0;
@@ -457,7 +457,7 @@ public:
     /// 0 : id is not valid
     /// 1 : id is valid
     /// -1: end of iterator / timed out
-    [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
+    [[nodiscard]] int is_valid(uint32_t id, const bool& override_timeout = false);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
@@ -470,14 +470,14 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result, const bool& curation_timeout = false,
+                   filter_result_t*& result, const bool& override_timeout = false,
                    const bool& is_group_by_first_pass = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
-    void reset(const bool& curation_timeout = false);
+    void reset(const bool& override_timeout = false);
 
     /// Copies filter ids from `filter_result` into `filter_array`.
     ///
