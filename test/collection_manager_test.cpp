@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <cstdlib>
+#include <filesystem>
 #include <collection_manager.h>
 #include "analytics_manager.h"
 #include "string_utils.h"
@@ -10,6 +12,41 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "search_analytics.h"
+
+TEST(CollectionManagerDeathTest, FailedLoadExitsWithoutRunningProcessDestructors) {
+    // Re-exec instead of forking initialized RocksDB/manager worker threads.
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    const std::string state_dir = "/tmp/typesense_test/collection_manager_fatal_load";
+    std::filesystem::remove_all(state_dir);
+    std::filesystem::create_directories(state_dir);
+
+    EXPECT_EXIT({
+        Store store(state_dir);
+        std::atomic<bool> quit = false;
+        auto& manager = CollectionManager::get_instance();
+        manager.init(&store, 1.0, "auth_key", quit);
+        auto schema = R"({
+            "name":"fatal_load", "fields":[{"name":"title","type":"string"}]
+        })"_json;
+        auto created = manager.create_collection(schema);
+        if(!created.ok()) std::_Exit(90);
+        auto collection = created.get();
+        if(!collection->add(R"({"id":"1","title":"valid"})").ok()) std::_Exit(91);
+        const auto seq_id = collection->doc_id_to_seq_id("1");
+        if(!seq_id.ok()) std::_Exit(92);
+        const auto key = collection->get_seq_id_collection_prefix() + "_" +
+                         StringUtils::serialize_uint32_t(seq_id.get());
+        if(!store.insert(key, R"({"id":"1","title":null})")) std::_Exit(93);
+
+        // exit(1) executes this callback before static destruction. A fatal
+        // worker exit must not start teardown while other threads are running.
+        if(std::atexit([] { std::_Exit(94); }) != 0) std::_Exit(95);
+        manager.load(2, 1);
+        std::_Exit(96);
+    }, ::testing::ExitedWithCode(EXIT_FAILURE), "Could not load collection `fatal_load`.*document `1`.*title");
+
+    std::filesystem::remove_all(state_dir);
+}
 
 class CollectionManagerTest : public ::testing::Test {
 protected:

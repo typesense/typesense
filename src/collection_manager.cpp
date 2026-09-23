@@ -1,4 +1,5 @@
 #include <string>
+#include <cstdlib>
 #include <vector>
 #include <queue>
 #include <set>
@@ -713,9 +714,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
-        auto captured_store = store;
         auto captured_referenced_ins = referenced_ins;
-        loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
+        loading_pool.enqueue([num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
                                      captured_referenced_ins, collection_name]() {
 
@@ -729,8 +729,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             if(!res.ok()) {
                 LOG(ERROR) << "Error while loading collection. " << res.error();
                 LOG(ERROR) << "Typesense is quitting.";
-                captured_store->close();
-                exit(1);
+                // HTTP and other loading threads are still running. Do not close
+                // their shared store or destroy process-wide singletons via exit().
+                google::FlushLogFiles(google::GLOG_INFO);
+                std::_Exit(EXIT_FAILURE);
             }
 
             std::unique_lock<std::mutex> lock(m_process);
