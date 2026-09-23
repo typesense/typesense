@@ -2,12 +2,37 @@
 #include <chrono>
 #include <future>
 #include <string>
+#include <thread>
 
 #define private public
 #include "raft_server.h"
 #undef private
 
 namespace {
+    class NoopStateMachine : public braft::StateMachine {
+    public:
+        void on_apply(braft::Iterator& iter) override {
+            for(; iter.valid(); iter.next()) {
+                braft::AsyncClosureGuard closure_guard(iter.done());
+            }
+        }
+    };
+
+    braft::NodeOptions make_node_options(const std::string& raft_dir, const std::string& conf,
+                                         const int election_timeout_ms, braft::StateMachine* fsm) {
+        braft::NodeOptions options;
+        options.initial_conf.parse_from(conf);
+        options.election_timeout_ms = election_timeout_ms;
+        options.fsm = fsm;
+        options.node_owns_fsm = false;
+        options.snapshot_interval_s = -1;
+        options.disable_cli = true;
+        options.log_uri = "local://" + raft_dir + "/log";
+        options.raft_meta_uri = "local://" + raft_dir + "/meta";
+        options.snapshot_uri = "local://" + raft_dir + "/snapshot";
+        return options;
+    }
+
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
                                                    const bool live_response) {
         auto req = std::make_shared<http_req>();
@@ -252,4 +277,81 @@ TEST(Hostname2IPStrTest, PublicHostnames) {
         EXPECT_TRUE(is_ipv4(ipv4_result))
             << "ipv4.test-ipv6.com did not resolve to IPv4: " << ipv4_result;
     }
+}
+
+TEST(RaftServerTest, UncommittedWriteReleasesPendingWritesOnStepDown) {
+    butil::AtExitManager exit_manager;
+    const std::string raft_dir_a = "/tmp/typesense_test/raft_uncommitted_write/a";
+    const std::string raft_dir_b = "/tmp/typesense_test/raft_uncommitted_write/b";
+    system("rm -rf /tmp/typesense_test/raft_uncommitted_write && mkdir -p /tmp/typesense_test/raft_uncommitted_write");
+
+    butil::EndPoint endpoint_a;
+    butil::EndPoint endpoint_b;
+    ASSERT_EQ(0, butil::str2endpoint("127.0.0.1", 18917, &endpoint_a));
+    ASSERT_EQ(0, butil::str2endpoint("127.0.0.1", 18918, &endpoint_b));
+    const std::string conf = "127.0.0.1:18917:0,127.0.0.1:18918:0";
+
+    brpc::Server rpc_server_a;
+    brpc::Server rpc_server_b;
+    ASSERT_EQ(0, braft::add_service(&rpc_server_a, endpoint_a));
+    ASSERT_EQ(0, braft::add_service(&rpc_server_b, endpoint_b));
+    ASSERT_EQ(0, rpc_server_a.Start(endpoint_a, nullptr));
+    ASSERT_EQ(0, rpc_server_b.Start(endpoint_b, nullptr));
+
+    auto& config = Config::get_instance();
+    ThreadPool thread_pool(1);
+    HttpServer server("test", "127.0.0.1", 0, "", "", 0, false, {}, &thread_pool);
+    ReplicationState replication_state(&server, nullptr, nullptr, nullptr, &thread_pool, nullptr, false,
+                                       &config, 1, 1);
+    replication_state.raft_dir_path = raft_dir_a;
+
+    // b never times out first, so a is elected leader
+    NoopStateMachine fsm_b;
+    braft::Node* node_b = new braft::Node("default_group", braft::PeerId(endpoint_b, 0));
+    ASSERT_EQ(0, node_b->init(make_node_options(raft_dir_b, conf, 60000, &fsm_b)));
+
+    braft::Node* node_a = new braft::Node("default_group", braft::PeerId(endpoint_a, 0));
+    ASSERT_EQ(0, node_a->init(make_node_options(raft_dir_a, conf, 1000, &replication_state)));
+    replication_state.node = node_a;
+
+    for(size_t i = 0; i < 200 && !replication_state.has_leader_term(); i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_TRUE(replication_state.has_leader_term());
+
+    // with the only follower gone, a's next entry can never reach a majority
+    node_b->shutdown(nullptr);
+    node_b->join();
+
+    auto req = std::make_shared<http_req>();
+    req->http_method = "POST";
+    req->path_without_query = "/collections/products/documents";
+    req->body = R"({"id":"0"})";
+    auto res = std::make_shared<http_res>(nullptr);
+
+    ASSERT_TRUE(node_a->is_leader());
+    replication_state.write(req, res);
+    ASSERT_EQ(1, replication_state.pending_writes.load());
+
+    // braft fails the entry on step-down and destroys its ReplicationClosure, releasing its hold on req
+    for(size_t i = 0; i < 200 && req.use_count() > 1; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_FALSE(node_a->is_leader());
+    ASSERT_EQ(1, req.use_count());
+
+    // shutdown() waits for this to reach 0
+    EXPECT_EQ(0, replication_state.pending_writes.load());
+
+    replication_state.node = nullptr;
+    node_a->shutdown(nullptr);
+    node_a->join();
+    delete node_a;
+    delete node_b;
+
+    rpc_server_a.Stop(0);
+    rpc_server_b.Stop(0);
+    rpc_server_a.Join();
+    rpc_server_b.Join();
+    thread_pool.shutdown();
 }
