@@ -753,13 +753,16 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     delete batch_indexer;
 
-    LOG(INFO) << "CURL clean up";
-
-    curl_global_cleanup();
-
+    // ~HttpServer shuts down meta_thread_pool, the last pool outside the join chain above,
+    // so it has to land before curl goes away
     LOG(INFO) << "Deleting server";
 
     delete server;
+
+    LOG(INFO) << "CURL clean up";
+
+    HttpClient::shutdown_curl_pool();
+    curl_global_cleanup();
 
     LOG(INFO) << "CollectionManager dispose, this might take some time...";
 
