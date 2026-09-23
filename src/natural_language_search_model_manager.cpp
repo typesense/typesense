@@ -494,8 +494,14 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
             for(const auto& item : preset_json.items()) {
                 // A preset only fills params the request left unset.
                 if(req_params.count(item.key()) == 0 &&
-                   std::find(NL_PRESET_PARAMS.begin(), NL_PRESET_PARAMS.end(), item.key()) != NL_PRESET_PARAMS.end()) {
-                    AuthManager::add_item_to_params(req_params, item, false);
+                   std::find(NL_PRESET_PARAMS.begin(), NL_PRESET_PARAMS.end(), item.key()) != NL_PRESET_PARAMS.end() &&
+                   !AuthManager::add_item_to_params(req_params, item, false)) {
+                    const std::string error = "Invalid value for `" + item.key() + "` in preset `" +
+                                              req_params["preset"] + "`.";
+                    req_params["error"] = error;
+                    req_params["_nl_processing_failed"] = "true";
+                    req_params["_fallback_q_used"] = "true";
+                    return Option<uint64_t>(400, error);
                 }
             }
         }
@@ -510,6 +516,10 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
 
     if (!has_nl_query) {
         return Option<uint64_t>(400, "No nl_query found in either URL parameters or JSON body");
+    }
+
+    if(req_params.count("collection") == 0) {
+        return Option<uint64_t>(400, "Parameter `collection` is required.");
     }
 
     std::string collection_name = req_params.at("collection");

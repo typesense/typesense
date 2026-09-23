@@ -829,6 +829,39 @@ TEST_F(NaturalLanguageSearchModelManagerTest, InvalidPresetFacetLimit) {
   }
 }
 
+TEST_F(NaturalLanguageSearchModelManagerTest, NonScalarPresetValue) {
+  for(const auto& value : {nlohmann::json::array(), nlohmann::json::object(), nlohmann::json(nullptr)}) {
+    SCOPED_TRACE(value.dump());
+    nlohmann::json preset_value = {
+      {"nl_query", true},
+      {"collection", value}
+    };
+    ASSERT_TRUE(collectionManager.upsert_preset("non-scalar-nl-preset", preset_value).ok());
+
+    std::map<std::string, std::string> req_params = {
+      {"preset", "non-scalar-nl-preset"},
+      {"q", "cheap trousers"}
+    };
+    auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Invalid value for `collection` in preset `non-scalar-nl-preset`.");
+    ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+    ASSERT_EQ(req_params.count("collection"), 0);
+  }
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, MissingCollection) {
+  std::map<std::string, std::string> req_params = {
+    {"nl_query", "true"},
+    {"q", "cheap trousers"}
+  };
+  auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Parameter `collection` is required.");
+}
+
 TEST_F(NaturalLanguageSearchModelManagerTest, PresetFacetFieldsMissingFromCollection) {
   NaturalLanguageSearchModel::add_mock_response(R"({
     "object": "chat.completion",
