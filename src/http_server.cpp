@@ -5,6 +5,7 @@
 #include <thread>
 #include <signal.h>
 #include <h2o.h>
+#include <openssl/err.h>
 #include <iostream>
 #include <auth_manager.h>
 #include <app_metrics.h>
@@ -1217,7 +1218,22 @@ ThreadPool* HttpServer::get_thread_pool() const {
     return thread_pool;
 }
 
+// Drains OpenSSL's error queue into one line, so a rejected certificate says why
+// (e.g. "ee key too small" for an RSA key below the default security level).
+static std::string get_openssl_errors() {
+    std::string errors;
+    char buf[256];
+    unsigned long code;
+    while((code = ERR_get_error()) != 0) {
+        ERR_error_string_n(code, buf, sizeof(buf));
+        errors += (errors.empty() ? "" : "; ") + std::string(buf);
+    }
+    return errors;
+}
+
 bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file, h2o_accept_ctx_t* accept_ctx) {
+    // Errors logged below should only come from loading these files.
+    ERR_clear_error();
     SSL_CTX* new_ctx = SSL_CTX_new(SSLv23_server_method());
 
     // As recommended by:
@@ -1247,19 +1263,21 @@ bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file,
     SSL_CTX_set_options(new_ctx, SSL_OP_SINGLE_ECDH_USE);
 
     if (SSL_CTX_use_certificate_chain_file(new_ctx, cert_file) != 1) {
-        LOG(ERROR) << "An error occurred while trying to load server certificate file: " << cert_file;
+        LOG(ERROR) << "An error occurred while trying to load server certificate file: " << cert_file
+                   << " (" << get_openssl_errors() << ")";
         SSL_CTX_free(new_ctx);
         return false;
     }
 
     if (SSL_CTX_use_PrivateKey_file(new_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        LOG(ERROR) << "An error occurred while trying to load private key file: " << key_file;
+        LOG(ERROR) << "An error occurred while trying to load private key file: " << key_file
+                   << " (" << get_openssl_errors() << ")";
         SSL_CTX_free(new_ctx);
         return false;
     }
 
     if(SSL_CTX_check_private_key(new_ctx) != 1) {
-        LOG(ERROR) << "Private key validation failed for: " << key_file;
+        LOG(ERROR) << "Private key validation failed for: " << key_file << " (" << get_openssl_errors() << ")";
         SSL_CTX_free(new_ctx);
         return false;
     }
