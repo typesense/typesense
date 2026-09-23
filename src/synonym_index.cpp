@@ -52,11 +52,15 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix,
-                                     uint32_t synonym_num_typos) const {
+                                     uint32_t synonym_num_typos,
+                                     bool ascii_folding) const {
     std::shared_lock lock(mutex);
     if (synonym_definitions.empty()) {
         return;
     }
+
+    const auto& synonym_definitions_to_use = ascii_folding ? folded_synonym_definitions : synonym_definitions;
+    const auto& synonym_trie_root_to_use = ascii_folding ? folded_synonym_trie_root : synonym_trie_root;
 
     // hard cap to prevent run-away memory usage
     constexpr std::size_t kMaxExpansionsPerCell = 200;
@@ -71,7 +75,7 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
     std::vector<std::vector<synonym_match_t>> synonym_matches(tokens.size());
 
     for (std::size_t i = 0; i < tokens.size(); ++i) {
-        synonym_trie_root.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
+        synonym_trie_root_to_use.get_synonyms(tokens, synonym_matches[i], synonym_num_typos, i, synonym_prefix);
     }
 
     dp[tokens.size()] = {{}};
@@ -91,8 +95,8 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                 continue;
             }
 
-            auto defIt = synonym_definitions.find(idxIt->second);
-            if (defIt == synonym_definitions.end()) {
+            auto defIt = synonym_definitions_to_use.find(idxIt->second);
+            if (defIt == synonym_definitions_to_use.end()) {
                 continue;
             }
 
@@ -132,6 +136,16 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
 
 Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym,
                                        bool write_to_store) {
+    synonym_t folded_synonym = synonym;
+    for(auto& token : folded_synonym.root) {
+        token = Tokenizer::ascii_fold(token);
+    }
+    for(auto& synonym_tokens : folded_synonym.synonyms) {
+        for(auto& token : synonym_tokens) {
+            token = Tokenizer::ascii_fold(token);
+        }
+    }
+
     std::unique_lock write_lock(mutex);
     if(synonym_ids_index_map.count(synonym.id) != 0) {
         write_lock.unlock();
@@ -148,6 +162,8 @@ Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym,
     ++synonym_index;
 
     synonym_trie_root.add(synonym);
+    folded_synonym_definitions[synonym_index - 1] = folded_synonym;
+    folded_synonym_trie_root.add(folded_synonym);
 
     write_lock.unlock();
 
@@ -184,7 +200,9 @@ Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
             return Option<bool>(500, "Error while deleting the synonym from disk.");
         }
 
-        const auto& synonym = synonym_definitions.at(syn_iter->second);
+        const auto index = syn_iter->second;
+        const auto& synonym = synonym_definitions.at(index);
+        const auto& folded_synonym = folded_synonym_definitions.at(index);
         std::vector<std::string> keys;
 
         auto root_str = StringUtils::join(synonym.root, " ");
@@ -195,11 +213,13 @@ Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
             keys.push_back(synonyms_str);
         }
 
-        auto index = synonym_ids_index_map.at(id);
         synonym_ids_index_map.erase(id);
         synonym_trie_root.remove(synonym);
         synonym_trie_root.cleanup();
+        folded_synonym_trie_root.remove(folded_synonym);
+        folded_synonym_trie_root.cleanup();
         synonym_definitions.erase(index);
+        folded_synonym_definitions.erase(index);
 
         return Option<bool>(true);
     }

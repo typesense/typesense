@@ -192,6 +192,10 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             field_obj[fields::stem] = false;
         }
 
+        if(field_obj.count(fields::ascii_folding) == 0) {
+            field_obj[fields::ascii_folding] = false;
+        }
+
         if(field_obj.count(fields::stem_dictionary) == 0) {
             field_obj[fields::stem_dictionary] = "";
         }
@@ -263,7 +267,7 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
                 field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::stem_dictionary],
                 field_obj[fields::hnsw_params], field_obj[fields::async_reference], field_obj[fields::token_separators],
                 field_obj[fields::symbols_to_index], field_obj[fields::cascade_delete], field_obj[fields::truncate_len],
-                field_obj[fields::track_missing_values]);
+                field_obj[fields::track_missing_values], field_obj[fields::ascii_folding]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {

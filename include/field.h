@@ -70,6 +70,7 @@ namespace fields {
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
     static const std::string stem = "stem";
+    static const std::string ascii_folding = "ascii_folding";
     static const std::string stem_dictionary = "stem_dictionary";
     static const std::string token_separators = "token_separators";
     static const std::string symbols_to_index = "symbols_to_index";
@@ -150,6 +151,7 @@ struct field {
     bool cascade_delete = true;
 
     bool stem = false;
+    bool ascii_folding = false;
     std::string stem_dictionary = "";
     std::shared_ptr<Stemmer> stemmer;
   
@@ -167,10 +169,10 @@ struct field {
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
           const bool cascade_delete = true, const uint32_t truncate_len = 100,
-          const bool track_missing_values = false) :
+          const bool track_missing_values = false, const bool ascii_folding = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), track_missing_values(track_missing_values), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            embed(embed), range_index(range_index), track_missing_values(track_missing_values), store(store), truncate_len(truncate_len), stem(stem), ascii_folding(ascii_folding), stem_dictionary(stem_dictionary),
             hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);
@@ -428,7 +430,8 @@ struct field {
                      json[fields::symbols_to_index].get<nlohmann::json>(),
                      json[fields::cascade_delete].get<bool>(),
                      json[fields::truncate_len].get<uint32_t>(),
-                     json[fields::track_missing_values].get<bool>());
+                     json[fields::track_missing_values].get<bool>(),
+                     json[fields::ascii_folding].get<bool>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,

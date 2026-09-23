@@ -532,6 +532,28 @@ TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     collectionManager.drop_collection("coll_str");
 }
 
+TEST_F(CollectionFilteringTest, StringFilterAsciiFolding) {
+    nlohmann::json schema = R"({
+        "name": "filter_ascii", "fields": [
+            {"name": "folded", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "plain", "type": "string", "locale": "es"}
+        ]}
+    )"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","folded":"Dípticos","plain":"Dípticos"})").ok());
+
+    auto result = coll->search("*", {"folded"}, "folded:= dipticos", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+    result = coll->search("*", {"plain"}, "plain:= dipticos", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"]);
+    result = coll->search("*", {"folded"}, "folded: dipticos", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["found"]);
+
+    collectionManager.drop_collection("filter_ascii");
+}
+
 TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
     Collection *coll_array_fields;
 
