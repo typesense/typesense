@@ -35,15 +35,17 @@ std::string get_ref_coll_names(const std::string& body, std::unordered_set<std::
                 std::vector<std::string> split_result;
                 StringUtils::split(field["reference"], split_result, ".");
 
-                auto& ref_coll_name = split_result[0];
+                if (split_result.empty()) {
+                    continue;
+                }
+                const auto& ref_coll_name = split_result[0];
+                auto& references = (field.contains("drop") && field["drop"]) ?
+                                   dropped_referenced_collections : referenced_collections;
+                // Keep the logical alias as well as its current target: a later swap must wait for this schema.
+                references.insert(ref_coll_name);
                 auto symlink_op = CollectionManager::get_instance().resolve_symlink(ref_coll_name);
                 if (symlink_op.ok()) {
-                    ref_coll_name = symlink_op.get();
-                }
-                if (field.contains("drop") && field["drop"]) {
-                    dropped_referenced_collections.insert(ref_coll_name);
-                } else {
-                    referenced_collections.insert(ref_coll_name);
+                    references.insert(symlink_op.get());
                 }
             }
         }
@@ -160,11 +162,17 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
 std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>& req) {
     std::string& coll_name = req->params["collection"];
+    route_path* rpath = nullptr;
+    const bool route_found = server != nullptr && server->get_route(req->route_hash, &rpath);
+
+    // Alias mutations must remain associated with the alias throughout enqueue, replay and completion. In particular,
+    // do not resolve a previously cached alias name to its current target here.
+    if (route_found && (rpath->handler == put_upsert_alias || rpath->handler == del_alias)) {
+        coll_name = req->params["alias"];
+        return coll_name;
+    }
 
     if(coll_name.empty()) {
-        route_path* rpath = nullptr;
-        bool route_found = server->get_route(req->route_hash, &rpath);
-
         // ensure that collection creation is sent to the same queue as writes to that collection
         if(route_found && rpath->handler == post_create_collection) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
@@ -602,6 +610,7 @@ void BatchedIndexer::clear_state_unlocked(const bool cancel_live_requests) {
 
         req_res_map.clear();
         coll_to_references.clear();
+        pending_alias_targets.clear();
         reference_q.clear();
         reference_q_by_request.clear();
         reference_waiters.clear();
@@ -1019,6 +1028,19 @@ void BatchedIndexer::clear_skip_indices() {
 void BatchedIndexer::update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name) {
     route_path* found_rpath = nullptr;
     const bool route_found = server != nullptr && server->get_route(req->route_hash, &found_rpath);
+    if (route_found && (found_rpath->handler == put_upsert_alias || found_rpath->handler == del_alias)) {
+        std::string target;
+        if (found_rpath->handler == put_upsert_alias) {
+            const auto body = nlohmann::json::parse(req->body, nullptr, false);
+            if (body.is_object() && body.contains("collection_name") && body["collection_name"].is_string()) {
+                target = body["collection_name"].get<std::string>();
+            }
+        }
+        std::unique_lock lk(mutex);
+        pending_alias_targets[coll_name][req->start_ts] = std::move(target);
+        refresh_alias_references(coll_name);
+        return;
+    }
     if (!route_found || (found_rpath->handler != post_create_collection &&
                          found_rpath->handler != patch_update_collection &&
                          found_rpath->handler != post_import_documents)) {
@@ -1081,7 +1103,21 @@ void BatchedIndexer::update_coll_to_references_after_request(const std::shared_p
     const bool route_found = server->get_route(req->route_hash, &found_rpath);
     if (!route_found || (found_rpath->handler != post_create_collection &&
                          found_rpath->handler != patch_update_collection &&
-                         found_rpath->handler != del_drop_collection)) {
+                         found_rpath->handler != del_drop_collection &&
+                         found_rpath->handler != put_upsert_alias &&
+                         found_rpath->handler != del_alias)) {
+        return;
+    }
+
+    if (found_rpath->handler == put_upsert_alias || found_rpath->handler == del_alias) {
+        auto pending_it = pending_alias_targets.find(coll_name);
+        if (pending_it != pending_alias_targets.end()) {
+            pending_it->second.erase(req->start_ts);
+            if (pending_it->second.empty()) {
+                pending_alias_targets.erase(pending_it);
+            }
+        }
+        refresh_alias_references(coll_name);
         return;
     }
 
@@ -1091,6 +1127,27 @@ void BatchedIndexer::update_coll_to_references_after_request(const std::shared_p
     }
 
     it->second = CollectionManager::get_instance().get_collection_references(coll_name);
+}
+
+void BatchedIndexer::refresh_alias_references(const std::string& alias) {
+    std::unordered_set<std::string> targets;
+    auto alias_op = CollectionManager::get_instance().resolve_symlink(alias);
+    if (alias_op.ok()) {
+        targets.insert(alias_op.get());
+    }
+    const auto pending_it = pending_alias_targets.find(alias);
+    if (pending_it != pending_alias_targets.end()) {
+        for (const auto& [request_id, target] : pending_it->second) {
+            if (!target.empty()) {
+                targets.insert(target);
+            }
+        }
+    }
+    if (targets.empty()) {
+        coll_to_references.erase(alias);
+    } else {
+        coll_to_references[alias] = std::move(targets);
+    }
 }
 
 std::unordered_set<uint64_t> BatchedIndexer::get_requests_to_wait_on_with_lock(const uint64_t req_id,

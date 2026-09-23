@@ -63,6 +63,8 @@ private:
     std::vector<std::deque<uint64_t>> queues;
 
     std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
+    // Rebuilt from request bodies on snapshot load; retain every pending alias target until its request completes.
+    std::unordered_map<std::string, std::unordered_map<uint64_t, std::string>> pending_alias_targets;
     std::list<refq_entry> reference_q;
     std::unordered_map<uint64_t, std::list<refq_entry>::iterator> reference_q_by_request;
     std::unordered_map<uint64_t, std::vector<uint64_t>> reference_waiters;
@@ -119,6 +121,9 @@ private:
 
     void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
                                                  const std::string& coll_name);
+
+    // Caller holds mutex. Combine committed alias state with all outstanding mutations.
+    void refresh_alias_references(const std::string& alias);
 
     void add_reference_request(refq_entry&& ref);
 

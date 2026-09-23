@@ -214,9 +214,9 @@ new_git_repository(
 http_archive(
     name = "curl",
     build_file = "//bazel:curl.BUILD",
-    sha256 = "6147ac0b22f8c11cbd3933d7fec064dee373402c3705193ceb703a5a665f2e0c",
-    strip_prefix = "curl-7.87.0",
-    urls = ["https://github.com/curl/curl/releases/download/curl-7_87_0/curl-7.87.0.zip"],
+    sha256 = "f9ec970e52124e494606209e6bc0e985c623b428796641742f60c5b56931aaee",
+    strip_prefix = "curl-8.22.0",
+    urls = ["https://github.com/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.zip"],
 )
 
 new_git_repository(

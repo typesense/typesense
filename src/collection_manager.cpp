@@ -239,9 +239,12 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             size_t num_dim = field_obj[fields::num_dim];
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            const std::string& model_name = model_config["model_name"].get<std::string>();
+            auto& embedder_manager = EmbedderManager::get_instance();
+            auto res = num_dim > 0 && EmbedderManager::is_remote_model(model_name) ?
+                       embedder_manager.init_remote_model_without_validation(model_config, num_dim) :
+                       embedder_manager.validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
-                const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
                 continue;
             }
@@ -3452,6 +3455,14 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
     for (const auto& item: coll->get_reference_fields()) {
         const auto& ref_pair = item.second;
         references.insert(ref_pair.collection);
+    }
+
+    // Scheduler dependencies need the declared alias too. Runtime reference fields contain the resolved target,
+    // which would otherwise discard the alias edge when a schema request completes or after a store reload.
+    for (const auto& field : coll->get_fields()) {
+        if (!field.reference.empty()) {
+            references.insert(field.reference.substr(0, field.reference.find('.')));
+        }
     }
 
     return references;

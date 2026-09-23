@@ -139,6 +139,72 @@ export const searchScenarios = [
     wildCardQuery: true,
   },
   {
+    name: "filter_selective_and",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // A conjunction whose sides differ in selectivity by three orders of magnitude: the artist matches
+      // 431 songs, the release types 960,372 of the million. The result is the size of the narrow side, so
+      // the only thing the wide side can cost is the cost of computing it.
+      filter_by: "primary_artist_name:Nirvana && release_group_types:[Album,Single,Compilation]",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_and_ratio_17x",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // 54,683 releases against 913,296. Lopsided, but not by enough that asking the wide side about the
+      // narrow side's ids one at a time beats intersecting the two. Exact matches rather than token
+      // matches, so both counts -- and the ratio between them -- stay predictable.
+      filter_by: "release_decade:=1980s && release_group_types:=Album",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_and_ratio_32x",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // 28,666 against 913,296, within a whisker of the ratio that decides between the two plans, so this
+      // is the scenario that notices when that threshold moves. The sides are estimated rather than counted
+      // at the moment the choice is made, so which way this one falls is not guaranteed.
+      filter_by: "country:=AU && release_group_types:=Album",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_and_numeric_wide",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // 431 songs against 899,558 releases since 1986. Lopsided enough to be worth probing on size alone,
+      // except that a numeric range has already built its id list by the time the conjunction is planned,
+      // leaving nothing for a probing plan to save.
+      filter_by: "primary_artist_name:=Nirvana && release_date:>504921600",
+    },
+    wildCardQuery: true,
+  },
+  {
+    name: "filter_and_numeric_wide_lazy",
+    params: {
+      q: "*",
+      query_by: "primary_artist_name,title,album_name",
+      highlight_full_fields: "primary_artist_name,title,album_name",
+      // The same shape under lazy filter evaluation, where the numeric side keeps one iterator per value in
+      // the range instead of a single id list. Stepping through that is far dearer than materializing it, so
+      // this scenario is what catches a plan that starts probing such a side.
+      filter_by: "primary_artist_name:=Nirvana && release_date:>504921600",
+      enable_lazy_filter: "true",
+    },
+    wildCardQuery: true,
+  },
+  {
     name: "sort_simple",
     params: {
       q: "*",
