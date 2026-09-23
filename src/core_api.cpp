@@ -596,6 +596,10 @@ bool get_stats_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool get_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json status = server->node_status();
+    auto failed_collection_loads = CollectionManager::get_instance().get_failed_collection_loads();
+    if(!failed_collection_loads.empty()) {
+        status["failed_collections"] = std::move(failed_collection_loads);
+    }
     res->set_body(200, status.dump());
     return true;
 }

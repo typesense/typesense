@@ -2,8 +2,6 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include <cstdlib>
-#include <filesystem>
 #include <collection_manager.h>
 #include "analytics_manager.h"
 #include "string_utils.h"
@@ -12,41 +10,6 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "search_analytics.h"
-
-TEST(CollectionManagerDeathTest, FailedLoadExitsWithoutRunningProcessDestructors) {
-    // Re-exec instead of forking initialized RocksDB/manager worker threads.
-    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-    const std::string state_dir = "/tmp/typesense_test/collection_manager_fatal_load";
-    std::filesystem::remove_all(state_dir);
-    std::filesystem::create_directories(state_dir);
-
-    EXPECT_EXIT({
-        Store store(state_dir);
-        std::atomic<bool> quit = false;
-        auto& manager = CollectionManager::get_instance();
-        manager.init(&store, 1.0, "auth_key", quit);
-        auto schema = R"({
-            "name":"fatal_load", "fields":[{"name":"title","type":"string"}]
-        })"_json;
-        auto created = manager.create_collection(schema);
-        if(!created.ok()) std::_Exit(90);
-        auto collection = created.get();
-        if(!collection->add(R"({"id":"1","title":"valid"})").ok()) std::_Exit(91);
-        const auto seq_id = collection->doc_id_to_seq_id("1");
-        if(!seq_id.ok()) std::_Exit(92);
-        const auto key = collection->get_seq_id_collection_prefix() + "_" +
-                         StringUtils::serialize_uint32_t(seq_id.get());
-        if(!store.insert(key, R"({"id":"1","title":null})")) std::_Exit(93);
-
-        // exit(1) executes this callback before static destruction. A fatal
-        // worker exit must not start teardown while other threads are running.
-        if(std::atexit([] { std::_Exit(94); }) != 0) std::_Exit(95);
-        manager.load(2, 1);
-        std::_Exit(96);
-    }, ::testing::ExitedWithCode(EXIT_FAILURE), "Could not load collection `fatal_load`.*document `1`.*title");
-
-    std::filesystem::remove_all(state_dir);
-}
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
@@ -128,6 +91,62 @@ protected:
         delete analytic_store;
     }
 };
+
+TEST_F(CollectionManagerTest, FailedCollectionLoadKeepsHealthyCollectionsAvailable) {
+    ASSERT_TRUE(collection1->add(R"({"id":"healthy","title":"healthy title","starring":"actor","points":1})").ok());
+
+    auto bad_schema = R"({"name":"failed_load","fields":[{"name":"title","type":"string"}]})"_json;
+    auto bad_op = collectionManager.create_collection(bad_schema);
+    ASSERT_TRUE(bad_op.ok());
+    auto bad_collection = bad_op.get();
+    ASSERT_TRUE(bad_collection->add(R"({"id":"1","title":"original"})").ok());
+    ASSERT_TRUE(collectionManager.upsert_symlink("failed_alias", "failed_load").ok());
+
+    const auto seq_id = bad_collection->doc_id_to_seq_id("1");
+    ASSERT_TRUE(seq_id.ok());
+    const auto seq_key = bad_collection->get_seq_id_collection_prefix() + "_" +
+                         StringUtils::serialize_uint32_t(seq_id.get());
+    const std::string invalid_record = R"({"id":"1","title":null})";
+    ASSERT_TRUE(store->insert(seq_key, invalid_record));
+
+    auto load_op = collectionManager.load(2, 1);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+    EXPECT_EQ(nullptr, collectionManager.get_collection("failed_load"));
+    EXPECT_EQ(nullptr, collectionManager.get_collection("failed_alias"));
+    EXPECT_TRUE(collectionManager.collection_failed_to_load("failed_load"));
+    EXPECT_TRUE(collectionManager.collection_failed_to_load("failed_alias"));
+
+    const auto failures = collectionManager.get_failed_collection_loads();
+    ASSERT_EQ(1, failures.size());
+    EXPECT_NE(std::string::npos, failures.at("failed_load").find("document `1`"));
+    EXPECT_NE(std::string::npos, failures.at("failed_load").find("title"));
+
+    auto healthy = collectionManager.get_collection("collection1");
+    ASSERT_NE(nullptr, healthy);
+    EXPECT_TRUE(healthy->get("healthy").ok());
+    EXPECT_EQ(1, healthy->get_num_documents());
+
+    std::map<std::string, std::string> search_params = {
+        {"collection", "failed_load"}, {"q", "*"}, {"query_by", "title"}
+    };
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string search_result;
+    auto search_op = CollectionManager::do_search(search_params, embedded_params, search_result, 0);
+    ASSERT_FALSE(search_op.ok());
+    EXPECT_EQ(503, search_op.code());
+
+    std::string stored_record;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(seq_key, stored_record));
+    EXPECT_EQ(invalid_record, stored_record);
+
+    ASSERT_TRUE(store->insert(seq_key, R"({"id":"1","title":"repaired"})"));
+    auto retry_op = collectionManager.load(2, 1);
+    ASSERT_TRUE(retry_op.ok()) << retry_op.error();
+    EXPECT_TRUE(collectionManager.get_failed_collection_loads().empty());
+    EXPECT_FALSE(collectionManager.collection_failed_to_load("failed_alias"));
+    ASSERT_NE(nullptr, collectionManager.get_collection("failed_load"));
+    ASSERT_NE(nullptr, collectionManager.get_collection("failed_alias"));
+}
 
 TEST_F(CollectionManagerTest, CollectionCreation) {
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
