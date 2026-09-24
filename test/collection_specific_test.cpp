@@ -3,10 +3,13 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <thread>
 #include <collection_manager.h>
 #include "collection.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "async_write_handler.h"
+#include "core_api_utils.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -3592,4 +3595,268 @@ TEST_F(CollectionSpecificTest, TruncationEdgeCasesTest) {
     result = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("3", result["hits"][0]["document"]["id"]);
+}
+
+TEST_F(CollectionSpecificTest, ASyncDocRequestTest) {
+    auto batch_interval = 1;
+    auto async_db_size = 1;
+    auto async_db_size_check_interval = 2;
+    AsyncWriteHandler::get_instance().init(store, batch_interval, async_db_size, async_db_size_check_interval);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll = collectionManager.create_collection("async_coll", 1, fields, "points").get();
+
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["async"] = "true";
+    req->params["collection"] = "async_coll";
+    nlohmann::json body;
+    body["id"] = "0";
+    body["title"] = "Stark Industries";
+    body["points"] = 100;
+
+    req->body = body.dump();
+
+    //enqueue the request
+    auto reqid = "1";
+    auto resp_op = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_TRUE(resp_op.ok());
+    auto resp = resp_op.get();
+    ASSERT_EQ("1", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    body["id"] = "1";
+    body["title"] = "Mark Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "2";
+    resp_op = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_TRUE(resp_op.ok());
+    resp = resp_op.get();
+    ASSERT_EQ("2", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    ASSERT_EQ(2, AsyncWriteHandler::get_instance().get_async_batch_size());
+
+    sleep(1);
+    // process queued request
+    AsyncWriteHandler::get_instance().process_async_writes();
+
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    //try adding malformed request
+    body.clear();
+    body["id"] = "2";
+    body["titl"] = "Taiwan Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "3";
+    resp_op = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_TRUE(resp_op.ok());
+    resp = resp_op.get();
+    ASSERT_EQ("3", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    body.clear();
+    body["id"] = "3";
+    body["til"] = "Japan Industries";
+    body["points"] = 200;
+
+    req->body = body.dump();
+    reqid = "4";
+    resp_op = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_TRUE(resp_op.ok());
+    resp = resp_op.get();
+    ASSERT_EQ("4", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    sleep(1);
+    AsyncWriteHandler::get_instance().process_async_writes();
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    //get the status of failed requests
+    auto op = AsyncWriteHandler::get_instance().get_req_status("3");
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ("{\"message\":\"Field `title` has been declared in the schema, but is not found in the document.\",\"req_id\":\"3\"}",op.get());
+
+    op = AsyncWriteHandler::get_instance().get_req_status("4");
+    ASSERT_TRUE(op.ok());
+    ASSERT_EQ("{\"message\":\"Field `title` has been declared in the schema, but is not found in the document.\",\"req_id\":\"4\"}",op.get());
+
+    //check db, malformed req will be erased
+    AsyncWriteHandler::get_instance().check_and_truncate();
+
+    op = AsyncWriteHandler::get_instance().get_req_status("3");
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("req_id not found.",op.error());
+
+    //update the doc in async
+    req->params["action"] = "update";
+    body["title"] = "Smith Industries";
+    body["id"] = "0";  //updating doc with id 0
+
+    req->body = body.dump();
+    reqid = "5";
+    resp_op = AsyncWriteHandler::get_instance().enqueue(req, reqid);
+    ASSERT_TRUE(resp_op.ok());
+    resp = resp_op.get();
+    ASSERT_EQ("5", resp["req_id"]);
+    ASSERT_EQ("Request Queued.", resp["message"]);
+
+    sleep(1);
+    AsyncWriteHandler::get_instance().process_async_writes();
+    ASSERT_EQ(2, coll->get_num_documents());
+
+    nlohmann::json doc;
+    auto op2 = coll->get_document_from_store(0, doc);
+    ASSERT_TRUE(op2.ok());
+    ASSERT_EQ("Smith Industries", doc["title"]);
+}
+
+TEST_F(CollectionSpecificTest, AsyncDocRequestsAreReloadedFromStore) {
+    auto& async_handler = AsyncWriteHandler::get_instance();
+    async_handler.init(store, 60);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto* coll = collectionManager.create_collection("async_reload", 1, fields, "").get();
+
+    auto req = std::make_shared<http_req>();
+    req->params["collection"] = "async_reload";
+    req->body = R"({"id":"reload-1","title":"persisted"})";
+
+    auto enqueue_op = async_handler.enqueue(req, "reload-request");
+    ASSERT_TRUE(enqueue_op.ok()) << enqueue_op.error();
+    ASSERT_TRUE(store->contains("$ADP_reload-request"));
+
+    // Reinitializing models rebuilding the handler state from an already-opened Store.
+    async_handler.init(store, 60);
+    ASSERT_EQ(1, async_handler.get_async_batch_size());
+
+    async_handler.process_async_writes(true);
+    ASSERT_EQ(1, coll->get_num_documents());
+    ASSERT_FALSE(store->contains("$ADP_reload-request"));
+}
+
+TEST_F(CollectionSpecificTest, AsyncDocRequestsPreserveWriteOptions) {
+    auto& async_handler = AsyncWriteHandler::get_instance();
+    async_handler.init(store, 60);
+
+    nlohmann::json schema = {
+        {"name", "async_options"},
+        {"fields", {
+            {{"name", "title"}, {"type", "string"}},
+            {{"name", "points"}, {"type", "int32"}, {"optional", true}},
+        }},
+    };
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto* coll = create_op.get();
+
+    auto req = std::make_shared<http_req>();
+    req->params["collection"] = "async_options";
+    req->params["dirty_values"] = "drop";
+    req->params["remote_embedding_timeout_ms"] = "4321";
+    req->params["remote_embedding_num_tries"] = "7";
+    req->body = R"({"id":"options-1","title":"kept","points":"invalid"})";
+
+    auto enqueue_op = async_handler.enqueue(req, "options-request");
+    ASSERT_TRUE(enqueue_op.ok()) << enqueue_op.error();
+
+    std::string pending_value;
+    ASSERT_EQ(StoreStatus::FOUND, store->get("$ADP_options-request", pending_value));
+    auto pending = nlohmann::json::parse(pending_value);
+    ASSERT_EQ(static_cast<int>(DIRTY_VALUES::DROP), pending["dirty_values"]);
+    ASSERT_EQ(4321, pending["remote_embedding_timeout_ms"]);
+    ASSERT_EQ(7, pending["remote_embedding_num_tries"]);
+
+    async_handler.process_async_writes(true);
+    nlohmann::json document;
+    auto get_op = coll->get_document_from_store(0, document);
+    ASSERT_TRUE(get_op.ok()) << get_op.error();
+    ASSERT_EQ("kept", document["title"]);
+    ASSERT_EQ(0, document.count("points"));
+}
+
+TEST_F(CollectionSpecificTest, AsyncDocRequestHandlesCollectionDeletedBeforeFlush) {
+    auto& async_handler = AsyncWriteHandler::get_instance();
+    async_handler.init(store, 60);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    ASSERT_TRUE(collectionManager.create_collection("async_deleted", 1, fields, "").ok());
+
+    auto req = std::make_shared<http_req>();
+    req->params["collection"] = "async_deleted";
+    req->body = R"({"id":"deleted-1","title":"queued"})";
+    auto enqueue_op = async_handler.enqueue(req, "deleted-request");
+    ASSERT_TRUE(enqueue_op.ok()) << enqueue_op.error();
+
+    ASSERT_TRUE(collectionManager.drop_collection("async_deleted").ok());
+    async_handler.process_async_writes(true);
+
+    auto status_op = async_handler.get_req_status("deleted-request");
+    ASSERT_TRUE(status_op.ok()) << status_op.error();
+    auto status = nlohmann::json::parse(status_op.get());
+    ASSERT_EQ("Collection not found", status["message"]);
+    ASSERT_FALSE(store->contains("$ADP_deleted-request"));
+}
+
+TEST_F(CollectionSpecificTest, AsyncDocRequestEnqueueIsThreadSafe) {
+    auto& async_handler = AsyncWriteHandler::get_instance();
+    async_handler.init(store, 60);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto* coll = collectionManager.create_collection("async_concurrent", 1, fields, "").get();
+
+    constexpr size_t request_count = 32;
+    std::atomic<size_t> enqueue_failures{0};
+    std::vector<std::thread> threads;
+    threads.reserve(request_count);
+    for(size_t i = 0; i < request_count; ++i) {
+        threads.emplace_back([i, &async_handler, &enqueue_failures]() {
+            auto req = std::make_shared<http_req>();
+            req->params["collection"] = "async_concurrent";
+            req->body = nlohmann::json({
+                {"id", "concurrent-" + std::to_string(i)},
+                {"title", "document-" + std::to_string(i)},
+            }).dump();
+            if(!async_handler.enqueue(req, "concurrent-request-" + std::to_string(i)).ok()) {
+                ++enqueue_failures;
+            }
+        });
+    }
+    for(auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_EQ(0, enqueue_failures.load());
+    ASSERT_EQ(request_count, async_handler.get_async_batch_size());
+    async_handler.process_async_writes(true);
+    ASSERT_EQ(request_count, coll->get_num_documents());
+}
+
+TEST_F(CollectionSpecificTest, AsyncCleanupDoesNotDelayBatchFlush) {
+    auto& async_handler = AsyncWriteHandler::get_instance();
+    async_handler.init(store, 2, 100, 1);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto* coll = collectionManager.create_collection("async_timer", 1, fields, "").get();
+
+    auto req = std::make_shared<http_req>();
+    req->params["collection"] = "async_timer";
+    req->body = R"({"id":"timer-1","title":"on time"})";
+    ASSERT_TRUE(async_handler.enqueue(req, "timer-request").ok());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    async_handler.check_and_truncate();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    async_handler.process_async_writes();
+
+    ASSERT_EQ(1, coll->get_num_documents());
+    ASSERT_EQ(0, async_handler.get_async_batch_size());
 }
