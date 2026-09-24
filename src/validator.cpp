@@ -669,8 +669,10 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 
         nlohmann::json& doc_ele = document[field_name];
 
-        if(a_field.optional && doc_ele.is_null()) {
-            // we will ignore `null` on an option field
+        if((a_field.optional || !a_field.store) && doc_ele.is_null()) {
+            // ignore null on an optional field, or on an unstored field that is absent after a reload.
+            // store:false strips the value before it is persisted, so on cold-load the key is missing.
+            // without this the whole document is dropped and the collection silently loads empty.
             if(!is_update) {
                 // for updates, the erasure is done later since we need to keep the key for overwrite
                 document.erase(field_name);

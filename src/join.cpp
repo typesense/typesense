@@ -901,12 +901,47 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
     return Option<bool>(true);
 }
 
+static void split_ref_include_parameters(const std::string& parameters, std::vector<std::string>& tokens) {
+    size_t token_start = 0;
+    size_t parenthesis_depth = 0;
+    size_t bracket_depth = 0;
+    bool in_backtick = false;
+
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        const char c = parameters[i];
+        if (c == '`') {
+            in_backtick = !in_backtick;
+        } else if (!in_backtick && c == '(') {
+            ++parenthesis_depth;
+        } else if (!in_backtick && c == ')' && parenthesis_depth > 0) {
+            --parenthesis_depth;
+        } else if (!in_backtick && c == '[') {
+            ++bracket_depth;
+        } else if (!in_backtick && c == ']' && bracket_depth > 0) {
+            --bracket_depth;
+        } else if (!in_backtick && c == ',' && parenthesis_depth == 0 && bracket_depth == 0) {
+            auto token = parameters.substr(token_start, i - token_start);
+            StringUtils::trim(token);
+            if (!token.empty()) {
+                tokens.emplace_back(std::move(token));
+            }
+            token_start = i + 1;
+        }
+    }
+
+    auto token = parameters.substr(token_start);
+    StringUtils::trim(token);
+    if (!token.empty()) {
+        tokens.emplace_back(std::move(token));
+    }
+}
+
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
                                           ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
                                           std::string& sort_by_str, size_t& limit) {
 
     std::vector<std::string> tokens, kv_tokens;
-    StringUtils::split(parameters, tokens, ",");
+    split_ref_include_parameters(parameters, tokens);
 
     for(const auto& tok : tokens) {
         kv_tokens.clear();

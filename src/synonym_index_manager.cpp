@@ -13,70 +13,98 @@ void SynonymIndexManager::init_store(Store* store) {
     this->store = store;
 }
 
-Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store) {
-    auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
-    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
-        LOG(INFO) << "Removing existing synonym index: " << index_name;
-        synonym_index_list.erase(synonym_index_map[index_name]);
-        synonym_index_map.erase(index_name);
+Option<std::shared_ptr<SynonymIndex>> SynonymIndexManager::add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store) {
+    // Build the replacement off-map so the manager lock is held only for the map swap, not for
+    // constructing/populating the index.
+    auto new_index = std::make_shared<SynonymIndex>(std::move(index));
+
+    {
+        std::unique_lock lock(mutex);
+        if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
+            LOG(INFO) << "Removing existing synonym index: " << index_name;
+        }
+        // Overwriting the entry drops the manager's reference to any previous index; that index is
+        // destroyed only once the last in-flight search holding a shared_ptr to it completes.
+        synonym_index_map[index_name] = new_index;
     }
-    synonym_index_map.emplace(index_name, res);
+
     if(write_to_store) {
         store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
     }
-    return Option<SynonymIndex*>(&(*res));
+    return Option<std::shared_ptr<SynonymIndex>>(new_index);
 }
 
-Option<SynonymIndex*> SynonymIndexManager::add_synonym_index(const std::string& index_name, bool write_to_store) {
-    SynonymIndex index(store, index_name);
-    auto res = synonym_index_list.insert(synonym_index_list.end(), std::move(index));
-    if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
-        synonym_index_list.erase(synonym_index_map[index_name]);
-        synonym_index_map.erase(index_name);
-        LOG(INFO) << "Removed existing synonym index: " << index_name;
+Option<std::shared_ptr<SynonymIndex>> SynonymIndexManager::add_synonym_index(const std::string& index_name, bool write_to_store) {
+    auto new_index = std::make_shared<SynonymIndex>(store, index_name);
+
+    {
+        std::unique_lock lock(mutex);
+        if(synonym_index_map.find(index_name) != synonym_index_map.end()) {
+            LOG(INFO) << "Removed existing synonym index: " << index_name;
+        }
+        synonym_index_map[index_name] = new_index;
     }
-    synonym_index_map.emplace(index_name, res);
+
     if(write_to_store) {
         store->insert(SynonymIndexManager::get_synonym_index_key(index_name), index_name);
     }
-    return Option<SynonymIndex*>(&(*res));
+    return Option<std::shared_ptr<SynonymIndex>>(new_index);
 }
 
-Option<SynonymIndex*> SynonymIndexManager::get_synonym_index(const std::string& index_name) {
+Option<std::shared_ptr<SynonymIndex>> SynonymIndexManager::get_synonym_index(const std::string& index_name) {
+    std::shared_lock lock(mutex);
     auto it = synonym_index_map.find(index_name);
     if (it != synonym_index_map.end()) {
-        return Option<SynonymIndex*>(&(*it->second));
+        // Return a shared_ptr copy taken under the lock: the caller's reference keeps the index
+        // alive for the whole search, independent of concurrent replace/remove.
+        return Option<std::shared_ptr<SynonymIndex>>(it->second);
     }
-    return Option<SynonymIndex*>(404, "Synonym index not found");
+    return Option<std::shared_ptr<SynonymIndex>>(404, "Synonym index not found");
 }
 
 Option<bool> SynonymIndexManager::remove_synonym_index(const std::string& index_name) {
-    auto it = synonym_index_map.find(index_name);
-    if (it != synonym_index_map.end()) {
-        synonym_index_list.erase(it->second);
+    std::shared_ptr<SynonymIndex> erased;  // retain the erased index until after the lock is released
+    {
+        std::unique_lock lock(mutex);
+        auto it = synonym_index_map.find(index_name);
+        if (it == synonym_index_map.end()) {
+            return Option<bool>(404, "Synonym index not found");
+        }
+        erased = std::move(it->second);
         synonym_index_map.erase(it);
-        store->remove(SynonymIndexManager::get_synonym_index_key(index_name));
-        // remove all synonyms associated with this index
-        store->delete_range(SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + index_name + "_",
-                         SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + index_name + "`");
-        return Option<bool>(true);
     }
-    return Option<bool>(404, "Synonym index not found");
+
+    store->remove(SynonymIndexManager::get_synonym_index_key(index_name));
+    // remove all synonyms associated with this index
+    store->delete_range(SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + index_name + "_",
+                     SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + index_name + "`");
+    return Option<bool>(true);
 }
 
 nlohmann::json SynonymIndexManager::get_all_synonym_indices_json() {
+    // Snapshot the names under the lock, then serialize without holding it (get_synonym_index_json
+    // re-locks per name, so holding here would re-enter the non-recursive shared_mutex).
+    std::vector<std::string> index_names;
+    {
+        std::shared_lock lock(mutex);
+        index_names.reserve(synonym_index_map.size());
+        for (const auto& pair : synonym_index_map) {
+            index_names.push_back(pair.first);
+        }
+    }
+
     nlohmann::json result = nlohmann::json::array();
-    for (const auto& pair : synonym_index_map) {
-        LOG(INFO) << "Adding synonym index: " << pair.first;
-        result.push_back(get_synonym_index_json(pair.first));
+    for (const auto& index_name : index_names) {
+        LOG(INFO) << "Adding synonym index: " << index_name;
+        result.push_back(get_synonym_index_json(index_name));
     }
     return result;
 }
 
 nlohmann::json SynonymIndexManager::get_synonym_index_json(const std::string& index_name) {
-    auto it = synonym_index_map.find(index_name);
-    if (it != synonym_index_map.end()) {
-        auto val =  it->second->to_view_json();
+    auto get_op = get_synonym_index(index_name);  // copies the shared_ptr under the shared lock
+    if (get_op.ok()) {
+        auto val = get_op.get()->to_view_json();  // serialize without holding the manager lock
         val["name"] = index_name;
         return val;
     }
@@ -126,7 +154,7 @@ void SynonymIndexManager::load_synonym_indices() {
             LOG(ERROR) << "Failed to add synonym index: " << synonym_index_name << ", error: " << add_op.error();
             continue;
         }
-        auto& index = *add_op.get();
+        auto index = add_op.get();
         // get all synonyms for this index
         std::vector<std::string> synonyms;
         store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX + std::string("_") + synonym_index_name + "_",
@@ -148,7 +176,7 @@ void SynonymIndexManager::load_synonym_indices() {
                 LOG(ERROR) << "Failed to parse synonym: " << syn_json.dump() << ", error: " << syn_op.error();
                 continue;
             }
-            index.add_synonym(synonym, false);
+            index->add_synonym(synonym, false);
         }
     }
 }
@@ -199,15 +227,15 @@ Option<nlohmann::json> SynonymIndexManager::list_synonym_items(const std::string
     if(!get_index_op.ok()) {
         return Option<nlohmann::json>(get_index_op.code(), get_index_op.error());
     }
-    auto* index = get_index_op.get();
+    auto index = get_index_op.get();
     auto synonyms_op = index->get_synonyms(limit, offset);
     if(!synonyms_op.ok()) {
         return Option<nlohmann::json>(synonyms_op.code(), synonyms_op.error());
     }
     nlohmann::json res_json = nlohmann::json::array();
-    const auto& synonyms = synonyms_op.get();
+    const auto synonyms = synonyms_op.get();
     for(const auto & kv: synonyms) {
-        res_json.push_back(kv.second->to_view_json());
+        res_json.push_back(kv.second.to_view_json());
     }
     return Option<nlohmann::json>(res_json);
 }
@@ -247,7 +275,7 @@ Option<bool> SynonymIndexManager::delete_synonym_item(const std::string& name, c
 }
 
 void SynonymIndexManager::dispose() {
-    synonym_index_list.clear();
+    std::unique_lock lock(mutex);
     synonym_index_map.clear();
     this->store = nullptr;
 }

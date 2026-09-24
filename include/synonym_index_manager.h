@@ -4,6 +4,9 @@
 #include "synonym_index.h"
 #include <unordered_map>
 #include <string>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 
 
 class SynonymIndexManager {
@@ -18,11 +21,11 @@ class SynonymIndexManager {
         void init_store(Store* store);
 
         // Add a synonym index by moving
-        Option<SynonymIndex*> add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store = true);
+        Option<std::shared_ptr<SynonymIndex>> add_synonym_index(const std::string& index_name, SynonymIndex&& index, bool write_to_store = true);
         // Construct from scratch with a given name
-        Option<SynonymIndex*> add_synonym_index(const std::string& index_name, bool write_to_store = true);
+        Option<std::shared_ptr<SynonymIndex>> add_synonym_index(const std::string& index_name, bool write_to_store = true);
 
-        Option<SynonymIndex*> get_synonym_index(const std::string& index_name);
+        Option<std::shared_ptr<SynonymIndex>> get_synonym_index(const std::string& index_name);
 
         Option<bool> remove_synonym_index(const std::string& index_name);
 
@@ -49,9 +52,12 @@ class SynonymIndexManager {
 
         static constexpr auto SYNONYM_INDEX_KEY = "$SI";
 
-        // The synonym index
-        std::list<SynonymIndex> synonym_index_list;
-        std::unordered_map<std::string, std::list<SynonymIndex>::iterator> synonym_index_map;
+        // Guards synonym_index_map. Lookups take it shared; add/remove/dispose take it unique.
+        mutable std::shared_mutex mutex;
+
+        // The synonym indices, keyed by index name. Stored as shared_ptr so an index handed out to an
+        // in-flight search stays alive even if it is concurrently replaced or removed from the map.
+        std::unordered_map<std::string, std::shared_ptr<SynonymIndex>> synonym_index_map;
 
         Store* store = nullptr;
 

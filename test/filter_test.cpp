@@ -3024,3 +3024,370 @@ TEST_F(FilterTest, InfixLazyEvaluation) {
     delete filter_tree_root;
     filter_tree_root = nullptr;
 }
+
+/// Runs `filter_query` through `compute_iterators()`, reporting the ids it computed and whether the root node
+/// materialized its narrow side alone and probed the wide one.
+static void compute_filter_tree(Collection* coll, Store* store, const std::string& filter_query,
+                                std::vector<uint32_t>& ids, bool& computed_by_probe,
+                                const bool& enable_lazy_evaluation = false) {
+    ids.clear();
+    computed_by_probe = false;
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+    auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                    enable_lazy_evaluation);
+    ASSERT_TRUE(filter_iterator.init_status().ok());
+
+    filter_iterator.compute_iterators();
+    computed_by_probe = filter_iterator._get_computed_by_probe();
+
+    uint32_t* filter_ids = nullptr;
+    const auto filter_ids_length = filter_iterator.to_filter_id_array(filter_ids);
+    ids.assign(filter_ids, filter_ids + filter_ids_length);
+    delete[] filter_ids;
+}
+
+/// A collection whose fields differ in selectivity by a known factor, so that an `&&` of any two of them has a
+/// predictable plan. 800 documents with seq ids 0..799:
+///
+///   sel:=yes    -> {5, 25, 200, 400, 600}     (5 ids, spread past `edge` so a wide side can run out first)
+///   n12:=yes    -> ids < 12                   (12 ids, more than `function_call_modulo` of a test build)
+///   mid:=yes    -> ids < 159                  (159 ids, just under AND_PROBE_RATIO x 5)
+///   edge:=yes   -> ids < 160                  (160 ids, exactly AND_PROBE_RATIO x 5)
+///   broad:=yes  -> ids < 480                  (480 ids)
+///   all:=yes    -> every id                   (800 ids)
+///   none:=yes   -> no id
+///   points      -> the seq id itself
+static Collection* create_probe_collection(CollectionManager& collectionManager) {
+    nlohmann::json schema =
+            R"({
+                "name": "AndProbe",
+                "fields": [
+                    {"name": "sel", "type": "string"},
+                    {"name": "n12", "type": "string"},
+                    {"name": "mid", "type": "string"},
+                    {"name": "edge", "type": "string"},
+                    {"name": "broad", "type": "string"},
+                    {"name": "all", "type": "string"},
+                    {"name": "none", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    if (!op.ok()) {
+        return nullptr;
+    }
+    auto coll = op.get();
+
+    const std::set<uint32_t> selective = {5, 25, 200, 400, 600};
+    for (uint32_t i = 0; i < 800; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["sel"] = selective.count(i) > 0 ? "yes" : "no";
+        doc["n12"] = i < 12 ? "yes" : "no";
+        doc["mid"] = i < 159 ? "yes" : "no";
+        doc["edge"] = i < 160 ? "yes" : "no";
+        doc["broad"] = i < 480 ? "yes" : "no";
+        doc["all"] = "yes";
+        doc["none"] = "no";
+        doc["points"] = i;
+
+        if (!coll->add(doc.dump()).ok()) {
+            return nullptr;
+        }
+    }
+
+    return coll;
+}
+
+TEST_F(FilterTest, AndProbeSelectiveSide) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // The reported shape: a selective string leaf against a broad one. Either operand order gives the same result,
+    // and both take the probing plan.
+    compute_filter_tree(coll, store, "sel:=yes && broad:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    compute_filter_tree(coll, store, "broad:=yes && sel:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // The wide side runs out of ids (at 160) before the narrow side does (at 600). Everything up to that point is a
+    // complete result, not a truncated one.
+    compute_filter_tree(coll, store, "sel:=yes && edge:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    // One side matches every document.
+    compute_filter_tree(coll, store, "sel:=yes && all:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), ids);
+
+    // One side matches nothing. `none:=yes` is the narrow side, and it computes to an empty result.
+    compute_filter_tree(coll, store, "broad:=yes && none:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_TRUE(ids.empty());
+
+    // With the empty side on the left, the `&&` never gets as far as a plan: the iterator tree constructor drops
+    // the right subtree of an `&&` whose left subtree matches nothing.
+    compute_filter_tree(coll, store, "none:=yes && broad:=yes", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_TRUE(ids.empty());
+
+    // A `!=` leaf as the wide side. `broad:!=no` matches the same 120 ids as `broad:=yes`.
+    compute_filter_tree(coll, store, "sel:=yes && broad:!=no", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // Three leaves. The narrow side of the outer `&&` is itself an `&&` that probes.
+    compute_filter_tree(coll, store, "sel:=yes && broad:=yes && all:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // An operator node as the wide side keeps the intersecting plan, an operator node as the narrow side does not.
+    compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || points:>500)", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 600}), ids);
+
+    compute_filter_tree(coll, store, "(sel:=yes || none:=yes) && broad:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeNumericSide) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // A lazy numeric leaf holds one id list iterator for every value its range matches, and `skip_to` walks all of
+    // them on each probe, so one probe costs as much as a pass over the range. Measured on 10,000,000 documents, a
+    // lazy `num:<9000000` wide side takes 134s to probe against 7.6s to intersect, and returns a truncated result
+    // once the search runs out of budget. It keeps the intersecting plan.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    compute_filter_tree(coll, store, "sel:=yes && points:[0..499]", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // Under the default configuration the numeric leaf has materialized itself inside its own `init` before the `&&`
+    // node exists. Probing an id array it has already built saves nothing -- intersecting is a linear merge of the
+    // two, probing a binary search per id -- so that side keeps the intersecting plan as well.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeRatioBoundary) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // `sel:=yes` matches 5 ids, so the probing plan starts at a wide side of AND_PROBE_RATIO * 5 = 160 ids.
+    ASSERT_EQ(32, AND_PROBE_RATIO);
+
+    compute_filter_tree(coll, store, "sel:=yes && mid:=yes", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    compute_filter_tree(coll, store, "sel:=yes && edge:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeTimeout) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+
+    // A budget that is already spent: the search began a second ago and was allowed a microsecond.
+    auto spent_budget_iterator = [&](const std::string& filter_query, filter_node_t*& filter_tree_root) {
+        auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        EXPECT_TRUE(filter_op.ok());
+
+        auto const now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch()).count();
+        return filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, false,
+                                        DEFAULT_FILTER_BY_CANDIDATES, now_us - 1'000'000, 1);
+    };
+
+    auto collect = [](filter_result_iterator_t& filter_iterator) {
+        uint32_t* filter_ids = nullptr;
+        auto const filter_ids_length = filter_iterator.to_filter_id_array(filter_ids);
+        std::vector<uint32_t> ids(filter_ids, filter_ids + filter_ids_length);
+        delete[] filter_ids;
+        return ids;
+    };
+
+    // `n12:=yes` yields more ids than `function_call_modulo`, so the counted timeout check inside `is_valid` reads
+    // the clock partway through the probe loop and cuts it short.
+    filter_node_t* filter_tree_root = nullptr;
+    {
+        auto filter_iterator = spent_budget_iterator("n12:=yes && all:=yes", filter_tree_root);
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator.validity);
+
+        // Whatever was collected is a prefix of the full result, and it is short of it.
+        auto const ids = collect(filter_iterator);
+        ASSERT_LT(ids.size(), 12u);
+        for (size_t i = 0; i < ids.size(); i++) {
+            ASSERT_EQ(i, ids[i]);
+        }
+    }
+
+    // `sel:=yes` yields five ids, too few for the counted check to reach the clock. The forced check after the loop
+    // is what reports the timeout; the result itself is complete.
+    filter_tree_root = nullptr;
+    {
+        auto filter_iterator = spent_budget_iterator("sel:=yes && all:=yes", filter_tree_root);
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), collect(filter_iterator));
+    }
+
+    // Without a budget, the same nodes never report a timeout -- not even the one whose wide side runs out of ids
+    // partway through the loop, which is the `is_valid` return value that a timeout shares.
+    filter_tree_root = nullptr;
+    {
+        auto filter_op = filter::parse_filter_query("n12:=yes && all:=yes", coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_TRUE(filter_op.ok());
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+        auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}), collect(filter_iterator));
+    }
+
+    filter_tree_root = nullptr;
+    {
+        auto filter_op = filter::parse_filter_query("sel:=yes && edge:=yes", coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_TRUE(filter_op.ok());
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+        auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{5, 25}), collect(filter_iterator));
+    }
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeKeepsReferences) {
+    nlohmann::json products_schema =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "broad", "type": "string"}
+                ]
+            })"_json;
+    auto products_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(products_op.ok());
+    auto products = products_op.get();
+
+    for (uint32_t i = 0; i < 200; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["product_id"] = "p" + std::to_string(i);
+        doc["broad"] = i < 120 ? "yes" : "no";
+        ASSERT_TRUE(products->add(doc.dump()).ok());
+    }
+
+    nlohmann::json customers_schema =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    auto customers_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(customers_op.ok());
+    auto customers = customers_op.get();
+
+    // Customers 0, 1 and 2 reference products 5, 25 and 150. Only the first two are within `broad:=yes`.
+    const std::vector<uint32_t> referenced_products = {5, 25, 150};
+    for (size_t i = 0; i < referenced_products.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["customer_id"] = "acme";
+        doc["product_id"] = "p" + std::to_string(referenced_products[i]);
+        ASSERT_TRUE(customers->add(doc.dump()).ok());
+    }
+
+    // The sides are lopsided enough for the probing plan, but its result carries no references, so an `&&` with a
+    // joined collection anywhere in its subtree keeps intersecting the two results.
+    const std::string doc_id_prefix = std::to_string(products->get_collection_id()) + "_" +
+                                        Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query("$Customers(customer_id:=acme) && broad:=yes", products->get_schema(),
+                                                store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+    auto filter_iterator = filter_result_iterator_t(products->get_name(), products->_get_index(), filter_tree_root);
+    ASSERT_TRUE(filter_iterator.init_status().ok());
+
+    filter_iterator.compute_iterators();
+    ASSERT_FALSE(filter_iterator._get_computed_by_probe());
+    ASSERT_TRUE(filter_iterator.result_has_references());
+
+    const std::vector<uint32_t> expected_products = {5, 25};
+    for (size_t i = 0; i < expected_products.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ(expected_products[i], filter_iterator.seq_id);
+
+        ASSERT_EQ(1, filter_iterator.reference.count("Customers"));
+        ASSERT_EQ(1, filter_iterator.reference["Customers"].count);
+        ASSERT_EQ(i, filter_iterator.reference["Customers"].docs[0]);
+
+        filter_iterator.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, filter_iterator.validity);
+
+    collectionManager.drop_collection("Customers");
+    collectionManager.drop_collection("Products");
+}

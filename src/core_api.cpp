@@ -3930,7 +3930,7 @@ bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     const std::string & set_name = req->params["name"];
     nlohmann::json res_json;
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
@@ -3945,7 +3945,7 @@ bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     const std::string & set_name = req->params["name"];
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());

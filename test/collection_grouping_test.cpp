@@ -2100,3 +2100,80 @@ TEST_F(CollectionGroupingTest, GroupByWithFilterBy) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 }
+
+TEST_F(CollectionGroupingTest, CompositeGroupSecondPassUsesExactGroupKeys) {
+    auto schema_json =
+            R"({
+                "name": "composite_group_allowlist",
+                "fields": [
+                    {"name": "text", "type": "string"},
+                    {"name": "company", "type": "string", "facet": true},
+                    {"name": "title", "type": "string", "facet": true},
+                    {"name": "status", "type": "string", "facet": true},
+                    {"name": "bucket", "type": "string", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto collection = collection_create_op.get();
+
+    // This ordering makes the top 250 groups contain every company and title value independently. A second-pass
+    // filter that loses the (company, title) pairing therefore expands to all 1024 groups.
+    for (size_t group_index = 0; group_index < 1024; group_index++) {
+        const size_t company = group_index % 32;
+        const size_t title = ((group_index / 32) + company) % 32;
+        for (size_t document_index = 0; document_index < 2; document_index++) {
+            nlohmann::json document = {
+                    {"text", "match"},
+                    {"company", "company_" + std::to_string(company)},
+                    {"title", "title_" + std::to_string(title)},
+                    {"status", "published"},
+                    {"bucket", "all"}
+            };
+            ASSERT_TRUE(collection->add(document.dump()).ok());
+        }
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "composite_group_allowlist"},
+            {"q", "match"},
+            {"query_by", "text"},
+            {"filter_by", "status:=published"},
+            {"group_by", "company,title"},
+            {"group_limit", "2"},
+            {"facet_by", "bucket"},
+            {"per_page", "20"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    auto result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(20, result["grouped_hits"].size());
+    ASSERT_EQ("company_31", result["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("title_30", result["grouped_hits"][0]["group_key"][1]);
+    ASSERT_EQ(2, result["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("2047", result["grouped_hits"][0]["hits"][0]["document"]["id"]);
+    ASSERT_EQ("2046", result["grouped_hits"][0]["hits"][1]["document"]["id"]);
+
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("bucket", result["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("all", result["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(Index::DEFAULT_TOPSTER_SIZE, result["facet_counts"][0]["counts"][0]["count"]);
+
+    // The wildcard facet path has a separate all-documents optimization. It must still facet only the groups selected
+    // by the first pass when an exact group-key allowlist is active.
+    req_params["q"] = "*";
+    req_params.erase("filter_by");
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(20, result["grouped_hits"].size());
+    ASSERT_EQ(Index::DEFAULT_TOPSTER_SIZE, result["facet_counts"][0]["counts"][0]["count"]);
+}

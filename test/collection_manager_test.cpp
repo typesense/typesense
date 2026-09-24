@@ -4,6 +4,7 @@
 #include <fstream>
 #include <collection_manager.h>
 #include "analytics_manager.h"
+#include "embedder_manager.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "synonym_index.h"
@@ -87,6 +88,7 @@ protected:
             CurationIndexManager::get_instance().dispose();
             delete store;
         }
+        EmbedderManager::get_instance().delete_all_text_embedders();
         analyticsManager.stop();
         delete analytic_store;
     }
@@ -637,16 +639,16 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", ov_manager.list_curation_items("index", 0, 0).get()[0]["id"].get<std::string>().c_str());
     ASSERT_STREQ("include-rule", ov_manager.list_curation_items("index", 0, 0).get()[1]["id"].get<std::string>().c_str());
 
-    const auto& synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
-    const auto& synonyms = synonym_index->get_synonyms().get();
+    auto synonym_index = SynonymIndexManager::get_instance().get_synonym_index("index").get();
+    const auto synonyms = synonym_index->get_synonyms().get();
 
-    ASSERT_STREQ("id1", synonyms.at(0)->id.c_str());
-    ASSERT_EQ(2, synonyms.at(0)->root.size());
-    ASSERT_EQ(1, synonyms.at(0)->synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at(0).id.c_str());
+    ASSERT_EQ(2, synonyms.at(0).root.size());
+    ASSERT_EQ(1, synonyms.at(0).synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at(1)->id.c_str());
-    ASSERT_EQ(0, synonyms.at(1)->root.size());
-    ASSERT_EQ(2, synonyms.at(1)->synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at(1).id.c_str());
+    ASSERT_EQ(0, synonyms.at(1).root.size());
+    ASSERT_EQ(2, synonyms.at(1).synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -1101,6 +1103,63 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     collectionManager2.drop_collection("coll1");
 }
 
+TEST_F(CollectionManagerTest, RestoreRemoteEmbeddingFieldWithoutEndpointValidation) {
+    nlohmann::json coll_json = R"({
+        "name": "coll_embed",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(coll_json);
+    ASSERT_TRUE(create_op.ok());
+
+    std::string collection_meta_json;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(Collection::get_meta_key("coll_embed"), collection_meta_json));
+    auto collection_meta = nlohmann::json::parse(collection_meta_json);
+
+    const nlohmann::json embedding_field = R"({
+        "name": "embedding",
+        "type": "float[]",
+        "facet": false,
+        "optional": true,
+        "index": true,
+        "num_dim": 4,
+        "embed": {
+            "from": ["title"],
+            "model_config": {
+                "model_name": "openai/unreachable-model",
+                "api_key": "dummy-key",
+                "url": "http://localhost:1"
+            }
+        }
+    })"_json;
+
+    collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY].push_back(embedding_field);
+    ASSERT_TRUE(store->insert(Collection::get_meta_key("coll_embed"), collection_meta.dump()));
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_collection = collectionManager.get_collection("coll_embed").get();
+    ASSERT_NE(nullptr, restored_collection);
+    ASSERT_EQ(1, restored_collection->get_schema().count("embedding"));
+    ASSERT_EQ(1, restored_collection->get_embedding_fields().count("embedding"));
+    ASSERT_EQ(4, restored_collection->get_embedding_fields().at("embedding").num_dim);
+
+    const auto& model_config = embedding_field["embed"]["model_config"];
+    auto embedder_op = EmbedderManager::get_instance().get_text_embedder(model_config, 4);
+    ASSERT_TRUE(embedder_op.ok());
+    ASSERT_TRUE(embedder_op.get()->is_remote());
+    ASSERT_EQ(4, embedder_op.get()->get_num_dim());
+
+    collectionManager.drop_collection("coll_embed");
+}
+
 TEST_F(CollectionManagerTest, RestorePresetsOnRestart) {
     auto preset_value = R"(
         {"q":"*", "per_page": "12"}
@@ -1525,6 +1584,69 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("points", sort_fields[1].name);
     ASSERT_EQ("DESC", sort_fields[1].order);
 
+    // The single expression form takes `mode` too, and the parameter must not leak into the filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike), mode: sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike),mode:first_match):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // An unusable mode is an error rather than something that quietly ends up in the filter.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval((brand:nike), mode: sumx):DESC", sort_fields));
+
+    // Without the wrapping parentheses there is no parameter list, so this stays a plain filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike, mode: sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:nike, mode: sum", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // A parenthesised group followed by anything other than a comma is an ordinary compound filter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike) && (size:10)):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("(brand:nike) && (size:10)", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval((brand:nike || brand:air) && size:10):DESC",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("(brand:nike || brand:air) && size:10", sort_fields[0].eval_expressions[0]);
+
+    // A comma that belongs to the filter value is left alone, so these keep parsing as they always did.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(title:Hello, World):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("title:Hello, World", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:[nike,adidas]):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("brand:[nike,adidas]", sort_fields[0].eval_expressions[0]);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(loc:(48.90,2.33,5.1 km)):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("loc:(48.90,2.33,5.1 km)", sort_fields[0].eval_expressions[0]);
+
+    // Backticks protect a value that would otherwise look like a parameter.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(title:`Hello, mode: sum`):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("title:`Hello, mode: sum`", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike || brand:air):3, (brand:adidas):2]):DESC", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
@@ -1536,6 +1658,58 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ(3, sort_fields[0].eval.scores[0]);
     ASSERT_EQ(2, sort_fields[0].eval.scores[1]);
     ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+
+    // `mode: sum` carries a colon of its own, which must not be mistaken for the one introducing the order.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3, (brand:adidas):2], mode: sum):DESC, "
+                                                          "points:desc", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(2, sort_fields.size());
+    ASSERT_EQ("_eval", sort_fields[0].name);
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ(2, sort_fields[0].eval_expressions.size());
+    ASSERT_EQ("brand:nike", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ("brand:adidas", sort_fields[0].eval_expressions[1]);
+    ASSERT_EQ(3, sort_fields[0].eval.scores[0]);
+    ASSERT_EQ(2, sort_fields[0].eval.scores[1]);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("points", sort_fields[1].name);
+    ASSERT_EQ("DESC", sort_fields[1].order);
+
+    // Whitespace around the parameter is optional.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3],mode:sum):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ(sort_by::eval_mode_t::sum_matches, sort_fields[0].eval.mode);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+
+    // The default is accepted explicitly too.
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode: first_match):ASC",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(1, sort_fields.size());
+    ASSERT_EQ(sort_by::eval_mode_t::first_match, sort_fields[0].eval.mode);
+    ASSERT_EQ("ASC", sort_fields[0].order);
+
+    // Unknown parameter name, unknown mode value, and a malformed parameter are all rejected.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], combine: sum):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode: product):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], mode):DESC", sort_fields));
+
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3], ):DESC", sort_fields));
+
+    // An unterminated clause has no parameter span to read at all.
+    sort_fields.clear();
+    ASSERT_FALSE(CollectionManager::parse_sort_by_str("_eval([(brand:nike):3]:DESC", sort_fields));
 
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc, loc(24.56,10.45):ASC, "

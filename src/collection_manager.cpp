@@ -20,6 +20,103 @@
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
+#ifdef TEST_BUILD
+std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply = nullptr;
+#endif
+
+struct staged_async_reference_backfill_t {
+    std::shared_ptr<Collection> referenced_coll;
+    std::shared_ptr<Collection> referencing_coll;
+    std::string referencing_collection_name;
+    Collection::async_reference_backfill_update_map_t updates;
+};
+
+Option<bool> stage_async_reference_helper_backfill(
+        std::shared_ptr<Collection> referenced_coll,
+        std::shared_ptr<Collection> referencing_coll,
+        const std::string& referenced_field_name,
+        const std::string& referencing_field_name,
+        std::vector<staged_async_reference_backfill_t>& staged_backfills) {
+    if (referenced_coll == nullptr || referencing_coll == nullptr) {
+        return Option<bool>(true);
+    }
+
+    staged_async_reference_backfill_t staged_backfill;
+    staged_backfill.referencing_collection_name = referencing_coll->get_name();
+    staged_backfill.referenced_coll = std::move(referenced_coll);
+    staged_backfill.referencing_coll = std::move(referencing_coll);
+
+    auto stage_op = staged_backfill.referenced_coll->stage_async_reference_helper_backfill(
+            referenced_field_name, staged_backfill.referencing_coll.get(), referencing_field_name,
+            staged_backfill.updates);
+    if (!stage_op.ok()) {
+        return stage_op;
+    }
+
+    if (!staged_backfill.updates.empty()) {
+        staged_backfills.emplace_back(std::move(staged_backfill));
+    }
+
+    return Option<bool>(true);
+}
+
+Collection::async_reference_backfill_update_map_t reverse_async_reference_helper_backfill(
+        const Collection::async_reference_backfill_update_map_t& updates) {
+    Collection::async_reference_backfill_update_map_t reversed_updates;
+    for (const auto& update_item: updates) {
+        const auto& update = update_item.second;
+        reversed_updates.emplace(update_item.first, Collection::async_reference_backfill_update_t{
+                update.seq_id, update.new_helper_fields, update.old_helper_fields, update.expected_reference_fields});
+    }
+
+    return reversed_updates;
+}
+
+void rollback_applied_async_reference_helper_backfills(
+        const std::vector<staged_async_reference_backfill_t>& staged_backfills,
+        const std::vector<size_t>& applied_backfill_indices) {
+    for (auto it = applied_backfill_indices.rbegin(); it != applied_backfill_indices.rend(); ++it) {
+        const auto& staged_backfill = staged_backfills[*it];
+        auto reversed_updates = reverse_async_reference_helper_backfill(staged_backfill.updates);
+        auto rollback_op = staged_backfill.referenced_coll->apply_staged_async_reference_updates(
+                staged_backfill.referencing_coll.get(), staged_backfill.referencing_collection_name, reversed_updates);
+        if (!rollback_op.ok()) {
+            LOG(ERROR) << "Failed to rollback async reference helper backfill for collection `"
+                       << staged_backfill.referencing_collection_name << "`: " << rollback_op.error();
+        }
+    }
+}
+
+Option<bool> apply_staged_async_reference_helper_backfills(
+        std::vector<staged_async_reference_backfill_t>& staged_backfills) {
+#ifdef TEST_BUILD
+    if (collection_manager_before_async_reference_backfill_apply != nullptr) {
+        auto hook_op = collection_manager_before_async_reference_backfill_apply();
+        if (!hook_op.ok()) {
+            return hook_op;
+        }
+    }
+#endif
+
+    std::vector<size_t> applied_backfill_indices;
+    applied_backfill_indices.reserve(staged_backfills.size());
+
+    for (size_t i = 0; i < staged_backfills.size(); i++) {
+        auto& staged_backfill = staged_backfills[i];
+        auto apply_op = staged_backfill.referenced_coll->apply_staged_async_reference_updates(
+                staged_backfill.referencing_coll.get(), staged_backfill.referencing_collection_name,
+                staged_backfill.updates);
+        if (!apply_op.ok()) {
+            rollback_applied_async_reference_helper_backfills(staged_backfills, applied_backfill_indices);
+            return apply_op;
+        }
+
+        applied_backfill_indices.push_back(i);
+    }
+
+    return Option<bool>(true);
+}
+
 CollectionManager::CollectionManager() {
 
 }
@@ -142,9 +239,12 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             size_t num_dim = field_obj[fields::num_dim];
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            const std::string& model_name = model_config["model_name"].get<std::string>();
+            auto& embedder_manager = EmbedderManager::get_instance();
+            auto res = num_dim > 0 && EmbedderManager::is_remote_model(model_name) ?
+                       embedder_manager.init_remote_model_without_validation(model_config, num_dim) :
+                       embedder_manager.validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
-                const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
                 continue;
             }
@@ -302,12 +402,13 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
     return Option<Collection*>(collection);
 }
 
-void CollectionManager::add_to_collections(Collection* collection) {
+std::shared_ptr<Collection> CollectionManager::add_to_collections(Collection* collection) {
     const std::string& collection_name = collection->get_name();
     const uint32_t collection_id = collection->get_collection_id();
     std::unique_lock lock(mutex);
-    collections.emplace(collection_name, collection);
+    auto emplace_result = collections.emplace(collection_name, collection);
     collection_id_names.emplace(collection_id, collection_name);
+    return emplace_result.first->second;
 }
 
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
@@ -336,6 +437,10 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
 }
 
 field get_referenced_field(const std::string& ref_schema, const std::string& ref_field_name) {
+    if (ref_field_name == "id") {
+        return field("id", field_types::STRING, false);
+    }
+
     const auto& ref_coll_schema = nlohmann::json::parse(ref_schema);
     for (const auto &field: ref_coll_schema["fields"]) {
         auto it = field.find("name");
@@ -347,6 +452,52 @@ field get_referenced_field(const std::string& ref_schema, const std::string& ref
     }
 
     return field{};
+}
+
+bool hydrate_referenced_fields(const std::vector<std::string>& collection_meta_jsons,
+                               const spp::sparse_hash_map<std::string, std::string>& collection_symlinks,
+                               std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins) {
+    std::map<std::string, std::string> collection_meta_by_name;
+    for (const auto& collection_meta_json: collection_meta_jsons) {
+        const auto& collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if (collection_meta.is_discarded() || !collection_meta.is_object() || !collection_meta.contains("name") ||
+            !collection_meta["name"].is_string()) {
+            continue;
+        }
+
+        collection_meta_by_name[collection_meta["name"].get<std::string>()] = collection_meta_json;
+    }
+
+    bool hydrated = false;
+    for (auto& referenced_in: referenced_ins) {
+        auto referenced_coll_name = referenced_in.first;
+        auto symlink_it = collection_symlinks.find(referenced_coll_name);
+        if (symlink_it != collection_symlinks.end()) {
+            referenced_coll_name = symlink_it->second;
+        }
+
+        auto meta_it = collection_meta_by_name.find(referenced_coll_name);
+        if (meta_it == collection_meta_by_name.end()) {
+            continue;
+        }
+
+        for (auto& item: referenced_in.second) {
+            auto& ref_info = item.second;
+            if (!ref_info.referenced_field.name.empty() || ref_info.referenced_field_name.empty()) {
+                continue;
+            }
+
+            auto ref_field = get_referenced_field(meta_it->second, ref_info.referenced_field_name);
+            if (ref_field.name.empty()) {
+                continue;
+            }
+
+            ref_info.referenced_field = std::move(ref_field);
+            hydrated = true;
+        }
+    }
+
+    return hydrated;
 }
 
 void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
@@ -504,6 +655,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                 for (const auto& ref_info: referenced_infos_it.value()) {
                     referenced_ins[referenced_coll_it.value()].insert({ref_info["collection"], reference_info_t(ref_info)});
                 }
+            }
+
+            if (hydrate_referenced_fields(collection_meta_jsons, collection_symlinks, referenced_ins)) {
+                persist_referenced_ins();
             }
         }
     }
@@ -709,6 +864,20 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
     return auth_manager.authenticate(action, collection_keys, params, embedded_params_vec);
 }
 
+struct referenced_in_replay_t {
+    std::map<std::string, reference_info_t>* ref_info_map;
+    std::set<update_reference_info_t> update_ref_infos;
+};
+
+struct deferred_ref_resolution_t {
+    std::string symlink_name;
+    std::string referenced_collection_name;
+    reference_info_t ref_info;
+    std::shared_ptr<Collection> referencing_coll;
+    std::shared_ptr<Collection> referenced_coll;
+    std::set<update_reference_info_t> update_ref_infos;
+};
+
 Option<Collection*> CollectionManager::create_collection(const std::string& name,
                                                          const size_t num_memory_shards,
                                                          const std::vector<field> & fields,
@@ -797,7 +966,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     auto new_collection = collection_op.get();
-    add_to_collections(new_collection);
+    auto new_collection_shared = add_to_collections(new_collection);
     lock.lock();
 
     std::vector<std::map<std::string, reference_info_t>> ref_info_maps;
@@ -806,19 +975,194 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         ref_info_maps.push_back(it->second);
     }
 
+    std::vector<std::string> deferred_ref_symlinks;
+    for (const auto& symlink: collection_symlinks) {
+        if (symlink.second == name && referenced_ins.find(symlink.first) != referenced_ins.end()) {
+            deferred_ref_symlinks.push_back(symlink.first);
+        }
+    }
+
     // Don't hold cm lock to prevent lock cycle inversion
     lock.unlock();
 
+    auto rollback_new_collection = [&]() {
+        auto drop_op = drop_collection(name, true, false);
+        if (!drop_op.ok()) {
+            LOG(ERROR) << "Failed to rollback collection `" << name << "`: " << drop_op.error();
+        }
+    };
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        auto validate_op = validate_deferred_references_for_symlink(symlink_name, name);
+        if (!validate_op.ok()) {
+            rollback_new_collection();
+            return Option<Collection*>(validate_op.code(), validate_op.error());
+        }
+    }
+
+    std::vector<referenced_in_replay_t> referenced_in_replay_plan;
+    std::vector<deferred_ref_resolution_t> deferred_ref_resolution_plan;
+    std::vector<staged_async_reference_backfill_t> staged_backfills;
+
     for(auto& ref_info_map: ref_info_maps) {
-        const auto& update_ref_infos = new_collection->add_referenced_ins(ref_info_map);
-        for (auto& update_ref_info: update_ref_infos) {
+        referenced_in_replay_t replay{&ref_info_map, {}};
+        for (auto& ref_info_item: ref_info_map) {
+            auto& ref_info = ref_info_item.second;
+            auto update_ref_infos = new_collection->validate_referenced_in(ref_info.collection, ref_info.field,
+                                                                           ref_info.referenced_field_name,
+                                                                           ref_info.referenced_field);
+            replay.update_ref_infos.insert(update_ref_infos.begin(), update_ref_infos.end());
+        }
+
+        for (auto& update_ref_info: replay.update_ref_infos) {
             auto coll = get_collection_unsafe(update_ref_info.collection);
             if(coll) {
-                coll->update_reference_field_with_lock(update_ref_info.field, update_ref_info.referenced_field);
+                const auto ref_info_it = ref_info_map.find(update_ref_info.collection);
+                if (ref_info_it != ref_info_map.end() && ref_info_it->second.is_async) {
+                    auto stage_op = stage_async_reference_helper_backfill(new_collection_shared, coll,
+                                                                          update_ref_info.referenced_field.name,
+                                                                          update_ref_info.field, staged_backfills);
+                    if (!stage_op.ok()) {
+                        rollback_new_collection();
+                        return Option<Collection*>(stage_op.code(), stage_op.error());
+                    }
+                }
+            }
+        }
+
+        referenced_in_replay_plan.emplace_back(std::move(replay));
+    }
+
+    for (const auto& symlink_name: deferred_ref_symlinks) {
+        std::map<std::string, reference_info_t> deferred_ref_infos;
+        {
+            std::shared_lock ref_lock(mutex);
+            auto ref_infos_it = referenced_ins.find(symlink_name);
+            if (ref_infos_it != referenced_ins.end()) {
+                deferred_ref_infos = ref_infos_it->second;
+            }
+        }
+
+        for (const auto& item: deferred_ref_infos) {
+            deferred_ref_resolution_t resolution;
+            resolution.symlink_name = symlink_name;
+            resolution.referenced_collection_name = name;
+            resolution.ref_info = item.second;
+            resolution.referencing_coll = get_collection(resolution.ref_info.collection);
+            resolution.referenced_coll = get_collection(resolution.referenced_collection_name);
+
+            if (resolution.referenced_coll != nullptr) {
+                resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+                resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
+                        resolution.ref_info.collection, resolution.ref_info.field,
+                        resolution.ref_info.referenced_field_name, resolution.ref_info.referenced_field);
+                if (resolution.update_ref_infos.empty()) {
+                    rollback_new_collection();
+                    return Option<Collection*>(400, "Referenced field `" + resolution.ref_info.referenced_field_name +
+                                                    "` not found in the collection `" +
+                                                    resolution.referenced_collection_name + "`.");
+                }
+
+                if (resolution.update_ref_infos.begin()->is_mutual_reference) {
+                    auto info = is_referenced_in_with_lock(resolution.ref_info.collection,
+                                                           resolution.referenced_collection_name);
+                    auto referenced_field = info.ok() ? info.get().field : resolution.update_ref_infos.begin()->field;
+                    rollback_new_collection();
+                    return Option<Collection*>(400, "Collections having reference to each other are not allowed. `" +
+                                                    resolution.ref_info.collection + "` collection is referenced by `" +=
+                                                    resolution.referenced_collection_name + "` collection's `" +=
+                                                    referenced_field + "` field.");
+                }
+            }
+
+            if (resolution.ref_info.is_async && resolution.referencing_coll != nullptr &&
+                resolution.referenced_coll != nullptr) {
+                for (const auto& update_ref_info: resolution.update_ref_infos) {
+                    auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll,
+                                                                          resolution.referencing_coll,
+                                                                          update_ref_info.referenced_field.name,
+                                                                          update_ref_info.field, staged_backfills);
+                    if (!stage_op.ok()) {
+                        rollback_new_collection();
+                        return Option<Collection*>(stage_op.code(), stage_op.error());
+                    }
+                }
+            }
+
+            deferred_ref_resolution_plan.emplace_back(std::move(resolution));
+        }
+    }
+
+    auto apply_backfills_op = apply_staged_async_reference_helper_backfills(staged_backfills);
+    if (!apply_backfills_op.ok()) {
+        rollback_new_collection();
+        return Option<Collection*>(apply_backfills_op.code(), apply_backfills_op.error());
+    }
+
+    for(auto& replay: referenced_in_replay_plan) {
+        new_collection->add_referenced_ins(*replay.ref_info_map);
+        for (auto& update_ref_info: replay.update_ref_infos) {
+            auto coll = get_collection_unsafe(update_ref_info.collection);
+            if(coll) {
+                coll->update_reference_info_with_lock(update_ref_info.field, new_collection->get_name(),
+                                                      update_ref_info.referenced_field);
+
                 // We do not erase from `referenced_ins` here, because if a referenced collection is dropped and
                 // created again, the referenced field won't be updated in referencing collection.
             }
         }
+    }
+
+    std::set<std::string> resolved_ref_symlinks;
+    std::unique_lock u_lock(mutex, std::defer_lock);
+    for (const auto& resolution: deferred_ref_resolution_plan) {
+        if (resolution.referenced_coll != nullptr) {
+            field referenced_field = resolution.ref_info.referenced_field;
+            resolution.referenced_coll->add_referenced_in(resolution.ref_info.collection, resolution.ref_info.field,
+                                                          resolution.ref_info.is_async,
+                                                          resolution.ref_info.referenced_field_name,
+                                                          referenced_field);
+        }
+
+        u_lock.lock();
+        auto it = referenced_ins.find(resolution.referenced_collection_name);
+        if (it == referenced_ins.end()) {
+            referenced_ins[resolution.referenced_collection_name] = {
+                    {resolution.ref_info.collection, resolution.ref_info}};
+        } else {
+            referenced_ins[resolution.referenced_collection_name].insert({
+                    resolution.ref_info.collection, resolution.ref_info});
+        }
+        resolved_ref_symlinks.insert(resolution.symlink_name);
+        u_lock.unlock();
+
+        if (resolution.referencing_coll == nullptr) {
+            continue;
+        }
+
+        if (resolution.update_ref_infos.empty()) {
+            resolution.referencing_coll->update_reference_info_with_lock(resolution.ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         field{});
+            continue;
+        }
+
+        for (const auto& update_ref_info: resolution.update_ref_infos) {
+            resolution.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         update_ref_info.referenced_field);
+        }
+    }
+
+    if (!resolved_ref_symlinks.empty()) {
+        u_lock.lock();
+        for (const auto& symlink_name: resolved_ref_symlinks) {
+            if (name != symlink_name) {
+                referenced_ins.erase(symlink_name);
+            }
+        }
+        persist_referenced_ins();
+        u_lock.unlock();
     }
 
     return Option<Collection*>(new_collection);
@@ -987,10 +1331,27 @@ Option<std::string> CollectionManager::resolve_symlink(const std::string & symli
 
 Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
     std::unique_lock lock(mutex);
-
     if(collections.count(symlink_name) != 0) {
         return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
     }
+
+    lock.unlock();
+    auto validate_op = validate_deferred_references_for_symlink(symlink_name, collection_name);
+    if (!validate_op.ok()) {
+        return validate_op;
+    }
+
+    bool had_existing_symlink = false;
+    std::string existing_collection_name;
+
+    lock.lock();
+    if(collections.count(symlink_name) != 0) {
+        return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
+    }
+
+    auto existing_symlink_it = collection_symlinks.find(symlink_name);
+    had_existing_symlink = existing_symlink_it != collection_symlinks.end();
+    existing_collection_name = had_existing_symlink ? existing_symlink_it->second : std::string();
 
     bool inserted = store->insert(get_symlink_key(symlink_name), collection_name);
     if(!inserted) {
@@ -998,6 +1359,397 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
     }
 
     collection_symlinks[symlink_name] = collection_name;
+    lock.unlock();
+
+    auto resolve_op = resolve_deferred_references_for_symlink(symlink_name, collection_name);
+    Option<bool> reference_update_op = resolve_op;
+    if (reference_update_op.ok() && had_existing_symlink && existing_collection_name != collection_name) {
+        reference_update_op = rebind_references_for_symlink_target_swap(symlink_name, existing_collection_name,
+                                                                        collection_name);
+    }
+
+    if (!reference_update_op.ok()) {
+        lock.lock();
+        if (had_existing_symlink) {
+            if (!store->insert(get_symlink_key(symlink_name), existing_collection_name)) {
+                LOG(ERROR) << "Unable to rollback symlink `" << symlink_name << "` in store.";
+            }
+            collection_symlinks[symlink_name] = existing_collection_name;
+        } else {
+            if (!store->remove(get_symlink_key(symlink_name))) {
+                LOG(ERROR) << "Unable to rollback symlink `" << symlink_name << "` from store.";
+            }
+            collection_symlinks.erase(symlink_name);
+        }
+        lock.unlock();
+    }
+
+    return reference_update_op;
+}
+
+Option<bool> CollectionManager::validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                                         const std::string& collection_name) const {
+    std::map<std::string, reference_info_t> deferred_ref_infos;
+    std::shared_ptr<Collection> ref_coll;
+
+    std::shared_lock lock(mutex);
+    auto ref_infos_it = referenced_ins.find(symlink_name);
+    if (ref_infos_it != referenced_ins.end()) {
+        deferred_ref_infos = ref_infos_it->second;
+    }
+    ref_coll = get_collection_unsafe(collection_name);
+    lock.unlock();
+
+    if (deferred_ref_infos.empty() || ref_coll == nullptr) {
+        return Option<bool>(true);
+    }
+
+    auto referenced_collection_name = ref_coll->get_name();
+    auto ref_collection_reference_fields = ref_coll->get_reference_fields();
+
+    for (const auto& item: deferred_ref_infos) {
+        const auto& ref_info = item.second;
+        for (const auto& ref_field: ref_collection_reference_fields) {
+            if (ref_field.second.collection == ref_info.collection) {
+                return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                         ref_info.collection + "` collection is referenced by `" +
+                                         referenced_collection_name + "` collection's `" + ref_field.first +
+                                         "` field.");
+            }
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                                        const std::string& collection_name) {
+    std::map<std::string, reference_info_t> deferred_ref_infos;
+
+    std::shared_lock lock(mutex);
+    auto ref_infos_it = referenced_ins.find(symlink_name);
+    if (ref_infos_it != referenced_ins.end()) {
+        deferred_ref_infos = ref_infos_it->second;
+    }
+    lock.unlock();
+
+    if (deferred_ref_infos.empty()) {
+        return Option<bool>(true);
+    }
+
+    auto validate_op = validate_deferred_references_for_symlink(symlink_name, collection_name);
+    if (!validate_op.ok()) {
+        return validate_op;
+    }
+
+    struct deferred_ref_resolution_t {
+        std::string referenced_collection_name;
+        reference_info_t ref_info;
+        std::shared_ptr<Collection> referencing_coll;
+        std::shared_ptr<Collection> referenced_coll;
+        std::set<update_reference_info_t> update_ref_infos;
+    };
+
+    std::vector<deferred_ref_resolution_t> resolution_plan;
+    resolution_plan.reserve(deferred_ref_infos.size());
+
+    for (const auto& item: deferred_ref_infos) {
+        deferred_ref_resolution_t resolution;
+        resolution.referenced_collection_name = collection_name;
+        resolution.ref_info = item.second;
+        resolution.referencing_coll = get_collection(resolution.ref_info.collection);
+        resolution.referenced_coll = get_collection(resolution.referenced_collection_name);
+
+        if (resolution.referenced_coll != nullptr) {
+            resolution.referenced_collection_name = resolution.referenced_coll->get_name();
+            resolution.update_ref_infos = resolution.referenced_coll->validate_referenced_in(
+                    resolution.ref_info.collection, resolution.ref_info.field, resolution.ref_info.referenced_field_name,
+                    resolution.ref_info.referenced_field);
+            if (resolution.update_ref_infos.empty()) {
+                return Option<bool>(400, "Referenced field `" + resolution.ref_info.referenced_field_name +
+                                         "` not found in the collection `" + resolution.referenced_collection_name + "`.");
+            }
+
+            if (resolution.update_ref_infos.begin()->is_mutual_reference) {
+                auto info = is_referenced_in_with_lock(resolution.ref_info.collection,
+                                                       resolution.referenced_collection_name);
+                auto referenced_field = info.ok() ? info.get().field : resolution.update_ref_infos.begin()->field;
+                return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                         resolution.ref_info.collection + "` collection is referenced by `" +=
+                                         resolution.referenced_collection_name + "` collection's `" +=
+                                         referenced_field + "` field.");
+            }
+        }
+
+        resolution_plan.emplace_back(std::move(resolution));
+    }
+
+    std::vector<staged_async_reference_backfill_t> staged_backfills;
+    for (const auto& resolution: resolution_plan) {
+        if (!resolution.ref_info.is_async || resolution.referencing_coll == nullptr ||
+            resolution.referenced_coll == nullptr) {
+            continue;
+        }
+
+        for (const auto& update_ref_info: resolution.update_ref_infos) {
+            auto stage_op = stage_async_reference_helper_backfill(resolution.referenced_coll,
+                                                                  resolution.referencing_coll,
+                                                                  update_ref_info.referenced_field.name,
+                                                                  update_ref_info.field, staged_backfills);
+            if (!stage_op.ok()) {
+                return stage_op;
+            }
+        }
+    }
+
+    auto apply_backfills_op = apply_staged_async_reference_helper_backfills(staged_backfills);
+    if (!apply_backfills_op.ok()) {
+        return apply_backfills_op;
+    }
+
+    std::unique_lock u_lock(mutex, std::defer_lock);
+    for (const auto& resolution: resolution_plan) {
+        if (resolution.referenced_coll != nullptr) {
+            field referenced_field = resolution.ref_info.referenced_field;
+            resolution.referenced_coll->add_referenced_in(resolution.ref_info.collection, resolution.ref_info.field,
+                                                          resolution.ref_info.is_async,
+                                                          resolution.ref_info.referenced_field_name,
+                                                          referenced_field);
+        }
+
+        u_lock.lock();
+        auto it = referenced_ins.find(resolution.referenced_collection_name);
+        if (it == referenced_ins.end()) {
+            referenced_ins[resolution.referenced_collection_name] = {
+                    {resolution.ref_info.collection, resolution.ref_info}};
+        } else {
+            referenced_ins[resolution.referenced_collection_name].insert({
+                    resolution.ref_info.collection, resolution.ref_info});
+        }
+        persist_referenced_ins();
+        u_lock.unlock();
+
+        if (resolution.referencing_coll == nullptr) {
+            continue;
+        }
+
+        if (resolution.update_ref_infos.empty()) {
+            resolution.referencing_coll->update_reference_info_with_lock(resolution.ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         field{});
+            continue;
+        }
+
+        for (const auto& update_ref_info: resolution.update_ref_infos) {
+            resolution.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         resolution.referenced_collection_name,
+                                                                         update_ref_info.referenced_field);
+        }
+    }
+
+    if (!deferred_ref_infos.empty() && collection_name != symlink_name) {
+        u_lock.lock();
+        referenced_ins.erase(symlink_name);
+        persist_referenced_ins();
+        u_lock.unlock();
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::rebind_references_for_symlink_target_swap(const std::string& symlink_name,
+                                                                          const std::string& old_collection_name,
+                                                                          const std::string& new_collection_name) {
+    std::map<std::string, reference_info_t> old_ref_infos;
+    {
+        std::shared_lock lock(mutex);
+        auto ref_infos_it = referenced_ins.find(old_collection_name);
+        if (ref_infos_it != referenced_ins.end()) {
+            old_ref_infos = ref_infos_it->second;
+        }
+    }
+
+    if (old_ref_infos.empty()) {
+        return Option<bool>(true);
+    }
+
+    struct symlink_ref_rebind_t {
+        reference_info_t ref_info;
+        std::shared_ptr<Collection> referencing_coll;
+        std::set<update_reference_info_t> update_ref_infos;
+    };
+
+    std::vector<symlink_ref_rebind_t> rebind_plan;
+    rebind_plan.reserve(old_ref_infos.size());
+
+    const auto alias_reference_prefix = symlink_name + ".";
+    for (const auto& item: old_ref_infos) {
+        const auto& old_ref_info = item.second;
+        auto referencing_coll = get_collection(old_ref_info.collection);
+        if (referencing_coll == nullptr) {
+            continue;
+        }
+
+        auto schema = referencing_coll->get_schema();
+        auto schema_it = schema.find(old_ref_info.field);
+        if (schema_it == schema.end()) {
+            continue;
+        }
+
+        const auto& original_reference = schema_it.value().reference;
+        if (original_reference.rfind(alias_reference_prefix, 0) != 0) {
+            continue;
+        }
+
+        auto original_referenced_field_name = original_reference.substr(alias_reference_prefix.size());
+        if (original_referenced_field_name != old_ref_info.referenced_field_name) {
+            continue;
+        }
+
+        symlink_ref_rebind_t rebind;
+        rebind.ref_info = old_ref_info;
+        rebind.referencing_coll = referencing_coll;
+        rebind_plan.emplace_back(std::move(rebind));
+    }
+
+    if (rebind_plan.empty()) {
+        return Option<bool>(true);
+    }
+
+    auto old_coll = get_collection(old_collection_name);
+    auto new_coll = get_collection(new_collection_name);
+    if (new_coll == nullptr) {
+        for (const auto& rebind: rebind_plan) {
+            if (old_coll != nullptr) {
+                old_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                               rebind.ref_info.is_async, rebind.ref_info.referenced_field_name);
+            }
+
+            rebind.referencing_coll->update_reference_info_with_lock(rebind.ref_info.field, new_collection_name, field{});
+        }
+
+        std::unique_lock lock(mutex);
+        for (const auto& rebind: rebind_plan) {
+            auto old_ref_infos_it = referenced_ins.find(old_collection_name);
+            if (old_ref_infos_it != referenced_ins.end()) {
+                old_ref_infos_it->second.erase(rebind.ref_info.collection);
+                if (old_ref_infos_it->second.empty()) {
+                    referenced_ins.erase(old_ref_infos_it);
+                }
+            }
+
+            auto deferred_ref_info = rebind.ref_info;
+            deferred_ref_info.referenced_field = field{};
+            referenced_ins[new_collection_name][deferred_ref_info.collection] = std::move(deferred_ref_info);
+        }
+        persist_referenced_ins();
+
+        return Option<bool>(true);
+    }
+
+    auto resolved_new_collection_name = new_coll->get_name();
+    if (old_collection_name == resolved_new_collection_name) {
+        return Option<bool>(true);
+    }
+
+    for (auto& rebind: rebind_plan) {
+        rebind.update_ref_infos = new_coll->validate_referenced_in(rebind.ref_info.collection,
+                                                                   rebind.ref_info.field,
+                                                                   rebind.ref_info.referenced_field_name,
+                                                                   rebind.ref_info.referenced_field);
+        if (rebind.update_ref_infos.empty()) {
+            return Option<bool>(400, "Referenced field `" + rebind.ref_info.referenced_field_name +
+                                     "` not found in the collection `" + resolved_new_collection_name + "`.");
+        }
+
+        if (rebind.update_ref_infos.begin()->is_mutual_reference) {
+            auto info = is_referenced_in_with_lock(rebind.ref_info.collection, resolved_new_collection_name);
+            auto referenced_field = info.ok() ? info.get().field : rebind.update_ref_infos.begin()->field;
+            return Option<bool>(400, "Collections having reference to each other are not allowed. `" +
+                                     rebind.ref_info.collection + "` collection is referenced by `" +
+                                     resolved_new_collection_name + "` collection's `" + referenced_field + "` field.");
+        }
+    }
+
+    std::vector<const symlink_ref_rebind_t*> applied_rebinds;
+    applied_rebinds.reserve(rebind_plan.size());
+    std::vector<staged_async_reference_backfill_t> staged_backfills;
+    auto rollback_applied_rebinds = [&]() {
+        for (auto it = applied_rebinds.rbegin(); it != applied_rebinds.rend(); ++it) {
+            const auto& rebind = **it;
+
+            new_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                           rebind.ref_info.is_async, rebind.ref_info.referenced_field_name);
+
+            if (old_coll != nullptr) {
+                field referenced_field = rebind.ref_info.referenced_field;
+                old_coll->add_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                            rebind.ref_info.is_async, rebind.ref_info.referenced_field_name,
+                                            referenced_field);
+            }
+
+            for (const auto& update_ref_info: rebind.update_ref_infos) {
+                rebind.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                         old_collection_name,
+                                                                         rebind.ref_info.referenced_field);
+            }
+        }
+    };
+
+    for (const auto& rebind: rebind_plan) {
+        if (old_coll != nullptr) {
+            old_coll->remove_referenced_in(rebind.ref_info.collection, rebind.ref_info.field,
+                                           rebind.ref_info.is_async, rebind.ref_info.referenced_field_name);
+        }
+
+        field referenced_field = rebind.ref_info.referenced_field;
+        new_coll->add_referenced_in(rebind.ref_info.collection, rebind.ref_info.field, rebind.ref_info.is_async,
+                                    rebind.ref_info.referenced_field_name, referenced_field);
+        applied_rebinds.emplace_back(&rebind);
+
+        for (const auto& update_ref_info: rebind.update_ref_infos) {
+            rebind.referencing_coll->update_reference_info_with_lock(update_ref_info.field,
+                                                                     resolved_new_collection_name,
+                                                                     update_ref_info.referenced_field);
+        }
+    }
+
+    for (const auto& rebind: rebind_plan) {
+        if (!rebind.ref_info.is_async) {
+            continue;
+        }
+
+        for (const auto& update_ref_info: rebind.update_ref_infos) {
+            auto stage_op = stage_async_reference_helper_backfill(new_coll, rebind.referencing_coll,
+                                                                  update_ref_info.referenced_field.name,
+                                                                  update_ref_info.field, staged_backfills);
+            if (!stage_op.ok()) {
+                rollback_applied_rebinds();
+                return stage_op;
+            }
+        }
+    }
+
+    auto apply_backfills_op = apply_staged_async_reference_helper_backfills(staged_backfills);
+    if (!apply_backfills_op.ok()) {
+        rollback_applied_rebinds();
+        return apply_backfills_op;
+    }
+
+    std::unique_lock lock(mutex);
+    for (const auto& rebind: rebind_plan) {
+        auto old_ref_infos_it = referenced_ins.find(old_collection_name);
+        if (old_ref_infos_it != referenced_ins.end()) {
+            old_ref_infos_it->second.erase(rebind.ref_info.collection);
+            if (old_ref_infos_it->second.empty()) {
+                referenced_ins.erase(old_ref_infos_it);
+            }
+        }
+
+        referenced_ins[resolved_new_collection_name][rebind.ref_info.collection] = rebind.ref_info;
+    }
+    persist_referenced_ins();
+
     return Option<bool>(true);
 }
 
@@ -1021,9 +1773,51 @@ AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
 }
 
+/// Parses the optional trailing parameters of a multi-eval clause, i.e. everything between the
+/// closing `]` and the closing `)` of `_eval([...], <params>)`.
+static bool parse_multi_eval_params(const std::string& params_str, sort_by::eval_mode_t& eval_mode) {
+    auto params_substr = params_str;
+    StringUtils::trim(params_substr);
+    if (params_substr.empty()) {
+        return true;
+    }
+
+    // The span starts right after `]`, so a parameter list opens with the separating comma.
+    if (params_substr[0] != ',') {
+        return false;
+    }
+    params_substr = params_substr.substr(1);
+
+    std::vector<std::string> params;
+    StringUtils::split(params_substr, params, ",");
+    if (params.empty()) {
+        return false;
+    }
+
+    for (const auto& param: params) {
+        // `split` trims each token, so `mode:sum` and `mode: sum` both arrive here the same way.
+        std::vector<std::string> param_parts;
+        StringUtils::split(param, param_parts, ":");
+        if (param_parts.size() != 2 || param_parts[0] != sort_field_const::eval_mode) {
+            return false;
+        }
+
+        if (param_parts[1] == sort_field_const::eval_mode_sum) {
+            eval_mode = sort_by::eval_mode_t::sum_matches;
+        } else if (param_parts[1] == sort_field_const::eval_mode_first_match) {
+            eval_mode = sort_by::eval_mode_t::first_match;
+        } else {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
     // FORMAT:
     // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ]):<order>
+    // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ], mode: sum):<order>
 
     std::vector<std::string> eval_expressions;
     std::vector<std::int64_t> scores;
@@ -1077,6 +1871,20 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
         scores.emplace_back(std::stoll(score));
     }
 
+    // `index` is at the closing `]`, so everything up to the closing `)` of `_eval(` is the optional
+    // parameter list. It has to be consumed before the scan below, which stops at the first `:`.
+    // With a parameter present that first colon belongs to `mode: sum`, not to the order.
+    auto const close_paren_pos = sort_by_str.find(')', index);
+    if (close_paren_pos == std::string::npos) {
+        return false;
+    }
+
+    sort_by::eval_mode_t eval_mode = sort_by::eval_mode_t::first_match;
+    if (!parse_multi_eval_params(sort_by_str.substr(index + 1, close_paren_pos - index - 1), eval_mode)) {
+        return false;
+    }
+    index = close_paren_pos;
+
     while (++index < sort_by_str.size() && sort_by_str[index] != ':');
     if (index >= sort_by_str.size()) {
         return false;
@@ -1089,13 +1897,70 @@ bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vect
     StringUtils::trim(order_str);
     StringUtils::toupper(order_str);
 
-    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    sort_fields.emplace_back(eval_expressions, scores, order_str, eval_mode);
+    return true;
+}
+
+/// Splits a trailing parameter list off the single-expression form, `_eval((<expr>), mode: sum)`.
+///
+/// The array form is delimited by `]`, so everything after it is unambiguously a parameter. The
+/// single-expression form has no such delimiter and a filter value may legally hold a top level
+/// comma, as `title:Hello, World` does. Parameters are therefore only recognised when the
+/// expression is wrapped in its own parentheses, which lets a plain parenthesis count find where it
+/// ends. `_eval(brand:nike, mode: sum)` stays a filter, exactly as it parses today.
+///
+/// Returns false only when the parameter list is present but unusable.
+static bool split_trailing_eval_params(std::string& eval_expr, sort_by::eval_mode_t& eval_mode) {
+    auto expr = eval_expr;
+    StringUtils::trim(expr);
+    if (expr.empty() || expr[0] != '(') {
+        return true;
+    }
+
+    int paren_count = 0;
+    bool in_backtick = false;
+    size_t expr_end = std::string::npos;
+
+    for (size_t i = 0; i < expr.size(); i++) {
+        const char c = expr[i];
+        if (c == '`') {
+            in_backtick = !in_backtick;
+        } else if (in_backtick) {
+            continue;
+        } else if (c == '(') {
+            paren_count++;
+        } else if (c == ')' && --paren_count == 0) {
+            expr_end = i;
+            break;
+        }
+    }
+
+    if (expr_end == std::string::npos) {
+        return true;
+    }
+
+    // A parameter list is introduced by a comma. Anything else following the group belongs to the
+    // filter, as in `(a:1) && (b:2)`, and the expression is left exactly as it was.
+    auto trailing = expr.substr(expr_end + 1);
+    StringUtils::trim(trailing);
+    if (trailing.empty() || trailing[0] != ',') {
+        return true;
+    }
+
+    if (!parse_multi_eval_params(trailing, eval_mode)) {
+        return false;
+    }
+
+    // Drop the wrapping parentheses along with the parameter list.
+    eval_expr = expr.substr(1, expr_end - 1);
+    StringUtils::trim(eval_expr);
     return true;
 }
 
 bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
     // FORMAT:
     // _eval(<expr>):<order>
+    // _eval((<expr>), mode: sum):<order>
     std::string eval_expr = "(";
     int paren_count = 1;
     bool in_backtick = false;
@@ -1117,6 +1982,11 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
         return false;
     }
 
+    sort_by::eval_mode_t eval_mode = sort_by::eval_mode_t::first_match;
+    if (!split_trailing_eval_params(eval_expr, eval_mode)) {
+        return false;
+    }
+
     while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
     if (index >= sort_by_str.size()) {
         return false;
@@ -1131,7 +2001,7 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
 
     std::vector<std::string> eval_expressions = {eval_expr};
     std::vector<int64_t> scores = {1};
-    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    sort_fields.emplace_back(eval_expressions, scores, order_str, eval_mode);
 
     return true;
 }
@@ -1374,6 +2244,13 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
     return Option<bool>(true);
 }
 
+void enforce_scoped_filter_for_curated_hits(const nlohmann::json& embedded_params,
+                                            std::map<std::string, std::string>& req_params) {
+    if(embedded_params.count("filter_by") != 0) {
+        req_params["filter_curated_hits"] = "true";
+    }
+}
+
 Option<bool> apply_preset(std::map<std::string, std::string>& req_params) {
     const auto preset_it = req_params.find("preset");
 
@@ -1438,6 +2315,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if (!apply_preset_op.ok()) {
         return apply_preset_op;
     }
+    enforce_scoped_filter_for_curated_hits(embedded_params, req_params);
 
     std::string stopwords_set;
     auto const get_stopwords_op = get_stopword_set(req_params, stopwords_set);
@@ -1694,6 +2572,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             result_op = std::move(apply_preset_op);
             break;
         }
+        enforce_scoped_filter_for_curated_hits(embedded_params, req_params);
 
         std::string stopwords_set;
         auto get_stopwords_op = get_stopword_set(req_params, stopwords_set);
@@ -2073,7 +2952,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                         << ": " << synonym_index_op.error();
               return Option<bool>(synonym_index_op.code(), synonym_index_op.error());
           }
-          SynonymIndex* synonym_index = synonym_index_op.get();
+          auto synonym_index = synonym_index_op.get();
 
           for(const auto & collection_synonym_json: collection_synonym_jsons) {
               nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
@@ -2407,11 +3286,16 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
+Option<bool> CollectionManager::add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                                             std::set<update_reference_info_t>& update_ref_infos,
+                                                             bool is_live_request) {
+    std::unique_lock lock(mutex);
+    return add_referenced_ins(referenced_collection_name, std::move(ref_info), update_ref_infos, is_live_request);
+}
+
 Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
                                                    std::set<update_reference_info_t>& update_ref_infos,
                                                    bool is_live_request) {
-    std::unique_lock lock(mutex);
-
     auto ref_coll = get_collection_unsafe(referenced_collection_name);
     std::set<update_reference_info_t> _update_ref_infos{};
     if (ref_coll != nullptr) {
@@ -2526,6 +3410,14 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
     for (const auto& item: coll->get_reference_fields()) {
         const auto& ref_pair = item.second;
         references.insert(ref_pair.collection);
+    }
+
+    // Scheduler dependencies need the declared alias too. Runtime reference fields contain the resolved target,
+    // which would otherwise discard the alias edge when a schema request completes or after a store reload.
+    for (const auto& field : coll->get_fields()) {
+        if (!field.reference.empty()) {
+            references.insert(field.reference.substr(0, field.reference.find('.')));
+        }
     }
 
     return references;

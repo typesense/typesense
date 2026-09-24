@@ -192,4 +192,13 @@ public:
     uint64_t get_memory_used_bytes();
 
     uint64_t get_cached_jemalloc_unused_memory();
+
+    // Reads container-scoped memory limit and current usage from cgroup files.
+    // Resolves the container's own cgroup path via proc_self_cgroup (/proc/self/cgroup),
+    // then reads memory.max/memory.current (v2) or memory.limit_in_bytes/memory.usage_in_bytes (v1)
+    // relative to cgroup_root (/sys/fs/cgroup). Returns false when no finite limit is found,
+    // so callers fall back to node-level sysinfo. Both paths are injectable for unit tests.
+    static bool get_cgroup_memory(uint64_t& limit_bytes, uint64_t& usage_bytes,
+                                  const std::string& proc_self_cgroup = "/proc/self/cgroup",
+                                  const std::string& cgroup_root      = "/sys/fs/cgroup");
 };

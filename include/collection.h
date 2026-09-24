@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <map>
 #include <thread>
 #include <memory>
 #include <atomic>
@@ -204,9 +205,9 @@ struct collection_search_args_t {
     static constexpr auto DIVERSITY_LAMBDA = "diversity_lambda";
     static constexpr auto DIVERSITY_LIMIT = "diversity_limit";
 
-    static constexpr auto RAW_QUERY = "raw_query";
-
     std::string raw_query;
+    // Used only to supplement highlights after natural language query rewriting.
+    std::string original_nl_query;
     std::vector<std::string> search_fields;
     std::string filter_query;
     std::vector<std::string> facet_fields;
@@ -525,6 +526,34 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
+public:
+    struct async_reference_backfill_update_t {
+        struct expected_reference_field_t {
+            std::string name;
+            nlohmann::json value;
+        };
+
+        uint32_t seq_id;
+        std::map<std::string, nlohmann::json> old_helper_fields;
+        std::map<std::string, nlohmann::json> new_helper_fields;
+        std::map<std::string, expected_reference_field_t> expected_reference_fields;
+    };
+
+    using async_reference_backfill_update_map_t = std::map<uint32_t, async_reference_backfill_update_t>;
+
+    Option<bool> apply_staged_async_reference_updates(Collection* referencing_coll,
+                                                      const std::string& referencing_collection_name,
+                                                      async_reference_backfill_update_map_t& staged_updates);
+
+private:
+    Option<bool> stage_async_reference_update(Collection* referencing_coll,
+                                              const std::string& referencing_collection_name,
+                                              const std::string& referencing_field_name,
+                                              const std::string& filter,
+                                              const std::set<std::string>& filter_values,
+                                              const uint32_t ref_seq_id,
+                                              async_reference_backfill_update_map_t& staged_updates);
+
     static bool handle_highlight_text(std::string& text, const bool& normalise, const field& search_field,
                                       const bool& is_arr_obj_ele,
                                       const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
@@ -559,7 +588,7 @@ private:
 
     void do_highlighting(const tsl::htrie_map<char, field>& search_schema, const bool& enable_nested_fields,
                          const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                         const string& query, const std::vector<std::string>& raw_search_fields,
+                         const string& original_nl_query, const std::vector<std::string>& raw_search_fields,
                          const string& raw_query, const bool& enable_highlight_v1, const size_t& snippet_threshold,
                          const size_t& highlight_affix_num_tokens, const string& highlight_start_tag,
                          const string& highlight_end_tag, const std::vector<std::string>& highlight_field_names,
@@ -809,6 +838,12 @@ private:
                                                             float facet_min_occurrence_ratio);
 
     void reset_referencing_documents(const std::string& field_name, const std::vector<index_record>& docs);
+
+    Option<bool> async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                 Collection* referencing_coll,
+                                                 const std::string& referencing_field_name,
+                                                 const bool apply_updates,
+                                                 async_reference_backfill_update_map_t* staged_updates);
 
     // Called to reset the reference helper fields to sentinel value when a referenced document fails to index.
     static void reset_referencing_documents(const spp::sparse_hash_map<std::string, std::set<reference_pair_t>>& found_async_referenced_ins,
@@ -1164,8 +1199,7 @@ public:
                                        size_t max_candidates,
                                        std::vector<facet_info_t>& facet_infos,
                                        const std::vector<facet_index_type_t>& facet_index_types,
-                                       bool is_group_by_first_pass,
-                                       std::set<uint32_t>& group_by_missing_value_ids) const;
+                                       bool is_group_by_first_pass) const;
 
     Option<bool> do_facets_with_lock(std::vector<facet> & facets, facet_query_t & facet_query,
                                      bool estimate_facets, size_t facet_sample_percent,
@@ -1175,8 +1209,7 @@ public:
                                      const uint32_t* result_ids, size_t results_size,
                                      int max_facet_count, bool is_wildcard_query,
                                      const std::vector<facet_index_type_t>& facet_index_types,
-                                     bool is_group_by_first_pass,
-                                     std::set<uint32_t>& group_by_missing_value_ids) const;
+                                     bool is_group_by_first_pass) const;
 
     Option<bool> process_facet_return_parent(std::vector<std::string>& facet_return_parent) const;
 
@@ -1214,7 +1247,8 @@ public:
                                             const std::vector<enable_t>& infixes,
                                             std::vector<std::string>& q_tokens,
                                             const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                            std::vector<highlight_field_t>& highlight_items) const;
+                                            std::vector<highlight_field_t>& highlight_items,
+                                            const std::string& original_nl_query) const;
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const std::vector<std::string>& raw_search_fields,
@@ -1225,7 +1259,8 @@ public:
                                   const std::vector<enable_t>& infixes,
                                   std::vector<std::string>& q_tokens,
                                   const tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                  std::vector<highlight_field_t>& highlight_items) const;
+                                  std::vector<highlight_field_t>& highlight_items,
+                                  const std::string& original_nl_query) const;
 
     void build_highlight_snapshots_with_lock(const std::vector<highlight_field_t>& highlight_items,
                                              std::vector<highlight_field_snapshot_t>& highlight_snapshots) const;
@@ -1261,12 +1296,17 @@ public:
     // Return a copy of the referenced field in the referencing collection to avoid schema lookups in the future. The
     // tradeoff is that we have to make sure any changes during collection alter operation are passed to the referencing
     // collection.
-    [[nodiscard]] std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
+    std::set<update_reference_info_t> add_referenced_ins(std::map<std::string, reference_info_t>& ref_infos);
 
-    [[nodiscard]] std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
-                                                                      const std::string& field_name, const bool& is_async,
-                                                                      const std::string& referenced_field_name,
-                                                                      field& referenced_field);
+    std::set<update_reference_info_t> add_referenced_in(const std::string& collection_name,
+                                                        const std::string& field_name, const bool& is_async,
+                                                        const std::string& referenced_field_name,
+                                                        field& referenced_field);
+
+    [[nodiscard]] std::set<update_reference_info_t> validate_referenced_in(const std::string& collection_name,
+                                                                           const std::string& field_name,
+                                                                           const std::string& referenced_field_name,
+                                                                           field& referenced_field);
 
     void remove_referenced_in(const std::string& collection_name, const std::string& field_name,
                               const bool& is_async, const std::string& referenced_field_name);
@@ -1275,6 +1315,12 @@ public:
 
     void update_reference_field(const std::string& field_name, const field& ref_field);
 
+    void update_reference_info(const std::string& field_name, const std::string& ref_collection_name,
+                               const field& ref_field);
+
+    void update_reference_info_with_lock(const std::string& field_name, const std::string& ref_collection_name,
+                                         const field& ref_field);
+
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
     Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
@@ -1282,7 +1328,13 @@ public:
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
                                                    const std::set<std::string>& filter_values,
-                                                   const uint32_t ref_seq_id, const std::string& field_name);
+                                                   const uint32_t ref_seq_id, const std::string& field_name,
+                                                   const bool apply_updates = true);
+
+    Option<bool> stage_async_reference_helper_backfill(const std::string& referenced_field_name,
+                                                       Collection* referencing_coll,
+                                                       const std::string& referencing_field_name,
+                                                       async_reference_backfill_update_map_t& staged_updates);
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 

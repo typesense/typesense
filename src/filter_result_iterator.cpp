@@ -1142,6 +1142,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
     if (filter_node->isOperator) {
         if (filter_node->filter_operator == AND) {
             approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
+
             if (approx_filter_ids_length < COMPUTE_FILTER_ITERATOR_THRESHOLD) {
                 compute_iterators();
             } else {
@@ -2143,7 +2144,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
                 bool is_group_by_first_pass = false;
-                std::set<uint32_t> group_by_missing_value_ids;
                 bool enable_typos_for_numerical_tokens = true;
                 bool enable_typos_for_alpha_numerical_tokens = false;
 
@@ -2156,7 +2156,6 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                                                                          false, max_filter_by_candidates, min_len_1typo, min_len_2typo,
                                                                          0, value_tokens.size(), false, false, nullptr, field_values, geopoint_indices,
                                                                          is_group_by_first_pass,
-                                                                         group_by_missing_value_ids,
                                                                          enable_typos_for_numerical_tokens,
                                                                          enable_typos_for_alpha_numerical_tokens);
                 delete[] all_result_ids;
@@ -3019,6 +3018,7 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     reference = std::move(obj.reference);
     status = std::move(obj.status);
     is_filter_result_initialized = obj.is_filter_result_initialized;
+    computed_by_probe = obj.computed_by_probe;
 
     approx_filter_ids_length = obj.approx_filter_ids_length;
 
@@ -3161,6 +3161,59 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     fit = root_iterator;
 }
 
+bool filter_result_iterator_t::has_referenced_filter(const filter_node_t* const node) {
+    if (node == nullptr) {
+        return false;
+    }
+
+    if (node->isOperator) {
+        return has_referenced_filter(node->left) || has_referenced_filter(node->right);
+    }
+
+    return !node->filter_exp.referenced_collection_name.empty();
+}
+
+bool filter_result_iterator_t::can_probe_wide_side(const filter_result_iterator_t* const narrow_it,
+                                                   const filter_result_iterator_t* const wide_it) const {
+    // The result of an object filter is validated after intersecting. Leave that flow alone.
+    if (filter_node->is_object_filter_root) {
+        return false;
+    }
+
+    // `and_filter_results` drops a matched id when the reference results of the two sides have nothing in common;
+    // probing has no such step. A referenced leaf at any depth propagates its references up through every operator
+    // node above it, so the whole subtree has to be free of them.
+    if (has_referenced_filter(filter_node) ||
+            narrow_it->result_has_references() || wide_it->result_has_references()) {
+        return false;
+    }
+
+    // `is_valid` handles an operator node as well, but an un-computed operator subtree re-enters
+    // `and_filter_iterators` from inside it. Keeping the probed side a leaf avoids having to reason about that. The
+    // narrow side can be anything: its own `compute_iterators()` recurses and may probe in turn.
+    if (wide_it->filter_node == nullptr || wide_it->filter_node->isOperator) {
+        return false;
+    }
+
+    // The wide side is already an id array, so there is no materialization left to skip: intersecting is a linear
+    // merge of the two, while probing would be a binary search into it per id of the narrow side.
+    if (wide_it->is_filter_result_initialized) {
+        return false;
+    }
+
+    // Only a lazy string leaf answers `is_valid` cheaply, by advancing a posting list iterator per token. A lazy
+    // numeric leaf holds one id list iterator for every value its range matches and `skip_to` walks all of them on
+    // each probe, so a single probe costs as much as a pass over the range.
+    if (wide_it->posting_list_iterators.empty()) {
+        return false;
+    }
+
+    // Probing costs one seek into the wide side per id of the narrow side, materializing costs the whole wide side.
+    // It only pays off when the two sides are lopsided.
+    return wide_it->approx_filter_ids_length >=
+                AND_PROBE_RATIO * std::max<uint64_t>(1, narrow_it->approx_filter_ids_length);
+}
+
 void filter_result_iterator_t::compute_iterators() {
     if (filter_node == nullptr) {
         validity = invalid;
@@ -3181,13 +3234,62 @@ void filter_result_iterator_t::compute_iterators() {
             left_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
             right_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
         }
-        left_it->compute_iterators();
-        right_it->compute_iterators();
 
-        if (filter_node->filter_operator == AND) {
-            filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
-        } else {
-            filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+        auto* narrow_it = left_it->approx_filter_ids_length <= right_it->approx_filter_ids_length ? left_it : right_it;
+        auto* wide_it = narrow_it == left_it ? right_it : left_it;
+
+        if (filter_node->filter_operator == AND && can_probe_wide_side(narrow_it, wide_it)) {
+            // An `&&` matches at most as many ids as its narrower side, so materializing the wider side costs more
+            // than the whole result is worth. Materialize the narrow side alone and ask the wide side about each of
+            // the ids it yields: same ids, in the same order, as intersecting the two results would give.
+            narrow_it->compute_iterators();
+
+            auto const& narrow_result = narrow_it->filter_result;
+
+            // The gate ran on `approx_filter_ids_length`, an estimate that a string leaf overshoots when its tokens
+            // repeat across documents. The count the narrow side just computed is exact, so the gate is worth
+            // re-checking against it: nothing has probed the wide side yet, and the narrow side would have been
+            // computed by the intersecting plan too, so falling back here costs nothing.
+            if (wide_it->approx_filter_ids_length >=
+                    AND_PROBE_RATIO * std::max<uint64_t>(1, (uint64_t) narrow_result.count)) {
+                if (narrow_result.count > 0) {
+                    filter_result.docs = new uint32_t[narrow_result.count];
+                }
+
+                uint32_t match_count = 0;
+                for (uint32_t i = 0; i < narrow_result.count; i++) {
+                    auto const& id = narrow_result.docs[i];
+                    auto const& match = wide_it->is_valid(id);
+
+                    if (match == 1) {
+                        filter_result.docs[match_count++] = id;
+                    } else if (match == -1) {
+                        // The wide side has either run out of ids -- in which case no further id of the narrow side
+                        // can match and the result is complete -- or timed out. `validity` tells the two apart below.
+                        break;
+                    }
+                }
+
+                if (match_count == 0) {
+                    delete [] filter_result.docs;
+                    filter_result.docs = nullptr;
+                }
+                filter_result.count = match_count;
+                computed_by_probe = true;
+            }
+        }
+
+        if (!computed_by_probe) {
+            // `compute_iterators()` returns early on a side that is already computed, so the narrow side of a probe
+            // that fell back at the re-check above is not computed twice.
+            left_it->compute_iterators();
+            right_it->compute_iterators();
+
+            if (filter_node->filter_operator == AND) {
+                filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            } else {
+                filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+            }
         }
 
         if (left_it->validity == timed_out || right_it->validity == timed_out ||
