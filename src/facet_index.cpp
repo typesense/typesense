@@ -35,7 +35,7 @@ void facet_index_t::insert(const std::string& field_name,
             uint32_t facet_id = fvalue.facet_id;
             const auto& fvalue_index_it = fvalue_index.find(fvalue.facet_value);
 
-            if(fvalue.facet_id == UINT32_MAX) {
+            if(!fvalue.has_explicit_facet_id) {
                 // float, int32 & bool will provide facet_id as their own numerical values
                 facet_id = (fvalue_index_it == fvalue_index.end()) ? ++next_facet_id : fvalue_index_it->second.facet_id;
 
