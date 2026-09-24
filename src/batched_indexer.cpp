@@ -324,8 +324,12 @@ void BatchedIndexer::run() {
                                    && found_rpath->handler == post_add_document) {
                                     //should batch only post_add_document requests
                                     auto reqid = std::to_string(req_id);
-                                    auto resp = AsyncWriteHandler::get_instance().enqueue(orig_req, reqid);
-                                    orig_res->set_200(resp.dump());
+                                    auto resp_op = AsyncWriteHandler::get_instance().enqueue(orig_req, reqid);
+                                    if(resp_op.ok()) {
+                                        orig_res->set_200(resp_op.get().dump());
+                                    } else {
+                                        orig_res->set(resp_op.code(), resp_op.error());
+                                    }
                                 } else {
                                     found_rpath->handler(orig_req, orig_res);
                                 }

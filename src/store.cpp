@@ -69,9 +69,27 @@ bool Store::insert(const std::string& key, const std::string& value) {
     return status.ok();
 }
 
+bool Store::durable_insert(const std::string& key, const std::string& value) {
+    std::shared_lock lock(mutex);
+    rocksdb::WriteOptions durable_write_options = write_options;
+    durable_write_options.disableWAL = false;
+    durable_write_options.sync = true;
+    rocksdb::Status status = db->Put(durable_write_options, key, value);
+    return status.ok();
+}
+
 bool Store::batch_write(rocksdb::WriteBatch& batch) {
     std::shared_lock lock(mutex);
     rocksdb::Status status = db->Write(write_options, &batch);
+    return status.ok();
+}
+
+bool Store::durable_batch_write(rocksdb::WriteBatch& batch) {
+    std::shared_lock lock(mutex);
+    rocksdb::WriteOptions durable_write_options = write_options;
+    durable_write_options.disableWAL = false;
+    durable_write_options.sync = true;
+    rocksdb::Status status = db->Write(durable_write_options, &batch);
     return status.ok();
 }
 
