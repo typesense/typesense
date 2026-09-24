@@ -1,3 +1,4 @@
+#include <timsort.hpp>
 #include "geopolygon_index.h"
 
 Option<bool> GeoPolygonIndex::addPolygon(const std::vector<double>& coordinates, uint32_t seq_id) {
@@ -24,8 +25,6 @@ Option<bool> GeoPolygonIndex::addPolygon(const std::vector<double>& coordinates,
     // Create polygon from loops
     std::unique_ptr<S2Polygon> polygon = std::make_unique<S2Polygon>(std::move(loops));
 
-    std::vector <uint64_t> cell_ids;
-
     S2Error error;
     if (polygon->FindValidationError(&error)) {
         return Option<bool>(400, "Geopolygon for seq_id " +
@@ -34,40 +33,53 @@ Option<bool> GeoPolygonIndex::addPolygon(const std::vector<double>& coordinates,
     }
 
     for (const auto& term: indexer->GetIndexTerms(*polygon, "")) {
-        auto cell = S2CellId::FromToken(term);
-        cell_ids.push_back(cell.id());
+        const auto& it = termToSeqids.find(term);
+        if (it == termToSeqids.end()) {
+            termToSeqids.emplace(term, ids_t::create({seq_id}));
+        } else {
+            ids_t::upsert(it->second, seq_id);
+        }
     }
 
-    for (const auto& cell_id: cell_ids) {
-        numericTrie->insert_geopoint(cell_id, seq_id);
-    }
     seqidToPolygons[seq_id].emplace_back(std::move(polygon));
 
     return Option<bool>(true);
 }
 
 
-std::vector<uint32_t> GeoPolygonIndex::findContainingPolygonsRecords(double lat, double lng) {
+std::vector<uint32_t> GeoPolygonIndex::findContainingPolygonsRecords(double lat, double lng,
+                                                                     size_t* num_candidates) {
     S2LatLng latLng(S1Angle::Degrees(lat), S1Angle::Degrees(lng));
     S2Point point = latLng.ToPoint();
 
     std::vector <uint32_t> candidate_seq_ids, result_seq_ids;
 
-    std::vector <uint64_t> cell_ids;
     for (const auto& term: indexer->GetQueryTerms(point, "")) {
-        auto cell = S2CellId::FromToken(term);
-        cell_ids.push_back(cell.id());
+        const auto& it = termToSeqids.find(term);
+        if (it != termToSeqids.end()) {
+            ids_t::uncompress(it->second, candidate_seq_ids);
+        }
     }
 
-    numericTrie->search_geopoints(cell_ids, candidate_seq_ids);
+    gfx::timsort(candidate_seq_ids.begin(), candidate_seq_ids.end());
+    candidate_seq_ids.erase(std::unique(candidate_seq_ids.begin(), candidate_seq_ids.end()),
+                            candidate_seq_ids.end());
+
+    if (num_candidates != nullptr) {
+        *num_candidates = candidate_seq_ids.size();
+    }
 
     //second pass validation check
     for (const auto& id: candidate_seq_ids) {
-        if (seqidToPolygons.find(id) != seqidToPolygons.end()) {
-            for (const auto& polygon: seqidToPolygons.at(id)) {
-                if (polygon->Contains(point)) {
-                    result_seq_ids.push_back(id);
-                }
+        const auto& it = seqidToPolygons.find(id);
+        if (it == seqidToPolygons.end()) {
+            continue;
+        }
+
+        for (const auto& polygon: it->second) {
+            if (polygon->Contains(point)) {
+                result_seq_ids.push_back(id);
+                break;
             }
         }
     }
@@ -76,20 +88,25 @@ std::vector<uint32_t> GeoPolygonIndex::findContainingPolygonsRecords(double lat,
 }
 
 void GeoPolygonIndex::removePolygon(uint32_t seq_id) {
-    if (seqidToPolygons.find(seq_id) != seqidToPolygons.end()) {
-        std::vector <uint32_t> cell_ids;
+    const auto& seqid_it = seqidToPolygons.find(seq_id);
+    if (seqid_it == seqidToPolygons.end()) {
+        return;
+    }
 
-        for (const auto& polygon: seqidToPolygons.at(seq_id)) {
-            for (const auto& term: indexer->GetIndexTerms(*polygon, "")) {
-                auto cell = S2CellId::FromToken(term);
-                cell_ids.push_back(cell.id());
+    for (const auto& polygon: seqid_it->second) {
+        for (const auto& term: indexer->GetIndexTerms(*polygon, "")) {
+            const auto& it = termToSeqids.find(term);
+            if (it == termToSeqids.end()) {
+                continue;
             }
 
-            for (const auto& cell_id: cell_ids) {
-                numericTrie->delete_geopoint(cell_id, seq_id);
+            ids_t::erase(it->second, seq_id);
+            if (ids_t::num_ids(it->second) == 0) {
+                ids_t::destroy_list(it->second);
+                termToSeqids.erase(it);
             }
         }
-
-        seqidToPolygons.erase(seq_id);
     }
+
+    seqidToPolygons.erase(seqid_it);
 }

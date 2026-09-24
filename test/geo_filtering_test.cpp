@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "geopolygon_index.h"
 
 class GeoFilteringTest : public ::testing::Test {
 protected:
@@ -905,4 +906,106 @@ TEST_F(GeoFilteringTest, GeoPolygonTestRealCoordinates) {
         ASSERT_FALSE(op.ok()); // We expect it to fail
         ASSERT_EQ("Geopolygon for seq_id 3 is invalid: Loop 0: empty loops are not allowed", op.error());
     }
+}
+
+// a half degree box anchored at (lat, lng), vertices in the lat-first order the index expects
+static std::vector<double> geopolygon_box(double lat, double lng) {
+    return {lat, lng, lat + 0.5, lng, lat + 0.5, lng + 0.5, lat, lng + 0.5};
+}
+
+TEST(GeoPolygonIndexTest, CandidatesAreSelective) {
+    // regression guard for [#3056](https://github.com/typesense/typesense/issues/3056)
+    // every query used to shortlist every indexed polygon
+    GeoPolygonIndex index;
+
+    uint32_t num_polygons = 0;
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 20; j++) {
+            auto op = index.addPolygon(geopolygon_box(10.0 + i, 10.0 + j), num_polygons);
+            ASSERT_TRUE(op.ok());
+            num_polygons++;
+        }
+    }
+
+    ASSERT_EQ(400, num_polygons);
+
+    size_t num_candidates = 0;
+    auto hits = index.findContainingPolygonsRecords(10.25, 10.25, &num_candidates);
+
+    ASSERT_EQ(1, hits.size());
+    ASSERT_EQ(0, hits[0]);
+    ASSERT_LT(num_candidates, 10);
+
+    // a point far away from every indexed polygon must not shortlist anything
+    hits = index.findContainingPolygonsRecords(-40.0, -140.0, &num_candidates);
+
+    ASSERT_TRUE(hits.empty());
+    ASSERT_EQ(0, num_candidates);
+}
+
+TEST(GeoPolygonIndexTest, SharedPostingsSurviveDeletion) {
+      GeoPolygonIndex index;
+      const auto polygon = geopolygon_box(10.0, 10.0);
+      std::vector<uint32_t> expected;
+
+      // Exceed the compact posting-list threshold so deletion also exercises
+      // conversion from full posting lists back to compact storage.
+      for (uint32_t id = 0; id < 200; ++id) {
+          ASSERT_TRUE(index.addPolygon(polygon, id).ok());
+          expected.push_back(id);
+      }
+
+      size_t num_candidates = 0;
+      ASSERT_EQ(expected, index.findContainingPolygonsRecords(
+                              10.25, 10.25, &num_candidates));
+      ASSERT_EQ(expected.size(), num_candidates);
+
+      for (uint32_t id = 0; id < 200; ++id) {
+          SCOPED_TRACE(id);
+
+          index.removePolygon(id);
+          expected.erase(expected.begin());
+
+          // Removing one document must preserve every other document sharing
+          // its terms. Candidate counts also detect stale posting-list entries.
+          ASSERT_EQ(expected, index.findContainingPolygonsRecords(
+                                  10.25, 10.25, &num_candidates));
+          ASSERT_EQ(expected.size(), num_candidates);
+      }
+
+      // The emptied term entries must support insertion again.
+      ASSERT_TRUE(index.addPolygon(polygon, 0).ok());
+      ASSERT_EQ(std::vector<uint32_t>({0}),
+                index.findContainingPolygonsRecords(
+                    10.25, 10.25, &num_candidates));
+      ASSERT_EQ(1u, num_candidates);
+}
+
+TEST(GeoPolygonIndexTest, RemoveAndReAddPolygon) {
+    GeoPolygonIndex index;
+
+    ASSERT_TRUE(index.addPolygon(geopolygon_box(10.0, 10.0), 0).ok());
+    ASSERT_TRUE(index.addPolygon(geopolygon_box(20.0, 20.0), 1).ok());
+    ASSERT_TRUE(index.addPolygon(geopolygon_box(30.0, 30.0), 2).ok());
+
+    ASSERT_EQ(std::vector<uint32_t>({1}), index.findContainingPolygonsRecords(20.25, 20.25));
+
+    size_t num_candidates = 0;
+    index.removePolygon(1);
+
+    auto hits = index.findContainingPolygonsRecords(20.25, 20.25, &num_candidates);
+    ASSERT_TRUE(hits.empty());
+    ASSERT_EQ(0, num_candidates);
+
+    // the other polygons are untouched
+    ASSERT_EQ(std::vector<uint32_t>({0}), index.findContainingPolygonsRecords(10.25, 10.25));
+    ASSERT_EQ(std::vector<uint32_t>({2}), index.findContainingPolygonsRecords(30.25, 30.25));
+
+    // re-adding under the same seq_id restores the match
+    ASSERT_TRUE(index.addPolygon(geopolygon_box(20.0, 20.0), 1).ok());
+    ASSERT_EQ(std::vector<uint32_t>({1}), index.findContainingPolygonsRecords(20.25, 20.25));
+
+    // removing a seq_id that was never indexed is a no-op
+    index.removePolygon(99);
+    ASSERT_EQ(std::vector<uint32_t>({1}), index.findContainingPolygonsRecords(20.25, 20.25));
 }
