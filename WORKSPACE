@@ -230,9 +230,9 @@ new_git_repository(
 http_archive(
     name = "openssl",
     build_file = "//bazel:openssl3.BUILD",
-    sha256 = "aa7d8d9bef71ad6525c55ba11e5f4397889ce49c2c9349dcea6d3e4f0b024a7a",
-    strip_prefix = "openssl-3.0.5",
-    urls = ["https://www.openssl.org/source/openssl-3.0.5.tar.gz"],
+    sha256 = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+    strip_prefix = "openssl-3.5.8",
+    urls = ["https://www.openssl.org/source/openssl-3.5.8.tar.gz"],
 )
 
 http_archive(
