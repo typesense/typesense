@@ -1151,6 +1151,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;
+            res->final = true;
+            stream_response(req, res);
             return false;
         }
     } else {
