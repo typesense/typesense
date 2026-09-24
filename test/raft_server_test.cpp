@@ -149,6 +149,35 @@ namespace {
     }
 }
 
+TEST(RaftServerTest, DecompressesHighlyCompressibleGzipAcrossChunks) {
+    auto& config = Config::get_instance();
+    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+    const std::string payload(1024 * 1024, 'a');
+    z_stream compressor{};
+    ASSERT_EQ(Z_OK, deflateInit2(&compressor, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+                                 16 + MAX_WBITS, 8, Z_DEFAULT_STRATEGY));
+    std::string compressed(compressBound(payload.size()) + 32, '\0');
+    compressor.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(payload.data()));
+    compressor.avail_in = payload.size();
+    compressor.next_out = reinterpret_cast<Bytef *>(compressed.data());
+    compressor.avail_out = compressed.size();
+    ASSERT_EQ(Z_STREAM_END, deflate(&compressor, Z_FINISH));
+    compressed.resize(compressor.total_out);
+    deflateEnd(&compressor);
+
+    auto req = std::make_shared<http_req>();
+    req->body = compressed.substr(0, compressed.size() / 2);
+    req->last_chunk_aggregate = false;
+    ASSERT_TRUE(replication_state.handle_gzip(req).ok());
+    std::string result = req->body;
+    req->body = compressed.substr(compressed.size() / 2);
+    req->last_chunk_aggregate = true;
+    ASSERT_TRUE(replication_state.handle_gzip(req).ok());
+    result += req->body;
+    EXPECT_EQ(payload, result);
+}
+
 TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
     auto& config = Config::get_instance();
     ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
