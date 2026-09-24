@@ -44,11 +44,19 @@ export async function checkCommitedIndex() {
   ]);
 
   const data = await Promise.all(res.map(r => r.json()));
+  const last_indexes = data.map((d: any) => d.last_index);
   const committed_indexes = data.map((d: any) => d.committed_index);
-  if(committed_indexes[0] === committed_indexes[1] && committed_indexes[0] === committed_indexes[2]) {
-    return true;
+  const applied_indexes = data.map((d: any) =>
+    d.applying_index === 0 ? d.known_applied_index : d.applying_index,
+  );
+
+  if(committed_indexes[0] !== committed_indexes[1] || committed_indexes[0] !== committed_indexes[2]) {
+    return false;
   }
-  return false;
+
+  return committed_indexes.every((committed_index: number, index: number) => {
+    return last_indexes[index] === committed_index && committed_index === applied_indexes[index];
+  });
 }
 
 export async function waitForSingleAnalyticsFlush() {

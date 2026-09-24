@@ -1,17 +1,18 @@
-#include "store.h"
 #include "raft_server.h"
-#include <butil/files/file_enumerator.h>
-#include <thread>
-#include <algorithm>
-#include <string_utils.h>
-#include <file_utils.h>
-#include <collection_manager.h>
-#include <http_client.h>
-#include <conversation_model_manager.h>
-#include "rocksdb/utilities/checkpoint.h"
-#include "thread_local_vars.h"
 #include "core_api.h"
 #include "personalization_model_manager.h"
+#include "rocksdb/utilities/checkpoint.h"
+#include "store.h"
+#include "thread_local_vars.h"
+#include <algorithm>
+#include <butil/files/file_enumerator.h>
+#include <collection_manager.h>
+#include <conversation_model_manager.h>
+#include <file_utils.h>
+#include <housekeeper.h>
+#include <http_client.h>
+#include <string_utils.h>
+#include <thread>
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -70,6 +71,10 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
             }
 
             continue;
+        }
+
+        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+            Config::get_instance().update_proxy_src_ips(actual_nodes_config);
         }
 
         LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
@@ -656,7 +661,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
 
-int ReplicationState::init_db() {
+int ReplicationState::init_db(const bool batched_indexer_workers_paused) {
     LOG(INFO) << "Loading collections from disk...";
 
     Option<bool> init_op = CollectionManager::get_instance().load(
@@ -682,9 +687,10 @@ int ReplicationState::init_db() {
         LOG(INFO) << "Initializing batched indexer from snapshot state...";
         std::string batched_indexer_state_str;
         StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-        if(s == FOUND) {
-            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-            batched_indexer->load_state(batch_indexer_state);
+        const int restore_status =
+            restore_batched_indexer_state(s, batched_indexer_state_str, batched_indexer_workers_paused);
+        if(restore_status != 0) {
+            return restore_status;
         }
     }
 
@@ -698,6 +704,73 @@ int ReplicationState::init_db() {
     return 0;
 }
 
+int ReplicationState::restore_batched_indexer_state(const StoreStatus status, const std::string& state,
+                                                    const bool batched_indexer_workers_paused) {
+    if(batched_indexer == nullptr) {
+        return 0;
+    }
+
+    const auto restore = [&]() {
+        if(status == StoreStatus::ERROR) {
+            LOG(ERROR) << "Failed to read batched indexer state from the incoming store.";
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+
+        if(status == StoreStatus::NOT_FOUND) {
+            // The incoming store is authoritative. A snapshot from an older version might not contain batched
+            // indexer state at all, in which case no state from the replaced store may survive.
+            batched_indexer->clear_state_unlocked();
+            return 0;
+        }
+
+        try {
+            auto batch_indexer_state = nlohmann::json::parse(state, nullptr, false);
+            if(batch_indexer_state.is_discarded() || !batch_indexer_state.is_object() ||
+               !batch_indexer_state.contains("req_res_map")) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            // Empty request maps were serialized as JSON null before they were explicitly initialized as objects.
+            // Treat that legacy representation as an empty map so existing snapshots remain restorable.
+            if(batch_indexer_state["req_res_map"].is_null()) {
+                batch_indexer_state["req_res_map"] = nlohmann::json::object();
+            } else if(!batch_indexer_state["req_res_map"].is_object()) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            batched_indexer->load_state_unlocked(batch_indexer_state);
+            return 0;
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "Failed to restore batched indexer state: " << e.what();
+            // A nested type error can be detected after restoration has begun. Do not expose that partial state.
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+    };
+
+    if(batched_indexer_workers_paused) {
+        return restore();
+    }
+
+    std::unique_lock lifecycle_lock(batched_indexer->lifecycle_mutex);
+    return restore();
+}
+
+int ReplicationState::fail_snapshot_load_unlocked(const int status) {
+    snapshot_load_blocks_readiness = true;
+    read_caught_up = false;
+    write_caught_up = false;
+    if(batched_indexer != nullptr) {
+        batched_indexer->clear_state_unlocked();
+    }
+    return status == 0 ? 1 : status;
+}
+
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     std::shared_lock lock(node_mutex);
     CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
@@ -705,9 +778,23 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     LOG(INFO) << "on_snapshot_load";
 
+    // `refresh_catchup_status` runs independently of braft snapshot callbacks. Serialize it with installation so it
+    // cannot republish readiness from a stale raft status while the Store and in-memory state are being replaced.
+    // A failed installation deliberately leaves the gate closed until a later snapshot succeeds.
+    std::unique_lock snapshot_load_lock(snapshot_load_mutex);
+    snapshot_load_blocks_readiness = true;
+
     // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
     read_caught_up = false;
     write_caught_up = false;
+
+    // Batch workers can retain request-map references and RocksDB iterators after dequeueing. Stop enqueue, worker,
+    // and GC activity before replacing the store, and keep it stopped until the in-memory indexer state has also
+    // been replaced.
+    std::unique_lock<std::shared_mutex> batched_indexer_lifecycle_lock;
+    if(batched_indexer != nullptr) {
+        batched_indexer_lifecycle_lock = std::unique_lock<std::shared_mutex>(batched_indexer->lifecycle_mutex);
+    }
 
     // Load snapshot from leader, replacing the running StateMachine
     std::string analytics_snapshot_path = reader->get_path();
@@ -719,7 +806,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
                                                    Config::get_instance().get_analytics_db_ttl());
         if (reload_store != 0) {
             LOG(ERROR) << "Failed to reload analytics db snapshot.";
-            return reload_store;
+            return fail_snapshot_load_unlocked(reload_store);
         }
     }
 
@@ -728,12 +815,18 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     int reload_store = store->reload(true, db_snapshot_path);
     if(reload_store != 0) {
-        return reload_store;
+        return fail_snapshot_load_unlocked(reload_store);
     }
 
-    bool init_db_status = init_db();
+    const int init_db_status = init_db(true);
+    if(init_db_status != 0) {
+        return fail_snapshot_load_unlocked(init_db_status);
+    }
 
-    return init_db_status;
+    read_caught_up = false;
+    write_caught_up = false;
+    snapshot_load_blocks_readiness = false;
+    return 0;
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
@@ -752,13 +845,13 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
     node->get_status(&nodeStatus);
 
     LOG(INFO) << "Term: " << nodeStatus.term
-              << ", pending_queue: " << nodeStatus.pending_queue_size
               << ", last_index: " << nodeStatus.last_index
               << ", committed: " << nodeStatus.committed_index
               << ", known_applied: " << nodeStatus.known_applied_index
               << ", applying: " << nodeStatus.applying_index
               << ", pending_writes: " << pending_writes
               << ", queued_writes: " << batched_indexer->get_queued_writes()
+              << ", inflight_searches: " << HouseKeeper::get_instance().get_num_inflight_queries()
               << ", local_sequence: " << store->get_latest_seq_number();
 
     if(node->is_leader()) {
@@ -788,6 +881,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
 }
 
 void ReplicationState::refresh_catchup_status(bool log_msg) {
+    std::shared_lock snapshot_load_lock(snapshot_load_mutex);
+    if(snapshot_load_blocks_readiness) {
+        read_caught_up = write_caught_up = false;
+        return;
+    }
+
     std::shared_lock lock(node_mutex);
     if(node == nullptr ) {
         read_caught_up = write_caught_up = false;
@@ -903,6 +1002,7 @@ ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_i
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         read_caught_up(false), write_caught_up(false),
+        snapshot_load_blocks_readiness(false),
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
         last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
 
@@ -1014,6 +1114,10 @@ bool ReplicationState::reset_peers() {
             return false;
         }
 
+        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+            Config::get_instance().update_proxy_src_ips(nodes_config);
+        }
+
         braft::Configuration peer_config;
         peer_config.parse_from(nodes_config);
 
@@ -1041,10 +1145,15 @@ void ReplicationState::shutdown() {
     LOG(INFO) << "Set shutting_down = true";
     shutting_down = true;
 
-    // wait for pending writes to drop to zero
     LOG(INFO) << "Waiting for in-flight writes to finish...";
-    while(pending_writes.load() != 0) {
-        LOG(INFO) << "pending_writes: " << pending_writes;
+    while(true) {
+        const auto pending = pending_writes.load();
+        const auto queued = batched_indexer->get_queued_writes();
+        if(pending == 0 && queued == 0) {
+            break;
+        }
+
+        LOG(INFO) << "pending_writes: " << pending << ", queued_writes: " << queued;
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
@@ -1106,7 +1215,10 @@ nlohmann::json ReplicationState::get_status() {
     lock.unlock();
 
     status["state"] = braft::state2str(node_status.state);
+    status["last_index"] = node_status.last_index;
     status["committed_index"] = node_status.committed_index;
+    status["known_applied_index"] = node_status.known_applied_index;
+    status["applying_index"] = node_status.applying_index;
     status["queued_writes"] = batched_indexer->get_queued_writes();
 
     return status;

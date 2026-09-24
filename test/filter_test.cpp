@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <fstream>
 #include <collection_manager.h>
 #include <filter.h>
@@ -718,6 +719,57 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 }
 
+TEST_F(FilterTest, MissingFilterLazyEvaluationComputeIterators) {
+    auto schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "color", "type": "string", "optional": true, "track_missing_values": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::set<int> has_color = {0, 1, 5};
+    for (int i = 0; i < 6; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Product " + std::to_string(i);
+        if (has_color.count(i)) {
+            doc["color"] = "color_" + std::to_string(i);
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("color: !_missing", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_missing = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, true);
+    ASSERT_TRUE(iter_missing.init_status().ok());
+    ASSERT_FALSE(iter_missing._get_is_filter_result_initialized());
+
+    uint32_t* filter_ids = nullptr;
+    iter_missing.compute_iterators();
+
+    const uint32_t filter_ids_length = iter_missing.to_filter_id_array(filter_ids);
+    ASSERT_EQ(3, filter_ids_length);
+
+    std::vector<uint32_t> expected = {0, 1, 5};
+    for (uint32_t i = 0; i < filter_ids_length; i++) {
+        ASSERT_EQ(expected[i], filter_ids[i]);
+    }
+
+    delete[] filter_ids;
+    delete filter_tree_root;
+    collectionManager.drop_collection("products");
+}
+
 TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     auto count = 20;
     auto filter_ids = new uint32_t[count];
@@ -841,6 +893,34 @@ TEST_F(FilterTest, FilterTreeInitialization) {
     ASSERT_FALSE(iter_inner_subtree_0_matches._get_is_filter_result_initialized());
     ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_left_it());
     ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    auto add_op = coll->add(
+            R"({"name": "Jeremy Howard", "top_3": [0, 0.0, 0.0], "rating": 0.0,"age": 63, "years": [1981, 1985],
+                 "timestamps": [348974822, 475205222], "tags": ["silver"]})");
+    ASSERT_TRUE(add_op.ok());
+    std::string dirty_values = "DROP";
+    auto alter_op = coll->update_matching_filter("id: 0", R"({"tags": ["gold"]})", dirty_values);
+    ASSERT_TRUE(alter_op.ok());
+
+    filter_op = filter::parse_filter_query("years:!= 2016 && tags: != silver", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                   filter_tree_root, enable_lazy_evaluation);
+
+    ASSERT_TRUE(iter_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_0_matches.validity);
+    ASSERT_FALSE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(3, iter_0_matches.approx_filter_ids_length);
+
+    iter_0_matches.compute_iterators();
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_0_matches.validity);
+    ASSERT_TRUE(iter_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(0, iter_0_matches.approx_filter_ids_length);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -2737,4 +2817,577 @@ TEST_F(FilterTest, ObjectFitlterIterator) {
     ASSERT_EQ(filter_result_iterator_t::invalid, not_object_filter_test.validity);
 
     delete filter_tree_root;
+}
+
+TEST_F(FilterTest, FilterReferences) {
+    const size_t max_candidates = DEFAULT_FILTER_BY_CANDIDATES;
+    const uint64_t search_begin_us = 0;
+    const uint64_t search_stop_us = UINT64_MAX;
+    auto filter_root = std::make_unique<filter_node_t>();
+    auto left_refs = new std::map<std::string, reference_filter_result_t>[4]{
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{101})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{102})}},
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{104})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{105})}}};
+    auto right_refs = new std::map<std::string, reference_filter_result_t>[4]{
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{100})}},
+                            {{"foo", reference_filter_result_t(1, new uint32_t[1]{101})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{103})}},
+                            {{"bar", reference_filter_result_t(1, new uint32_t[1]{106})}}};
+    auto fit = std::make_unique<filter_result_iterator_t>(
+                                            AND,
+                                            new filter_result_iterator_t(new uint32_t[4]{1, 2, 4, 6}, 4,
+                                                                         max_candidates, search_begin_us, search_stop_us,
+                                                                         left_refs),
+                                            new filter_result_iterator_t(new uint32_t[4]{0, 1, 4, 6}, 4,
+                                                                         max_candidates, search_begin_us, search_stop_us,
+                                                                         right_refs),
+                                            filter_root, new filter_node_t());
+
+    std::vector<uint32_t> expected = {1, 4};
+    std::vector<std::vector<std::string>> collection_names = {{"foo"}, {"foo", "bar"}};
+    std::vector<std::vector<uint32_t>> ref_ids = {{101}, {104, 103}};
+    for (size_t i = 0; i < 2; i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
+        const auto& id = expected[i];
+        ASSERT_EQ(id, fit->seq_id);
+
+        for (size_t j = 0; j < collection_names[i].size(); j++) {
+            const auto& name = collection_names[i][j];
+            ASSERT_EQ(1, fit->reference.count(name));
+            ASSERT_EQ(1, fit->reference[name].count);
+
+            const auto& ref_id = ref_ids[i][j];
+            ASSERT_EQ(ref_id, fit->reference[name].docs[0]);
+        }
+
+        fit->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, fit->validity);
+}
+
+TEST_F(FilterTest, InfixLazyEvaluation) {
+    // Collection with infix: true on cast (string[]) and points (int32).
+    // Documents match the same schema used in CollectionFilteringTest.InfixFilterOnTextFields.
+    nlohmann::json schema =
+            R"({
+                "name": "InfixLazyColl",
+                "fields": [
+                    {"name": "cast",   "type": "string[]", "infix": true},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    // seq_id 0: cast contains "chris" and "evans"
+    // seq_id 1: cast contains "chris" and "parnell"
+    // seq_id 2: cast contains "martin" and "stringer"
+    // seq_id 3: cast contains "matt" and "damon"
+    // seq_id 4: cast contains "logan" and "lerman"
+    // seq_id 5: cast contains "chris" and "pine"
+    std::vector<std::string> docs = {
+        R"({"cast": ["Chris Evans", "Scarlett Johansson"], "points": 78})",
+        R"({"cast": ["Chris Parnell", "Josh Lawson"],      "points": 63})",
+        R"({"cast": ["Martin Stringer", "Jacob Stringer"], "points": 81})",
+        R"({"cast": ["Matt Damon", "Ben Affleck"],         "points": 83})",
+        R"({"cast": ["Logan Lerman", "Alexandra Daddario"],"points": 59})",
+        R"({"cast": ["Chris Pine"],                        "points": 52})",
+    };
+
+    for (auto const& d : docs) {
+        auto add_op = coll->add(d);
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                       Collection::DOC_ID_PREFIX + "_";
+    auto const enable_lazy_evaluation = true;
+    filter_node_t* filter_tree_root = nullptr;
+
+    // Test 1: Basic infix *ris* — "chris" matches docs 0, 1, 5.
+    // approx_filter_ids_length = 3 (docs in "chris" posting list).
+    // In TEST_BUILD string_filter_ids_threshold = 3, so 3 < 3 is false → lazy path.
+    auto filter_op = filter::parse_filter_query("cast: *ris*", coll->get_schema(), store,
+                                                doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_basic = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                     filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_basic.init_status().ok());
+
+    std::vector<uint32_t> expected = {0, 1, 5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_basic.validity);
+        ASSERT_EQ(id, iter_infix_basic.seq_id);
+        iter_infix_basic.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_basic.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 2: No-match infix — iterator immediately invalid.
+    filter_op = filter::parse_filter_query("cast: *zzz*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_no_match = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                        filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_no_match.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_no_match.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 3: OR of two infix values — [*ris*, *art*].
+    // *ris*: "chris" → docs {0, 1, 5}
+    // *art*: "martin" → docs {2}
+    // approx_filter_ids_length = 3 + 1 = 4 > threshold=3 → lazy.
+    filter_op = filter::parse_filter_query("cast: [*ris*, *art*]", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_or = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                  filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_or.init_status().ok());
+
+    expected = {0, 1, 2, 5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_or.validity);
+        ASSERT_EQ(id, iter_infix_or.seq_id);
+        iter_infix_or.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_or.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 4: Infix AND numeric — cast:*ris* && points:>60.
+    // *ris*: docs {0, 1, 5}; points>60: docs {0, 1, 2, 3} → intersection = {0, 1}.
+    filter_op = filter::parse_filter_query("cast: *ris* && points: >60", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_infix_and_numeric = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                           filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_infix_and_numeric.init_status().ok());
+
+    expected = {0, 1};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_infix_and_numeric.validity);
+        ASSERT_EQ(id, iter_infix_and_numeric.seq_id);
+        iter_infix_and_numeric.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_infix_and_numeric.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 5: AND of two single-token infix conditions — cast:*ris* && cast:*in*.
+    // *ris*: docs {0, 1, 5} (via "chris"); *in*: docs {2, 5} (via "martin"/"stringer" and "pine").
+    // Intersection = {5}.
+    filter_op = filter::parse_filter_query("cast: *ris* && cast: *in*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_two_infix_and = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                       filter_tree_root, enable_lazy_evaluation);
+    ASSERT_TRUE(iter_two_infix_and.init_status().ok());
+
+    expected = {5};
+    for (auto const& id : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_two_infix_and.validity);
+        ASSERT_EQ(id, iter_two_infix_and.seq_id);
+        iter_two_infix_and.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_two_infix_and.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    // Test 6: Multi-token infix must return 400 — *ris pin* tokenizes to ["ris", "pin"].
+    // The infix index stores individual word tokens only; substring search across word
+    // boundaries is structurally impossible. Users should write cast:*ris* && cast:*pin* instead.
+    filter_op = filter::parse_filter_query("cast: *ris pin*", coll->get_schema(), store,
+                                           doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());  // parse succeeds — parser stores raw value, unaware of token count
+
+    auto iter_multi_token = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                     filter_tree_root, enable_lazy_evaluation);
+    ASSERT_FALSE(iter_multi_token.init_status().ok());
+    ASSERT_EQ(400, iter_multi_token.init_status().code());
+    ASSERT_EQ("Error with filter field `cast`: Infix filter value must be a single token. "
+              "To match multiple substrings use separate conditions, "
+              "e.g. `field:*foo* && field:*bar*`.", iter_multi_token.init_status().error());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+}
+
+/// Runs `filter_query` through `compute_iterators()`, reporting the ids it computed and whether the root node
+/// materialized its narrow side alone and probed the wide one.
+static void compute_filter_tree(Collection* coll, Store* store, const std::string& filter_query,
+                                std::vector<uint32_t>& ids, bool& computed_by_probe,
+                                const bool& enable_lazy_evaluation = false) {
+    ids.clear();
+    computed_by_probe = false;
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+    auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root,
+                                                    enable_lazy_evaluation);
+    ASSERT_TRUE(filter_iterator.init_status().ok());
+
+    filter_iterator.compute_iterators();
+    computed_by_probe = filter_iterator._get_computed_by_probe();
+
+    uint32_t* filter_ids = nullptr;
+    const auto filter_ids_length = filter_iterator.to_filter_id_array(filter_ids);
+    ids.assign(filter_ids, filter_ids + filter_ids_length);
+    delete[] filter_ids;
+}
+
+/// A collection whose fields differ in selectivity by a known factor, so that an `&&` of any two of them has a
+/// predictable plan. 800 documents with seq ids 0..799:
+///
+///   sel:=yes    -> {5, 25, 200, 400, 600}     (5 ids, spread past `edge` so a wide side can run out first)
+///   n12:=yes    -> ids < 12                   (12 ids, more than `function_call_modulo` of a test build)
+///   mid:=yes    -> ids < 159                  (159 ids, just under AND_PROBE_RATIO x 5)
+///   edge:=yes   -> ids < 160                  (160 ids, exactly AND_PROBE_RATIO x 5)
+///   broad:=yes  -> ids < 480                  (480 ids)
+///   all:=yes    -> every id                   (800 ids)
+///   none:=yes   -> no id
+///   points      -> the seq id itself
+static Collection* create_probe_collection(CollectionManager& collectionManager) {
+    nlohmann::json schema =
+            R"({
+                "name": "AndProbe",
+                "fields": [
+                    {"name": "sel", "type": "string"},
+                    {"name": "n12", "type": "string"},
+                    {"name": "mid", "type": "string"},
+                    {"name": "edge", "type": "string"},
+                    {"name": "broad", "type": "string"},
+                    {"name": "all", "type": "string"},
+                    {"name": "none", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    if (!op.ok()) {
+        return nullptr;
+    }
+    auto coll = op.get();
+
+    const std::set<uint32_t> selective = {5, 25, 200, 400, 600};
+    for (uint32_t i = 0; i < 800; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["sel"] = selective.count(i) > 0 ? "yes" : "no";
+        doc["n12"] = i < 12 ? "yes" : "no";
+        doc["mid"] = i < 159 ? "yes" : "no";
+        doc["edge"] = i < 160 ? "yes" : "no";
+        doc["broad"] = i < 480 ? "yes" : "no";
+        doc["all"] = "yes";
+        doc["none"] = "no";
+        doc["points"] = i;
+
+        if (!coll->add(doc.dump()).ok()) {
+            return nullptr;
+        }
+    }
+
+    return coll;
+}
+
+TEST_F(FilterTest, AndProbeSelectiveSide) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // The reported shape: a selective string leaf against a broad one. Either operand order gives the same result,
+    // and both take the probing plan.
+    compute_filter_tree(coll, store, "sel:=yes && broad:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    compute_filter_tree(coll, store, "broad:=yes && sel:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // The wide side runs out of ids (at 160) before the narrow side does (at 600). Everything up to that point is a
+    // complete result, not a truncated one.
+    compute_filter_tree(coll, store, "sel:=yes && edge:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    // One side matches every document.
+    compute_filter_tree(coll, store, "sel:=yes && all:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), ids);
+
+    // One side matches nothing. `none:=yes` is the narrow side, and it computes to an empty result.
+    compute_filter_tree(coll, store, "broad:=yes && none:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_TRUE(ids.empty());
+
+    // With the empty side on the left, the `&&` never gets as far as a plan: the iterator tree constructor drops
+    // the right subtree of an `&&` whose left subtree matches nothing.
+    compute_filter_tree(coll, store, "none:=yes && broad:=yes", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_TRUE(ids.empty());
+
+    // A `!=` leaf as the wide side. `broad:!=no` matches the same 120 ids as `broad:=yes`.
+    compute_filter_tree(coll, store, "sel:=yes && broad:!=no", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // Three leaves. The narrow side of the outer `&&` is itself an `&&` that probes.
+    compute_filter_tree(coll, store, "sel:=yes && broad:=yes && all:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // An operator node as the wide side keeps the intersecting plan, an operator node as the narrow side does not.
+    compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || points:>500)", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 600}), ids);
+
+    compute_filter_tree(coll, store, "(sel:=yes || none:=yes) && broad:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeNumericSide) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // A lazy numeric leaf holds one id list iterator for every value its range matches, and `skip_to` walks all of
+    // them on each probe, so one probe costs as much as a pass over the range. Measured on 10,000,000 documents, a
+    // lazy `num:<9000000` wide side takes 134s to probe against 7.6s to intersect, and returns a truncated result
+    // once the search runs out of budget. It keeps the intersecting plan.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    compute_filter_tree(coll, store, "sel:=yes && points:[0..499]", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // Under the default configuration the numeric leaf has materialized itself inside its own `init` before the `&&`
+    // node exists. Probing an id array it has already built saves nothing -- intersecting is a linear merge of the
+    // two, probing a binary search per id -- so that side keeps the intersecting plan as well.
+    compute_filter_tree(coll, store, "sel:=yes && points:<500", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeRatioBoundary) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // `sel:=yes` matches 5 ids, so the probing plan starts at a wide side of AND_PROBE_RATIO * 5 = 160 ids.
+    ASSERT_EQ(32, AND_PROBE_RATIO);
+
+    compute_filter_tree(coll, store, "sel:=yes && mid:=yes", ids, computed_by_probe);
+    ASSERT_FALSE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    compute_filter_tree(coll, store, "sel:=yes && edge:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeTimeout) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+
+    // A budget that is already spent: the search began a second ago and was allowed a microsecond.
+    auto spent_budget_iterator = [&](const std::string& filter_query, filter_node_t*& filter_tree_root) {
+        auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        EXPECT_TRUE(filter_op.ok());
+
+        auto const now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch()).count();
+        return filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, false,
+                                        DEFAULT_FILTER_BY_CANDIDATES, now_us - 1'000'000, 1);
+    };
+
+    auto collect = [](filter_result_iterator_t& filter_iterator) {
+        uint32_t* filter_ids = nullptr;
+        auto const filter_ids_length = filter_iterator.to_filter_id_array(filter_ids);
+        std::vector<uint32_t> ids(filter_ids, filter_ids + filter_ids_length);
+        delete[] filter_ids;
+        return ids;
+    };
+
+    // `n12:=yes` yields more ids than `function_call_modulo`, so the counted timeout check inside `is_valid` reads
+    // the clock partway through the probe loop and cuts it short.
+    filter_node_t* filter_tree_root = nullptr;
+    {
+        auto filter_iterator = spent_budget_iterator("n12:=yes && all:=yes", filter_tree_root);
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator.validity);
+
+        // Whatever was collected is a prefix of the full result, and it is short of it.
+        auto const ids = collect(filter_iterator);
+        ASSERT_LT(ids.size(), 12u);
+        for (size_t i = 0; i < ids.size(); i++) {
+            ASSERT_EQ(i, ids[i]);
+        }
+    }
+
+    // `sel:=yes` yields five ids, too few for the counted check to reach the clock. The forced check after the loop
+    // is what reports the timeout; the result itself is complete.
+    filter_tree_root = nullptr;
+    {
+        auto filter_iterator = spent_budget_iterator("sel:=yes && all:=yes", filter_tree_root);
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), collect(filter_iterator));
+    }
+
+    // Without a budget, the same nodes never report a timeout -- not even the one whose wide side runs out of ids
+    // partway through the loop, which is the `is_valid` return value that a timeout shares.
+    filter_tree_root = nullptr;
+    {
+        auto filter_op = filter::parse_filter_query("n12:=yes && all:=yes", coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_TRUE(filter_op.ok());
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+        auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}), collect(filter_iterator));
+    }
+
+    filter_tree_root = nullptr;
+    {
+        auto filter_op = filter::parse_filter_query("sel:=yes && edge:=yes", coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_TRUE(filter_op.ok());
+        std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+        auto filter_iterator = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+        ASSERT_TRUE(filter_iterator.init_status().ok());
+
+        filter_iterator.compute_iterators();
+        ASSERT_TRUE(filter_iterator._get_computed_by_probe());
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ((std::vector<uint32_t>{5, 25}), collect(filter_iterator));
+    }
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeKeepsReferences) {
+    nlohmann::json products_schema =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "broad", "type": "string"}
+                ]
+            })"_json;
+    auto products_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(products_op.ok());
+    auto products = products_op.get();
+
+    for (uint32_t i = 0; i < 200; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["product_id"] = "p" + std::to_string(i);
+        doc["broad"] = i < 120 ? "yes" : "no";
+        ASSERT_TRUE(products->add(doc.dump()).ok());
+    }
+
+    nlohmann::json customers_schema =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    auto customers_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(customers_op.ok());
+    auto customers = customers_op.get();
+
+    // Customers 0, 1 and 2 reference products 5, 25 and 150. Only the first two are within `broad:=yes`.
+    const std::vector<uint32_t> referenced_products = {5, 25, 150};
+    for (size_t i = 0; i < referenced_products.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["customer_id"] = "acme";
+        doc["product_id"] = "p" + std::to_string(referenced_products[i]);
+        ASSERT_TRUE(customers->add(doc.dump()).ok());
+    }
+
+    // The sides are lopsided enough for the probing plan, but its result carries no references, so an `&&` with a
+    // joined collection anywhere in its subtree keeps intersecting the two results.
+    const std::string doc_id_prefix = std::to_string(products->get_collection_id()) + "_" +
+                                        Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query("$Customers(customer_id:=acme) && broad:=yes", products->get_schema(),
+                                                store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+    auto filter_iterator = filter_result_iterator_t(products->get_name(), products->_get_index(), filter_tree_root);
+    ASSERT_TRUE(filter_iterator.init_status().ok());
+
+    filter_iterator.compute_iterators();
+    ASSERT_FALSE(filter_iterator._get_computed_by_probe());
+    ASSERT_TRUE(filter_iterator.result_has_references());
+
+    const std::vector<uint32_t> expected_products = {5, 25};
+    for (size_t i = 0; i < expected_products.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator.validity);
+        ASSERT_EQ(expected_products[i], filter_iterator.seq_id);
+
+        ASSERT_EQ(1, filter_iterator.reference.count("Customers"));
+        ASSERT_EQ(1, filter_iterator.reference["Customers"].count);
+        ASSERT_EQ(i, filter_iterator.reference["Customers"].docs[0]);
+
+        filter_iterator.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, filter_iterator.validity);
+
+    collectionManager.drop_collection("Customers");
+    collectionManager.drop_collection("Products");
 }

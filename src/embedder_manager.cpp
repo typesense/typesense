@@ -60,7 +60,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
         text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
@@ -69,9 +69,25 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
-Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey) {
+Option<bool> EmbedderManager::init_remote_model_without_validation(const nlohmann::json& model_config,
+                                                                   size_t num_dims) {
+    try {
+        std::unique_lock<std::mutex> lock(text_embedders_mutex);
+        const auto& model_key = RemoteEmbedder::get_model_key(model_config, num_dims);
+        auto text_embedder_it = text_embedders.find(model_key);
+        if(text_embedder_it == text_embedders.end()) {
+            text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, true));
+        }
+    } catch(const std::exception& e) {
+        return Option<bool>(400, "Error initializing remote model: " + std::string(e.what()));
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &model_config, const std::string& new_apikey, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    const auto& model_key = RemoteEmbedder::get_model_key(model_config);
+    const auto& model_key = RemoteEmbedder::get_model_key(model_config, num_dims);
 
     if(text_embedders.find(model_key) == text_embedders.end()) {
         return Option<bool>(404, "Text embedder was not found.");
@@ -88,7 +104,7 @@ Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &m
     //update text embedder with new api_key and remove old entry
     auto updated_model_config = model_config;
     updated_model_config["api_key"] = new_apikey;
-    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config);
+    const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config, num_dims);
     text_embedders[updated_model_key] = text_embedders[model_key];
     text_embedders.erase(model_key);
 
@@ -135,7 +151,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
             return Option<bool>(400, "Vocab file not found");
         }
 
-        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip") {
+        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert" && config["model_type"].get<std::string>() != "clip" && config["model_type"].get<std::string>() != "siglip") {
             LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
             return Option<bool>(400, "Invalid model type");
         }
@@ -173,18 +189,30 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     num_dims = embedder->get_num_dim();
     text_embedders.emplace(model_name, embedder);
 
-    // if model is clip, generate image embedder
-    if(embedder->get_tokenizer_type() == TokenizerType::clip) {
-        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model));
+    // if model has image embedding capability, generate image embedder
+    if(embedder->is_image_embedding()) {
+        LOG(INFO) << "IMAGE";
+        std::string processor_filename = "clip_image_processor.onnx";
+        auto config_path = get_absolute_config_path(model_name_without_namespace, is_public_model);
+        if(std::filesystem::exists(config_path)) {
+            std::ifstream cfg_file(config_path);
+            nlohmann::json cfg;
+            cfg_file >> cfg;
+            if(cfg.count("image_processor_file_name") > 0) {
+                processor_filename = cfg["image_processor_file_name"].get<std::string>();
+            }
+        }
+        auto image_embedder = std::make_shared<CLIPImageEmbedder>(embedder->get_session(), embedder->get_env(), get_model_subdir(model_name_without_namespace, is_public_model), processor_filename);
+        LOG(INFO) << "Image embedder: " << model_name;
         image_embedders.emplace(model_name, image_embedder);
     }
     return Option<bool>(true);
 }
 
-Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
+Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
 
     if(text_embedder_it == text_embedders.end()) {
@@ -240,6 +268,8 @@ const TokenizerType EmbedderManager::get_tokenizer_type(const nlohmann::json& mo
             return TokenizerType::xlm_roberta;
         } else if(tokenizer_type == "clip") {
             return TokenizerType::clip;
+        } else if(tokenizer_type == "siglip") {
+            return TokenizerType::siglip;
         } else {
             return TokenizerType::bert;
         }
@@ -344,7 +374,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
         std::filesystem::create_directories(model_subdir);
     }
     if(!check_md5(get_absolute_model_path(actual_model_name, true), model.model_md5)) {
-        long res = httpClient.download_file(get_model_url(model), get_absolute_model_path(actual_model_name, true));
+        long res = httpClient.download_file_verified(get_model_url(model), get_absolute_model_path(actual_model_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download public model: " << model.model_name;
             return Option<bool>(400, "Failed to download model file");
@@ -353,7 +383,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
 
     if(!model.data_file_md5.empty()) {
         if(!check_md5(get_absolute_model_path(actual_model_name, true) + "_data", model.data_file_md5)) {
-            long res = httpClient.download_file(get_model_data_url(model), get_absolute_model_path(actual_model_name, true) + "_data");
+            long res = httpClient.download_file_verified(get_model_data_url(model), get_absolute_model_path(actual_model_name, true) + "_data");
             if(res != 200) {
                 LOG(INFO) << "Failed to download public model data file: " << model.model_name;
                 return Option<bool>(400, "Failed to download model data file");
@@ -362,7 +392,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     }
     
     if(!model.vocab_md5.empty() && !check_md5(get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true), model.vocab_md5)) {
-        long res = httpClient.download_file(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true));
+        long res = httpClient.download_file_verified(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name, true));
         if(res != 200) {
             LOG(INFO) << "Failed to download default vocab for model: " << model.model_name;
             return Option<bool>(400, "Failed to download vocab file");
@@ -372,7 +402,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     if(!model.tokenizer_md5.empty()) {
         auto tokenizer_file_path = get_model_subdir(actual_model_name, true) + "/" + model.tokenizer_file_name;
         if(!check_md5(tokenizer_file_path, model.tokenizer_md5)) {
-            long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.tokenizer_file_name, tokenizer_file_path);
+            long res = httpClient.download_file_verified(MODELS_REPO_URL + actual_model_name + "/" + model.tokenizer_file_name, tokenizer_file_path);
             if(res != 200) {
                 LOG(INFO) << "Failed to download tokenizer file for model: " << model.model_name;
                 return Option<bool>(400, "Failed to download tokenizer file");
@@ -383,7 +413,7 @@ Option<bool> EmbedderManager::download_public_model(const text_embedding_model& 
     if(!model.image_processor_md5.empty()) {
         auto image_processor_file_path = get_model_subdir(actual_model_name, true) + "/" + model.image_processor_file_name;
         if(!check_md5(image_processor_file_path, model.image_processor_md5)) {
-            long res = httpClient.download_file(MODELS_REPO_URL + actual_model_name + "/" + model.image_processor_file_name, image_processor_file_path);
+            long res = httpClient.download_file_verified(MODELS_REPO_URL + actual_model_name + "/" + model.image_processor_file_name, image_processor_file_path);
             if(res != 200) {
                 LOG(INFO) << "Failed to download image processor file for model: " << model.model_name;
                 return Option<bool>(400, "Failed to download image processor file");
@@ -514,7 +544,8 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
     headers["Accept"] = "application/json";
     std::map<std::string, std::string> response_headers;
     std::string response_body;
-    long res = httpClient.get_response(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body, response_headers, headers);
+    long res = httpClient.get_response_verified(MODELS_REPO_URL + actual_model_name + "/" + MODEL_CONFIG_FILE, response_body,
+                                                response_headers, headers, 30*1000);
     if(res == 200 || res == 302) {
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
     }

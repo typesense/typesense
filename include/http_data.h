@@ -86,6 +86,12 @@ struct http_res {
         cv.notify_all();
     }
 
+    static std::string serialize_response_message(const std::string& message) {
+        nlohmann::json j;
+        j["message"] = message;
+        return j.dump();
+    }
+
     static const char* get_status_reason(uint32_t status_code) {
         switch(status_code) {
             case 200: return "OK";
@@ -115,12 +121,12 @@ struct http_res {
 
     void set_400(const std::string & message) {
         status_code = 400;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_401(const std::string & message) {
         status_code = 400;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_403() {
@@ -130,38 +136,38 @@ struct http_res {
 
     void set_404(const std::string & message = "Not Found") {
         status_code = 404;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
 
     void set_405(const std::string & message) {
         status_code = 405;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_409(const std::string & message) {
         status_code = 409;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_422(const std::string & message) {
         status_code = 422;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_500(const std::string & message) {
         status_code = 500;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_503(const std::string & message) {
         status_code = 503;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set(uint32_t code, const std::string & message) {
         status_code = code;
-        body = "{\"message\": \"" + message + "\"}";
+        body = serialize_response_message(message);
     }
 
     void set_body(uint32_t code, const std::string & message) {
@@ -264,6 +270,7 @@ struct http_req {
     std::map<std::string, std::string> params;
     std::vector<nlohmann::json> embedded_params_vec;
     std::string api_auth_key;
+    std::string api_auth_key_prefix;
 
     bool first_chunk_aggregate;
     std::atomic<bool> last_chunk_aggregate;
@@ -323,9 +330,11 @@ struct http_req {
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
             const std::map<std::string, std::string>& params, std::vector<nlohmann::json>& embedded_params_vec,
-            const std::string& api_auth_key, const std::string& body, const std::string& client_ip, bool is_binary_body):
+            const std::string& api_auth_key, const std::string& api_auth_key_prefix, const std::string& body,
+            const std::string& client_ip, bool is_binary_body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), embedded_params_vec(embedded_params_vec), api_auth_key(api_auth_key),
+            api_auth_key_prefix(api_auth_key_prefix),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
             log_index(0), is_diposed(false), client_ip(client_ip), is_binary_body(is_binary_body) {

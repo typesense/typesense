@@ -12,20 +12,26 @@ HttpProxy::HttpProxy() : cache(30s), sse_cache(30s) {
 http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& method,
                                  const std::string& req_body,
                                  const std::unordered_map<std::string, std::string>& req_headers,
-                                 const size_t timeout_ms) {
+                                 const size_t timeout_ms,
+                                 HttpClient::SSLVerifyMode ssl_verify_mode) {
     HttpClient& client = HttpClient::get_instance();
     http_proxy_res_t res;
     if(method == "GET") {
-        res.status_code = client.get_response(url, res.body, res.headers, req_headers, timeout_ms);
+        res.status_code = client.get_response(url, res.body, res.headers, req_headers, timeout_ms, false,
+                                              ssl_verify_mode);
     } else if(method == "POST") {
-        res.status_code = client.post_response(url, req_body, res.body, res.headers, req_headers, timeout_ms);
+        res.status_code = client.post_response(url, req_body, res.body, res.headers, req_headers, timeout_ms, false,
+                                               ssl_verify_mode);
     } else if(method == "PUT") {
-        res.status_code = client.put_response(url, req_body, res.body, res.headers, timeout_ms);
+        res.status_code = client.put_response(url, req_body, res.body, res.headers, timeout_ms, false,
+                                              ssl_verify_mode);
     } else if(method == "DELETE") {
-        res.status_code = client.delete_response(url, res.body, res.headers, timeout_ms);
+        res.status_code = client.delete_response(url, res.body, res.headers, timeout_ms, false,
+                                                 ssl_verify_mode);
     } else if(method == "POST_STREAM") {
         async_stream_response_t stream_res;
-        res.status_code = client.post_response_stream(url, req_body, stream_res, res.headers, req_headers, timeout_ms);
+        res.status_code = client.post_response_stream(url, req_body, stream_res, res.headers, req_headers, timeout_ms,
+                                                      ssl_verify_mode);
         std::unique_lock lock(stream_res.mutex);
         stream_res.cv.wait(lock, [&](){
             return stream_res.ready;
@@ -44,11 +50,13 @@ http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& meth
 
 
 http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& method, const std::string& req_body,
-                                 std::unordered_map<std::string, std::string>& req_headers) {
+                                 std::unordered_map<std::string, std::string>& req_headers,
+                                 HttpClient::SSLVerifyMode ssl_verify_mode) {
     // check if url is in cache
     uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(req_body.c_str(), req_body.size()));
+    key = StringUtils::hash_combine(key, ssl_verify_mode == HttpClient::SSLVerifyMode::VERIFY ? 1 : 0);
 
     size_t timeout_ms = default_timeout_ms;
     size_t num_try = default_num_try;
@@ -77,7 +85,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
 
     http_proxy_res_t res;
     for(size_t i = 0; i < num_try; i++){
-        res = call(url, method, req_body, req_headers, timeout_ms);
+        res = call(url, method, req_body, req_headers, timeout_ms, ssl_verify_mode);
 
         if(res.status_code != 408 && res.status_code < 500){
             break;
@@ -105,7 +113,8 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
 bool HttpProxy::call_sse(const std::string& url, const std::string& method,
                         const std::string& req_body, const std::unordered_map<std::string, std::string>& req_headers,
                         const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
-                        const size_t timeout_ms) {
+                        const size_t timeout_ms,
+                        HttpClient::SSLVerifyMode ssl_verify_mode) {
     if(method != "POST") {
         res->status_code = 400;
         res->body = "{\"message\": \"SSE only supports POST method.\"}";
@@ -118,9 +127,11 @@ bool HttpProxy::call_sse(const std::string& url, const std::string& method,
     uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(req_body.c_str(), req_body.size()));
+    key = StringUtils::hash_combine(key, ssl_verify_mode == HttpClient::SSLVerifyMode::VERIFY ? 1 : 0);
 
     res->proxied_stream = true;
-    res->status_code =  client.post_response_sse(url, req_body, req_headers, timeout_ms, req, res, server);
+    res->status_code =  client.post_response_sse(url, req_body, req_headers, timeout_ms, req, res, server,
+                                                 ssl_verify_mode);
     if(res->status_code != 200){
         return false;
     }

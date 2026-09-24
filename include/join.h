@@ -83,6 +83,13 @@ struct negate_left_join_t {
     negate_left_join_t() = default;
 };
 
+struct cascade_remove_node_t {
+    std::shared_ptr<Collection> coll_ptr;
+    std::unique_lock<std::shared_mutex> lock;
+    std::vector<reference_info_t> ref_infos{};
+    std::vector<cascade_remove_node_t*> nested_references{};
+};
+
 class Join {
 public:
 

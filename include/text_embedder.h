@@ -16,7 +16,7 @@ class TextEmbedder {
         // Constructor for remote models
         TextEmbedder(const nlohmann::json& model_config, size_t num_dims, const bool has_custom_dims = false);
         ~TextEmbedder();
-        embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2);
+        embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 5000, const size_t remote_embedding_num_tries = 2);
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
                                                  const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
         const std::string& get_vocab_file_name() const;
@@ -42,6 +42,9 @@ class TextEmbedder {
             return remote_embedder_->update_api_key(api_key);
         }
 
+        const bool is_image_embedding() const {
+            return is_image_embedding_model;
+        }
     private:
         std::shared_ptr<Ort::Session> session_;
         std::shared_ptr<Ort::Env> env_;
@@ -53,5 +56,7 @@ class TextEmbedder {
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input, const std::vector<int64_t>& attention_mask);
         std::string output_tensor_name;
         size_t num_dim;
+        bool is_image_embedding_model = false;
+        bool has_attention_mask_input = true;
         std::mutex mutex_;
 };

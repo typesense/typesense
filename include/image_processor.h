@@ -23,6 +23,6 @@ class CLIPImageProcessor : public ImageProcessor {
         std::mutex mutex_;
 
     public:
-        CLIPImageProcessor(const std::string& model_path);
-        Option<processed_image_t> process_image(const std::string& image) override;  
+        CLIPImageProcessor(const std::string& model_path, const std::string& processor_filename = "clip_image_processor.onnx");
+        Option<processed_image_t> process_image(const std::string& image) override;
 };

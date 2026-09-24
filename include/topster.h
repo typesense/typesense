@@ -11,6 +11,8 @@
 #include "filter_result_iterator.h"
 #include "loglogbeta.h"
 
+using group_key_allowlist_t = std::shared_ptr<const spp::sparse_hash_set<uint64_t>>;
+
 struct group_found_params_t {
     int8_t sort_index = -1;
     int8_t sort_order = 1;
@@ -215,17 +217,21 @@ struct Union_KV : public KV {
                     std::tie(j->scores[0], j->scores[1], j->scores[2], i->search_index, j->key);
     }
 
+    // The key identifies one document of one search or collection. Both parts are 32-bit, so
+    // packing them is exact, whereas hashing them together collides between documents whose
+    // sequence ids differ by a small multiple of 64 (e.g. (3, 1000) and (4, 932)) and makes the
+    // topster drop one of them as a duplicate.
     static constexpr uint64_t get_key(const Union_KV* union_kv) {
         if(union_kv->remove_duplicates) {
-            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+            return (uint64_t(union_kv->collection_id) << 32) | union_kv->distinct_key;
         }
 
-        return StringUtils::hash_combine(union_kv->search_index, union_kv->key);
+        return (uint64_t(union_kv->search_index) << 32) | union_kv->key;
     }
 
     static constexpr uint64_t get_distinct_key(const Union_KV* union_kv) {
         if(union_kv->remove_duplicates) {
-            return StringUtils::hash_combine(union_kv->collection_id, union_kv->distinct_key);
+            return (uint64_t(union_kv->collection_id) << 32) | union_kv->distinct_key;
         }
 
         return StringUtils::hash_combine(union_kv->search_index, union_kv->distinct_key);
@@ -249,6 +255,9 @@ struct Topster {
     std::unordered_map<uint64_t, T*> map;
 
     size_t distinct;
+    // Exact group keys selected by the first grouped-search pass. A null handle disables allowlist filtering, while a
+    // non-null handle to an empty set intentionally rejects every group.
+    group_key_allowlist_t group_key_allowlist;
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
     spp::sparse_hash_map<uint64_t, Topster<T, get_key, get_distinct_key, is_greater, is_smaller>*> group_kv_map;
 
@@ -267,8 +276,10 @@ struct Topster {
 
     explicit Topster(size_t capacity, size_t distinct, bool is_group_by_first_pass,
                      const group_found_params_t& group_found_params = {},
-                     const bool& initialize_loglog_counter = true) :
+                     const bool& initialize_loglog_counter = true,
+                     group_key_allowlist_t group_key_allowlist = nullptr) :
                         MAX_SIZE(capacity), size(0), distinct(distinct),
+                        group_key_allowlist(std::move(group_key_allowlist)),
                         is_group_by_first_pass(is_group_by_first_pass),
                         group_found_params(group_found_params) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
@@ -318,6 +329,12 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
+    bool is_group_key_allowed(uint64_t distinct_key) const {
+        const bool is_group_by_second_pass = distinct && !is_group_by_first_pass;
+        return !is_group_by_second_pass || group_key_allowlist == nullptr ||
+               group_key_allowlist->find(distinct_key) != group_key_allowlist->end();
+    }
+
     int add(T* kv) {
         /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
         for(auto& mkv: kv_map) {
@@ -343,6 +360,12 @@ struct Topster {
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
         const bool& is_group_by_second_pass = distinct && !is_group_by_first_pass;
+
+        // The first pass has already selected the only groups for which we need full aggregations. Rejecting other
+        // groups here prevents allocating a Topster for every group encountered during the second pass.
+        if (!is_group_key_allowed(get_distinct_key(kv))) {
+            return 2;
+        }
 
         if(!is_group_by_second_pass && less_than_min_heap) {
             if (is_group_by_first_pass && loglog_counter != nullptr) {
@@ -500,4 +523,3 @@ struct Topster {
         loglog_counter->merge(*topster.loglog_counter.get());
     }
 };
-

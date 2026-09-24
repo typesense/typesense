@@ -1,5 +1,6 @@
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 #include "text_embedder_tokenizer.h"
 #include "logger.h"
 #include <unicode/normalizer2.h>
@@ -85,6 +86,43 @@ encoded_input_t XLMRobertaTokenizer::Encode(const std::string& text) {
         attention_mask.resize(128);
         input_ids[input_ids.size() - 1] = fairseq_tokens_to_ids_["<eos>"];
     }
+
+    return {input_ids, {}, attention_mask};
+}
+
+
+SigLIPTokenizer::SigLIPTokenizer(const std::string& model_path) {
+    sentencepiece_tokenizer_ = std::make_unique<sentencepiece::SentencePieceProcessor>();
+    sentencepiece_tokenizer_->Load(model_path);
+}
+
+encoded_input_t SigLIPTokenizer::Encode(const std::string& text) {
+    // Lowercase the input text
+    std::string lower_text = text;
+    std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    // Tokenize with SentencePiece (raw IDs, no fairseq offset)
+    std::vector<int> piece_ids;
+    sentencepiece_tokenizer_->Encode(lower_text, &piece_ids);
+
+    std::vector<int64_t> input_ids(piece_ids.begin(), piece_ids.end());
+
+    // Append EOS token
+    input_ids.push_back(eos_token_id_);
+
+    // Truncate to max_length, ensuring last token is EOS
+    if (input_ids.size() > max_length_) {
+        input_ids.resize(max_length_);
+        input_ids[max_length_ - 1] = eos_token_id_;
+    }
+
+    // Build attention mask: 1 for real tokens, 0 for padding
+    std::vector<int64_t> attention_mask(input_ids.size(), 1);
+
+    // Pad with EOS token to max_length
+    input_ids.resize(max_length_, eos_token_id_);
+    attention_mask.resize(max_length_, 0);
 
     return {input_ids, {}, attention_mask};
 }

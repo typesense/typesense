@@ -6,6 +6,8 @@
 #include "natural_language_search_model.h"
 #include "collection_manager.h"
 #include "field.h"
+#include "raft_server.h"
+#include "tsconfig.h"
 
 class NaturalLanguageSearchModelManagerTest : public ::testing::Test {
 protected:
@@ -29,31 +31,46 @@ protected:
         collectionManager.dispose();
         delete store;
     }
+
+    nlohmann::json create_valid_model_config() {
+        return R"({
+          "model_name": "openai/gpt-3.5-turbo",
+          "api_key": "YOUR_OPENAI_API_KEY",
+          "max_bytes": 1024,
+          "temperature": 0.0
+        })"_json;
+    }
+
+    void add_valid_model_mock_response() {
+        NaturalLanguageSearchModel::add_mock_response(R"({
+          "object": "chat.completion",
+          "model": "gpt-3.5-turbo",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Hello! How can I help you today?"
+              },
+              "finish_reason": "stop"
+            }
+          ]
+        })", 200, {});
+    }
+
+    void add_search_params_mock_response(const nlohmann::json& params) {
+        nlohmann::json response = {
+            {"choices", {{{"message", {{"role", "assistant"}, {"content", params.dump()}}},
+                          {"finish_reason", "stop"}}}}
+        };
+        NaturalLanguageSearchModel::add_mock_response(response.dump(), 200, {});
+    }
 };
 
 TEST_F(NaturalLanguageSearchModelManagerTest, AddModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_EQ(result.error(), "");
@@ -75,28 +92,9 @@ TEST_F(NaturalLanguageSearchModelManagerTest, AddModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, GetModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -112,28 +110,9 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetModelFailure) {
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, DeleteModelSuccess) {
-    // Mock a successful validation response
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-3.5-turbo",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you today?"
-          },
-          "finish_reason": "stop"
-        }
-      ]
-    })", 200, {});
-    
-    nlohmann::json model_config = R"({
-      "model_name": "openai/gpt-3.5-turbo",
-      "api_key": "YOUR_OPENAI_API_KEY",
-      "max_bytes": 1024,
-      "temperature": 0.0
-    })"_json;
+    add_valid_model_mock_response();
+
+    nlohmann::json model_config = create_valid_model_config();
     std::string model_id = "test_model_id";
     auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
     ASSERT_TRUE(result.ok());
@@ -300,6 +279,37 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetAllModelsSuccess) {
     ASSERT_EQ(models.get()[1]["model_name"], "openai/gpt-3.5-turbo");
 }
 
+TEST_F(NaturalLanguageSearchModelManagerTest, ReplicationInitDbReloadsNaturalLanguageSearchModelsFromStore) {
+    add_valid_model_mock_response();
+
+    auto model_config = create_valid_model_config();
+    auto add_result = NaturalLanguageSearchModelManager::add_model(model_config, "persisted_model", true);
+    ASSERT_TRUE(add_result.ok());
+
+    auto models_before_reload = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_before_reload.ok());
+    ASSERT_EQ(models_before_reload.get().size(), 1);
+
+    NaturalLanguageSearchModelManager::dispose();
+
+    auto models_after_dispose = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_after_dispose.ok());
+    ASSERT_TRUE(models_after_dispose.get().empty());
+
+    add_valid_model_mock_response();
+
+    Config::get_instance().set_data_dir(state_dir_path);
+    ReplicationState replication_state(nullptr, nullptr, store, nullptr, nullptr, nullptr, false,
+                                       &Config::get_instance(), 8, 1000);
+
+    ASSERT_EQ(replication_state.init_db(), 0);
+
+    auto models_after_init_db = NaturalLanguageSearchModelManager::get_all_models();
+    ASSERT_TRUE(models_after_init_db.ok());
+    ASSERT_EQ(models_after_init_db.get().size(), 1);
+    ASSERT_EQ(models_after_init_db.get()[0]["id"], "persisted_model");
+}
+
 TEST_F(NaturalLanguageSearchModelManagerTest, UpdateModelSuccess) {
     // Mock successful validation for initial OpenAI model
     NaturalLanguageSearchModel::add_mock_response(R"({
@@ -442,6 +452,590 @@ The output should be in JSON format like this:
   "sort_by": "typesense sort syntax explained above"
 }
 )");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetValueCaps) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  // cat01 gets 12 docs, cat02 gets 11 ... cat12 gets 1, so facet counts order the values deterministically
+  std::vector<std::string> docs;
+  for(size_t i = 1; i <= 12; i++) {
+    std::string category = "cat" + std::string(i < 10 ? "0" : "") + std::to_string(i);
+    for(size_t j = 0; j < (13 - i); j++) {
+      nlohmann::json doc;
+      doc["title"] = category + " doc " + std::to_string(j);
+      doc["category"] = category;
+      docs.push_back(doc.dump());
+    }
+  }
+
+  nlohmann::json insert_doc;
+  auto import_op = coll_create_op.get()->add_many(docs, insert_doc, UPSERT);
+  ASSERT_EQ(import_op["num_imported"], 78);
+
+  const std::string collection_name = coll_create_op.get()->get_name();
+
+  // defaults are unchanged: 20 values fetched, first 10 listed
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(collection_name);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | "
+                                     "[cat01, cat02, cat03, cat04, cat05, cat06, cat07, cat08, cat09, cat10, ...] |"),
+            std::string::npos);
+
+  // raising both caps lists every value and drops the truncation marker
+  schema_prompt_params_t all_values;
+  all_values.max_facet_values = 12;
+  all_values.schema_sample_values = 12;
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, all_values);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | "
+                                     "[cat01, cat02, cat03, cat04, cat05, cat06, cat07, cat08, cat09, cat10, cat11, cat12] |"),
+            std::string::npos);
+
+  // lowering only the display cap still fetches 20, so the marker stays
+  schema_prompt_params_t fewer_shown;
+  fewer_shown.schema_sample_values = 3;
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, fewer_shown);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [cat01, cat02, cat03, ...] |"),
+            std::string::npos);
+
+  // the collection cap truncates before the display cap is applied
+  schema_prompt_params_t fewer_fetched;
+  fewer_fetched.max_facet_values = 2;
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, fewer_fetched);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [cat01, cat02] |"), std::string::npos);
+
+  // nothing listed, but the field is still flagged as having values
+  schema_prompt_params_t none_shown;
+  none_shown.schema_sample_values = 0;
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, none_shown);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [...] |"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptFacetFieldsSelection) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true},
+      {"name": "price", "type": "int32", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json insert_doc;
+  auto docs = std::vector<std::string>{
+    R"({"title": "Cool trousers", "category": "clothing", "tags": ["trousers", "cool"], "price": 100})",
+    R"({"title": "Warm trousers", "category": "clothing", "tags": ["trousers", "warm"], "price": 200})",
+    R"({"title": "Utensils", "category": "home", "tags": ["utensils"], "price": 10})"
+  };
+  auto import_op = coll_create_op.get()->add_many(docs, insert_doc, UPSERT);
+  ASSERT_EQ(import_op["num_imported"], 3);
+
+  const std::string collection_name = coll_create_op.get()->get_name();
+
+  // unlisted facet fields stay in the schema table but contribute no values
+  schema_prompt_params_t only_category;
+  only_category.facet_fields = {"category"};
+  auto schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, only_category);
+  ASSERT_TRUE(schema_prompt.ok());
+  ASSERT_NE(schema_prompt.get().find("| category | string | Yes | Yes | [clothing, home] |"), std::string::npos);
+  ASSERT_NE(schema_prompt.get().find("| tags | string[] | Yes | Yes | [Faceted field with unique values] |"),
+            std::string::npos);
+
+  schema_prompt_params_t unknown_field;
+  unknown_field.facet_fields = {"category", "not_a_field"};
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, unknown_field);
+  ASSERT_FALSE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.code(), 400);
+  ASSERT_EQ(schema_prompt.error(),
+            "Field `not_a_field` in `nl_facet_fields` is not a faceted string field in collection `titles`.");
+
+  schema_prompt_params_t non_faceted_field;
+  non_faceted_field.facet_fields = {"title"};
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, non_faceted_field);
+  ASSERT_FALSE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.error(),
+            "Field `title` in `nl_facet_fields` is not a faceted string field in collection `titles`.");
+
+  // faceted, but only string values are enumerated in the prompt
+  schema_prompt_params_t numeric_facet_field;
+  numeric_facet_field.facet_fields = {"price"};
+  schema_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, numeric_facet_field);
+  ASSERT_FALSE(schema_prompt.ok());
+  ASSERT_EQ(schema_prompt.error(),
+            "Field `price` in `nl_facet_fields` is not a faceted string field in collection `titles`.");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCachedPerPromptParams) {
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json insert_doc;
+  auto docs = std::vector<std::string>{
+    R"({"title": "Cool trousers", "category": "clothing", "tags": ["trousers", "cool"]})",
+    R"({"title": "Utensils", "category": "home", "tags": ["utensils"]})"
+  };
+  auto import_op = coll_create_op.get()->add_many(docs, insert_doc, UPSERT);
+  ASSERT_EQ(import_op["num_imported"], 2);
+
+  const std::string collection_name = coll_create_op.get()->get_name();
+
+  schema_prompt_params_t only_category;
+  only_category.facet_fields = {"category"};
+
+  auto default_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(collection_name);
+  ASSERT_TRUE(default_prompt.ok());
+
+  auto scoped_prompt = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, only_category);
+  ASSERT_TRUE(scoped_prompt.ok());
+
+  // one set of params must not serve another set's cached prompt
+  ASSERT_NE(default_prompt.get(), scoped_prompt.get());
+  ASSERT_TRUE(NaturalLanguageSearchModelManager::has_cached_schema_prompt(collection_name));
+
+  nlohmann::json update_schema = R"({
+    "fields": [
+      {"name": "tags", "drop": true}
+    ]
+  })"_json;
+  auto update_op = coll_create_op.get()->alter(update_schema);
+  ASSERT_TRUE(update_op.ok());
+
+  // both variants are still served from the cache
+  auto cached_default = NaturalLanguageSearchModelManager::get_schema_prompt(collection_name);
+  ASSERT_TRUE(cached_default.ok());
+  ASSERT_EQ(cached_default.get(), default_prompt.get());
+
+  auto cached_scoped = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, only_category);
+  ASSERT_TRUE(cached_scoped.ok());
+  ASSERT_EQ(cached_scoped.get(), scoped_prompt.get());
+
+  // clearing the collection drops every variant, not just the default one
+  NaturalLanguageSearchModelManager::clear_schema_prompt(collection_name);
+  ASSERT_FALSE(NaturalLanguageSearchModelManager::has_cached_schema_prompt(collection_name));
+
+  cached_default = NaturalLanguageSearchModelManager::get_schema_prompt(collection_name);
+  ASSERT_TRUE(cached_default.ok());
+  ASSERT_EQ(cached_default.get().find("| tags |"), std::string::npos);
+
+  cached_scoped = NaturalLanguageSearchModelManager::get_schema_prompt(
+      collection_name, NaturalLanguageSearchModelManager::DEFAULT_SCHEMA_PROMPT_TTL_SEC, only_category);
+  ASSERT_TRUE(cached_scoped.ok());
+  ASSERT_EQ(cached_scoped.get().find("| tags |"), std::string::npos);
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptParamsParsing) {
+  std::map<std::string, std::string> req_params;
+  auto parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_TRUE(parse_op.ok());
+  ASSERT_EQ(parse_op.get().max_facet_values, 20);
+  ASSERT_EQ(parse_op.get().schema_sample_values, 10);
+  ASSERT_EQ(parse_op.get().facet_sample_percent, 20);
+  ASSERT_EQ(parse_op.get().facet_sample_threshold, 1000);
+  ASSERT_TRUE(parse_op.get().facet_fields.empty());
+
+  req_params["nl_max_facet_values"] = "500";
+  req_params["nl_schema_sample_values"] = "400";
+  req_params["nl_facet_sample_percent"] = "100";
+  req_params["nl_facet_sample_threshold"] = "5000";
+  req_params["nl_facet_fields"] = "category, tags";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_TRUE(parse_op.ok());
+  ASSERT_EQ(parse_op.get().max_facet_values, 500);
+  ASSERT_EQ(parse_op.get().schema_sample_values, 400);
+  ASSERT_EQ(parse_op.get().facet_sample_percent, 100);
+  ASSERT_EQ(parse_op.get().facet_sample_threshold, 5000);
+  ASSERT_EQ(parse_op.get().facet_fields, std::vector<std::string>({"category", "tags"}));
+
+  req_params.clear();
+  req_params["nl_max_facet_values"] = "abc";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_FALSE(parse_op.ok());
+  ASSERT_EQ(parse_op.code(), 400);
+  ASSERT_EQ(parse_op.error(), "Parameter `nl_max_facet_values` must be a positive integer.");
+
+  req_params.clear();
+  req_params["nl_schema_sample_values"] = "-1";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_FALSE(parse_op.ok());
+  ASSERT_EQ(parse_op.error(), "Parameter `nl_schema_sample_values` must be a positive integer.");
+
+  req_params.clear();
+  req_params["nl_max_facet_values"] = "10001";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_FALSE(parse_op.ok());
+  ASSERT_EQ(parse_op.error(), "Parameter `nl_max_facet_values` cannot exceed 10000.");
+
+  req_params.clear();
+  req_params["nl_schema_sample_values"] = "10001";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_FALSE(parse_op.ok());
+  ASSERT_EQ(parse_op.error(), "Parameter `nl_schema_sample_values` cannot exceed 10000.");
+
+  req_params.clear();
+  req_params["nl_facet_sample_percent"] = "101";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_FALSE(parse_op.ok());
+  ASSERT_EQ(parse_op.error(), "Parameter `nl_facet_sample_percent` must be between 0 and 100.");
+
+  // empty values fall back to the defaults instead of erroring
+  req_params.clear();
+  req_params["nl_max_facet_values"] = "";
+  req_params["nl_facet_fields"] = "";
+  parse_op = schema_prompt_params_t::parse(req_params);
+  ASSERT_TRUE(parse_op.ok());
+  ASSERT_EQ(parse_op.get().max_facet_values, 20);
+  ASSERT_TRUE(parse_op.get().facet_fields.empty());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptParamsFromRequestAndPreset) {
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Hello!"},
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
+  std::string model_id = "default";
+  auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(add_model_op.ok());
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["nl_query"] = "true";
+  req_params["q"] = "cheap trousers";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+  req_params["nl_facet_sample_percent"] = "101";
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.code(), 400);
+  ASSERT_EQ(nl_search_op.error(), "Parameter `nl_facet_sample_percent` must be between 0 and 100.");
+  ASSERT_EQ(req_params["error"], "Parameter `nl_facet_sample_percent` must be between 0 and 100.");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+  ASSERT_EQ(req_params["q"], "cheap trousers");
+
+  // the preset API stores the search params object itself, without a `value` wrapper
+  nlohmann::json preset_value = R"({
+    "collection": "titles",
+    "nl_query": true,
+    "nl_max_facet_values": 500,
+    "nl_schema_sample_values": 400,
+    "nl_facet_fields": "category"
+  })"_json;
+
+  auto preset_op = CollectionManager::get_instance().upsert_preset("titles-nl-preset", preset_value);
+  ASSERT_TRUE(preset_op.ok());
+
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"trousers\",\n  \"filter_by\": \"category:clothing\",\n  \"sort_by\": \"\"\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  req_params.clear();
+  req_params["preset"] = "titles-nl-preset";
+  req_params["q"] = "cheap trousers";
+  req_params["query_by"] = "title";
+
+  nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["collection"], "titles");
+  ASSERT_EQ(req_params["nl_max_facet_values"], "500");
+  ASSERT_EQ(req_params["nl_schema_sample_values"], "400");
+  ASSERT_EQ(req_params["nl_facet_fields"], "category");
+  ASSERT_EQ(req_params["filter_by"], "category:clothing");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, InvalidPresetFacetLimit) {
+  for(const auto& value : {nlohmann::json(-1), nlohmann::json(2.5)}) {
+    SCOPED_TRACE(value.dump());
+    nlohmann::json preset_value = {
+      {"nl_query", true},
+      {"nl_max_facet_values", value}
+    };
+    ASSERT_TRUE(collectionManager.upsert_preset("invalid-nl-preset", preset_value).ok());
+
+    std::map<std::string, std::string> req_params = {
+      {"preset", "invalid-nl-preset"},
+      {"collection", "products"},
+      {"q", "cheap trousers"}
+    };
+    // No model is registered: validation must reject the limit before model processing.
+    auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Parameter `nl_max_facet_values` must be a positive integer.");
+    ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+    ASSERT_EQ(req_params["q"], "cheap trousers");
+  }
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, NonScalarPresetValue) {
+  for(const auto& value : {nlohmann::json::array(), nlohmann::json::object(), nlohmann::json(nullptr)}) {
+    SCOPED_TRACE(value.dump());
+    nlohmann::json preset_value = {
+      {"nl_query", true},
+      {"collection", value}
+    };
+    ASSERT_TRUE(collectionManager.upsert_preset("non-scalar-nl-preset", preset_value).ok());
+
+    std::map<std::string, std::string> req_params = {
+      {"preset", "non-scalar-nl-preset"},
+      {"q", "cheap trousers"}
+    };
+    auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Invalid value for `collection` in preset `non-scalar-nl-preset`.");
+    ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+    ASSERT_EQ(req_params.count("collection"), 0);
+  }
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, MissingCollection) {
+  std::map<std::string, std::string> req_params = {
+    {"nl_query", "true"},
+    {"q", "cheap trousers"}
+  };
+  auto result = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(result.ok());
+  ASSERT_EQ(result.code(), 400);
+  ASSERT_EQ(result.error(), "Parameter `collection` is required.");
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, PresetFacetFieldsMissingFromCollection) {
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Hello!"},
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
+  std::string model_id = "default";
+  auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(add_model_op.ok());
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  // a preset is collection agnostic, so its field list can name a field the target collection does not have
+  nlohmann::json preset_value = R"({
+    "nl_query": true,
+    "nl_facet_fields": "brand"
+  })"_json;
+
+  auto preset_op = CollectionManager::get_instance().upsert_preset("nl-preset", preset_value);
+  ASSERT_TRUE(preset_op.ok());
+
+  std::map<std::string, std::string> req_params;
+  req_params["preset"] = "nl-preset";
+  req_params["q"] = "cheap trousers";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.code(), 400);
+  ASSERT_EQ(nl_search_op.error(), "Error generating schema prompt: Field `brand` in `nl_facet_fields` is not a "
+                                  "faceted string field in collection `titles`.");
+
+  // the search still runs, with the raw question as the query
+  ASSERT_EQ(req_params["q"], "cheap trousers");
+  ASSERT_EQ(req_params["_fallback_q_used"], "true");
+  ASSERT_EQ(req_params["_nl_processing_failed"], "true");
+  ASSERT_EQ(req_params.count("filter_by"), 0);
+
+  nlohmann::json results_json = R"({"found": 0, "hits": []})"_json;
+  NaturalLanguageSearchModelManager::add_nl_query_data_to_results(results_json, &req_params, 0);
+  ASSERT_EQ(results_json["parsed_nl_query"]["error"], "Error generating schema prompt: Field `brand` in "
+                                                      "`nl_facet_fields` is not a faceted string field in "
+                                                      "collection `titles`.");
+  ASSERT_TRUE(results_json["parsed_nl_query"]["generated_params"].empty());
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, RequestParamsWinOverPreset) {
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Hello!"},
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  nlohmann::json model_config = R"({
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "YOUR_OPENAI_API_KEY",
+    "max_bytes": 1024,
+    "temperature": 0.0
+  })"_json;
+  std::string model_id = "default";
+  auto add_model_op = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
+  ASSERT_TRUE(add_model_op.ok());
+
+  nlohmann::json titles_schema = R"({
+    "name": "titles",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true},
+      {"name": "tags", "type": "string[]", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(titles_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+
+  nlohmann::json preset_value = R"({
+    "collection": "preset-collection",
+    "nl_query": true,
+    "q": "preset query",
+    "nl_model_id": "preset_model",
+    "nl_max_facet_values": 500,
+    "nl_schema_sample_values": 400,
+    "nl_facet_fields": "category"
+  })"_json;
+
+  auto preset_op = CollectionManager::get_instance().upsert_preset("titles-nl-preset", preset_value);
+  ASSERT_TRUE(preset_op.ok());
+
+  // an explicit nl_query=false is not flipped on by the preset
+  std::map<std::string, std::string> req_params;
+  req_params["preset"] = "titles-nl-preset";
+  req_params["nl_query"] = "false";
+  req_params["q"] = "request query";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+
+  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_FALSE(nl_search_op.ok());
+  ASSERT_EQ(nl_search_op.error(), "No nl_query found in either URL parameters or JSON body");
+  ASSERT_EQ(req_params["nl_query"], "false");
+  ASSERT_EQ(req_params["q"], "request query");
+
+  NaturalLanguageSearchModel::add_mock_response(R"({
+    "object": "chat.completion",
+    "model": "gpt-3.5-turbo",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"q\": \"trousers\",\n  \"filter_by\": \"category:clothing\",\n  \"sort_by\": \"\"\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  })", 200, {});
+
+  // every param the request set survives, the preset only fills the rest
+  req_params.clear();
+  req_params["preset"] = "titles-nl-preset";
+  req_params["nl_query"] = "true";
+  req_params["q"] = "request query";
+  req_params["collection"] = "titles";
+  req_params["query_by"] = "title";
+  req_params["nl_model_id"] = "default";
+  req_params["nl_max_facet_values"] = "30";
+  req_params["nl_facet_fields"] = "tags";
+
+  nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
+  ASSERT_TRUE(nl_search_op.ok());
+  ASSERT_EQ(req_params["_original_nl_query"], "request query");
+  ASSERT_EQ(req_params["collection"], "titles");
+  ASSERT_EQ(req_params["nl_model_id"], "default");
+  ASSERT_EQ(req_params["nl_max_facet_values"], "30");
+  ASSERT_EQ(req_params["nl_facet_fields"], "tags");
+  // unset by the request, so the preset value applies
+  ASSERT_EQ(req_params["nl_schema_sample_values"], "400");
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, SchemaPromptCacheExpiryOnCollectionAlter) {
@@ -1323,15 +1917,13 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetNLQueryParamsFromPreset) {
   ASSERT_TRUE(coll_create_op.ok());
 
 
-  nlohmann::json preset_config = R"({
-    "name": "companies-search-preset",
-    "value": {
-        "nl_model_id": "test_model_id",
-        "nl_query": true
-    }
+  // the preset API stores the search params object itself, without a `value` wrapper
+  nlohmann::json preset_value = R"({
+    "nl_model_id": "test_model_id",
+    "nl_query": true
   })"_json;
 
-  auto preset_op = CollectionManager::get_instance().upsert_preset(preset_config["name"], preset_config);
+  auto preset_op = CollectionManager::get_instance().upsert_preset("companies-search-preset", preset_value);
   ASSERT_TRUE(preset_op.ok());
 
   std::map<std::string, std::string> req_params;
@@ -1347,112 +1939,152 @@ TEST_F(NaturalLanguageSearchModelManagerTest, GetNLQueryParamsFromPreset) {
   ASSERT_EQ(req_params["nl_model_id"], model_id);
 }
 
-TEST_F(NaturalLanguageSearchModelManagerTest, HighlightOriginalQuery) {
-    // Mock successful validation for model creation
-  NaturalLanguageSearchModel::add_mock_response(R"({
-    "object": "chat.completion",
-    "model": "gpt-3.5-turbo",
-    "choices": [
-      {
-        "index": 0,
-        "message": {
-          "role": "assistant",
-          "content": "Hello!"
-        },
-        "finish_reason": "stop"
-      }
-    ]
-  })", 200, {});
-  
-  // Mock response for the actual NL query processing
-  NaturalLanguageSearchModel::add_mock_response(R"({
-    "object": "chat.completion",
-    "model": "gpt-3.5-turbo",
-    "choices": [
-      {
-        "index": 0,
-        "message": {
-          "role": "assistant",
-          "content": "{\n  \"q\": \"bar\",\n  \"filter_by\": \"points:>100\",\n  \"sort_by\": \"points:desc\"\n}",
-          "refusal": null,
-          "annotations": []
-        },
-        "logprobs": null,
-        "finish_reason": "stop"
-      }
-    ],
-    "usage": {
-      "prompt_tokens": 920,
-      "completion_tokens": 58,
-      "total_tokens": 978,
-      "prompt_tokens_details": {
-        "cached_tokens": 0,
-        "audio_tokens": 0
-      },
-      "completion_tokens_details": {
-        "reasoning_tokens": 0,
-        "audio_tokens": 0,
-        "accepted_prediction_tokens": 0,
-        "rejected_prediction_tokens": 0
-      }
+TEST_F(NaturalLanguageSearchModelManagerTest, FilterOnlyQueryHighlightsOriginalText) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
+
+    auto schema = R"({
+        "name": "titles",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "tags", "type": "string[]"},
+            {"name": "details", "type": "object"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"foo", "title":"Foo", "tags":["Foo", "Other"],
+                             "details":{"name":"Foo"}, "points":150})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"bar", "title":"Bar", "tags":["Bar"],
+                             "details":{"name":"Bar"}, "points":120})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"excluded", "title":"Foo", "tags":["Foo"],
+                             "details":{"name":"Foo"}, "points":50})").ok());
+
+    for(const std::string query: {"*", ""}) {
+        for(bool union_search: {false, true}) {
+            SCOPED_TRACE(query + (union_search ? " union" : " search"));
+            add_search_params_mock_response({{"q", query}, {"filter_by", "points:>100"},
+                                             {"sort_by", "points:desc"}});
+            std::map<std::string, std::string> params = {
+                {"collection", "titles"}, {"query_by", "title"}, {"nl_query", "true"},
+                {"q", "Foo over 100 points"}, {"highlight_fields", "title,tags,details.name"},
+                {"highlight_full_fields", "title,tags,details.name"}
+            };
+            auto nl_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params);
+            ASSERT_TRUE(nl_op.ok()) << nl_op.error();
+            ASSERT_EQ(query, params["q"]);
+            ASSERT_EQ("Foo over 100 points", params["_original_nl_query"]);
+
+            nlohmann::json results;
+            if(union_search) {
+                std::vector<nlohmann::json> embedded(1, nlohmann::json::object());
+                auto op = collectionManager.do_union(params, embedded,
+                    nlohmann::json::array({{{"collection", "titles"}}}), results, 0);
+                ASSERT_TRUE(op.ok()) << op.error();
+            } else {
+                std::string response;
+                nlohmann::json embedded;
+                auto op = collectionManager.do_search(params, embedded, response, 0);
+                ASSERT_TRUE(op.ok()) << op.error();
+                results = nlohmann::json::parse(response);
+                ASSERT_EQ(query, results["request_params"]["q"]);
+            }
+
+            ASSERT_EQ(2, results["found"]) << results.dump();
+            const auto& hit = results["hits"][0];
+            ASSERT_EQ("foo", hit["document"]["id"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["title"]["snippet"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["title"]["value"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["tags"][0]["snippet"]);
+            ASSERT_EQ("<mark>Foo</mark>", hit["highlight"]["details"]["name"]["snippet"]);
+            ASSERT_FALSE(hit["highlights"].empty());
+            ASSERT_EQ("bar", results["hits"][1]["document"]["id"]);
+            ASSERT_TRUE(results["hits"][1]["highlight"].empty());
+        }
     }
-  })", 200, {});
+}
 
-  nlohmann::json titles_schema = R"({
-    "name": "titles",
-    "fields": [
-      {"name": "title", "type": "string"},
-      {"name": "points", "type": "int32"}
-    ]
-  })"_json;
+TEST_F(NaturalLanguageSearchModelManagerTest, GeneratedQueryControlsRetrievalAndHighlightExpansion) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
 
-  auto coll_create_op = collectionManager.create_collection(titles_schema);
-  ASSERT_TRUE(coll_create_op.ok());
-  auto coll = coll_create_op.get();
+    auto schema = R"({
+        "name":"titles",
+        "fields":[{"name":"title", "type":"string"}, {"name":"points", "type":"int32"}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"foo", "title":"Foo", "points":150})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"barrel", "title":"Barrel Foo", "points":120})").ok());
 
-  nlohmann::json doc;
-  doc["title"] = "Foo";
-  doc["points"] = 150;
-  auto insert_op = coll->add(doc.dump());
-  ASSERT_TRUE(insert_op.ok());
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"bar", "<mark>Bar</mark>rel <mark>Foo</mark>"},
+        {"barrelx", "<mark>Barrel</mark> <mark>Foo</mark>"}
+    };
+    for(const auto& test_case: cases) {
+        SCOPED_TRACE(test_case.first);
+        add_search_params_mock_response({{"q", test_case.first}, {"filter_by", "points:>100"}});
+        std::map<std::string, std::string> params = {
+            {"collection", "titles"}, {"query_by", "title"}, {"nl_query", "true"},
+            {"q", "Foo over 100 points"}, {"drop_tokens_threshold", "0"}
+        };
+        auto nl_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params);
+        ASSERT_TRUE(nl_op.ok()) << nl_op.error();
+        // A stale raw_query parameter must never override the generated query.
+        params["raw_query"] = params["_original_nl_query"];
+        std::string response;
+        nlohmann::json embedded;
+        auto op = collectionManager.do_search(params, embedded, response, 0);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto results = nlohmann::json::parse(response);
+        ASSERT_EQ(1, results["found"]);
+        ASSERT_EQ("barrel", results["hits"][0]["document"]["id"]);
+        ASSERT_EQ(test_case.second, results["hits"][0]["highlight"]["title"]["snippet"]);
+        ASSERT_EQ(test_case.second, results["hits"][0]["highlights"][0]["snippet"]);
+        ASSERT_EQ(test_case.first, results["request_params"]["q"]);
+    }
+}
 
-  std::map<std::string, std::string> req_params;
-  req_params["nl_query"] = "true";
-  req_params["q"] = "Foo over 100 points";
-  req_params["collection"] = "titles";
-  req_params["query_by"] = "title";
+TEST_F(NaturalLanguageSearchModelManagerTest, WildcardGeneratedQueryReturnsFilteredBooks) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
 
-  nlohmann::json model_config = R"({
-    "model_name": "openai/gpt-3.5-turbo",
-    "api_key": "YOUR_OPENAI_API_KEY",
-    "max_bytes": 1024,
-    "temperature": 0.0
-  })"_json;
-  std::string model_id = "default";
-  auto result = NaturalLanguageSearchModelManager::add_model(model_config, model_id, false);
-  ASSERT_TRUE(result.ok());
+    auto schema = R"({
+        "name":"books",
+        "fields":[{"name":"title", "type":"string"}, {"name":"category", "type":"string", "facet":true}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"title":"Dune", "category":"fiction"})").ok());
+    ASSERT_TRUE(coll->add(R"({"title":"Foundation", "category":"fiction"})").ok());
+    ASSERT_TRUE(coll->add(R"({"title":"A Brief History of Time", "category":"non-fiction"})").ok());
 
-  auto nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(req_params);
-  ASSERT_TRUE(nl_search_op.ok());
-  ASSERT_EQ(req_params["filter_by"], "points:>100");
-  ASSERT_EQ(req_params["sort_by"], "points:desc");
-  ASSERT_EQ(req_params["q"], "bar");
-  ASSERT_EQ(req_params["processed_by_nl_model"], "true");
-  ASSERT_EQ(req_params["_llm_generated_params"], R"(["filter_by","q","sort_by"])");
-  ASSERT_EQ(req_params["_original_llm_filter_by"], "points:>100");
-  ASSERT_EQ(req_params["llm_generated_filter_by"], "points:>100");
-  ASSERT_EQ(req_params["_original_nl_query"], "Foo over 100 points");
-  ASSERT_EQ(req_params["raw_query"], "Foo over 100 points");
-
-  std::string results_str;
-  nlohmann::json embedded_params;
-  auto search_op = collectionManager.do_search(req_params, embedded_params, results_str, 0);
-  ASSERT_TRUE(search_op.ok());
-
-  nlohmann::json results_json = nlohmann::json::parse(results_str);
-
-  ASSERT_EQ(results_json["found"], 1);
-  ASSERT_EQ(results_json["hits"][0]["document"]["title"], "Foo");
-  ASSERT_EQ(results_json["hits"][0]["document"]["points"], 150);
-  ASSERT_EQ(results_json["hits"][0]["highlight"]["title"]["snippet"].get<std::string>(), "<mark>Foo</mark>");
+    add_search_params_mock_response({{"q", "*"}, {"filter_by", "category:[`fiction`]"}});
+    std::map<std::string, std::string> params = {
+        {"collection", "books"}, {"query_by", "title"}, {"nl_query", "true"},
+        {"q", "show me fiction books please"}
+    };
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params).ok());
+    std::string response;
+    nlohmann::json embedded;
+    ASSERT_TRUE(collectionManager.do_search(params, embedded, response, 0).ok());
+    auto results = nlohmann::json::parse(response);
+    ASSERT_EQ(2, results["found"]);
+    ASSERT_EQ("*", results["request_params"]["q"]);
+    for(const auto& hit: results["hits"]) {
+        ASSERT_EQ("fiction", hit["document"]["category"]);
+        ASSERT_TRUE(hit["highlight"].empty());
+        ASSERT_TRUE(hit["highlights"].empty());
+    }
 }

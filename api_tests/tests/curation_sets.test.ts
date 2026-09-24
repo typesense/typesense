@@ -66,11 +66,18 @@ const PatchCollectionCurationSetsResponse = z.object({
 const initialCurations = [
   { id: "ov-pin-romance", rule: { query: "romantic", match: "contains" }, includes: [{ id: "1", position: 1 }] },
   { id: "ov-drop-scifi", rule: { query: "sci-fi", match: "contains" }, excludes: [{ id: "2" }] },
+  { id: "ov-boost-drama", rule: { query: "drama", match: "contains" }, includes: [{ id: "4", position: 1 }] },
+  { id: "ov-filter-kids", rule: { query: "kids", match: "exact" }, filter_by: "rating:=G" },
 ];
 
 const updatedCurations = [
+  { id: "ov-pin-romance", rule: { query: "romance", match: "exact" }, includes: [{ id: "5", position: 1 }] },
   { id: "ov-pin-thriller", rule: { query: "thriller", match: "exact" }, includes: [{ id: "3", position: 1 }] },
 ];
+
+const expectCurationIds = (items: Array<{ id: string }>, expectedIds: string[]) => {
+  expect(items.map((o) => o.id).sort()).toEqual([...expectedIds].sort());
+};
 
 describe(Phases.SINGLE_FRESH, () => {
   it("create an curation set", async () => {
@@ -94,7 +101,12 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     const ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
-    expect(ov.data?.items.length).toBe(2);
+    expectCurationIds(ov.data?.items ?? [], [
+      "ov-pin-romance",
+      "ov-drop-scifi",
+      "ov-boost-drama",
+      "ov-filter-kids",
+    ]);
   });
 
   it("list curation sets", async () => {
@@ -145,7 +157,12 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     const ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
-    expect(ov.data?.items.length).toBe(2);
+    expectCurationIds(ov.data?.items ?? [], [
+      "ov-pin-romance",
+      "ov-drop-scifi",
+      "ov-boost-drama",
+      "ov-filter-kids",
+    ]);
   });
 
   it("create a collection with curation_sets", async () => {
@@ -184,7 +201,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(coll.data?.curation_sets).toContain("movies-core");
   });
 
-  it("update curation set contents", async () => {
+  it("fully replaces curation set contents", async () => {
     const res = await fetchSingleNode("/curation_sets/movies-core", {
       method: "PUT",
       body: JSON.stringify({ items: updatedCurations }),
@@ -192,8 +209,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(res.ok).toBe(true);
     const ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
-    const updatedIds = ov.data?.items.map((o) => o.id);
-    expect(updatedIds).toContain("ov-pin-thriller");
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
   });
 
   it("delete a temporary curation set", async () => {
@@ -217,8 +233,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
     expect(res.ok).toBe(true);
     let ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
-    const ids = ov.data?.items.map((o) => o.id);
-    expect(ids).toContain("ov-pin-thriller");
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
 
     res = await fetchSingleNode("/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);
@@ -234,6 +249,7 @@ describe(Phases.SINGLE_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     let ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
 
     res = await fetchSingleNode("/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);
@@ -268,11 +284,17 @@ describe(Phases.MULTI_FRESH, () => {
 
     res = await fetchMultiNode(1, "/curation_sets/movies-core", {
       method: "PUT",
-      body: JSON.stringify({ items: [{ id: "ov-y", rule: { query: "y", match: "exact" }, includes: [{ id: "1", position: 1 }] }] }),
+      body: JSON.stringify({ items: initialCurations }),
     });
     expect(res.ok).toBe(true);
     ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
+    expectCurationIds(ov.data?.items ?? [], [
+      "ov-pin-romance",
+      "ov-drop-scifi",
+      "ov-boost-drama",
+      "ov-filter-kids",
+    ]);
   });
 
   it("list curation sets", async () => {
@@ -318,6 +340,17 @@ describe(Phases.MULTI_FRESH, () => {
     expect(del.success).toBe(true);
     expect(del.data?.name).toBe("movies-core-2");
   });
+
+  it("fully replaces curation set contents", async () => {
+    const res = await fetchMultiNode(1, "/curation_sets/movies-core", {
+      method: "PUT",
+      body: JSON.stringify({ items: updatedCurations }),
+    });
+    expect(res.ok).toBe(true);
+    const ov = CurationSetResponse.safeParse(await res.json());
+    expect(ov.success).toBe(true);
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
+  });
 });
 
 describe(Phases.MULTI_RESTARTED, () => {
@@ -326,6 +359,7 @@ describe(Phases.MULTI_RESTARTED, () => {
     expect(res.ok).toBe(true);
     let ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
 
     res = await fetchMultiNode(2, "/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);
@@ -341,6 +375,7 @@ describe(Phases.MULTI_SNAPSHOT, () => {
     expect(res.ok).toBe(true);
     let ov = CurationSetResponse.safeParse(await res.json());
     expect(ov.success).toBe(true);
+    expectCurationIds(ov.data?.items ?? [], ["ov-pin-romance", "ov-pin-thriller"]);
 
     res = await fetchMultiNode(2, "/collections/movies", { method: "GET" });
     expect(res.ok).toBe(true);

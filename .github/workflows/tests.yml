@@ -41,7 +41,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
+          disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
           repository-cache: true
           external-cache: true
 
@@ -214,6 +214,8 @@ jobs:
           TYPESENSE_V29_BINARY_PATH: ${{ github.workspace }}/api_tests/artifacts/v29/typesense-server
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_URL: ${{ secrets.AZURE_OPENAI_URL }}
         run: typesense-api-tests
 
       - name: Run API tests without secrets

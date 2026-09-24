@@ -78,7 +78,12 @@ Option<bool> Join::populate_reference_helper_fields(nlohmann::json& document,
         auto field_name = pair.first;
         auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
-        auto const& field = schema.at(field_name);
+        auto const& it = schema.find(field_name);
+        if (it == schema.end()) {
+            return Option<bool>(400, "Could not find `" + field_name + "` in the schema.");
+        }
+
+        auto const& field = it.value();
         auto const& optional = field.optional;
         auto const& is_async_reference = field.is_async_reference;
         // Strict checking for presence of non-optional reference field during indexing operation.
@@ -583,7 +588,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
 
         // Reference include_by without join, check if doc itself contains the reference.
         if (!joined_on_ref_collection && !collection_name.empty()) {
-            auto op = CollectionManager::get_instance().is_referenced_in(ref_collection_name, collection_name);
+            auto op = CollectionManager::get_instance().is_referenced_in_with_lock(ref_collection_name,
+                                                                                   collection_name);
             if (op.ok()) {
                 doc_has_reference = true;
                 ref_info = op.get();
@@ -594,7 +600,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
         // Check if the joined collection has a reference.
         if (!joined_on_ref_collection && !doc_has_reference) {
             for (const auto &reference_filter_result: reference_filter_results) {
-                auto op = CollectionManager::get_instance().is_referenced_in(ref_collection_name,
+                auto op = CollectionManager::get_instance().is_referenced_in_with_lock(ref_collection_name,
                                                                              reference_filter_result.first);
                 if (op.ok()) {
                     joined_coll_has_reference = true;
@@ -615,7 +621,7 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
                                                                                         ref_include_exclude.exclude_fields,
                                                                                         ref_include_fields_full,
                                                                                         ref_exclude_fields_full);
-        auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
+        const auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
         if (!include_exclude_op.ok()) {
             return Option<bool>(include_exclude_op.code(), error_prefix + include_exclude_op.error());
         }
@@ -630,6 +636,12 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             prune_doc_op = CollectionManager::include_related_docs(collection_name, doc, seq_id, ref_info,
                                                                    ref_include_fields_full, ref_exclude_fields_full,
                                                                    original_doc, ref_include_exclude);
+            if (!prune_doc_op.ok() && prune_doc_op.code() == 404) {
+                const auto pattern = std::regex("^" + error_prefix += ERROR_could_not_locate_document_in_store);
+                if (std::regex_search(prune_doc_op.error(), pattern)) {
+                    prune_doc_op = Option<bool>(1, "");
+                }
+            }
         } else if (joined_coll_has_reference) {
             auto const& reference_field_name = ref_info.field;
             auto const& reference_filter_result = reference_filter_results.at(joined_coll_having_reference);
@@ -889,12 +901,47 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
     return Option<bool>(true);
 }
 
+static void split_ref_include_parameters(const std::string& parameters, std::vector<std::string>& tokens) {
+    size_t token_start = 0;
+    size_t parenthesis_depth = 0;
+    size_t bracket_depth = 0;
+    bool in_backtick = false;
+
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        const char c = parameters[i];
+        if (c == '`') {
+            in_backtick = !in_backtick;
+        } else if (!in_backtick && c == '(') {
+            ++parenthesis_depth;
+        } else if (!in_backtick && c == ')' && parenthesis_depth > 0) {
+            --parenthesis_depth;
+        } else if (!in_backtick && c == '[') {
+            ++bracket_depth;
+        } else if (!in_backtick && c == ']' && bracket_depth > 0) {
+            --bracket_depth;
+        } else if (!in_backtick && c == ',' && parenthesis_depth == 0 && bracket_depth == 0) {
+            auto token = parameters.substr(token_start, i - token_start);
+            StringUtils::trim(token);
+            if (!token.empty()) {
+                tokens.emplace_back(std::move(token));
+            }
+            token_start = i + 1;
+        }
+    }
+
+    auto token = parameters.substr(token_start);
+    StringUtils::trim(token);
+    if (!token.empty()) {
+        tokens.emplace_back(std::move(token));
+    }
+}
+
 Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
                                           ref_include::strategy_enum& strategy_enum, std::string& related_docs_field,
                                           std::string& sort_by_str, size_t& limit) {
 
     std::vector<std::string> tokens, kv_tokens;
-    StringUtils::split(parameters, tokens, ",");
+    split_ref_include_parameters(parameters, tokens);
 
     for(const auto& tok : tokens) {
         kv_tokens.clear();

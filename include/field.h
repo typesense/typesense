@@ -89,6 +89,7 @@ namespace fields {
     static const std::string truncate_len = "truncate_len";
     
     static const std::string hnsw_params = "hnsw_params";
+    static const std::string track_missing_values = "track_missing_values";
 }
 
 enum vector_distance_type_t {
@@ -143,6 +144,8 @@ struct field {
 
     bool range_index;
 
+    bool track_missing_values = false;
+
     bool is_reference_helper = false;
     bool cascade_delete = true;
 
@@ -163,10 +166,11 @@ struct field {
           std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false,
           const bool store = true, const bool stem = false, const std::string& stem_dictionary = "", const nlohmann::json hnsw_params = nlohmann::json(),
           const bool async_reference = false, const nlohmann::json& token_separators = {}, const nlohmann::json& symbols_to_index = {},
-          const bool cascade_delete = true, const uint32_t truncate_len = 100) :
+          const bool cascade_delete = true, const uint32_t truncate_len = 100,
+          const bool track_missing_values = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
+            embed(embed), range_index(range_index), track_missing_values(track_missing_values), store(store), truncate_len(truncate_len), stem(stem), stem_dictionary(stem_dictionary),
             hnsw_params(hnsw_params), is_async_reference(async_reference), cascade_delete(cascade_delete) {
 
         set_computed_defaults(sort, infix);
@@ -280,6 +284,14 @@ struct field {
 
     bool is_singular() const {
         return !is_array();
+    }
+
+    std::string get_single_field_type() const {
+        if (!field_types::is_array(type)) {
+            return type;
+        }
+
+        return type.substr(0, type.size() - 2);
     }
 
     static bool is_dynamic(const std::string& name, const std::string& type) {
@@ -415,7 +427,8 @@ struct field {
                      json[fields::token_separators].get<nlohmann::json>(),
                      json[fields::symbols_to_index].get<nlohmann::json>(),
                      json[fields::cascade_delete].get<bool>(),
-                     json[fields::truncate_len].get<uint32_t>());
+                     json[fields::truncate_len].get<uint32_t>(),
+                     json[fields::track_missing_values].get<bool>());
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
@@ -501,6 +514,11 @@ namespace sort_field_const {
 
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";
+
+    // `_eval([...], mode: <...>)` parameter and its accepted values.
+    static const std::string eval_mode = "mode";
+    static const std::string eval_mode_first_match = "first_match";
+    static const std::string eval_mode_sum = "sum";
 
     static const std::string missing_values = "missing_values";
 
@@ -622,11 +640,23 @@ struct sort_by {
         linear,
     };
 
+    /// How the scores of matching `_eval` expressions combine into the sort value, selected by the
+    /// `mode` parameter of the clause.
+    enum eval_mode_t {
+        /// Default: score of the first expression that matches, 0 if none do. Expressions are
+        /// treated as an ordered if/else-if chain.
+        first_match,
+        /// `mode: sum`: sum of the scores of every expression that matches. Expressions are
+        /// treated as independent signals in a linear model.
+        sum_matches,
+    };
+
     struct eval_t {
         filter_node_t** filter_trees = nullptr; // Array of filter_node_t pointers.
         std::vector<uint32_t*> eval_ids_vec;
         std::vector<uint32_t> eval_ids_count_vec;
         std::vector<int64_t> scores;
+        eval_mode_t mode = first_match;
     };
 
     std::string name;
@@ -670,11 +700,13 @@ struct sort_by {
             geo_precision(0), missing_values(normal) {
     }
 
-    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
+    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order,
+            eval_mode_t eval_mode = first_match):
             eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), text_match_bucket_size(0),
             geopoint(0), exclude_radius(0), geo_precision(0), missing_values(normal) {
         name = sort_field_const::eval;
         eval.scores = std::move(scores);
+        eval.mode = eval_mode;
         type = eval_expression;
     }
 
@@ -822,6 +854,8 @@ struct facet {
 
     bool is_wildcard_match = false;
     
+    bool is_dynamic = false;
+    
     bool is_intersected = false;
 
     bool is_sort_by_alpha = false;
@@ -833,6 +867,7 @@ struct facet {
     uint32_t orig_index;
 
     std::string reference_collection_name;
+    std::string reference_collection_alias_name{};
 
     reference_filter_result_t references{};
 
@@ -860,10 +895,13 @@ struct facet {
 
     explicit facet(const std::string& field_name, uint32_t orig_index, bool is_top_k = false, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="", const std::string& reference_collection_name = "")
+                   const std::string& sort_by_field="", const std::string& reference_collection_name = "",
+                   const std::string& reference_collection_alias_name = "")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k), reference_collection_name(reference_collection_name) {
+                   sort_field(sort_by_field), orig_index(orig_index), is_top_k(is_top_k),
+                   reference_collection_name(reference_collection_name),
+                   reference_collection_alias_name(reference_collection_alias_name) {
     }
 };
 
@@ -875,7 +913,6 @@ struct facet_info_t {
     bool should_compute_stats = false;
     bool use_value_index = false;
     field facet_field{"", "", false};
-    std::string reference_collection_name;
 };
 
 struct facet_query_t {

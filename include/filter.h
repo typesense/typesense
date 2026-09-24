@@ -12,6 +12,14 @@
     constexpr uint32_t COMPUTE_FILTER_ITERATOR_THRESHOLD = 25'000;
 #endif
 
+/// How much wider one side of an `&&` has to be than the other before we stop materializing it and ask it about the
+/// ids of the narrow side instead. Probing costs one seek per narrow id while materializing costs the whole wide
+/// side, so what decides the winner is the ratio between the sides rather than their absolute sizes: measured over
+/// 10,000,000 documents, probing loses by 3x when the wide side is 10x the narrow one -- equally so whether the
+/// narrow side holds 10,000 ids or 100,000 -- breaks even around 32x, and wins by 9.7x at 900x. An absolute bound
+/// on the narrow side cannot express that: the shapes probing loses on have small narrow sides too.
+constexpr uint32_t AND_PROBE_RATIO = 32;
+
 constexpr size_t DEFAULT_FILTER_BY_CANDIDATES = 4;
 
 enum NUM_COMPARATOR {
@@ -23,7 +31,8 @@ enum NUM_COMPARATOR {
     GREATER_THAN,
     GREATER_THAN_EQUALS,
     RANGE_INCLUSIVE,
-    CONTAINS_PHRASE
+    CONTAINS_PHRASE,
+    MISSING
 };
 
 enum FILTER_OPERATOR {
@@ -57,6 +66,7 @@ struct filter {
     /// Radius threshold beyond which exact filtering on geo_result_ids will not be done.
     static constexpr const char* EXACT_GEO_FILTER_RADIUS_KEY = "exact_filter_radius";
     static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000; // meters
+    static constexpr const char* MISSING_FILTER_KEY = "_missing";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -81,7 +91,8 @@ struct filter {
                                            const std::string& doc_id_prefix,
                                            filter_node_t*& root,
                                            const bool& validate_field_names = true,
-                                           const std::string& object_field_prefix = "");
+                                           const std::string& object_field_prefix = "",
+                                           const bool& validate_max_ops = true);
 
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 

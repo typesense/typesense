@@ -635,6 +635,14 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ(false, fields[0].facet);
     ASSERT_EQ(".*", fields[0].name);
     ASSERT_EQ("string*", fields[0].type);
+    ASSERT_FALSE(fields[0].track_missing_values);
+
+    fields_json[0][fields::track_missing_values] = true;
+    fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_TRUE(fields[0].track_missing_values);
 
     // non-wildcard string* field should be treated as optional by default
     fields_json = nlohmann::json::array();

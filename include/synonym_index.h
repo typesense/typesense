@@ -55,6 +55,7 @@ struct synonym_node_t {
     std::unordered_map<std::string, synonym_node_t*> children;
     art_tree* children_tree;
     size_t children_tree_index = 0;
+    bool has_long_child = false;
     std::vector<std::string> terminal_synonym_ids;
     std::string token;
 
@@ -82,6 +83,8 @@ struct synonym_node_t {
         children_tree = other.children_tree;
         other.children_tree = nullptr;
         children_tree_index = other.children_tree_index;
+        has_long_child = other.has_long_child;
+        other.has_long_child = false;
         token = std::move(other.token);
     }
 
@@ -93,6 +96,8 @@ struct synonym_node_t {
             children_tree = other.children_tree;
             other.children_tree = nullptr;
             children_tree_index = other.children_tree_index;
+            has_long_child = other.has_long_child;
+            other.has_long_child = false;
             token = std::move(other.token);
         }
         return *this;
@@ -160,7 +165,9 @@ public:
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix, uint32_t synonym_num_typos) const;
 
-    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
+    // Returns copies (not pointers into synonym_definitions): the shared lock is released when this
+    // returns, so a concurrent remove/upsert must not be able to free what the caller still holds.
+    Option<std::map<uint32_t, synonym_t>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 

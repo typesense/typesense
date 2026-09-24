@@ -6,9 +6,10 @@
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
-                     const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer, bool is_placeholder) :
+                     const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer, bool is_placeholder,
+                     bool do_transliterate) :
         i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer),
-        is_placeholder(is_placeholder) {
+        is_placeholder(is_placeholder), do_transliterate(do_transliterate) {
 
     for(char c: symbols_to_index) {
         index_symbols[uint8_t(c)] = 1;
@@ -110,6 +111,9 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         while (end_pos != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << start_pos;
             std::string word;
+            std::string original_word;
+            unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(original_word);
+            size_t offset_word_size = original_word.size();
 
             if(locale == "ko") {
                 UErrorCode errcode = U_ZERO_ERROR;
@@ -119,6 +123,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
 
                 if(!U_FAILURE(errcode)) {
                     dst.toUTF8String(word);
+                    // Korean highlighting uses NFKD-normalized display text, so offsets must track normalized bytes.
+                    offset_word_size = word.size();
                 } else {
                     LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }
@@ -131,8 +137,11 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     raw_text = icu::UnicodeString::fromUTF8(stemmed_word);
                 }
 
-                auto transliterator = TransliteratorPool::get_instance().acquire("Any-Latin;Latin-ASCII");
-                transliterator->transliterate(raw_text);
+                if (do_transliterate) {
+                    auto transliterator = TransliteratorPool::get_instance().acquire("Any-Latin;Latin-ASCII");
+                    transliterator->transliterate(raw_text);
+                }
+
                 raw_text.toUTF8String(word);
                 StringUtils::replace_all(word, "\"", "");
             } else if(normalize && locale == "th") {
@@ -163,7 +172,6 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             bool emit_token = false;
-            size_t orig_word_size = word.size();
 
             if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
                 emit_token = false;
@@ -204,7 +212,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             start_index = utf8_start_index;
-            end_index = utf8_start_index + orig_word_size - 1;
+            end_index = utf8_start_index + offset_word_size - 1;
             utf8_start_index = end_index + 1;
 
             start_pos = end_pos;

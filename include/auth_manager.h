@@ -133,6 +133,7 @@ public:
 
     static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
+    static constexpr const char* AUTH_RESOLVED_COLLECTION_PARAM = "__typesense_authorized_collection";
 
     AuthManager() = default;
 
@@ -146,6 +147,8 @@ public:
 
     Option<api_key_t> remove_key(uint32_t id);
 
+    Option<api_key_t> update_key(uint32_t id, api_key_t&& api_key);
+
     bool authenticate(const std::string& action,
                       const std::vector<collection_key_t>& collection_keys,
                       std::map<std::string, std::string>& params,
@@ -154,6 +157,8 @@ public:
     static bool add_item_to_params(std::map<std::string, std::string> &req_params,
                                    const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
                                    bool overwrite);
+
+    std::string get_api_key_prefix(const std::string& value) const;
 
     void do_housekeeping();
 

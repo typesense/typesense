@@ -162,10 +162,13 @@ private:
 
     ThreadPool* meta_thread_pool;
 
+    bool is_shutdown_triggered = false;
+
     bool (*auth_handler)(std::map<std::string, std::string>& params,
                          std::vector<nlohmann::json>& embedded_params_vec,
                          const std::string& body, const route_path& rpath,
-                         const std::string& auth_key);
+                         const std::string& auth_key,
+                         std::string* api_key_prefix);
 
     static void on_accept(h2o_socket_t *listener, const char *err);
 
@@ -226,7 +229,8 @@ public:
 
     void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params,
                                           std::vector<nlohmann::json>& embedded_params_vec, const std::string& body,
-                                          const route_path & rpath, const std::string & auth_key));
+                                          const route_path & rpath, const std::string & auth_key,
+                                          std::string* api_key_prefix));
 
     void get(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
@@ -297,4 +301,6 @@ public:
     void decr_pending_writes();
 
     static bool curl_only_http1(std::string_view ua);
+
+    void set_shutdown_triggered();
 };

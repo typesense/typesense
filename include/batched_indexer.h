@@ -11,6 +11,8 @@
 
 class BatchedIndexer {
 private:
+    friend class ReplicationState;
+
     struct req_res_t {
         uint64_t start_ts;
         std::string prev_req_body;  // used to handle partial JSON documents caused by chunking
@@ -21,17 +23,20 @@ private:
         uint32_t num_chunks;
         uint32_t next_chunk_index;   // index where next read must begin
         bool is_complete;           //  whether the req has been written to store fully
+        uint64_t latest_chunk_log_index = 0;  // latest raft log index seen for any chunk of this request
 
         req_res_t(uint64_t start_ts, const std::string& prev_req_body,
                   const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
-                  uint64_t last_updated, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete):
+                  uint64_t last_updated, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete,
+                  uint64_t latest_chunk_log_index):
                 start_ts(start_ts), prev_req_body(prev_req_body), req(req), res(res), last_updated(last_updated),
-                num_chunks(num_chunks), next_chunk_index(next_chunk_index), is_complete(is_complete) {
+                num_chunks(num_chunks), next_chunk_index(next_chunk_index), is_complete(is_complete),
+                latest_chunk_log_index(latest_chunk_log_index) {
 
         }
 
         req_res_t(): req(nullptr), res(nullptr), last_updated(0), num_chunks(0),
-                     next_chunk_index(0), is_complete(false) {};
+                     next_chunk_index(0), is_complete(false), latest_chunk_log_index(0) {};
     };
 
     struct await_t {
@@ -42,6 +47,7 @@ private:
     struct refq_entry {
         uint64_t queue_id;
         uint64_t start_ts;
+        std::unordered_set<uint64_t> waiting_on_requests{};
 
         refq_entry(uint64_t qid, uint64_t sts): queue_id(qid), start_ts(sts) {
 
@@ -58,17 +64,18 @@ private:
     std::vector<std::deque<uint64_t>> queues;
 
     std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
-    await_t refq_wait;
+    // Rebuilt from request bodies on snapshot load; retain every pending alias target until its request completes.
+    std::unordered_map<std::string, std::unordered_map<uint64_t, std::string>> pending_alias_targets;
     std::list<refq_entry> reference_q;
+    std::unordered_map<uint64_t, std::list<refq_entry>::iterator> reference_q_by_request;
+    std::unordered_map<uint64_t, std::vector<uint64_t>> reference_waiters;
+    std::unordered_map<std::string, uint64_t> collection_request_tails;
 
     /* Variables to be serialized on snapshot                  /
     --------------------------------------------------------- */
 
     std::mutex mutex;
     std::map<uint64_t, req_res_t> req_res_map;
-
-    // used in tracking references
-    std::map<uint64_t, std::string> req_colls;
 
     std::atomic<int64_t> queued_writes = 0;
 
@@ -78,6 +85,7 @@ private:
 
     std::atomic<bool> quit;
     std::shared_mutex pause_mutex;
+    std::shared_mutex lifecycle_mutex;
 
     // Used to skip over a bad raft log entry which previously triggered a crash
     const static int64_t UNSET_SKIP_INDEX = -9999;
@@ -99,6 +107,34 @@ private:
     static std::string get_req_prefix_key(uint64_t req_id);
 
     static std::string get_req_suffix_key(uint64_t req_id);
+
+    static bool is_request_earlier(uint64_t lhs_latest_chunk_log_index, uint64_t lhs_last_updated,
+                                   uint64_t lhs_req_id, uint64_t rhs_latest_chunk_log_index,
+                                   uint64_t rhs_last_updated, uint64_t rhs_req_id);
+
+    std::unordered_set<uint64_t> get_requests_to_wait_on_with_lock(uint64_t req_id,
+                                                                   const std::string& coll_name);
+
+    std::unordered_set<uint64_t> get_requests_to_wait_on(uint64_t req_id, const std::string& coll_name,
+                                                         bool use_order_fallback = false);
+
+    void update_coll_to_references(const std::shared_ptr<http_req>& req, const std::string& coll_name);
+
+    void update_coll_to_references_after_request(const std::shared_ptr<http_req>& req,
+                                                 const std::string& coll_name);
+
+    // Caller holds mutex. Combine committed alias state with all outstanding mutations.
+    void refresh_alias_references(const std::string& alias);
+
+    void add_reference_request(refq_entry&& ref);
+
+    size_t process_reference_queue_with_lock(uint64_t completed_request_id);
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void clear_state_unlocked(bool cancel_live_requests = true);
+
+    // The caller must hold `lifecycle_mutex` exclusively.
+    void load_state_unlocked(const nlohmann::json& state);
 
 public:
 
@@ -131,6 +167,4 @@ public:
     std::string get_collection_name(const std::shared_ptr<http_req>& req);
 
     std::shared_mutex& get_pause_mutex();
-
-    size_t get_reference_q_size();
 };

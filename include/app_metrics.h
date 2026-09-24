@@ -78,7 +78,11 @@ public:
 
     void increment_write_metrics(uint64_t route_hash, uint64_t duration);
 
-    void write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path);
+    static std::string format_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path,
+                                         const std::string& api_key_prefix);
+
+    void write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path,
+                          const std::string& api_key_prefix);
 
     void flush_access_log();
 

@@ -235,7 +235,7 @@ public:
     static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                            std::vector<size_t>& indices);
 
-    static size_t get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array);
+    static size_t get_first_offset(const posting_list_t::iterator_t& it, bool field_is_array);
 };
 
 template<class T>

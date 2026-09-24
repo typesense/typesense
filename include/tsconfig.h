@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cmdline.h>
+#include <shared_mutex>
 #include "option.h"
 #include "string_utils.h"
 #include "INIReader.h"
@@ -35,6 +36,7 @@ private:
     std::string ssl_certificate;
     std::string ssl_certificate_key;
     uint32_t ssl_refresh_interval_seconds;
+    std::string http_client_ca_certificate;
 
     bool enable_cors;
     std::set<std::string> cors_domains;
@@ -101,6 +103,16 @@ private:
 
     int async_batch_interval = -1;
 
+    uint32_t proxy_rate_limit;
+
+    std::string proxy_disallowed_dest_cidrs;
+    std::vector<std::string> proxy_allowed_src_ips;
+    bool proxy_allow_only_peer_src_ips;
+
+    std::shared_mutex m;
+
+    uint32_t shutdown_delay_seconds;
+
 protected:
 
     Config() {
@@ -154,6 +166,10 @@ protected:
         this->max_indexing_concurrency = 4;
 
         this->async_batch_interval = -1;
+
+        this->proxy_rate_limit = 1000;
+
+        this->proxy_allow_only_peer_src_ips = false;
     }
 
     Config(Config const&) {
@@ -221,6 +237,10 @@ public:
         this->max_indexing_concurrency = val;
     }
 
+    void set_shutdown_delay_seconds(uint32_t val) {
+        this->shutdown_delay_seconds = val;
+    }
+
     // @deprecated
     void set_search_only_api_key(const std::string & search_only_api_key) {
         this->search_only_api_key = search_only_api_key;
@@ -244,6 +264,10 @@ public:
 
     void set_ssl_cert_key(const std::string & ssl_cert_key) {
         this->ssl_certificate_key = ssl_cert_key;
+    }
+
+    void set_http_client_ca_certificate(const std::string& ca_certificate) {
+        this->http_client_ca_certificate = ca_certificate;
     }
 
     void set_enable_cors(bool enable_cors) {
@@ -334,6 +358,9 @@ public:
         return this->api_key;
     }
 
+    uint32_t get_shutdown_delay_seconds() const {
+        return this->shutdown_delay_seconds;
+    }
     // @deprecated
     std::string get_search_only_api_key() const {
         return this->search_only_api_key;
@@ -361,6 +388,10 @@ public:
 
     std::string get_ssl_cert_key() const {
         return this->ssl_certificate_key;
+    }
+
+    std::string get_http_client_ca_certificate() const {
+        return this->http_client_ca_certificate;
     }
 
     std::string get_config_file() const {
@@ -530,6 +561,24 @@ public:
     int get_async_batch_interval() const {
         return this->async_batch_interval;
     }
+
+    uint32_t get_proxy_rate_limit() const {
+        return this->proxy_rate_limit;
+    }
+
+    std::string get_proxy_disallowed_dest_cidrs() const {
+        return this->proxy_disallowed_dest_cidrs;
+    }
+
+    std::vector<std::string> get_proxy_allowed_src_ips() {
+        std::shared_lock lk(m);
+        return this->proxy_allowed_src_ips;
+    }
+
+    bool get_proxy_allow_only_peer_src_ips() {
+        return proxy_allow_only_peer_src_ips;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -549,6 +598,8 @@ public:
     void load_config_file(cmdline::parser & options);
 
     void load_config_cmd_args(cmdline::parser & options);
+
+    void update_proxy_src_ips(const std::string& nodes_config);
 
     // validation
 

@@ -34,6 +34,9 @@ std::string route_path::_get_action() {
         return "documents:" + resource_path;
     }
 
+    if(resource_path == "operations/schema_changes") {
+        return "operations/schema_changes:get";
+    }
     // e.g /collections or /collections/:collection/foo or /collections/:collection
 
     if(http_method == "GET") {

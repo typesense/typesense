@@ -37,18 +37,22 @@ class HttpProxy {
         void operator=(const HttpProxy&) = delete;
         HttpProxy(HttpProxy&&) = delete;
         void operator=(HttpProxy&&) = delete;
-        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& req_body, std::unordered_map<std::string, std::string>& req_headers);
+        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& req_body,
+                              std::unordered_map<std::string, std::string>& req_headers,
+                              HttpClient::SSLVerifyMode ssl_verify_mode = HttpClient::SSLVerifyMode::NO_VERIFY);
         
         bool call_sse(const std::string& url, const std::string& method,
                     const std::string& req_body = "", const std::unordered_map<std::string, std::string>& req_headers = {},
                     const std::shared_ptr<http_req>& req = nullptr, const std::shared_ptr<http_res>& res = nullptr,
-                    const size_t timeout_ms = default_timeout_ms);
+                    const size_t timeout_ms = default_timeout_ms,
+                    HttpClient::SSLVerifyMode ssl_verify_mode = HttpClient::SSLVerifyMode::NO_VERIFY);
     private:
         HttpProxy();
         ~HttpProxy() = default;
         http_proxy_res_t call(const std::string& url, const std::string& method,
                               const std::string& req_body = "", const std::unordered_map<std::string, std::string>& req_headers = {},
-                              const size_t timeout_ms = default_timeout_ms);
+                              const size_t timeout_ms = default_timeout_ms,
+                              HttpClient::SSLVerifyMode ssl_verify_mode = HttpClient::SSLVerifyMode::NO_VERIFY);
 
 
         // lru cache for http requests
