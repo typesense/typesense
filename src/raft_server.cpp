@@ -28,7 +28,6 @@ namespace {
     bool copy_snapshot_to_temp_dir(const std::string& snapshot_dir_path, const std::string& meta_dir_path,
                                    const std::string& temp_snapshot_path) {
         const butil::FilePath temp_state_dir(temp_snapshot_path + "/state");
-        const butil::FilePath temp_snapshot_root(temp_state_dir.value() + "/snapshot");
 
         if(directory_exists(temp_snapshot_path) && !delete_path(temp_snapshot_path, true)) {
             LOG(ERROR) << "Failed to delete stale temporary snapshot path " << temp_snapshot_path;
@@ -40,19 +39,16 @@ namespace {
             return false;
         }
 
-        if(!create_directory(temp_snapshot_root.value())) {
-            LOG(ERROR) << "Failed to create temporary external snapshot root " << temp_snapshot_root.value();
-            delete_path(temp_snapshot_path, true);
-            return false;
-        }
-
         const butil::FilePath src_snapshot_dir(snapshot_dir_path);
         const butil::FilePath src_meta_dir(meta_dir_path);
 
         LOG(INFO) << "Copying snapshot to temporary external path from " << snapshot_dir_path
                   << " with meta from " << meta_dir_path << " to " << temp_snapshot_path;
 
-        const bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, temp_snapshot_root, true);
+        // CopyDirectory preserves the source's top-level directory when the destination exists.
+        // Copy both `snapshot` and `meta` into `state` so the external layout remains
+        // `<snapshot_path>/state/{snapshot,meta}`.
+        const bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, temp_state_dir, true);
         const bool meta_copied = butil::CopyDirectory(src_meta_dir, temp_state_dir, true);
 
         if(snapshot_copied && meta_copied) {
