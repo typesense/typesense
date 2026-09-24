@@ -34,6 +34,7 @@
 #include "sole.hpp"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "jev_rerank.h"
 
 const std::string curation_t::MATCH_EXACT = "exact";
 const std::string curation_t::MATCH_CONTAINS = "contains";
@@ -918,6 +919,10 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::truncate_len] = coll_field.truncate_len;
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
         field_json[fields::track_missing_values] = coll_field.track_missing_values;
+
+        if(!coll_field.description.empty()) {
+            field_json[fields::description] = coll_field.description;
+        }
 
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
@@ -3501,6 +3506,26 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     return search(args);
 }
 
+static void maybe_jev_rerank(const collection_search_args_t& coll_args, size_t group_limit,
+                             nlohmann::json& result,
+                             const std::vector<std::vector<std::string>>& query_by_per_search) {
+    if(!coll_args.jev_rerank) {
+        return;
+    }
+
+    if(group_limit) {
+        // reordering across groups would change grouping semantics
+        static std::atomic<bool> warned_group_by{false};
+        if(!warned_group_by.exchange(true)) {
+            LOG(WARNING) << "jev_rerank ignored with group_by";
+        }
+        return;
+    }
+
+    JevRerank::rerank(result["hits"], coll_args.jev_rerank_query, query_by_per_search,
+                      coll_args.jev_rerank_model_id, coll_args.jev_rerank_top_k, coll_args.start_ts);
+}
+
 Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
     std::unique_ptr<search_args> search_params_guard;
     std::string query;
@@ -3951,6 +3976,9 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
             result["grouped_hits"].push_back(group_hits);
         }
     }
+
+    maybe_jev_rerank(coll_args, group_limit, result, {raw_search_fields});
+
     result["facet_counts"] = nlohmann::json::array();
     // populate facets
     populate_facets(search_params->facets, coll_args.max_facet_values, coll_args.facet_return_parent,
@@ -4168,6 +4196,18 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates) {
     if (searches.size() != collection_ids.size()) {
         return Option<bool>(400, "Expected `collection_ids` and `searches` size to be equal.");
+    }
+
+    // the merged page is judged as one list against one query, rerank params must match across searches
+    for(size_t i = 1; i < searches.size(); i++) {
+        if(searches[i].jev_rerank != searches[0].jev_rerank ||
+           (searches[0].jev_rerank &&
+            (searches[i].jev_rerank_model_id != searches[0].jev_rerank_model_id ||
+             searches[i].jev_rerank_top_k != searches[0].jev_rerank_top_k ||
+             searches[i].jev_rerank_query != searches[0].jev_rerank_query))) {
+            return Option<bool>(400, "`jev_rerank` parameters and the reranked query must be identical "
+                                     "across union searches.");
+        }
     }
 
     const auto& size = searches.size();
@@ -4698,6 +4738,14 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                 result["grouped_hits"].push_back(group_hits);
             }
         }
+    }
+
+    if(!searches.empty()) {
+        std::vector<std::vector<std::string>> query_by_per_search;
+        for(const auto& search : searches) {
+            query_by_per_search.push_back(search.search_fields);
+        }
+        maybe_jev_rerank(searches[0], group_limit, result, query_by_per_search);
     }
 
     //populate facets
@@ -9669,6 +9717,10 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool rerank_hybrid_matches = false;
     bool validate_field_names = true;
 
+    bool jev_rerank = false;
+    std::string jev_rerank_model_id;
+    size_t jev_rerank_top_k = JevRerank::DEFAULT_TOP_K;
+
     // personalization params
     std::string personalization_user_id;
     std::string personalization_model_id;
@@ -9709,6 +9761,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {MAX_FILTER_BY_CANDIDATES, &max_filter_by_candidates},
             {PERSONALIZATION_N_EVENTS, &personalization_n_events},
             {DIVERSITY_LIMIT, &diversity_limit},
+            {JEV_RERANK_TOP_K, &jev_rerank_top_k},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -9733,7 +9786,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {PERSONALIZATION_TYPE, &personalization_type},
             {PERSONALIZATION_USER_FIELD, &personalization_user_field},
             {PERSONALIZATION_ITEM_FIELD, &personalization_item_field},
-            {PERSONALIZATION_EVENT_NAME, &personalization_event_name}
+            {PERSONALIZATION_EVENT_NAME, &personalization_event_name},
+            {JEV_RERANK_MODEL_ID, &jev_rerank_model_id}
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -9755,7 +9809,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {FILTER_CURATED_HITS, &filter_curated_hits_option},
             {ENABLE_ANALYTICS, &enable_analytics},
             {RERANK_HYBRID_MATCHES, &rerank_hybrid_matches},
-            {VALIDATE_FIELD_NAMES, &validate_field_names}
+            {VALIDATE_FIELD_NAMES, &validate_field_names},
+            {JEV_RERANK, &jev_rerank}
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -9941,6 +9996,11 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
         return Option<bool>(400, "Parameter `" + std::string(FACET_MIN_OCCURRENCE_RATIO) + "` must be between 0.0 and 1.0.");
     }
 
+    if(jev_rerank_top_k == 0 || jev_rerank_top_k > JevRerank::MAX_TOP_K) {
+        return Option<bool>(400, "Parameter `" + std::string(JEV_RERANK_TOP_K) + "` must be between 1 and " +
+                                 std::to_string(JevRerank::MAX_TOP_K) + ".");
+    }
+
     args = collection_search_args_t(raw_query, search_fields, filter_query,
                                     facet_fields, sort_fields,
                                     num_typos, per_page, page, token_order,
@@ -9975,6 +10035,13 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     if(auto it = req_params.find("_original_nl_query"); it != req_params.end()) {
         args.original_nl_query = it->second;
     }
+
+    args.jev_rerank = jev_rerank;
+    args.jev_rerank_model_id = jev_rerank_model_id;
+    args.jev_rerank_top_k = jev_rerank_top_k;
+    // judged against what the user typed, jev rewrites q before the search runs
+    args.jev_rerank_query = args.original_nl_query.empty() ? raw_query : args.original_nl_query;
+
     return Option<bool>(true);
 }
 

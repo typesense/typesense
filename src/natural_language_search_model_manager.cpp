@@ -1,5 +1,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
+#include "jev_search_params.h"
+#include "jev_client.h"
 #include "collection_manager.h"
 #include "auth_manager.h"
 #include "logger.h"
@@ -197,6 +199,12 @@ Option<schema_prompt_params_t> schema_prompt_params_t::parse(const std::map<std:
         }
 
         *param_value = static_cast<size_t>(std::stoul(it->second));
+
+        if(param_value == &params.max_facet_values) {
+            params.max_facet_values_set = true;
+        } else if(param_value == &params.schema_sample_values) {
+            params.schema_sample_values_set = true;
+        }
     }
 
     if(params.max_facet_values > MAX_FACET_VALUES_LIMIT) {
@@ -254,30 +262,13 @@ Option<std::string> NaturalLanguageSearchModelManager::get_schema_prompt(const s
     return generate_schema_prompt(collection_name, prompt_params);
 }
 
-Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(const std::string& collection_name,
-                                                                             const schema_prompt_params_t& prompt_params) {
-    auto collection = CollectionManager::get_instance().get_collection(collection_name);
-    if (collection == nullptr) {
-        return Option<std::string>(404, "Collection not found");
-    }
-    Collection* coll = collection.get();
+Option<std::vector<std::string>> NaturalLanguageSearchModelManager::resolve_facet_fields(
+        Collection* coll, const schema_prompt_params_t& prompt_params) {
     auto search_schema = coll->get_schema();
 
-    std::string schema_prompt;
-    schema_prompt += "You are given the database schema structure below. ";
-    schema_prompt += "Your task is to extract relevant SQL-like query parameters from the user's search query.\n\n";
-    schema_prompt += "Database Schema:\n";
-    schema_prompt += "Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Enum Values]\n\n";
-    schema_prompt += "| Field Name | Data Type | Is Indexed | Is Faceted | Enum Values |\n";
-    schema_prompt += "|------------|-----------|------------|------------|-------------|\n";
-
-    std::unordered_map<std::string, std::vector<std::string>> field_facet_values;
-
-    // when nl_facet_fields is given, only those fields contribute enum values to the prompt
     const std::unordered_set<std::string> requested_facet_fields(prompt_params.facet_fields.begin(),
                                                                  prompt_params.facet_fields.end());
 
-    // Collect all string facetable fields
     std::vector<std::string> string_facet_fields;
     for (const auto& facet_field : coll->get_facet_fields()) {
         if (search_schema.count(facet_field) == 0) continue;
@@ -291,47 +282,82 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
 
     for (const auto& requested_field : prompt_params.facet_fields) {
         if (std::find(string_facet_fields.begin(), string_facet_fields.end(), requested_field) == string_facet_fields.end()) {
-            return Option<std::string>(400, "Field `" + requested_field + "` in `nl_facet_fields` is not a faceted "
-                                            "string field in collection `" + collection_name + "`.");
+            return Option<std::vector<std::string>>(400, "Field `" + requested_field + "` in `nl_facet_fields` is not "
+                                                         "a faceted string field in collection `" + coll->get_name() + "`.");
         }
     }
 
-    // Perform a single search query for all facetable fields
-    if (!string_facet_fields.empty()) {
-        auto results_op = coll->search("*", {}, "", string_facet_fields, {}, {0}, 0, 1,
-          FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
-          prompt_params.max_facet_values,
-          "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
-          "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
-          6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
-          false, false, "", true, 0, max_score,
-          prompt_params.facet_sample_percent, prompt_params.facet_sample_threshold);
+    return Option<std::vector<std::string>>(string_facet_fields);
+}
 
-        if (!results_op.ok()) {
-            // the prompt is still usable without enum values
-            LOG(ERROR) << "Error collecting facet values for the schema prompt of `" << collection_name
-                       << "`: " << results_op.error();
+std::unordered_map<std::string, std::vector<std::string>> NaturalLanguageSearchModelManager::fetch_facet_values(
+        Collection* coll, const std::vector<std::string>& facet_fields, const schema_prompt_params_t& prompt_params,
+        const std::string& scope_filter) {
+    std::unordered_map<std::string, std::vector<std::string>> field_facet_values;
+    if (facet_fields.empty()) {
+        return field_facet_values;
+    }
+
+    auto results_op = coll->search("*", {}, scope_filter, facet_fields, {}, {0}, 0, 1,
+      FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+      prompt_params.max_facet_values,
+      "", 30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3,
+      "<mark>", "</mark>", {}, 1000000, true, false, true, "", false,
+      6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX, 2,
+      false, false, "", true, 0, max_score,
+      prompt_params.facet_sample_percent, prompt_params.facet_sample_threshold);
+
+    if (!results_op.ok()) {
+        // callers are still usable without enum values
+        LOG(ERROR) << "Error collecting facet values for `" << coll->get_name() << "`: " << results_op.error();
+        return field_facet_values;
+    }
+
+    auto results = results_op.get();
+    if (!results.contains("facet_counts") || !results["facet_counts"].is_array()) {
+        return field_facet_values;
+    }
+
+    for (const auto& facet_result : results["facet_counts"]) {
+        if (!facet_result.contains("field_name") || !facet_result["field_name"].is_string() ||
+            !facet_result.contains("counts") || !facet_result["counts"].is_array()) {
+            continue;
         }
 
-        auto results = results_op.get();
-
-        if (results.contains("facet_counts") && results["facet_counts"].is_array()) {
-            for (const auto& facet_result : results["facet_counts"]) {
-                if (facet_result.contains("field_name") && facet_result["field_name"].is_string() &&
-                    facet_result.contains("counts") && facet_result["counts"].is_array()) {
-                    
-                    std::string field_name = facet_result["field_name"].get<std::string>();
-                    auto& values = field_facet_values[field_name];
-                    
-                    for (const auto& count : facet_result["counts"]) {
-                        if (count.contains("value") && count["value"].is_string()) {
-                            values.push_back(count["value"].get<std::string>());
-                        }
-                    }
-                }
+        auto& values = field_facet_values[facet_result["field_name"].get<std::string>()];
+        for (const auto& count : facet_result["counts"]) {
+            if (count.contains("value") && count["value"].is_string()) {
+                values.push_back(count["value"].get<std::string>());
             }
         }
     }
+
+    return field_facet_values;
+}
+
+Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(const std::string& collection_name,
+                                                                             const schema_prompt_params_t& prompt_params) {
+    auto collection = CollectionManager::get_instance().get_collection(collection_name);
+    if (collection == nullptr) {
+        return Option<std::string>(404, "Collection not found");
+    }
+    Collection* coll = collection.get();
+    auto search_schema = coll->get_schema();
+
+    std::string schema_prompt;
+    schema_prompt += "You are given the database schema structure below. ";
+    schema_prompt += "Your task is to extract relevant SQL-like query parameters from the user's search query.\n\n";
+    schema_prompt += "Database Schema:\n";
+    schema_prompt += "Table fields are listed in the format: [Field Name] [Data Type] [Is Indexed] [Is Faceted] [Description] [Enum Values]\n\n";
+    schema_prompt += "| Field Name | Data Type | Is Indexed | Is Faceted | Description | Enum Values |\n";
+    schema_prompt += "|------------|-----------|------------|------------|-------------|-------------|\n";
+
+    auto facet_fields_op = resolve_facet_fields(coll, prompt_params);
+    if (!facet_fields_op.ok()) {
+        return Option<std::string>(facet_fields_op.code(), facet_fields_op.error());
+    }
+
+    auto field_facet_values = fetch_facet_values(coll, facet_fields_op.get(), prompt_params);
 
     std::string schema_fields;
     for (auto it = search_schema.begin(); it != search_schema.end(); ++it) {
@@ -366,6 +392,7 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
         schema_fields += "| " + field_name + " | " + field.type + " | "
                       + (field.index ? "Yes" : "No") + " | "
                       + (field.facet ? "Yes" : "No") + " | "
+                      + (field.description.empty() ? "N/A" : field.description) + " | "
                       + enum_values + " |\n";
     }
     schema_prompt += schema_fields;
@@ -442,10 +469,11 @@ void NaturalLanguageSearchModelManager::init_schema_prompts_cache(uint32_t capac
 
 Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_language_query(
     const std::string& nl_query, 
-    const std::string& collection_name, 
+    const std::string& collection_name,
     const std::string& nl_model_id,
     uint64_t prompt_cache_ttl_seconds,
-    const schema_prompt_params_t& prompt_params) {
+    const schema_prompt_params_t& prompt_params,
+    const std::string& scope_filter) {
     nlohmann::json model_config;
     
     if (!nl_model_id.empty()) {
@@ -460,7 +488,21 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
             return Option<nlohmann::json>(404, "No natural language search models found. Please configure at least one model.");
         }
         model_config = models_op.get()[0];
-    }    
+    }
+
+    // jev takes no schema prompt at all, the schema is enumerated into question criteria instead
+    if(JevClient::is_jev_model(model_config)) {
+        // jev cannot pick a value it was never offered, an untouched default widens before the catalog is built
+        schema_prompt_params_t jev_params = prompt_params;
+        if(!jev_params.schema_sample_values_set) {
+            jev_params.schema_sample_values = JevSearchParams::DEFAULT_SAMPLE_VALUES;
+        }
+        if(!jev_params.max_facet_values_set && jev_params.max_facet_values < jev_params.schema_sample_values) {
+            jev_params.max_facet_values = jev_params.schema_sample_values;
+        }
+        return JevSearchParams::generate(nl_query, collection_name, model_config, jev_params, scope_filter);
+    }
+
     auto schema_prompt_op = get_schema_prompt(collection_name, prompt_cache_ttl_seconds, prompt_params);
     if (!schema_prompt_op.ok()) {
         return Option<nlohmann::json>(schema_prompt_op.code(), "Error generating schema prompt: " + schema_prompt_op.error());
@@ -479,7 +521,9 @@ static const std::vector<std::string> NL_PRESET_PARAMS = {
     "nl_facet_sample_percent", "nl_facet_sample_threshold", "nl_facet_fields"
 };
 
-Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, uint64_t schema_prompt_ttl_seconds) {
+Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params,
+                                                                                        uint64_t schema_prompt_ttl_seconds,
+                                                                                        const nlohmann::json& embedded_params) {
 
     std::string nl_query;
     bool has_nl_query = false;
@@ -531,12 +575,19 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
         return Option<uint64_t>(prompt_params_op.code(), prompt_params_op.error());
     }
 
+    // a scoped key's embedded filter must also scope what the model gets to see
+    std::string scope_filter;
+    if(embedded_params.contains("filter_by") && embedded_params["filter_by"].is_string()) {
+        scope_filter = embedded_params["filter_by"].get<std::string>();
+    }
+
     auto params_op = process_natural_language_query(
         nl_query,
         collection_name,
         req_params.count("nl_model_id") > 0 ? req_params.at("nl_model_id") : "default",
         schema_prompt_ttl_seconds,
-        prompt_params_op.get()
+        prompt_params_op.get(),
+        scope_filter
     );
 
     if(!params_op.ok()) {

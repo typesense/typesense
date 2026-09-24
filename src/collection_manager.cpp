@@ -272,6 +272,10 @@ Option<Collection*> CollectionManager::init_collection(const nlohmann::json & co
             f.sort = field_obj[fields::sort];
         }
 
+        if(field_obj.count(fields::description) != 0 && field_obj[fields::description].is_string()) {
+            f.description = field_obj[fields::description];
+        }
+
         fields.push_back(f);
     }
 
@@ -2354,7 +2358,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(args.enable_analytics && result.contains("found")) {
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(args.raw_query);
+            // analytics logs the typed text, not the nl rewritten q
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(
+                    args.original_nl_query.empty() ? args.raw_query : args.original_nl_query);
             search_internal_event_t internal_event = {
                 SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
