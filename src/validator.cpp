@@ -1,6 +1,66 @@
 #include "validator.h"
 #include "field.h"
 
+namespace {
+bool should_drop_field(const field& a_field, const DIRTY_VALUES& dirty_values) {
+    return a_field.optional &&
+           (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_DROP);
+}
+
+Option<uint32_t> handle_int32_out_of_range(const field& a_field, const DIRTY_VALUES& dirty_values,
+                                           nlohmann::json& document, const std::string& field_name,
+                                           nlohmann::json::iterator& array_iter, bool is_array,
+                                           bool& array_ele_erased) {
+    if(!should_drop_field(a_field, dirty_values)) {
+        return Option<>(400, "Field `" + field_name  + "` is outside the range of int32.");
+    }
+
+    if(!is_array) {
+        document.erase(field_name);
+    } else {
+        array_iter = document[field_name].erase(array_iter);
+        array_ele_erased = true;
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t> validate_int32_bounds(const field& a_field, const DIRTY_VALUES& dirty_values,
+                                       nlohmann::json& document, const std::string& field_name,
+                                       nlohmann::json::iterator& array_iter, bool is_array,
+                                       bool& array_ele_erased) {
+    if(!is_array && document.count(field_name) == 0) {
+        return Option<uint32_t>(200);
+    }
+
+    auto& item = is_array ? array_iter.value() : document[field_name];
+
+    if(!item.is_number_integer()) {
+        return Option<uint32_t>(200);
+    }
+
+    // nlohmann::json treats unsigned/signed integers as "number_integer", so guard both cases explicitly.
+    if(item.is_number_unsigned()) {
+        if(item.get<uint64_t>() > static_cast<uint64_t>(INT32_MAX)) {
+            return handle_int32_out_of_range(a_field, dirty_values, document, field_name,
+                                             array_iter, is_array, array_ele_erased);
+        }
+
+        // Normalize to signed to keep downstream int32 reads consistent.
+        item = static_cast<int32_t>(item.get<uint64_t>());
+        return Option<uint32_t>(200);
+    }
+
+    const int64_t val = item.get<int64_t>();
+    if(val > INT32_MAX || val < INT32_MIN) {
+        return handle_int32_out_of_range(a_field, dirty_values, document, field_name,
+                                         array_iter, is_array, array_ele_erased);
+    }
+
+    return Option<uint32_t>(200);
+}
+}
+
 Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::json& document,
                                        nlohmann::json& doc_ele,
                                        const std::string& fallback_field_type,
@@ -24,6 +84,12 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
+        }
+
+        Option<uint32_t> range_op = validate_int32_bounds(a_field, dirty_values, document, field_name,
+                                                          dummy_iter, false, array_ele_erased);
+        if(!range_op.ok()) {
+            return range_op;
         }
     } else if(a_field.type == field_types::INT64) {
         if(!doc_ele.is_number_integer()) {
@@ -124,10 +190,20 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                 if (!coerce_op.ok()) {
                     return coerce_op;
                 }
-            } else if (a_field.type == field_types::INT32_ARRAY && !item.is_number_integer()) {
-                Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
-                if (!coerce_op.ok()) {
-                    return coerce_op;
+            } else if (a_field.type == field_types::INT32_ARRAY) {
+                if(!item.is_number_integer()) {
+                    Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                }
+
+                if(!array_ele_erased) {
+                    Option<uint32_t> range_op = validate_int32_bounds(a_field, dirty_values, document, field_name,
+                                                                      it, true, array_ele_erased);
+                    if(!range_op.ok()) {
+                        return range_op;
+                    }
                 }
             } else if (a_field.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
                 Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
@@ -317,14 +393,6 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
                                       "Hint: field inside an array of objects must be an array type as well.");
             }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
-        }
-    }
-
-    if(document.contains(field_name) && document[field_name].get<int64_t>() > INT32_MAX) {
-        if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT)) {
-            document.erase(field_name);
-        } else {
-            return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
         }
     }
 
