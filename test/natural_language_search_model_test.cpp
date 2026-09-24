@@ -1598,3 +1598,129 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelWithOptionalParameters)
     ASSERT_TRUE(result.ok());
 }
 
+
+TEST_F(NaturalLanguageSearchModelTest, UsesMaxCompletionTokensByModelFamily) {
+    // observed against the live api on 2026-09-24: every gpt-5.x, gpt-6 and o-series chat model
+    // rejects max_tokens with "Use 'max_completion_tokens' instead", gpt-4.x and older accept both
+    for(const char* name : {"gpt-5", "gpt-5-mini", "gpt-5-nano-2025-08-07", "gpt-5.1", "gpt-5.2-2025-12-11",
+                            "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra", "gpt-6-sol",
+                            "gpt-7", "gpt-10-preview", "my-gpt-6-deployment",
+                            "o1", "o1-2024-12-17", "o3", "o3-mini", "o4-mini-2025-04-16"}) {
+        ASSERT_TRUE(NaturalLanguageSearchModel::uses_max_completion_tokens(name)) << name;
+    }
+    for(const char* name : {"gpt-3.5-turbo", "gpt-4", "gpt-4-0613", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini",
+                            "gpt-4o", "gpt-4o-mini-2024-07-18", "gpt-35-turbo", "gpt-35-turbo-16k", "gpt-oss-120b", "gpt-", "gpt",
+                            "omni", "mistral-7b-instruct", ""}) {
+        ASSERT_FALSE(NaturalLanguageSearchModel::uses_max_completion_tokens(name)) << name;
+    }
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIGpt6RequestUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\", \"filter_by\": \"price:>1000\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-6-luna",
+        "api_key": "sk-test",
+        "max_bytes": 1024
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["model"], "gpt-6-luna");
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(result.get()["q"], "laptop");
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 2);
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["model"], "gpt-6-luna");
+    ASSERT_EQ(body["max_completion_tokens"], 1024);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIGpt6RejectsTemperature) {
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-6-luna",
+        "api_key": "sk-test",
+        "max_bytes": 1024,
+        "temperature": 0.5
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "Property `temperature` is not supported for the o-series and gpt-5 and newer models.");
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 0);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIGpt4RequestKeepsMaxTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-4.1",
+        "api_key": "sk-test",
+        "max_bytes": 1024,
+        "temperature": 0.3
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_tokens"], 1024);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.3f);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, AzureGpt6RequestUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-6-luna",
+        "api_key": "test-azure-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-6-luna/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 2048
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 2048);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}
