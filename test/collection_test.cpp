@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <cstdlib>
+#include <thread>
+#include <atomic>
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
@@ -5631,4 +5633,65 @@ TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     
     collectionManager.drop_collection("users_1");
     collectionManager.drop_collection("users_2");
+}
+
+TEST_F(CollectionTest, BulkImportDocumentsAlwaysFetchableWhenSearchable) {
+    // Broader regression test for https://github.com/typesense/typesense/issues/3028: while a large
+    // batch import is running on one thread, a concurrent search on another thread must never see a
+    // `found` count that exceeds the number of documents it could actually fetch and return as `hits`
+    // (per_page is set high enough to cover every match). Before the fix, `Collection::batch_index()`
+    // made newly imported seq_ids searchable before their documents were durably persisted, so a
+    // concurrent search could intermittently observe `hits.size() < found`.
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll_bulk_visibility").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll_bulk_visibility", 1, fields, "points").get();
+    }
+
+    std::atomic<bool> stop_search(false);
+    std::atomic<bool> mismatch_found(false);
+
+    std::thread searcher([&]() {
+        while(!stop_search.load()) {
+            auto res_op = coll1->search("racedoc", {"title"}, "", {}, sort_fields, {0}, 2000, 1,
+                                        FREQUENCY, {false});
+            if(res_op.ok()) {
+                auto res = res_op.get();
+                size_t found = res["found"].get<size_t>();
+                size_t num_hits = res["hits"].size();
+                if(num_hits < found) {
+                    mismatch_found = true;
+                }
+            }
+        }
+    });
+
+    const size_t num_docs = 1000;
+    std::vector<std::string> import_records;
+    import_records.reserve(num_docs);
+    for(size_t i = 0; i < num_docs; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "racedoc";
+        doc["points"] = (int) i;
+        import_records.push_back(doc.dump());
+    }
+
+    nlohmann::json dummy_document;
+    nlohmann::json import_response = coll1->add_many(import_records, dummy_document);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(num_docs, import_response["num_imported"].get<size_t>());
+
+    stop_search = true;
+    searcher.join();
+
+    ASSERT_FALSE(mismatch_found.load());
+
+    collectionManager.drop_collection("coll_bulk_visibility");
 }
