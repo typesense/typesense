@@ -7293,6 +7293,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         auto it = updated_reference_fields.find(f.name);
+        if (it == updated_reference_fields.end()) {
+            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
+        }
         if (it != updated_reference_fields.end() && f.reference != (it->second.collection + it->second.field)) {
             CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
             // No need to remove the field from reference index if it still references the same field.

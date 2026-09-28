@@ -13810,6 +13810,40 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, DroppingAsyncReferenceRemovesRegistration) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json;
+    auto customers_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(customers_op.ok()) << customers_op.error();
+    auto customers = customers_op.get();
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [
+            {"name": "number", "type": "string"},
+            {"name": "customer_id", "type": "string", "reference": "customers.id",
+             "async_reference": true, "optional": true}
+        ]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+    auto invoices = invoices_op.get();
+
+    ASSERT_TRUE(customers->add(R"({"id":"c1","name":"Acme"})").ok());
+    ASSERT_EQ(1, customers->get_async_referenced_ins().count("id"));
+    ASSERT_EQ(1, collectionManager._get_referenced_ins().count("customers"));
+
+    auto drop = R"({"fields":[{"name":"customer_id","drop":true}]})"_json;
+    auto drop_op = invoices->alter(drop);
+    ASSERT_TRUE(drop_op.ok()) << drop_op.error();
+    ASSERT_EQ(0, invoices->get_schema().count("customer_id"));
+    ASSERT_TRUE(customers->get_async_referenced_ins().empty());
+    ASSERT_EQ(0, collectionManager._get_referenced_ins().count("customers"));
+    ASSERT_TRUE(customers->add(R"({"id":"c2","name":"Globex"})").ok());
+}
+
 TEST_F(CollectionJoinTest, AlterReferenceField) {
     auto schema_json =
             R"({
