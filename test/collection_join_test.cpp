@@ -13844,6 +13844,62 @@ TEST_F(CollectionJoinTest, DroppingAsyncReferenceRemovesRegistration) {
     ASSERT_TRUE(customers->add(R"({"id":"c2","name":"Globex"})").ok());
 }
 
+TEST_F(CollectionJoinTest, LoadRemovesOnlyStaleAsyncReferenceRegistrations) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(customers_schema).ok());
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [{"name": "customer_id", "type": "string", "reference": "customers.id",
+                    "async_reference": true, "optional": true}]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+
+    auto orders_schema = R"({
+        "name": "orders",
+        "fields": [{"name": "customer_id", "type": "string", "reference": "customers.id",
+                    "async_reference": true, "optional": true}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(orders_schema).ok());
+
+    std::string stale_referenced_ins;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, stale_referenced_ins));
+
+    auto drop = R"({"fields":[{"name":"customer_id","drop":true}]})"_json;
+    auto drop_op = invoices_op.get()->alter(drop);
+    ASSERT_TRUE(drop_op.ok()) << drop_op.error();
+
+    ASSERT_TRUE(store->insert(CollectionManager::REFERENCED_INS, stale_referenced_ins));
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count("customers"));
+    ASSERT_EQ(0, referenced_ins.at("customers").count("invoices"));
+    ASSERT_EQ(1, referenced_ins.at("customers").count("orders"));
+
+    auto customers = collectionManager.get_collection("customers");
+    ASSERT_NE(nullptr, customers);
+    auto async_refs = customers->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t("invoices", "customer_id")));
+    ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t("orders", "customer_id")));
+    ASSERT_TRUE(customers->add(R"({"id":"c1","name":"Acme"})").ok());
+
+    std::string repaired_referenced_ins;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, repaired_referenced_ins));
+    ASSERT_EQ(1, nlohmann::json::parse(repaired_referenced_ins)[0]["referenced_infos"].size());
+}
+
 TEST_F(CollectionJoinTest, AlterReferenceField) {
     auto schema_json =
             R"({
