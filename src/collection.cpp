@@ -7294,10 +7294,31 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         auto it = updated_reference_fields.find(f.name);
         if (it == updated_reference_fields.end()) {
-            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
+            auto& cm = CollectionManager::get_instance();
+            const auto referenced_coll_name = erase_it->second.collection;
+            cm.remove_referenced_ins_with_lock(name, f.name, erase_it->second);
+
+            // Keep one surviving field registered for this collection pair.
+            for (const auto& item: updated_reference_fields) {
+                const auto& remaining_ref_info = item.second;
+                if (remaining_ref_info.collection != referenced_coll_name) {
+                    continue;
+                }
+
+                auto remaining_target = remaining_ref_info.collection;
+                auto remaining_registration = reference_info_t(name, item.first, remaining_ref_info.is_async,
+                                                                remaining_ref_info.is_array, remaining_ref_info.field);
+                std::set<update_reference_info_t> update_ref_infos;
+                auto add_op = cm.add_referenced_ins_with_lock(remaining_target, std::move(remaining_registration),
+                                                              update_ref_infos);
+                if (!add_op.ok()) {
+                    return add_op;
+                }
+                break;
+            }
         }
         if (it != updated_reference_fields.end() && f.reference != (it->second.collection + it->second.field)) {
-            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, erase_it->second);
+            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, f.name, erase_it->second);
             // No need to remove the field from reference index if it still references the same field.
             continue;
         }
@@ -9106,11 +9127,17 @@ void Collection::remove_referenced_in(const std::string& collection_name, const 
     }
 
     std::unique_lock lock(mutex);
-    referenced_in.erase(collection_name);
+    auto referenced_in_it = referenced_in.find(collection_name);
+    if (referenced_in_it != referenced_in.end() && referenced_in_it->second == field_name) {
+        referenced_in.erase(referenced_in_it);
+    }
     if (is_async) {
-        async_referenced_ins[referenced_field_name].erase(reference_pair_t(collection_name, field_name));
-        if (async_referenced_ins[referenced_field_name].empty()) {
-            async_referenced_ins.erase(referenced_field_name);
+        auto async_it = async_referenced_ins.find(referenced_field_name);
+        if (async_it != async_referenced_ins.end()) {
+            async_it->second.erase(reference_pair_t(collection_name, field_name));
+            if (async_it->second.empty()) {
+                async_referenced_ins.erase(async_it);
+            }
         }
     }
 }

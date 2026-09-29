@@ -1351,7 +1351,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     for (const auto& item: reference_fields) {
         const auto& reference_info = item.second;
 
-        remove_referenced_ins_with_lock(collection_name, reference_info);
+        remove_referenced_ins_with_lock(collection_name, item.first, reference_info);
     }
 
     std::unique_lock u_lock(mutex);
@@ -3402,6 +3402,7 @@ Option<bool> CollectionManager::add_referenced_ins(std::string& referenced_colle
 }
 
 void CollectionManager::remove_referenced_ins_with_lock(const std::string& referencing_coll_name,
+                                                        const std::string& referencing_field_name,
                                                         const reference_info_t& ref_info) {
     std::unique_lock lock(mutex);
     if (referencing_coll_name.empty()) {
@@ -3410,27 +3411,25 @@ void CollectionManager::remove_referenced_ins_with_lock(const std::string& refer
 
     const auto& referenced_coll_name = ref_info.collection;
     auto referenced_it = referenced_ins.find(referenced_coll_name);
-    if (referenced_it == referenced_ins.end()) {
-        return;
+    if (referenced_it != referenced_ins.end()) {
+        auto referencing_it = referenced_it->second.find(referencing_coll_name);
+        if (referencing_it != referenced_it->second.end() &&
+            referencing_it->second.field == referencing_field_name &&
+            referencing_it->second.referenced_field_name == ref_info.field) {
+            referenced_it->second.erase(referencing_it);
+            if (referenced_it->second.empty()) {
+                referenced_ins.erase(referenced_it);
+            }
+            persist_referenced_ins();
+        }
     }
-    auto referencing_it = referenced_it->second.find(referencing_coll_name);
-    if (referencing_it == referenced_it->second.end()) {
-        return;
-    }
-    const auto referencing_field_name = referencing_it->second.field;
-    referenced_it->second.erase(referencing_it);
-    if (referenced_it->second.empty()) {
-        referenced_ins.erase(referenced_it);
-    }
-    persist_referenced_ins();
 
     auto ref_coll = get_collection_unsafe(referenced_coll_name);
     if (ref_coll == nullptr) {
-        LOG(ERROR) << "Could not remove referenced in: Referenced collection `" + referenced_coll_name + "` not found.";
         return;
     }
     ref_coll->remove_referenced_in(referencing_coll_name, referencing_field_name, ref_info.is_async,
-                                   ref_info.referenced_field.name);
+                                   ref_info.field);
 }
 
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
