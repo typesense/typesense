@@ -7293,6 +7293,11 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         auto it = updated_reference_fields.find(f.name);
+        const auto symlinks = CollectionManager::get_instance().get_symlinks();
+        const auto resolve_target = [&symlinks](const std::string& target) {
+            const auto symlink_it = symlinks.find(target);
+            return symlink_it == symlinks.end() ? target : symlink_it->second;
+        };
         if (it == updated_reference_fields.end()) {
             auto& cm = CollectionManager::get_instance();
             const auto referenced_coll_name = erase_it->second.collection;
@@ -7301,7 +7306,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             // Keep one surviving field registered for this collection pair.
             for (const auto& item: updated_reference_fields) {
                 const auto& remaining_ref_info = item.second;
-                if (remaining_ref_info.collection != referenced_coll_name) {
+                if (resolve_target(remaining_ref_info.collection) != resolve_target(referenced_coll_name)) {
                     continue;
                 }
 
@@ -7318,11 +7323,6 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
         }
         if (it != updated_reference_fields.end()) {
-            const auto symlinks = CollectionManager::get_instance().get_symlinks();
-            const auto resolve_target = [&symlinks](const std::string& target) {
-                const auto symlink_it = symlinks.find(target);
-                return symlink_it == symlinks.end() ? target : symlink_it->second;
-            };
             const auto& old_ref = erase_it->second;
             const auto& new_ref = it->second;
             const bool same_registration = resolve_target(old_ref.collection) == resolve_target(new_ref.collection) &&

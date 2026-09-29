@@ -13980,6 +13980,75 @@ TEST_F(CollectionJoinTest, DroppingOneOfTwoAsyncReferencesPreservesTheOther) {
     }
 }
 
+TEST_F(CollectionJoinTest, ReplacingAsyncReferenceThroughAliasPromotesNewField) {
+    for (const auto& suffix: {"direct", "alias"}) {
+        const std::string target_name = std::string("customers_") + suffix;
+        const std::string referencing_name = std::string("invoices_") + suffix;
+        const std::string alias_name = target_name + "_alias";
+
+        auto target_schema = R"({"fields":[{"name":"name","type":"string"}]})"_json;
+        target_schema["name"] = target_name;
+        auto target_op = collectionManager.create_collection(target_schema);
+        ASSERT_TRUE(target_op.ok()) << target_op.error();
+        ASSERT_TRUE(collectionManager.upsert_symlink(alias_name, target_name).ok());
+
+        auto referencing_schema = R"({"fields":[{"name":"old","type":"string","async_reference":true,"optional":true}]})"_json;
+        referencing_schema["name"] = referencing_name;
+        referencing_schema["fields"][0]["reference"] = target_name + ".id";
+        auto referencing_op = collectionManager.create_collection(referencing_schema);
+        ASSERT_TRUE(referencing_op.ok()) << referencing_op.error();
+
+        auto alteration = R"({"fields":[{"name":"old","drop":true},{"name":"new","type":"string","async_reference":true,"optional":true}]})"_json;
+        alteration["fields"][1]["reference"] = (suffix == std::string("alias") ? alias_name : target_name) + ".id";
+        auto alter_op = referencing_op.get()->alter(alteration);
+        ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+
+        const auto reverse = collectionManager._get_referenced_ins();
+        ASSERT_EQ("new", reverse.at(target_name).at(referencing_name).field);
+        const auto async_refs = target_op.get()->get_async_referenced_ins();
+        ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t(referencing_name, "old")));
+        ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, "new")));
+        ASSERT_TRUE(referencing_op.get()->add(R"({"id":"i1","new":"c1"})").ok());
+        ASSERT_TRUE(target_op.get()->add(R"({"id":"c1","name":"Customer"})").ok());
+    }
+
+    auto check_joins = [this]() {
+        for (const auto& suffix: {"direct", "alias"}) {
+            const std::string target_name = std::string("customers_") + suffix;
+            const std::string referencing_name = std::string("invoices_") + suffix;
+            std::map<std::string, std::string> req_params = {
+                    {"collection", target_name}, {"q", "*"}, {"query_by", "name"},
+                    {"filter_by", "$" + referencing_name + "(id:*)"},
+                    {"include_fields", "id,$" + referencing_name + "(*)"}};
+            nlohmann::json embedded_params;
+            std::string json_res;
+            auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, 0);
+            ASSERT_TRUE(search_op.ok()) << suffix << ": " << search_op.error();
+            const auto result = nlohmann::json::parse(json_res);
+            ASSERT_EQ(1, result["found"]);
+            ASSERT_EQ("i1", result["hits"][0]["document"][referencing_name]["id"]);
+        }
+    };
+    check_joins();
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    for (const auto& suffix: {"direct", "alias"}) {
+        const std::string target_name = std::string("customers_") + suffix;
+        const std::string referencing_name = std::string("invoices_") + suffix;
+        ASSERT_EQ("new", collectionManager._get_referenced_ins().at(target_name).at(referencing_name).field);
+        auto target = collectionManager.get_collection(target_name);
+        ASSERT_NE(nullptr, target);
+        ASSERT_TRUE(target->add(R"({"id":"c2","name":"After restart"})").ok());
+    }
+    check_joins();
+}
+
 TEST_F(CollectionJoinTest, LoadRemovesOnlyStaleAsyncReferenceRegistrations) {
     auto customers_schema = R"({
         "name": "customers",
