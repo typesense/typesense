@@ -2844,10 +2844,15 @@ TEST_F(FilterTest, FilterReferences) {
                                                                          right_refs),
                                             filter_root, new filter_node_t());
 
-    std::vector<uint32_t> expected = {1, 4};
-    std::vector<std::vector<std::string>> collection_names = {{"foo"}, {"foo", "bar"}};
-    std::vector<std::vector<uint32_t>> ref_ids = {{101}, {104, 103}};
-    for (size_t i = 0; i < 2; i++) {
+    // AND intersects the primary IDs, while preserving the union of joined-row IDs that matched either branch.
+    std::vector<uint32_t> expected = {1, 4, 6};
+    std::vector<std::vector<std::string>> collection_names = {{"foo"},
+                                                              {"foo", "bar"},
+                                                              {"bar"}};
+    std::vector<std::vector<std::vector<uint32_t>>> ref_ids = {{{101}},
+                                                               {{104}, {103}},
+                                                               {{105, 106}}};
+    for (size_t i = 0; i < 3; i++) {
         ASSERT_EQ(filter_result_iterator_t::valid, fit->validity);
         const auto& id = expected[i];
         ASSERT_EQ(id, fit->seq_id);
@@ -2855,10 +2860,11 @@ TEST_F(FilterTest, FilterReferences) {
         for (size_t j = 0; j < collection_names[i].size(); j++) {
             const auto& name = collection_names[i][j];
             ASSERT_EQ(1, fit->reference.count(name));
-            ASSERT_EQ(1, fit->reference[name].count);
+            ASSERT_EQ(ref_ids[i][j].size(), fit->reference[name].count);
 
-            const auto& ref_id = ref_ids[i][j];
-            ASSERT_EQ(ref_id, fit->reference[name].docs[0]);
+            for (size_t k = 0; k < ref_ids[i][j].size(); k++) {
+                ASSERT_EQ(ref_ids[i][j][k], fit->reference[name].docs[k]);
+            }
         }
 
         fit->next();

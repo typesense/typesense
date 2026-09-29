@@ -2571,12 +2571,20 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_TRUE(search_op_bool.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"]);
-    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["found"]);
+    ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
     ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+
+    ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Customers"].size());
+    ASSERT_EQ("customer_a", res_obj["hits"][1]["document"]["Customers"][0]["customer_id"]);
+    ASSERT_EQ(143, res_obj["hits"][1]["document"]["Customers"][0]["product_price"]);
+    ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"][1]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"][1]["product_price"]);
 
     req_params = {
             {"collection", "Products"},
@@ -3211,14 +3219,29 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithNestedReferences) {
 
     filter_result_t result_2;
     filter_result_t::and_filter_results(a, b, result_2);
-    ASSERT_EQ(1, result_2.count);
-    ASSERT_EQ(3, result_2.docs[0]);
+    ASSERT_EQ(2, result_2.count);
+    ASSERT_EQ(1, result_2.docs[0]);
+    ASSERT_EQ(3, result_2.docs[1]);
 
     ASSERT_NE(nullptr, result_2.coll_to_references);
 
     ASSERT_EQ(1, result_2.coll_to_references[0].size());
     ASSERT_EQ(1, result_2.coll_to_references[0].count("L2"));
-    const auto& nested_result_doc_3_L2 = result_2.coll_to_references[0]["L2"];
+    const auto& nested_result_doc_1_L2 = result_2.coll_to_references[0]["L2"];
+    ASSERT_EQ(1, nested_result_doc_1_L2.count);
+    ASSERT_EQ(1, nested_result_doc_1_L2.docs[0]);
+    ASSERT_NE(nullptr, nested_result_doc_1_L2.coll_to_references);
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].size());
+    ASSERT_EQ(1, nested_result_doc_1_L2.coll_to_references[0].count("L3_1"));
+    const auto& nested_result_doc_1_L3_1 = nested_result_doc_1_L2.coll_to_references[0]["L3_1"];
+    ASSERT_EQ(2, nested_result_doc_1_L3_1.count);
+    ASSERT_EQ(0, nested_result_doc_1_L3_1.docs[0]);
+    ASSERT_EQ(1, nested_result_doc_1_L3_1.docs[1]);
+    ASSERT_EQ(nullptr, nested_result_doc_1_L3_1.coll_to_references);
+
+    ASSERT_EQ(1, result_2.coll_to_references[1].size());
+    ASSERT_EQ(1, result_2.coll_to_references[1].count("L2"));
+    const auto& nested_result_doc_3_L2 = result_2.coll_to_references[1]["L2"];
     ASSERT_EQ(1, nested_result_doc_3_L2.count);
     ASSERT_EQ(0, nested_result_doc_3_L2.docs[0]);
     ASSERT_NE(nullptr, nested_result_doc_3_L2.coll_to_references);
@@ -12356,13 +12379,19 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
     ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"]);
-    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"][0]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"][0]["product_price"]);
+    ASSERT_EQ("customer_b", res_obj["hits"][0]["document"]["Customers"][1]["customer_id"]);
+    ASSERT_EQ(140, res_obj["hits"][0]["document"]["Customers"][1]["product_price"]);
 
     ASSERT_EQ(6, res_obj["hits"][1]["document"].size());
     ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
-    ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"]["customer_id"]);
-    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"]["product_price"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Customers"].size());
+    ASSERT_EQ("customer_a", res_obj["hits"][1]["document"]["Customers"][0]["customer_id"]);
+    ASSERT_EQ(143, res_obj["hits"][1]["document"]["Customers"][0]["product_price"]);
+    ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"][1]["customer_id"]);
+    ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"][1]["product_price"]);
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {
@@ -15893,6 +15922,83 @@ TEST_F(CollectionJoinTest, MultipleJoinsSameCollection) {
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
+}
+
+TEST_F(CollectionJoinTest, MultipleJoinsSameCollectionIntersectPrimaryDocuments) {
+    auto docs_schema =
+            R"({
+                "name": "docs",
+                "fields": [
+                    {"name": "likes", "type": "int32"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(docs_schema);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto docs_collection = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+            R"({"id": "doc_a", "likes": 15})"_json,
+            R"({"id": "doc_b", "likes": 5})"_json,
+            R"({"id": "doc_c", "likes": 50})"_json,
+    };
+    for (const auto& document : documents) {
+        auto add_op = docs_collection->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto users_schema =
+            R"({
+                "name": "users",
+                "fields": [
+                    {"name": "name", "type": "string", "optional": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(users_schema);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto users_collection = collection_create_op.get();
+
+    documents = {
+            R"({"id": "user_a"})"_json,
+            R"({"id": "user_b"})"_json,
+    };
+    for (const auto& document : documents) {
+        auto add_op = users_collection->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto access_schema =
+            R"({
+                "name": "user_doc_access",
+                "fields": [
+                    {"name": "doc_id", "type": "string", "reference": "docs.id"},
+                    {"name": "user_id", "type": "string", "reference": "users.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(access_schema);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+    auto access_collection = collection_create_op.get();
+
+    documents = {
+            R"({"doc_id": "doc_a", "user_id": "user_a"})"_json,
+            R"({"doc_id": "doc_b", "user_id": "user_b"})"_json,
+            R"({"doc_id": "doc_c", "user_id": "user_a"})"_json,
+            R"({"doc_id": "doc_c", "user_id": "user_b"})"_json,
+    };
+    for (const auto& document : documents) {
+        auto add_op = access_collection->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    const std::string filter_query = "$user_doc_access(user_id: user_a) && $user_doc_access(user_id: user_b)";
+    auto search_op = docs_collection->search("*", {}, filter_query, {}, {}, {0});
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = search_op.get();
+
+    // Both branches match doc_c through different access documents, so the outer AND should intersect the primary
+    // documents.
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("doc_c", result["hits"][0]["document"]["id"]);
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_UsesMaterializedReferenceCount) {
