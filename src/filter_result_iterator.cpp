@@ -2479,7 +2479,8 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
     // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         skip_to(id);
-        return validity ? (seq_id == id ? 1 : 0) : -1;
+        const auto result = validity ? (seq_id == id ? 1 : 0) : -1;
+        return result == 1 && index != nullptr && !index->is_live_seq_id(id) ? 0 : result;
     }
 
     if (filter_node->isOperator) {
@@ -2518,7 +2519,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
 
                 return validity == invalid ? -1 : 0;
             }
-            return 1;
+            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
         } else {
             validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
 
@@ -2566,7 +2567,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
                     reference[item.first] = item.second;
                 }
             }
-            return 1;
+            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
         }
     }
 
@@ -2580,7 +2581,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         seq_id = id + 1;
 
         if (!is_equals_iterator_valid || id < equals_iterator_id) {
-            return 1;
+            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
         } else if (id == equals_iterator_id) {
             return 0;
         }
@@ -2595,10 +2596,11 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         if (id == equals_iterator_id) {
             return 0;
         }
-        return 1;
+        return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
     }
 
-    return validity ? (id == equals_iterator_id ? 1 : 0) : -1;
+    const auto result = validity ? (id == equals_iterator_id ? 1 : 0) : -1;
+    return result == 1 && index != nullptr && !index->is_live_seq_id(id) ? 0 : result;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -2615,6 +2617,10 @@ Option<bool> filter_result_iterator_t::init_status() {
 
 bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     if (validity != valid) {
+        return false;
+    }
+
+    if (index != nullptr && !index->is_live_seq_id(seq_id)) {
         return false;
     }
 
@@ -2823,8 +2829,15 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
     }
 
     filter_array = new uint32_t[filter_result.count];
-    std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
-    return filter_result.count;
+    uint32_t live_count = 0;
+    for(uint32_t i = 0; i < filter_result.count; i++) {
+        const auto id = filter_result.docs[i];
+        if (index != nullptr && !index->is_live_seq_id(id)) {
+            continue;
+        }
+        filter_array[live_count++] = id;
+    }
+    return live_count;
 }
 
 uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results) {
@@ -2833,7 +2846,18 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
     }
 
     if (is_filter_result_initialized) {
-        return ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &results);
+        auto result_count = ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &results);
+        if (index == nullptr) {
+            return result_count;
+        }
+
+        uint32_t live_count = 0;
+        for(uint32_t i = 0; i < result_count; i++) {
+            if(index->is_live_seq_id(results[i])) {
+                results[live_count++] = results[i];
+            }
+        }
+        return live_count;
     }
 
     std::vector<uint32_t> filter_ids;
@@ -2866,6 +2890,15 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     if (filter_result.coll_to_references == nullptr) {
         if (is_filter_result_initialized) {
             result.count = ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &result.docs);
+            if(index != nullptr) {
+                uint32_t live_count = 0;
+                for(uint32_t i = 0; i < result.count; i++) {
+                    if(index->is_live_seq_id(result.docs[i])) {
+                        result.docs[live_count++] = result.docs[i];
+                    }
+                }
+                result.count = live_count;
+            }
             return;
         }
 
@@ -3040,22 +3073,31 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         }
     }
 
-    auto result_length = result->count = std::min(n, filter_result.count - result_index);
+    auto result_length = std::min(n, filter_result.count - result_index);
     result->docs = new uint32_t[result_length];
     if (filter_result.coll_to_references != nullptr) {
         result->coll_to_references = new std::map<std::string, reference_filter_result_t>[result_length] {};
     }
 
-    for (uint32_t i = 0; i < result_length; i++, result_index++) {
-        result->docs[i] = filter_result.docs[result_index];
-
-        if (filter_result.coll_to_references == nullptr) {
+    uint32_t live_count = 0;
+    while (live_count < result_length && result_index < filter_result.count) {
+        const auto source_index = result_index++;
+        const auto id = filter_result.docs[source_index];
+        if (index != nullptr && !index->is_live_seq_id(id)) {
             continue;
         }
 
-        result->coll_to_references[i] = filter_result.coll_to_references[result_index];
+        result->docs[live_count] = id;
+
+        if (filter_result.coll_to_references == nullptr) {
+            live_count++;
+            continue;
+        }
+
+        result->coll_to_references[live_count++] = filter_result.coll_to_references[source_index];
     }
 
+    result->count = live_count;
     validity = result_index < filter_result.count ? valid : invalid;
 }
 
@@ -3086,6 +3128,10 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
     std::vector<uint32_t> match_indexes;
     for (uint32_t count = 0; count < n && result_index < filter_result.count; result_index++) {
         auto id = filter_result.docs[result_index];
+
+        if (index != nullptr && !index->is_live_seq_id(id)) {
+            continue;
+        }
 
         if (!ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, id)) {
             match_indexes.push_back(result_index);

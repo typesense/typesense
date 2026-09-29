@@ -700,7 +700,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 9};
-    expected = {1, 1, 1, 1, 0, 1, 1, 1, 0, -1};
+    expected = {0, 1, 0, 1, 0, 1, 1, 1, 0, -1}; // Deleted documents 0 and 2 are no longer filter matches.
     std::vector<uint32_t > equals_match_seq_ids = {4, 4, 4, 4, 4, 8, 8, 8, 8, 8};
     std::vector<bool> equals_iterator_valid = {true, true, true, true, true, true, true, true, true, true};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {

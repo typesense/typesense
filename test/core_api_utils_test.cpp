@@ -3760,6 +3760,68 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CoreAPIUtilsTest, DeleteQueryOnNonStoredFacetRemovesDeletedIds) {
+    nlohmann::json schema = R"({
+        "name": "non_stored_delete",
+        "fields": [
+            {"name": "category", "type": "string", "facet": true, "store": false}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    for(const auto& [id, category]: std::vector<std::pair<std::string, std::string>>{
+            {"1", "facet1"}, {"2", "facet1"}, {"3", "facet2"}}) {
+        nlohmann::json doc = {{"id", id}, {"category", category}};
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    auto stored_doc_op = coll->get("1");
+    ASSERT_TRUE(stored_doc_op.ok());
+    auto stored_doc = stored_doc_op.get();
+    ASSERT_FALSE(stored_doc.contains("category"));
+
+    auto before_op = coll->search("*", {}, "category:=facet1", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(before_op.ok());
+    ASSERT_EQ(2, before_op.get()["found"].get<size_t>());
+    ASSERT_EQ(2, before_op.get()["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "non_stored_delete";
+    req->params["filter_by"] = "category:=facet1";
+    del_remove_documents(req, res);
+
+    auto delete_result = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, delete_result["num_deleted"].get<size_t>());
+
+    auto after_op = coll->search("*", {}, "category:=facet1", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(after_op.ok());
+    auto after = after_op.get();
+    ASSERT_EQ(0, after["found"].get<size_t>());
+    ASSERT_TRUE(after["hits"].empty());
+    ASSERT_TRUE(after["facet_counts"][0]["counts"].empty());
+
+    auto remaining_op = coll->search("*", {}, "", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(remaining_op.ok());
+    auto remaining = remaining_op.get();
+    ASSERT_EQ(1, remaining["found"].get<size_t>());
+    ASSERT_EQ("facet2", remaining["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, remaining["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "non_stored_delete";
+    req->params["filter_by"] = "category:=facet1";
+    del_remove_documents(req, res);
+    delete_result = nlohmann::json::parse(res->body);
+    ASSERT_EQ(0, delete_result["num_deleted"].get<size_t>());
+
+    collectionManager.drop_collection("non_stored_delete");
+}
+
 TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {
     Collection *coll1;
 

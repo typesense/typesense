@@ -7667,6 +7667,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document,
         for(auto& [fname, missing_list] : field_missing_index) {
             missing_list->erase(seq_id);
         }
+        std::unique_lock seq_ids_lock(seq_ids_mutex);
         seq_ids->erase(seq_id);
     }
 
@@ -8107,6 +8108,11 @@ size_t Index::num_seq_ids() const {
 
 bool Index::validate_seq_id(const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
+    return seq_ids->contains(seq_id);
+}
+
+bool Index::is_live_seq_id(const uint32_t& seq_id) const {
+    std::shared_lock lock(seq_ids_mutex);
     return seq_ids->contains(seq_id);
 }
 
