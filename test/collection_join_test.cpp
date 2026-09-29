@@ -14036,6 +14036,90 @@ TEST_F(CollectionJoinTest, LoadRemovesOnlyStaleAsyncReferenceRegistrations) {
     ASSERT_EQ(1, nlohmann::json::parse(repaired_referenced_ins)[0]["referenced_infos"].size());
 }
 
+TEST_F(CollectionJoinTest, LoadRestoresMissingDirectAndDeferredAliasRegistrations) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(customers_schema).ok());
+
+    auto orders_schema = R"({
+        "name": "orders",
+        "fields": [{"name":"customer_id","type":"string","reference":"customers.id",
+                    "async_reference":true,"optional":true}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(orders_schema).ok());
+
+    std::string incomplete_registry;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, incomplete_registry));
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [{"name":"customer_id","type":"string","reference":"customers.id",
+                    "async_reference":true,"optional":true}]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+
+    auto alias_op = collectionManager.upsert_symlink("future_customers_alias", "future_customers");
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+    auto deferred_schema = R"({
+        "name": "future_invoices",
+        "fields": [{"name":"customer_id","type":"string","reference":"future_customers_alias.id",
+                    "async_reference":true}]
+    })"_json;
+    auto deferred_op = collectionManager.create_collection(deferred_schema);
+    ASSERT_TRUE(deferred_op.ok()) << deferred_op.error();
+    ASSERT_TRUE(deferred_op.get()->add(R"({"id":"i1","customer_id":"c1"})").ok());
+
+    ASSERT_TRUE(store->insert(CollectionManager::REFERENCED_INS, incomplete_registry));
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    auto registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.at("customers").count("orders"));
+    ASSERT_EQ(1, registered.at("customers").count("invoices"));
+    ASSERT_EQ(1, registered.at("future_customers_alias").count("future_invoices"));
+
+    std::string repaired_registry;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, repaired_registry));
+    auto persisted = nlohmann::json::parse(repaired_registry);
+    ASSERT_EQ(2, persisted.size());
+
+    auto future_schema = R"({
+        "name": "future_customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    auto future_op = collectionManager.create_collection(future_schema);
+    ASSERT_TRUE(future_op.ok()) << future_op.error();
+    auto future = future_op.get();
+    ASSERT_TRUE(future->add(R"({"id":"c1","name":"Acme"})").ok());
+    auto future_seq_id = future->doc_id_to_seq_id("c1");
+    ASSERT_TRUE(future_seq_id.ok()) << future_seq_id.error();
+    auto child = collectionManager.get_collection("future_invoices");
+    ASSERT_NE(nullptr, child);
+    auto doc = child->get("i1");
+    ASSERT_TRUE(doc.ok()) << doc.error();
+    ASSERT_EQ(future_seq_id.get(), doc.get()["customer_id_sequence_id"]);
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+    registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.at("customers").count("invoices"));
+    ASSERT_EQ(1, registered.at("future_customers").count("future_invoices"));
+    auto reloaded_future = collectionManager.get_collection("future_customers");
+    ASSERT_NE(nullptr, reloaded_future);
+    ASSERT_TRUE(reloaded_future->add(R"({"id":"c2","name":"After restart"})").ok());
+}
+
 TEST_F(CollectionJoinTest, AlterReferenceField) {
     auto schema_json =
             R"({

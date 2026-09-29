@@ -571,6 +571,13 @@ static bool remove_stale_referenced_ins(const std::vector<std::string>& collecti
 void CollectionManager::_populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
                                                  std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins) {
     std::map<std::string, uint32_t> collection_index;
+    std::set<std::string> available_collections;
+    for (const auto& collection_meta_json: collection_meta_jsons) {
+        const auto meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if (meta.is_object() && meta.contains("name") && meta["name"].is_string()) {
+            available_collections.insert(meta["name"].get<std::string>());
+        }
+    }
     for (size_t i = 0; i < collection_meta_jsons.size(); i++) {
         auto const& obj = nlohmann::json::parse(collection_meta_jsons[i]);
         if (obj.is_discarded() || !obj.is_object() || !obj.contains("name") || !obj["name"].is_string() ||
@@ -598,9 +605,10 @@ void CollectionManager::_populate_referenced_ins(const std::vector<std::string>&
             auto ref_coll_name = split_result[0];
             auto ref_field_name = reference.substr(ref_coll_name.size() + 1);
 
-            // Resolves alias if used in schema.
+            // A reference to a missing alias target remains deferred under the alias name.
             auto actual_ref_coll_it = CollectionManager::get_instance().collection_symlinks.find(ref_coll_name);
-            if (actual_ref_coll_it != CollectionManager::get_instance().collection_symlinks.end()) {
+            if (actual_ref_coll_it != CollectionManager::get_instance().collection_symlinks.end() &&
+                available_collections.count(actual_ref_coll_it->second) != 0) {
                 ref_coll_name = actual_ref_coll_it->second;
             }
 
@@ -724,12 +732,38 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                     referenced_ins[referenced_coll_it.value()].insert({ref_info["collection"], reference_info_t(ref_info)});
                 }
             }
+        }
 
-            const bool removed_stale = remove_stale_referenced_ins(collection_meta_jsons, collection_symlinks,
-                                                                    referenced_ins);
-            if (hydrate_referenced_fields(collection_meta_jsons, collection_symlinks, referenced_ins) || removed_stale) {
-                persist_referenced_ins();
+        const bool removed_stale = remove_stale_referenced_ins(collection_meta_jsons, collection_symlinks,
+                                                                referenced_ins);
+        std::map<std::string, std::map<std::string, reference_info_t>> expected_referenced_ins;
+        _populate_referenced_ins(collection_meta_jsons, expected_referenced_ins);
+
+        const auto resolved_target = [this](const std::string& target) {
+            const auto symlink_it = collection_symlinks.find(target);
+            return symlink_it == collection_symlinks.end() ? target : symlink_it->second;
+        };
+        bool restored_missing = false;
+        for (const auto& expected_target: expected_referenced_ins) {
+            for (const auto& expected_ref: expected_target.second) {
+                bool registered = false;
+                for (const auto& current_target: referenced_ins) {
+                    if (resolved_target(current_target.first) == resolved_target(expected_target.first) &&
+                        current_target.second.count(expected_ref.first) != 0) {
+                        registered = true;
+                        break;
+                    }
+                }
+                if (!registered) {
+                    referenced_ins[expected_target.first].emplace(expected_ref);
+                    restored_missing = true;
+                }
             }
+        }
+
+        const bool hydrated = hydrate_referenced_fields(collection_meta_jsons, collection_symlinks, referenced_ins);
+        if (removed_stale || restored_missing || hydrated) {
+            persist_referenced_ins();
         }
     }
 
