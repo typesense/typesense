@@ -538,7 +538,12 @@ static bool remove_stale_referenced_ins(const std::vector<std::string>& collecti
                     if (symlink_it != collection_symlinks.end()) {
                         target = symlink_it->second;
                     }
-                    valid = target == referenced_it->first &&
+                    auto registered_target = referenced_it->first;
+                    const auto registered_symlink_it = collection_symlinks.find(registered_target);
+                    if (registered_symlink_it != collection_symlinks.end()) {
+                        registered_target = registered_symlink_it->second;
+                    }
+                    valid = target == registered_target &&
                             schema_field.value(fields::async_reference, false) == ref_info.is_async;
                     break;
                 }

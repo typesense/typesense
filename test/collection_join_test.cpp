@@ -11239,6 +11239,73 @@ TEST_F(CollectionJoinTest, CreateTimeAsyncBackfillRetainsReferencingCollectionUn
     ASSERT_EQ(nullptr, collectionManager.get_collection(child_collection_name));
 }
 
+TEST_F(CollectionJoinTest, DeferredAliasReferenceSurvivesRestartBeforeTargetCreation) {
+    const std::string alias_name = "future_customers_alias";
+    const std::string target_name = "future_customers";
+    const std::string referencing_name = "future_invoices";
+
+    auto alias_op = collectionManager.upsert_symlink(alias_name, target_name);
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+
+    auto referencing_schema = R"({
+        "name": "future_invoices",
+        "fields": [
+            {"name": "customer_id", "type": "string", "reference": "future_customers_alias.id",
+             "async_reference": true},
+            {"name": "number", "type": "string"}
+        ]
+    })"_json;
+    auto referencing_op = collectionManager.create_collection(referencing_schema);
+    ASSERT_TRUE(referencing_op.ok()) << referencing_op.error();
+    ASSERT_TRUE(referencing_op.get()->add(R"({"id":"invoice-1","customer_id":"c1","number":"INV-1"})").ok());
+
+    auto registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.count(alias_name));
+    ASSERT_EQ(1, registered.at(alias_name).count(referencing_name));
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.count(alias_name));
+    ASSERT_EQ(1, registered.at(alias_name).count(referencing_name));
+
+    auto target_schema = R"({
+        "name": "future_customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    auto target_op = collectionManager.create_collection(target_schema);
+    ASSERT_TRUE(target_op.ok()) << target_op.error();
+    auto target = target_op.get();
+    auto async_refs = target->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, "customer_id")));
+    ASSERT_TRUE(target->add(R"({"id":"c1","name":"Acme"})").ok());
+
+    auto referencing = collectionManager.get_collection(referencing_name);
+    ASSERT_NE(nullptr, referencing);
+    auto target_seq_id = target->doc_id_to_seq_id("c1");
+    ASSERT_TRUE(target_seq_id.ok()) << target_seq_id.error();
+    auto invoice = referencing->get("invoice-1");
+    ASSERT_TRUE(invoice.ok()) << invoice.error();
+    ASSERT_EQ(target_seq_id.get(), invoice.get()["customer_id_sequence_id"]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", referencing_name}, {"q", "*"}, {"query_by", "number"},
+            {"filter_by", "$future_customers_alias(name:=`Acme`)"}};
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_EQ(1, nlohmann::json::parse(json_res)["found"].get<size_t>());
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldExistingAliasReferenceResolvesWhenTargetCollectionIsCreated) {
     const std::string parent_alias_name = "bookings_existing_alias";
     const std::string parent_collection_name = "production.bookings_existing_alias";
