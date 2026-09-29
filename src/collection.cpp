@@ -7317,9 +7317,24 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 break;
             }
         }
-        if (it != updated_reference_fields.end() && f.reference != (it->second.collection + it->second.field)) {
-            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, f.name, erase_it->second);
-            // No need to remove the field from reference index if it still references the same field.
+        if (it != updated_reference_fields.end()) {
+            const auto symlinks = CollectionManager::get_instance().get_symlinks();
+            const auto resolve_target = [&symlinks](const std::string& target) {
+                const auto symlink_it = symlinks.find(target);
+                return symlink_it == symlinks.end() ? target : symlink_it->second;
+            };
+            const auto& old_ref = erase_it->second;
+            const auto& new_ref = it->second;
+            const bool same_registration = resolve_target(old_ref.collection) == resolve_target(new_ref.collection) &&
+                                           old_ref.field == new_ref.field &&
+                                           old_ref.is_async == new_ref.is_async &&
+                                           old_ref.is_array == new_ref.is_array;
+            if (same_registration) {
+                // Reindex the field without retiring its unchanged reverse registration.
+                continue;
+            }
+
+            CollectionManager::get_instance().remove_referenced_ins_with_lock(name, f.name, old_ref);
             continue;
         }
 
