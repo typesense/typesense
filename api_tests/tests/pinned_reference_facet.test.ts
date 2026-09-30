@@ -238,4 +238,98 @@ describe(Phases.NO_PHASE, () => {
     const repeatedBody = await repeatedSearch.json() as { results: SearchResponse[] };
     assertSearch(repeatedBody.results[0], ["l1", "l2", "l3"]);
   });
+
+  it("returns pinned reference-only facets through multi-search and direct search", async () => {
+    const listingsCollection = "reference_only_listings";
+    const offersCollection = "reference_only_offers";
+    let res = await postJson("/collections", {
+      name: listingsCollection,
+      fields: [
+        { name: "listing_id", type: "string" },
+        { name: "title", type: "string" },
+        { name: "is_hidden", type: "int32" },
+      ],
+    });
+    expect(res.status).toBe(201);
+
+    res = await postJson("/collections", {
+      name: offersCollection,
+      fields: [
+        { name: "listing_ref", type: "string", reference: `${listingsCollection}.listing_id` },
+        { name: "in_stock", type: "bool" },
+        { name: "price", type: "int32", facet: true },
+      ],
+    });
+    expect(res.status).toBe(201);
+
+    for (const listing of [
+      { id: "r1", listing_id: "r1", title: "backpack red", is_hidden: 0 },
+      { id: "r2", listing_id: "r2", title: "backpack blue", is_hidden: 0 },
+      { id: "r3", listing_id: "r3", title: "backpack green", is_hidden: 0 },
+    ]) {
+      res = await postJson(`/collections/${listingsCollection}/documents`, listing);
+      expect(res.status).toBe(201);
+    }
+
+    for (const offer of [
+      { listing_ref: "r1", in_stock: true, price: 10 },
+      { listing_ref: "r2", in_stock: true, price: 20 },
+      { listing_ref: "r3", in_stock: true, price: 30 },
+    ]) {
+      res = await postJson(`/collections/${offersCollection}/documents`, offer);
+      expect(res.status).toBe(201);
+    }
+
+    const filterBy = `$${offersCollection}(in_stock:=true && price:>0) && is_hidden:=0`;
+    const facetBy = `$${offersCollection}(price)`;
+    const searches = [
+      apiRequest("/multi_search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          searches: [{
+            collection: listingsCollection,
+            q: "backpack",
+            query_by: "title",
+            filter_by: filterBy,
+            facet_by: facetBy,
+            pinned_hits: "r1:1,r2:2",
+          }],
+        }),
+      }),
+      apiRequest(`/collections/${listingsCollection}/documents/search?${new URLSearchParams({
+        q: "backpack",
+        query_by: "title",
+        filter_by: filterBy,
+        facet_by: facetBy,
+        pinned_hits: "r1:1,r2:2",
+      })}`),
+    ];
+    const responses = await Promise.allSettled(searches);
+    expect(responses.map((response) => response.status)).toEqual(["fulfilled", "fulfilled"]);
+
+    const multiSearch = responses[0];
+    const directSearch = responses[1];
+    if (multiSearch.status !== "fulfilled" || directSearch.status !== "fulfilled") {
+      throw new Error("Pinned reference-only facet requests did not both receive HTTP responses.");
+    }
+    expect(multiSearch.value.status).toBe(200);
+    expect(directSearch.value.status).toBe(200);
+
+    const multiSearchBody = await multiSearch.value.json() as { results: SearchResponse[] };
+    const searchResults = [multiSearchBody.results[0], await directSearch.value.json() as SearchResponse];
+    for (const result of searchResults) {
+      expect(result.found).toBe(3);
+      expect(result.hits.map((hit) => hit.document.id)).toEqual(["r1", "r2", "r3"]);
+      expect(result.facet_counts.map((facet) => facet.field_name)).toEqual([`$${offersCollection}(price)`]);
+      expect(facetCounts(result.facet_counts[0].counts)).toEqual({ "10": 1, "20": 1, "30": 1 });
+      expect(result.facet_counts[0].stats).toEqual({
+        avg: 20,
+        min: 10,
+        max: 30,
+        sum: 60,
+        total_values: 3,
+      });
+    }
+  });
 });
