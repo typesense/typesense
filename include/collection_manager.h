@@ -35,6 +35,9 @@ private:
 
     spp::sparse_hash_map<uint32_t, std::string> collection_id_names;
 
+    // Collection metadata remains on disk when its in-memory index cannot be rebuilt.
+    std::map<std::string, std::string> failed_collection_loads;
+
     spp::sparse_hash_map<std::string, std::string> collection_symlinks;
 
     spp::sparse_hash_map<std::string, nlohmann::json> preset_configs;
@@ -121,6 +124,10 @@ public:
                                                      const std::vector<std::string>& api_key_collections = {}) const;
 
     std::vector<std::string> get_collection_names() const;
+
+    std::map<std::string, std::string> get_failed_collection_loads() const;
+
+    bool collection_failed_to_load(const std::string& collection_name) const;
 
     std::shared_ptr<Collection> get_collection_unsafe(const std::string & collection_name) const;
 

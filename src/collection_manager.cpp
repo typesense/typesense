@@ -408,6 +408,7 @@ std::shared_ptr<Collection> CollectionManager::add_to_collections(Collection* co
     std::unique_lock lock(mutex);
     auto emplace_result = collections.emplace(collection_name, collection);
     collection_id_names.emplace(collection_id, collection_name);
+    failed_collection_loads.erase(collection_name);
     return emplace_result.first->second;
 }
 
@@ -588,6 +589,11 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
+    {
+        std::unique_lock lock(mutex);
+        failed_collection_loads.clear();
+    }
+
     Option<bool> auth_init_op = auth_manager.init(store, bootstrap_auth_key);
     if(!auth_init_op.ok()) {
         LOG(ERROR) << "Auth manager init failed, error=" << auth_init_op.error();
@@ -716,9 +722,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
-        auto captured_store = store;
         auto captured_referenced_ins = referenced_ins;
-        loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
+        loading_pool.enqueue([num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
                                      captured_referenced_ins, collection_name]() {
 
@@ -730,21 +735,20 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
 
             if(!res.ok()) {
-                LOG(ERROR) << "Error while loading collection. " << res.error();
-                LOG(ERROR) << "Typesense is quitting.";
-                captured_store->close();
-                exit(1);
+                LOG(ERROR) << "Skipping collection `" << collection_name << "` after load failure: " << res.error();
+                auto& cm = CollectionManager::get_instance();
+                std::unique_lock lock(cm.mutex);
+                cm.failed_collection_loads[collection_name] = res.error();
             }
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
 
-            auto& cm = CollectionManager::get_instance();
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
             if(num_processed % progress_modulo == 0) {
-                LOG(INFO) << "Loaded " << num_processed << " collection(s) so far";
+                LOG(INFO) << "Processed " << num_processed << " collection(s) so far";
             }
         });
     }
@@ -803,7 +807,9 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                      std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
                      analytics_config_jsons);
 
-    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
+    const size_t num_failed_collections = get_failed_collection_loads().size();
+    LOG(INFO) << "Loaded " << (num_collections - num_failed_collections) << "/" << num_collections
+              << " collection(s); skipped " << num_failed_collections << ".";
     LOG(INFO) << "Found " << analytics_config_jsons.size() << " analytics config(s).";
     for(const auto& analytics_config_json: analytics_config_jsons) {
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
@@ -840,6 +846,7 @@ void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
 
     collections.clear();
+    failed_collection_loads.clear();
     collection_symlinks.clear();
     preset_configs.clear();
     referenced_ins.clear();
@@ -1173,6 +1180,10 @@ std::shared_ptr<Collection> CollectionManager::get_collection_unsafe(const std::
         return collections.at(collection_name);
     }
 
+    if(failed_collection_loads.count(collection_name) != 0) {
+        return nullptr;
+    }
+
     // a symlink name takes lesser precedence over a real collection name
     if(collection_symlinks.count(collection_name) != 0) {
         const std::string & symlinked_name = collection_symlinks.at(collection_name);
@@ -1248,6 +1259,26 @@ std::vector<std::string> CollectionManager::get_collection_names() const {
     }
 
     return collection_vec;
+}
+
+std::map<std::string, std::string> CollectionManager::get_failed_collection_loads() const {
+    std::shared_lock lock(mutex);
+    return failed_collection_loads;
+}
+
+bool CollectionManager::collection_failed_to_load(const std::string& collection_name) const {
+    std::shared_lock lock(mutex);
+    if(collections.count(collection_name) != 0) {
+        return false;
+    }
+    if(failed_collection_loads.count(collection_name) != 0) {
+        return true;
+    }
+
+    const auto symlink = collection_symlinks.find(collection_name);
+    return symlink != collection_symlinks.end() &&
+           failed_collection_loads.count(symlink->second) != 0 &&
+           collections.count(symlink->second) == 0;
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name,
@@ -2328,6 +2359,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
+        if(collectionManager.collection_failed_to_load(orig_coll_name)) {
+            return Option<bool>(503, "Collection `" + orig_coll_name + "` is unavailable because it failed to load.");
+        }
         return Option<bool>(404, "Collection not found");
     }
 
@@ -2926,7 +2960,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     if (!op.ok()) {
         return Option<bool>(op.code(), op.error());
     }
-    Collection* collection = op.get();
+    std::unique_ptr<Collection> collection(op.get());
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
@@ -3075,12 +3109,22 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false, dummy);
             batch_doc_str_size = 0;
 
-            if(num_indexed != num_records) {
-                const std::string& index_error = get_first_index_error(index_records);
-                if(!index_error.empty()) {
-                    // for now, we will just ignore errors during loading of collection
-                    //return Option<bool>(400, index_error);
+            // The count is calculated before field workers finish, so inspect every result
+            // even when it equals the batch size.
+            for(const auto& record: index_records) {
+                if(!record.indexed.ok()) {
+                    const auto id_it = record.doc.find("id");
+                    const std::string doc_id = id_it != record.doc.end() && id_it->is_string() ?
+                                               id_it->get<std::string>() : "<unavailable>";
+                    return Option<bool>(record.indexed.code(), "Could not load collection `" +
+                        this_collection_name + "`: document `" + doc_id + "` (sequence ID " +
+                        std::to_string(record.seq_id) + "): " + record.indexed.error());
                 }
+            }
+            if(num_indexed != num_records) {
+                return Option<bool>(500, "Could not load collection `" + this_collection_name +
+                    "`: indexed " + std::to_string(num_indexed) + "/" + std::to_string(num_records) +
+                    " documents in a batch without a record error.");
             }
 
             index_records.clear();
@@ -3103,10 +3147,11 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    cm.add_to_collections(collection);
-
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
+
+    // add_to_collections takes ownership through the shared_ptr stored in collections.
+    cm.add_to_collections(collection.release());
 
     return Option<bool>(true);
 }

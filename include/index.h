@@ -298,6 +298,9 @@ struct index_record {
 
     index_operation_t operation;
     bool is_update;
+    // A durable replacement that needs a full index insertion, not an incremental update.
+    bool is_repair = false;
+    bool repair_index_started = false;
 
     // pre-processed data primed for indexing
     std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
