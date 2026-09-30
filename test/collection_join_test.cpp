@@ -6488,6 +6488,19 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
     for (size_t i = 0; i < expected_names.size(); i++) {
         ASSERT_EQ(expected_names[i], res_obj["hits"][i]["document"]["name"]);
     }
+
+    // Both JOIN predicates must match the same `locations` array element. `Both` has matching profiles in
+    // separate locations, while `MixedOnly` has one location whose referenced profile satisfies both predicates.
+    req_params["filter_by"] =
+            "locations.{$profiles(tags:=ACTIVE) && $profiles(tags:=INACTIVE)}";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("MixedOnly", res_obj["hits"][0]["document"]["name"]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {

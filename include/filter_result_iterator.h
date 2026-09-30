@@ -89,6 +89,15 @@ struct reference_filter_result_t {
 
     static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);
 
+    static bool intersect_reference_results(const reference_filter_result_t& a_ref_result,
+                                            const reference_filter_result_t& b_ref_result,
+                                            reference_filter_result_t& out_ref_result);
+
+    /// Returns whether at least one common reference doc_id was found or not.
+    static bool and_references(const std::map<std::string, reference_filter_result_t>& a_references,
+                               const std::map<std::string, reference_filter_result_t>& b_references,
+                               std::map<std::string, reference_filter_result_t>& result_references);
+
     static void or_references(const std::map<std::string, reference_filter_result_t>& a_references,
                               const std::map<std::string, reference_filter_result_t>& b_references,
                               std::map<std::string, reference_filter_result_t>& result_references);
@@ -228,7 +237,8 @@ struct filter_result_t {
         delete[] coll_to_references;
     }
 
-    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result,
+                                   const bool& intersect_references = false);
 
     static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 
