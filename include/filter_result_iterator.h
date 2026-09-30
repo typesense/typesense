@@ -346,6 +346,10 @@ private:
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();
 
+    /// Populates `reference` from both children of an AND node. References to the same collection are intersected
+    /// inside an object filter so object-array correlation is preserved.
+    bool merge_and_references();
+
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
 

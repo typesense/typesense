@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <thread>
 #include <collection_manager.h>
+#include <filter.h>
+#include <filter_result_iterator.h>
 #include "collection.h"
 #include <join.h>
 
@@ -6376,6 +6378,7 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
             })"_json;
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
+    auto profiles_collection = collection_create_op.get();
 
     std::vector<nlohmann::json> documents = {
             R"({"id": "profile_active", "name": "Active", "tags": ["ACTIVE"]})"_json,
@@ -6400,6 +6403,7 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
             })"_json;
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
+    auto people_collection = collection_create_op.get();
 
     documents = {
             R"({
@@ -6445,9 +6449,37 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
             })"_json
     };
     for (auto const& json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
+        auto add_op = people_collection->add(json.dump());
         ASSERT_TRUE(add_op.ok());
     }
+
+    const std::string correlated_filter =
+            "locations.{$profiles(tags:=ACTIVE) && $profiles(tags:=INACTIVE)}";
+    const std::string doc_id_prefix = std::to_string(people_collection->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    auto filter_op = filter::parse_filter_query(correlated_filter, people_collection->get_schema(), store,
+                                                doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok()) << filter_op.error();
+    std::unique_ptr<filter_node_t> filter_tree_guard(filter_tree_root);
+
+    auto object_filter_iterator = filter_result_iterator_t(people_collection->get_name(),
+                                                           people_collection->_get_index(), filter_tree_root, true);
+    ASSERT_TRUE(object_filter_iterator.init_status().ok()) << object_filter_iterator.init_status().error();
+    ASSERT_FALSE(object_filter_iterator._get_is_filter_result_initialized());
+
+    auto mixed_person_seq_id_op = people_collection->doc_id_to_seq_id("4");
+    auto mixed_profile_seq_id_op = profiles_collection->doc_id_to_seq_id("profile_mixed");
+    ASSERT_TRUE(mixed_person_seq_id_op.ok());
+    ASSERT_TRUE(mixed_profile_seq_id_op.ok());
+    ASSERT_EQ(mixed_person_seq_id_op.get(), object_filter_iterator.seq_id);
+
+    // `is_valid()` must rebuild references for the requested document before validating its object-array elements.
+    object_filter_iterator.reference.clear();
+    ASSERT_EQ(1, object_filter_iterator.is_valid(mixed_person_seq_id_op.get()));
+    ASSERT_EQ(1, object_filter_iterator.reference.count("profiles"));
+    ASSERT_EQ(1, object_filter_iterator.reference.at("profiles").count);
+    ASSERT_EQ(mixed_profile_seq_id_op.get(), object_filter_iterator.reference.at("profiles").docs[0]);
 
     std::map<std::string, std::string> req_params = {
             {"collection", "people"},
@@ -6491,8 +6523,7 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
 
     // Both JOIN predicates must match the same `locations` array element. `Both` has matching profiles in
     // separate locations, while `MixedOnly` has one location whose referenced profile satisfies both predicates.
-    req_params["filter_by"] =
-            "locations.{$profiles(tags:=ACTIVE) && $profiles(tags:=INACTIVE)}";
+    req_params["filter_by"] = correlated_filter;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     res_obj = nlohmann::json::parse(json_res);
@@ -6501,6 +6532,28 @@ TEST_F(CollectionJoinTest, FilterByObjectArrayJoinCorrelation) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("4", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("MixedOnly", res_obj["hits"][0]["document"]["name"]);
+
+    // A non-wildcard query evaluates the filter through the iterator path. `Both` must still be rejected because its
+    // ACTIVE and INACTIVE profiles are referenced from different `locations` array elements.
+    req_params["q"] = "Both";
+    req_params["query_by"] = "name";
+    req_params["num_typos"] = "0";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(0, res_obj["found"].get<size_t>());
+    ASSERT_EQ(0, res_obj["hits"].size());
+
+    // The valid iterator-path match must retain the current document's intersected references for object validation.
+    req_params["q"] = "MixedOnly";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("4", res_obj["hits"][0]["document"]["id"]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeleteOption) {
