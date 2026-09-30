@@ -325,6 +325,24 @@ struct StringUtils {
         return combined;
     }
 
+    // The finalizer of MurmurHash3: a one-to-one mapping in which every input bit affects every output bit.
+    static constexpr uint64_t mix64(uint64_t value) {
+        value ^= value >> 33;
+        value *= 0xff51afd7ed558ccd;
+        value ^= value >> 33;
+        value *= 0xc4ceb9fe1a85ec53;
+        value ^= value >> 33;
+        return value;
+    }
+
+    // A hash_combine for values that are not hashes themselves, such as small integers and counters. hash_combine
+    // only shifts and adds, so when it is chained over such values a small step in one of them is undone by a small
+    // step in the next: (202601, 1) and (202602, 64) combine to the same number. Mixing both the value and the result
+    // leaves no such pairs, and the combination still depends on the order of the values.
+    static constexpr uint64_t hash_combine_mixed(uint64_t combined, uint64_t value) {
+        return mix64(combined ^ mix64(value + 0x9e3779b97f4a7c15));
+    }
+
     std::string unicode_nfkd(const std::string& text);
 
     static std::string randstring(size_t length);
