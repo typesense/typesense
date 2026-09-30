@@ -3674,7 +3674,8 @@ TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyWithCascadeReference) {
         "name": "Products",
         "fields": [
             {"name": "product_id", "type": "string"},
-            {"name": "name", "type": "string"}
+            {"name": "name", "type": "string"},
+            {"name": "category", "type": "string", "facet": true, "store": false}
         ]
     })"_json;
 
@@ -3695,7 +3696,7 @@ TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyWithCascadeReference) {
     auto products = products_op.get();
     auto orders = orders_op.get();
 
-    ASSERT_TRUE(products->add(R"({"id":"p1","product_id":"p1","name":"shampoo"})").ok());
+    ASSERT_TRUE(products->add(R"({"id":"p1","product_id":"p1","name":"shampoo","category":"bath"})").ok());
     ASSERT_TRUE(orders->add(R"({"id":"o1","order_id":"o1","product_id":"p1"})").ok());
 
     auto product_seq_op = products->doc_id_to_seq_id("p1");
@@ -3712,25 +3713,36 @@ TEST_F(CoreAPIUtilsTest, RemoveIfFoundManyWithCascadeReference) {
     ASSERT_EQ(404, product_get_op.code());
     ASSERT_EQ(404, order_get_op.code());
 
+    auto deleted_product_search = products->search("*", {}, "category:=bath", {"category"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(deleted_product_search.ok());
+    ASSERT_EQ(0, deleted_product_search.get()["found"].get<size_t>());
+    ASSERT_TRUE(deleted_product_search.get()["facet_counts"][0]["counts"].empty());
+
+    auto deleted_order_search = orders->search("*", {}, "product_id:=p1", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(deleted_order_search.ok());
+    ASSERT_EQ(0, deleted_order_search.get()["found"].get<size_t>());
+
     collectionManager.drop_collection("Orders");
     collectionManager.drop_collection("Products");
 }
 
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
-    Collection *coll1;
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("points", field_types::INT32, false),};
-
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
-    }
+    auto schema = R"({
+        "name": "batch_non_stored_delete",
+        "fields": [
+            {"name": "points", "type": "int32", "range_index": true, "store": false},
+            {"name": "bucket", "type": "string", "facet": true, "store": false}
+        ]
+    })"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
 
     for(size_t i = 0; i < 1205; i++) {
         nlohmann::json doc;
         doc["id"] = std::to_string(i);
-        doc["title"] = "Title " + std::to_string(i);
         doc["points"] = i;
+        doc["bucket"] = "batch";
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
@@ -3751,13 +3763,23 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocsUsesBoundedInternalBatch) {
     ASSERT_EQ(1000, deletion_state.num_removed);
     ASSERT_FALSE(done);
 
+    auto first_batch_search = coll1->search("*", {}, "points:>= 0", {"bucket"}, {}, {0}, 250, 1, FREQUENCY, {false});
+    ASSERT_TRUE(first_batch_search.ok()) << first_batch_search.error();
+    ASSERT_EQ(205, first_batch_search.get()["found"].get<size_t>());
+    ASSERT_EQ(205, first_batch_search.get()["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
     remove_op = stateful_remove_docs(&deletion_state, 1000000000, done);
     ASSERT_TRUE(remove_op.ok());
     ASSERT_EQ(1205, deletion_state.num_removed);
     ASSERT_TRUE(done);
     ASSERT_EQ(0, coll1->get_num_documents());
 
-    collectionManager.drop_collection("coll1");
+    auto complete_search = coll1->search("*", {}, "points:>= 0", {"bucket"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(complete_search.ok()) << complete_search.error();
+    ASSERT_EQ(0, complete_search.get()["found"].get<size_t>());
+    ASSERT_TRUE(complete_search.get()["facet_counts"][0]["counts"].empty());
+
+    collectionManager.drop_collection("batch_non_stored_delete");
 }
 
 TEST_F(CoreAPIUtilsTest, DeleteQueryOnNonStoredFacetRemovesDeletedIds) {
@@ -3820,6 +3842,174 @@ TEST_F(CoreAPIUtilsTest, DeleteQueryOnNonStoredFacetRemovesDeletedIds) {
     ASSERT_EQ(0, delete_result["num_deleted"].get<size_t>());
 
     collectionManager.drop_collection("non_stored_delete");
+}
+
+TEST_F(CoreAPIUtilsTest, DeleteByIdOnNonStoredFieldsRemovesDeletedIds) {
+    nlohmann::json schema = R"({
+        "name": "non_stored_delete_by_id",
+        "fields": [
+            {"name": "category", "type": "string", "facet": true, "store": false},
+            {"name": "labels", "type": "string[]", "facet": true, "store": false},
+            {"name": "score", "type": "int32", "facet": true, "range_index": true, "sort": true, "store": false},
+            {"name": "active", "type": "bool", "facet": true, "store": false},
+            {"name": "location", "type": "geopoint", "store": false},
+            {"name": "stored_category", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    ASSERT_TRUE(coll->add(R"({
+        "id": "delete_me",
+        "category": "ephemeral",
+        "labels": ["ephemeral_label"],
+        "score": 42,
+        "active": true,
+        "location": [40.0, -70.0],
+        "stored_category": "removed_control"
+    })").ok());
+    ASSERT_TRUE(coll->add(R"({
+        "id": "keep_me",
+        "category": "survivor",
+        "labels": ["survivor_label"],
+        "score": 7,
+        "active": false,
+        "location": [10.0, 10.0],
+        "stored_category": "live_control"
+    })").ok());
+
+    auto stored_doc_op = coll->get("delete_me");
+    ASSERT_TRUE(stored_doc_op.ok());
+    auto stored_doc = stored_doc_op.get();
+    ASSERT_FALSE(stored_doc.contains("category"));
+    ASSERT_FALSE(stored_doc.contains("labels"));
+    ASSERT_FALSE(stored_doc.contains("score"));
+    ASSERT_FALSE(stored_doc.contains("active"));
+    ASSERT_FALSE(stored_doc.contains("location"));
+    ASSERT_TRUE(stored_doc.contains("stored_category"));
+
+    const std::vector<std::string> filters = {
+        "category:=ephemeral",
+        "labels:=ephemeral_label",
+        "score:>= 42",
+        "active:true",
+        "location: ([40.0, -70.0], radius: 1 km)"
+    };
+    for(const auto& filter: filters) {
+        auto search_op = coll->search("*", {}, filter, {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(search_op.ok()) << filter;
+        ASSERT_EQ(1, search_op.get()["found"].get<size_t>()) << filter;
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "non_stored_delete_by_id";
+    req->params["id"] = "delete_me";
+    del_remove_document(req, res);
+    ASSERT_EQ(200, res->status_code);
+    auto delete_result = nlohmann::json::parse(res->body);
+    ASSERT_EQ("delete_me", delete_result["id"].get<std::string>());
+    ASSERT_FALSE(delete_result.contains("category"));
+    ASSERT_FALSE(delete_result.contains("labels"));
+    ASSERT_FALSE(delete_result.contains("score"));
+    ASSERT_FALSE(delete_result.contains("active"));
+    ASSERT_FALSE(delete_result.contains("location"));
+
+    for(const auto& filter: filters) {
+        auto search_op = coll->search("*", {}, filter, {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(search_op.ok()) << filter;
+        ASSERT_EQ(0, search_op.get()["found"].get<size_t>()) << filter;
+        ASSERT_TRUE(search_op.get()["hits"].empty()) << filter;
+    }
+
+    auto sorted_op = coll->search("*", {}, "", {}, {sort_by("score", "ASC")}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(sorted_op.ok());
+    ASSERT_EQ(1, sorted_op.get()["found"].get<size_t>());
+    ASSERT_EQ("keep_me", sorted_op.get()["hits"][0]["document"]["id"].get<std::string>());
+
+    auto remaining_op = coll->search("*", {}, "", {"stored_category"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(remaining_op.ok());
+    auto remaining = remaining_op.get();
+    ASSERT_EQ(1, remaining["found"].get<size_t>());
+    ASSERT_EQ("live_control", remaining["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, remaining["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    collectionManager.drop_collection("non_stored_delete_by_id");
+}
+
+TEST_F(CoreAPIUtilsTest, DeleteQueryOnNestedNonStoredOptionalFieldPreservesMissingDocuments) {
+    nlohmann::json schema = R"({
+        "name": "nested_non_stored_delete",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "details.status", "type": "string", "facet": true, "optional": true, "store": false},
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"remove","title":"Remove","details":{"status":"obsolete"}})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"keep","title":"Keep"})").ok());
+
+    auto before_op = coll->search("*", {}, "details.status:=obsolete", {"details.status"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(before_op.ok());
+    ASSERT_EQ(1, before_op.get()["found"].get<size_t>());
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "nested_non_stored_delete";
+    req->params["filter_by"] = "details.status:=obsolete";
+    del_remove_documents(req, res);
+    ASSERT_EQ(1, nlohmann::json::parse(res->body)["num_deleted"].get<size_t>());
+
+    auto deleted_op = coll->search("*", {}, "details.status:=obsolete", {"details.status"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(deleted_op.ok());
+    ASSERT_EQ(0, deleted_op.get()["found"].get<size_t>());
+    ASSERT_TRUE(deleted_op.get()["facet_counts"][0]["counts"].empty());
+
+    auto remaining_op = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(remaining_op.ok());
+    ASSERT_EQ(1, remaining_op.get()["found"].get<size_t>());
+    ASSERT_EQ("keep", remaining_op.get()["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("nested_non_stored_delete");
+}
+
+TEST_F(CoreAPIUtilsTest, DeleteQueryReturnValuesOmitNonStoredFields) {
+    nlohmann::json schema = R"({
+        "name": "non_stored_delete_return_values",
+        "fields": [
+            {"name": "category", "type": "string", "store": false},
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    ASSERT_TRUE(coll_op.get()->add(R"({"id":"gone","category":"ephemeral","title":"Gone title"})").ok());
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "non_stored_delete_return_values";
+    req->params["filter_by"] = "category:=ephemeral";
+    req->params["return_doc"] = "true";
+    req->params["return_id"] = "true";
+    del_remove_documents(req, res);
+
+    auto result = nlohmann::json::parse(res->body);
+    ASSERT_EQ(1, result["num_deleted"].get<size_t>());
+    ASSERT_EQ(1, result["ids"].size());
+    ASSERT_EQ("gone", result["ids"][0].get<std::string>());
+    ASSERT_EQ(1, result["documents"].size());
+    ASSERT_EQ("gone", result["documents"][0]["id"].get<std::string>());
+    ASSERT_EQ("Gone title", result["documents"][0]["title"].get<std::string>());
+    ASSERT_FALSE(result["documents"][0].contains("category"));
+
+    collectionManager.drop_collection("non_stored_delete_return_values");
 }
 
 TEST_F(CoreAPIUtilsTest, RemoveDocumentsWithReturnValues) {

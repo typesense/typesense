@@ -4251,6 +4251,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto& dist_result = dist_results[res_index];
                 auto seq_id = dist_result.second.seq_id;
 
+                // Vector indexes may retain a candidate when the stored document did not
+                // contain the non-stored vector field needed to remove it. Do not surface
+                // candidates whose document has since been deleted.
+                if (!is_live_seq_id(seq_id)) {
+                    continue;
+                }
+
                 if (no_group_filter_provided && filter_result_iterator_no_groups->is_valid(seq_id) != 1) {
                     continue;
                 }
