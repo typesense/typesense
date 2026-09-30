@@ -13443,6 +13443,221 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, PinnedHitsPreserveReferenceFacetIdentity) {
+    auto listings_schema = R"({
+        "name": "listings",
+        "fields": [
+            {"name": "listing_id", "type": "string"},
+            {"name": "title", "type": "string"},
+            {"name": "is_hidden", "type": "int32"}
+        ]
+    })"_json;
+    auto listings_create_op = collectionManager.create_collection(listings_schema);
+    ASSERT_TRUE(listings_create_op.ok());
+
+    const std::vector<nlohmann::json> listings = {
+        R"({"id":"l1","listing_id":"l1","title":"backpack red","is_hidden":0})"_json,
+        R"({"id":"l2","listing_id":"l2","title":"backpack blue","is_hidden":0})"_json,
+        R"({"id":"l3","listing_id":"l3","title":"backpack green","is_hidden":0})"_json
+    };
+    for (const auto& listing : listings) {
+        auto add_op = listings_create_op.get()->add(listing.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto offers_schema = R"({
+        "name": "offers",
+        "fields": [
+            {"name": "listing_ref", "type": "string", "reference": "listings.listing_id"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "price", "type": "int32", "facet": true}
+        ]
+    })"_json;
+    auto offers_create_op = collectionManager.create_collection(offers_schema);
+    ASSERT_TRUE(offers_create_op.ok());
+
+    const std::vector<nlohmann::json> offers = {
+        R"({"listing_ref":"l1","in_stock":true,"price":10})"_json,
+        R"({"listing_ref":"l2","in_stock":true,"price":20})"_json,
+        R"({"listing_ref":"l3","in_stock":true,"price":30})"_json
+    };
+    for (const auto& offer : offers) {
+        auto add_op = offers_create_op.get()->add(offer.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "listings"},
+        {"q", "backpack"},
+        {"query_by", "title"},
+        {"filter_by", "$offers(in_stock:=true && price:>0) && is_hidden:=0"},
+        {"facet_by", "$offers(price)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ("$offers(price)", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    std::map<std::string, size_t> facet_counts;
+    for (const auto& count : res_obj["facet_counts"][0]["counts"]) {
+        facet_counts[count["value"].get<std::string>()] = count["count"].get<size_t>();
+    }
+    ASSERT_EQ(1, facet_counts.at("10"));
+    ASSERT_EQ(1, facet_counts.at("20"));
+    ASSERT_EQ(1, facet_counts.at("30"));
+    ASSERT_DOUBLE_EQ(20.0, res_obj["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_DOUBLE_EQ(10.0, res_obj["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_DOUBLE_EQ(30.0, res_obj["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_DOUBLE_EQ(60.0, res_obj["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
+    req_params["pinned_hits"] = "l1:1,l2:2";
+    req_params["filter_curated_hits"] = "true";
+    try {
+        search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    } catch (const std::exception& e) {
+        FAIL() << "Pinned search with a reference facet threw: " << e.what();
+    }
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+}
+
+TEST_F(CollectionJoinTest, PinnedReferenceFacetMetadataEdgeCases) {
+    auto listings_schema = R"({
+        "name": "listings",
+        "fields": [
+            {"name": "listing_id", "type": "string"},
+            {"name": "title", "type": "string"},
+            {"name": "is_hidden", "type": "int32"},
+            {"name": "price", "type": "int32", "facet": true}
+        ]
+    })"_json;
+    auto listings_create_op = collectionManager.create_collection(listings_schema);
+    ASSERT_TRUE(listings_create_op.ok());
+
+    const std::vector<nlohmann::json> listings = {
+        R"({"id":"l1","listing_id":"l1","title":"backpack red","is_hidden":0,"price":1010})"_json,
+        R"({"id":"l2","listing_id":"l2","title":"backpack blue","is_hidden":0,"price":1020})"_json,
+        R"({"id":"l3","listing_id":"l3","title":"backpack green","is_hidden":0,"price":1030})"_json,
+        R"({"id":"l4","listing_id":"l4","title":"backpack yellow","is_hidden":0,"price":1040})"_json,
+        R"({"id":"l5","listing_id":"l5","title":"backpack black","is_hidden":1,"price":1050})"_json
+    };
+    for (const auto& listing : listings) {
+        auto add_op = listings_create_op.get()->add(listing.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto offers_schema = R"({
+        "name": "offers",
+        "fields": [
+            {"name": "listing_ref", "type": "string", "reference": "listings.listing_id"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "price", "type": "int32", "facet": true},
+            {"name": "seller", "type": "string", "facet": true}
+        ]
+    })"_json;
+    auto offers_create_op = collectionManager.create_collection(offers_schema);
+    ASSERT_TRUE(offers_create_op.ok());
+
+    const std::vector<nlohmann::json> offers = {
+        R"({"listing_ref":"l1","in_stock":true,"price":10,"seller":"s1"})"_json,
+        R"({"listing_ref":"l2","in_stock":true,"price":20,"seller":"s2"})"_json,
+        R"({"listing_ref":"l3","in_stock":true,"price":30,"seller":"s3"})"_json,
+        R"({"listing_ref":"l4","in_stock":false,"price":40,"seller":"s4"})"_json,
+        R"({"listing_ref":"l5","in_stock":true,"price":50,"seller":"s5"})"_json
+    };
+    for (const auto& offer : offers) {
+        auto add_op = offers_create_op.get()->add(offer.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    ASSERT_TRUE(collectionManager.upsert_symlink("offers_alias", "offers").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "listings"},
+        {"q", "backpack"},
+        {"query_by", "title"},
+        {"filter_by", "$offers(in_stock:=true && price:>0) && is_hidden:=0"},
+        {"facet_by", "price, $offers_alias(price, seller)"},
+        {"pinned_hits", "l1:1,l2:2"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto assert_mixed_result = [&](const nlohmann::json& result) {
+        ASSERT_EQ(3, result["found"]);
+        ASSERT_EQ(3, result["hits"].size());
+        ASSERT_EQ("l1", result["hits"][0]["document"]["id"]);
+        ASSERT_EQ("l2", result["hits"][1]["document"]["id"]);
+        ASSERT_EQ("l3", result["hits"][2]["document"]["id"]);
+        ASSERT_EQ(3, result["facet_counts"].size());
+        ASSERT_EQ("price", result["facet_counts"][0]["field_name"]);
+        ASSERT_EQ("$offers_alias(price)", result["facet_counts"][1]["field_name"]);
+        ASSERT_EQ("$offers_alias(seller)", result["facet_counts"][2]["field_name"]);
+
+        std::map<std::string, size_t> local_prices;
+        for (const auto& count : result["facet_counts"][0]["counts"]) {
+            local_prices[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, local_prices.size());
+        ASSERT_EQ(1, local_prices.at("1010"));
+        ASSERT_EQ(1, local_prices.at("1020"));
+        ASSERT_EQ(1, local_prices.at("1030"));
+
+        std::map<std::string, size_t> offer_prices;
+        for (const auto& count : result["facet_counts"][1]["counts"]) {
+            offer_prices[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, offer_prices.size());
+        ASSERT_EQ(1, offer_prices.at("10"));
+        ASSERT_EQ(1, offer_prices.at("20"));
+        ASSERT_EQ(1, offer_prices.at("30"));
+
+        std::map<std::string, size_t> sellers;
+        for (const auto& count : result["facet_counts"][2]["counts"]) {
+            sellers[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, sellers.size());
+        ASSERT_EQ(1, sellers.at("s1"));
+        ASSERT_EQ(1, sellers.at("s2"));
+        ASSERT_EQ(1, sellers.at("s3"));
+    };
+
+    for (const auto* filter_curated_hits : {"true", "false"}) {
+        req_params["filter_curated_hits"] = filter_curated_hits;
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        assert_mixed_result(nlohmann::json::parse(json_res));
+    }
+
+    req_params["filter_curated_hits"] = "true";
+    req_params["filter_by"] = "$offers(in_stock:=true && price:>0) && is_hidden:=0 && listing_id:!=l3";
+    auto pinned_only_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(pinned_only_op.ok()) << pinned_only_op.error();
+    auto pinned_only_result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, pinned_only_result["found"]);
+    ASSERT_EQ(2, pinned_only_result["hits"].size());
+    ASSERT_EQ("l1", pinned_only_result["hits"][0]["document"]["id"]);
+    ASSERT_EQ("l2", pinned_only_result["hits"][1]["document"]["id"]);
+    ASSERT_EQ("price", pinned_only_result["facet_counts"][0]["field_name"]);
+    ASSERT_EQ("$offers_alias(price)", pinned_only_result["facet_counts"][1]["field_name"]);
+    ASSERT_EQ("$offers_alias(seller)", pinned_only_result["facet_counts"][2]["field_name"]);
+    ASSERT_EQ(2, pinned_only_result["facet_counts"][1]["counts"].size());
+    ASSERT_DOUBLE_EQ(15.0, pinned_only_result["facet_counts"][1]["stats"]["avg"].get<double>());
+    ASSERT_DOUBLE_EQ(10.0, pinned_only_result["facet_counts"][1]["stats"]["min"].get<double>());
+    ASSERT_DOUBLE_EQ(20.0, pinned_only_result["facet_counts"][1]["stats"]["max"].get<double>());
+    ASSERT_DOUBLE_EQ(30.0, pinned_only_result["facet_counts"][1]["stats"]["sum"].get<double>());
+    ASSERT_EQ(2, pinned_only_result["facet_counts"][1]["stats"]["total_values"].get<size_t>());
+}
+
 TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
     auto schema_json =
             R"({
