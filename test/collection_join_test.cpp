@@ -13443,6 +13443,91 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
 }
 
+TEST_F(CollectionJoinTest, PinnedHitsPreserveReferenceFacetIdentity) {
+    auto listings_schema = R"({
+        "name": "listings",
+        "fields": [
+            {"name": "listing_id", "type": "string"},
+            {"name": "title", "type": "string"},
+            {"name": "is_hidden", "type": "int32"}
+        ]
+    })"_json;
+    auto listings_create_op = collectionManager.create_collection(listings_schema);
+    ASSERT_TRUE(listings_create_op.ok());
+
+    const std::vector<nlohmann::json> listings = {
+        R"({"id":"l1","listing_id":"l1","title":"backpack red","is_hidden":0})"_json,
+        R"({"id":"l2","listing_id":"l2","title":"backpack blue","is_hidden":0})"_json,
+        R"({"id":"l3","listing_id":"l3","title":"backpack green","is_hidden":0})"_json
+    };
+    for (const auto& listing : listings) {
+        auto add_op = listings_create_op.get()->add(listing.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto offers_schema = R"({
+        "name": "offers",
+        "fields": [
+            {"name": "listing_ref", "type": "string", "reference": "listings.listing_id"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "price", "type": "int32", "facet": true}
+        ]
+    })"_json;
+    auto offers_create_op = collectionManager.create_collection(offers_schema);
+    ASSERT_TRUE(offers_create_op.ok());
+
+    const std::vector<nlohmann::json> offers = {
+        R"({"listing_ref":"l1","in_stock":true,"price":10})"_json,
+        R"({"listing_ref":"l2","in_stock":true,"price":20})"_json,
+        R"({"listing_ref":"l3","in_stock":true,"price":30})"_json
+    };
+    for (const auto& offer : offers) {
+        auto add_op = offers_create_op.get()->add(offer.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "listings"},
+        {"q", "backpack"},
+        {"query_by", "title"},
+        {"filter_by", "$offers(in_stock:=true && price:>0) && is_hidden:=0"},
+        {"facet_by", "$offers(price)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ("$offers(price)", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    std::map<std::string, size_t> facet_counts;
+    for (const auto& count : res_obj["facet_counts"][0]["counts"]) {
+        facet_counts[count["value"].get<std::string>()] = count["count"].get<size_t>();
+    }
+    ASSERT_EQ(1, facet_counts.at("10"));
+    ASSERT_EQ(1, facet_counts.at("20"));
+    ASSERT_EQ(1, facet_counts.at("30"));
+    ASSERT_DOUBLE_EQ(20.0, res_obj["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_DOUBLE_EQ(10.0, res_obj["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_DOUBLE_EQ(30.0, res_obj["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_DOUBLE_EQ(60.0, res_obj["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
+    req_params["pinned_hits"] = "l1:1,l2:2";
+    req_params["filter_curated_hits"] = "true";
+    try {
+        search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    } catch (const std::exception& e) {
+        FAIL() << "Pinned search with a reference facet threw: " << e.what();
+    }
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+}
+
 TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
     auto schema_json =
             R"({
