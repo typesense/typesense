@@ -11239,6 +11239,73 @@ TEST_F(CollectionJoinTest, CreateTimeAsyncBackfillRetainsReferencingCollectionUn
     ASSERT_EQ(nullptr, collectionManager.get_collection(child_collection_name));
 }
 
+TEST_F(CollectionJoinTest, DeferredAliasReferenceSurvivesRestartBeforeTargetCreation) {
+    const std::string alias_name = "future_customers_alias";
+    const std::string target_name = "future_customers";
+    const std::string referencing_name = "future_invoices";
+
+    auto alias_op = collectionManager.upsert_symlink(alias_name, target_name);
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+
+    auto referencing_schema = R"({
+        "name": "future_invoices",
+        "fields": [
+            {"name": "customer_id", "type": "string", "reference": "future_customers_alias.id",
+             "async_reference": true},
+            {"name": "number", "type": "string"}
+        ]
+    })"_json;
+    auto referencing_op = collectionManager.create_collection(referencing_schema);
+    ASSERT_TRUE(referencing_op.ok()) << referencing_op.error();
+    ASSERT_TRUE(referencing_op.get()->add(R"({"id":"invoice-1","customer_id":"c1","number":"INV-1"})").ok());
+
+    auto registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.count(alias_name));
+    ASSERT_EQ(1, registered.at(alias_name).count(referencing_name));
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.count(alias_name));
+    ASSERT_EQ(1, registered.at(alias_name).count(referencing_name));
+
+    auto target_schema = R"({
+        "name": "future_customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    auto target_op = collectionManager.create_collection(target_schema);
+    ASSERT_TRUE(target_op.ok()) << target_op.error();
+    auto target = target_op.get();
+    auto async_refs = target->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, "customer_id")));
+    ASSERT_TRUE(target->add(R"({"id":"c1","name":"Acme"})").ok());
+
+    auto referencing = collectionManager.get_collection(referencing_name);
+    ASSERT_NE(nullptr, referencing);
+    auto target_seq_id = target->doc_id_to_seq_id("c1");
+    ASSERT_TRUE(target_seq_id.ok()) << target_seq_id.error();
+    auto invoice = referencing->get("invoice-1");
+    ASSERT_TRUE(invoice.ok()) << invoice.error();
+    ASSERT_EQ(target_seq_id.get(), invoice.get()["customer_id_sequence_id"]);
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", referencing_name}, {"q", "*"}, {"query_by", "number"},
+            {"filter_by", "$future_customers_alias(name:=`Acme`)"}};
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_EQ(1, nlohmann::json::parse(json_res)["found"].get<size_t>());
+}
+
 TEST_F(CollectionJoinTest, AsyncRefFieldExistingAliasReferenceResolvesWhenTargetCollectionIsCreated) {
     const std::string parent_alias_name = "bookings_existing_alias";
     const std::string parent_collection_name = "production.bookings_existing_alias";
@@ -14023,6 +14090,318 @@ TEST_F(CollectionJoinTest, FacetByReferenceExtended) {
     ASSERT_EQ(1, (int) res_obj["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_EQ("87", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
     ASSERT_EQ("$Subjects(electives.grade: 87)", res_obj["facet_counts"][0]["counts"][2]["facet_filter"].get<std::string>());
+}
+
+TEST_F(CollectionJoinTest, DroppingAsyncReferenceRemovesRegistration) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json;
+    auto customers_op = collectionManager.create_collection(customers_schema);
+    ASSERT_TRUE(customers_op.ok()) << customers_op.error();
+    auto customers = customers_op.get();
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [
+            {"name": "number", "type": "string"},
+            {"name": "customer_id", "type": "string", "reference": "customers.id",
+             "async_reference": true, "optional": true}
+        ]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+    auto invoices = invoices_op.get();
+
+    ASSERT_TRUE(customers->add(R"({"id":"c1","name":"Acme"})").ok());
+    ASSERT_EQ(1, customers->get_async_referenced_ins().count("id"));
+    ASSERT_EQ(1, collectionManager._get_referenced_ins().count("customers"));
+
+    auto drop = R"({"fields":[{"name":"customer_id","drop":true}]})"_json;
+    auto drop_op = invoices->alter(drop);
+    ASSERT_TRUE(drop_op.ok()) << drop_op.error();
+    ASSERT_EQ(0, invoices->get_schema().count("customer_id"));
+    ASSERT_TRUE(customers->get_async_referenced_ins().empty());
+    ASSERT_EQ(0, collectionManager._get_referenced_ins().count("customers"));
+    ASSERT_TRUE(customers->add(R"({"id":"c2","name":"Globex"})").ok());
+}
+
+TEST_F(CollectionJoinTest, DroppingOneOfTwoAsyncReferencesPreservesTheOther) {
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"second", "customer_b"}, {"first", "customer_a"}};
+
+    for (const auto& [suffix, dropped_field]: cases) {
+        const auto target_name = "customers_" + suffix;
+        const auto referencing_name = "invoices_" + suffix;
+        const auto surviving_field = dropped_field == "customer_a" ? "customer_b" : "customer_a";
+
+        auto target_schema = R"({"fields":[{"name":"name","type":"string"}]})"_json;
+        target_schema["name"] = target_name;
+        auto target_op = collectionManager.create_collection(target_schema);
+        ASSERT_TRUE(target_op.ok()) << target_op.error();
+        auto target = target_op.get();
+
+        auto referencing_schema = R"({
+            "fields": [
+                {"name":"customer_a","type":"string","async_reference":true,"optional":true},
+                {"name":"customer_b","type":"string","async_reference":true,"optional":true}
+            ]
+        })"_json;
+        referencing_schema["name"] = referencing_name;
+        for (auto& schema_field: referencing_schema["fields"]) {
+            schema_field["reference"] = target_name + ".id";
+        }
+        auto referencing_op = collectionManager.create_collection(referencing_schema);
+        ASSERT_TRUE(referencing_op.ok()) << referencing_op.error();
+        auto referencing = referencing_op.get();
+
+        ASSERT_TRUE(target->add(R"({"id":"c1","name":"Before drop"})").ok());
+        auto drop = nlohmann::json{{"fields", nlohmann::json::array({
+                {{"name", dropped_field}, {"drop", true}}})}};
+        auto drop_op = referencing->alter(drop);
+        ASSERT_TRUE(drop_op.ok()) << drop_op.error();
+
+        auto add_op = target->add(R"({"id":"c2","name":"After drop"})");
+        ASSERT_TRUE(add_op.ok()) << dropped_field << ": " << add_op.error();
+        auto async_refs = target->get_async_referenced_ins();
+        ASSERT_EQ(1, async_refs.count("id"));
+        ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t(referencing_name, dropped_field)));
+        ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, surviving_field)));
+        auto referenced_ins = collectionManager._get_referenced_ins();
+        ASSERT_EQ(surviving_field, referenced_ins.at(target_name).at(referencing_name).field);
+    }
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    for (const auto& [suffix, dropped_field]: cases) {
+        const auto target_name = "customers_" + suffix;
+        const auto referencing_name = "invoices_" + suffix;
+        const auto surviving_field = dropped_field == "customer_a" ? "customer_b" : "customer_a";
+        auto target = collectionManager.get_collection(target_name);
+        ASSERT_NE(nullptr, target);
+        auto async_refs = target->get_async_referenced_ins();
+        ASSERT_EQ(1, async_refs.count("id"));
+        ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t(referencing_name, dropped_field)));
+        ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, surviving_field)));
+        auto referenced_ins = collectionManager._get_referenced_ins();
+        ASSERT_EQ(surviving_field, referenced_ins.at(target_name).at(referencing_name).field);
+        auto add_op = target->add(R"({"id":"c3","name":"After restart"})");
+        ASSERT_TRUE(add_op.ok()) << dropped_field << ": " << add_op.error();
+    }
+}
+
+TEST_F(CollectionJoinTest, ReplacingAsyncReferenceThroughAliasPromotesNewField) {
+    for (const auto& suffix: {"direct", "alias"}) {
+        const std::string target_name = std::string("customers_") + suffix;
+        const std::string referencing_name = std::string("invoices_") + suffix;
+        const std::string alias_name = target_name + "_alias";
+
+        auto target_schema = R"({"fields":[{"name":"name","type":"string"}]})"_json;
+        target_schema["name"] = target_name;
+        auto target_op = collectionManager.create_collection(target_schema);
+        ASSERT_TRUE(target_op.ok()) << target_op.error();
+        ASSERT_TRUE(collectionManager.upsert_symlink(alias_name, target_name).ok());
+
+        auto referencing_schema = R"({"fields":[{"name":"old","type":"string","async_reference":true,"optional":true}]})"_json;
+        referencing_schema["name"] = referencing_name;
+        referencing_schema["fields"][0]["reference"] = target_name + ".id";
+        auto referencing_op = collectionManager.create_collection(referencing_schema);
+        ASSERT_TRUE(referencing_op.ok()) << referencing_op.error();
+
+        auto alteration = R"({"fields":[{"name":"old","drop":true},{"name":"new","type":"string","async_reference":true,"optional":true}]})"_json;
+        alteration["fields"][1]["reference"] = (suffix == std::string("alias") ? alias_name : target_name) + ".id";
+        auto alter_op = referencing_op.get()->alter(alteration);
+        ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+
+        const auto reverse = collectionManager._get_referenced_ins();
+        ASSERT_EQ("new", reverse.at(target_name).at(referencing_name).field);
+        const auto async_refs = target_op.get()->get_async_referenced_ins();
+        ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t(referencing_name, "old")));
+        ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t(referencing_name, "new")));
+        ASSERT_TRUE(referencing_op.get()->add(R"({"id":"i1","new":"c1"})").ok());
+        ASSERT_TRUE(target_op.get()->add(R"({"id":"c1","name":"Customer"})").ok());
+    }
+
+    auto check_joins = [this]() {
+        for (const auto& suffix: {"direct", "alias"}) {
+            const std::string target_name = std::string("customers_") + suffix;
+            const std::string referencing_name = std::string("invoices_") + suffix;
+            std::map<std::string, std::string> req_params = {
+                    {"collection", target_name}, {"q", "*"}, {"query_by", "name"},
+                    {"filter_by", "$" + referencing_name + "(id:*)"},
+                    {"include_fields", "id,$" + referencing_name + "(*)"}};
+            nlohmann::json embedded_params;
+            std::string json_res;
+            auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, 0);
+            ASSERT_TRUE(search_op.ok()) << suffix << ": " << search_op.error();
+            const auto result = nlohmann::json::parse(json_res);
+            ASSERT_EQ(1, result["found"]);
+            ASSERT_EQ("i1", result["hits"][0]["document"][referencing_name]["id"]);
+        }
+    };
+    check_joins();
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    for (const auto& suffix: {"direct", "alias"}) {
+        const std::string target_name = std::string("customers_") + suffix;
+        const std::string referencing_name = std::string("invoices_") + suffix;
+        ASSERT_EQ("new", collectionManager._get_referenced_ins().at(target_name).at(referencing_name).field);
+        auto target = collectionManager.get_collection(target_name);
+        ASSERT_NE(nullptr, target);
+        ASSERT_TRUE(target->add(R"({"id":"c2","name":"After restart"})").ok());
+    }
+    check_joins();
+}
+
+TEST_F(CollectionJoinTest, LoadRemovesOnlyStaleAsyncReferenceRegistrations) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name": "name", "type": "string"}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(customers_schema).ok());
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [{"name": "customer_id", "type": "string", "reference": "customers.id",
+                    "async_reference": true, "optional": true}]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+
+    auto orders_schema = R"({
+        "name": "orders",
+        "fields": [{"name": "customer_id", "type": "string", "reference": "customers.id",
+                    "async_reference": true, "optional": true}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(orders_schema).ok());
+
+    std::string stale_referenced_ins;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, stale_referenced_ins));
+
+    auto drop = R"({"fields":[{"name":"customer_id","drop":true}]})"_json;
+    auto drop_op = invoices_op.get()->alter(drop);
+    ASSERT_TRUE(drop_op.ok()) << drop_op.error();
+
+    ASSERT_TRUE(store->insert(CollectionManager::REFERENCED_INS, stale_referenced_ins));
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    auto referenced_ins = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, referenced_ins.count("customers"));
+    ASSERT_EQ(0, referenced_ins.at("customers").count("invoices"));
+    ASSERT_EQ(1, referenced_ins.at("customers").count("orders"));
+
+    auto customers = collectionManager.get_collection("customers");
+    ASSERT_NE(nullptr, customers);
+    auto async_refs = customers->get_async_referenced_ins();
+    ASSERT_EQ(1, async_refs.count("id"));
+    ASSERT_EQ(0, async_refs.at("id").count(reference_pair_t("invoices", "customer_id")));
+    ASSERT_EQ(1, async_refs.at("id").count(reference_pair_t("orders", "customer_id")));
+    ASSERT_TRUE(customers->add(R"({"id":"c1","name":"Acme"})").ok());
+
+    std::string repaired_referenced_ins;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, repaired_referenced_ins));
+    ASSERT_EQ(1, nlohmann::json::parse(repaired_referenced_ins)[0]["referenced_infos"].size());
+}
+
+TEST_F(CollectionJoinTest, LoadRestoresMissingDirectAndDeferredAliasRegistrations) {
+    auto customers_schema = R"({
+        "name": "customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(customers_schema).ok());
+
+    auto orders_schema = R"({
+        "name": "orders",
+        "fields": [{"name":"customer_id","type":"string","reference":"customers.id",
+                    "async_reference":true,"optional":true}]
+    })"_json;
+    ASSERT_TRUE(collectionManager.create_collection(orders_schema).ok());
+
+    std::string incomplete_registry;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, incomplete_registry));
+
+    auto invoices_schema = R"({
+        "name": "invoices",
+        "fields": [{"name":"customer_id","type":"string","reference":"customers.id",
+                    "async_reference":true,"optional":true}]
+    })"_json;
+    auto invoices_op = collectionManager.create_collection(invoices_schema);
+    ASSERT_TRUE(invoices_op.ok()) << invoices_op.error();
+
+    auto alias_op = collectionManager.upsert_symlink("future_customers_alias", "future_customers");
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+    auto deferred_schema = R"({
+        "name": "future_invoices",
+        "fields": [{"name":"customer_id","type":"string","reference":"future_customers_alias.id",
+                    "async_reference":true}]
+    })"_json;
+    auto deferred_op = collectionManager.create_collection(deferred_schema);
+    ASSERT_TRUE(deferred_op.ok()) << deferred_op.error();
+    ASSERT_TRUE(deferred_op.get()->add(R"({"id":"i1","customer_id":"c1"})").ok());
+
+    ASSERT_TRUE(store->insert(CollectionManager::REFERENCED_INS, incomplete_registry));
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    auto registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.at("customers").count("orders"));
+    ASSERT_EQ(1, registered.at("customers").count("invoices"));
+    ASSERT_EQ(1, registered.at("future_customers_alias").count("future_invoices"));
+
+    std::string repaired_registry;
+    ASSERT_EQ(StoreStatus::FOUND, store->get(CollectionManager::REFERENCED_INS, repaired_registry));
+    auto persisted = nlohmann::json::parse(repaired_registry);
+    ASSERT_EQ(2, persisted.size());
+
+    auto future_schema = R"({
+        "name": "future_customers",
+        "fields": [{"name":"name","type":"string"}]
+    })"_json;
+    auto future_op = collectionManager.create_collection(future_schema);
+    ASSERT_TRUE(future_op.ok()) << future_op.error();
+    auto future = future_op.get();
+    ASSERT_TRUE(future->add(R"({"id":"c1","name":"Acme"})").ok());
+    auto future_seq_id = future->doc_id_to_seq_id("c1");
+    ASSERT_TRUE(future_seq_id.ok()) << future_seq_id.error();
+    auto child = collectionManager.get_collection("future_invoices");
+    ASSERT_NE(nullptr, child);
+    auto doc = child->get("i1");
+    ASSERT_TRUE(doc.ok()) << doc.error();
+    ASSERT_EQ(future_seq_id.get(), doc.get()["customer_id_sequence_id"]);
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+    registered = collectionManager._get_referenced_ins();
+    ASSERT_EQ(1, registered.at("customers").count("invoices"));
+    ASSERT_EQ(1, registered.at("future_customers").count("future_invoices"));
+    auto reloaded_future = collectionManager.get_collection("future_customers");
+    ASSERT_NE(nullptr, reloaded_future);
+    ASSERT_TRUE(reloaded_future->add(R"({"id":"c2","name":"After restart"})").ok());
 }
 
 TEST_F(CollectionJoinTest, AlterReferenceField) {
