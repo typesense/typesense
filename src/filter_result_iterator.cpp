@@ -2471,6 +2471,25 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
+bool filter_result_iterator_t::is_live_seq_id(uint32_t id) {
+    if (index == nullptr) {
+        return true;
+    }
+
+    if (live_seq_ids_checked && id < live_seq_ids_last_checked) {
+        live_seq_ids_iterator = index->seq_ids->new_iterator();
+    }
+    live_seq_ids_last_checked = id;
+    live_seq_ids_checked = true;
+
+    if (!live_seq_ids_iterator.valid()) {
+        return false;
+    }
+
+    live_seq_ids_iterator.skip_to(id);
+    return live_seq_ids_iterator.valid() && live_seq_ids_iterator.id() == id;
+}
+
 int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout) {
     if (validity == invalid || (!curation_timeout && timeout_info != nullptr && is_timed_out())) {
         return -1;
@@ -2480,7 +2499,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
     if (is_filter_result_initialized) {
         skip_to(id);
         const auto result = validity ? (seq_id == id ? 1 : 0) : -1;
-        return result == 1 && index != nullptr && !index->is_live_seq_id(id) ? 0 : result;
+        return result == 1 && !is_live_seq_id(id) ? 0 : result;
     }
 
     if (filter_node->isOperator) {
@@ -2519,7 +2538,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
 
                 return validity == invalid ? -1 : 0;
             }
-            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
+            return is_live_seq_id(id) ? 1 : 0;
         } else {
             validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
 
@@ -2567,7 +2586,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
                     reference[item.first] = item.second;
                 }
             }
-            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
+            return is_live_seq_id(id) ? 1 : 0;
         }
     }
 
@@ -2581,7 +2600,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         seq_id = id + 1;
 
         if (!is_equals_iterator_valid || id < equals_iterator_id) {
-            return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
+            return is_live_seq_id(id) ? 1 : 0;
         } else if (id == equals_iterator_id) {
             return 0;
         }
@@ -2596,11 +2615,11 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
         if (id == equals_iterator_id) {
             return 0;
         }
-        return index != nullptr && !index->is_live_seq_id(id) ? 0 : 1;
+        return is_live_seq_id(id) ? 1 : 0;
     }
 
     const auto result = validity ? (id == equals_iterator_id ? 1 : 0) : -1;
-    return result == 1 && index != nullptr && !index->is_live_seq_id(id) ? 0 : result;
+    return result == 1 && !is_live_seq_id(id) ? 0 : result;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -2620,7 +2639,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         return false;
     }
 
-    if (index != nullptr && !index->is_live_seq_id(seq_id)) {
+    if (!is_live_seq_id(seq_id)) {
         return false;
     }
 
@@ -2690,6 +2709,11 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
 void filter_result_iterator_t::reset(const bool& curation_timeout) {
     if (filter_node == nullptr) {
         return;
+    }
+
+    if (index != nullptr) {
+        live_seq_ids_iterator = index->seq_ids->new_iterator();
+        live_seq_ids_checked = false;
     }
 
     if (!curation_timeout && timeout_info != nullptr && is_timed_out()) {
@@ -2832,7 +2856,7 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
     uint32_t live_count = 0;
     for(uint32_t i = 0; i < filter_result.count; i++) {
         const auto id = filter_result.docs[i];
-        if (index != nullptr && !index->is_live_seq_id(id)) {
+        if (!is_live_seq_id(id)) {
             continue;
         }
         filter_array[live_count++] = id;
@@ -2853,7 +2877,7 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
 
         uint32_t live_count = 0;
         for(uint32_t i = 0; i < result_count; i++) {
-            if(index->is_live_seq_id(results[i])) {
+            if(is_live_seq_id(results[i])) {
                 results[live_count++] = results[i];
             }
         }
@@ -2893,7 +2917,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
             if(index != nullptr) {
                 uint32_t live_count = 0;
                 for(uint32_t i = 0; i < result.count; i++) {
-                    if(index->is_live_seq_id(result.docs[i])) {
+                    if(is_live_seq_id(result.docs[i])) {
                         result.docs[live_count++] = result.docs[i];
                     }
                 }
@@ -2957,10 +2981,14 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
                                                    const filter_node_t *const filter_node,
                                                    const bool& enable_lazy_evaluation, const size_t& max_candidates,
                                                    uint64_t search_begin, uint64_t search_stop,
-                                                   const bool& validate_field_names)  :
+                                                   const bool& validate_field_names) :
         collection_name(collection_name),
         index(index),
         filter_node(filter_node) {
+    if (index != nullptr) {
+        live_seq_ids_iterator = index->seq_ids->new_iterator();
+    }
+
     if (filter_node == nullptr) {
         validity = invalid;
         return;
@@ -3031,6 +3059,9 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
 
     collection_name = obj.collection_name;
     index = obj.index;
+    live_seq_ids_iterator = std::move(obj.live_seq_ids_iterator);
+    live_seq_ids_last_checked = obj.live_seq_ids_last_checked;
+    live_seq_ids_checked = obj.live_seq_ids_checked;
     filter_node = obj.filter_node;
     left_it = obj.left_it;
     right_it = obj.right_it;
@@ -3083,7 +3114,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
     while (live_count < result_length && result_index < filter_result.count) {
         const auto source_index = result_index++;
         const auto id = filter_result.docs[source_index];
-        if (index != nullptr && !index->is_live_seq_id(id)) {
+        if (!is_live_seq_id(id)) {
             continue;
         }
 
@@ -3129,7 +3160,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
     for (uint32_t count = 0; count < n && result_index < filter_result.count; result_index++) {
         auto id = filter_result.docs[result_index];
 
-        if (index != nullptr && !index->is_live_seq_id(id)) {
+        if (!is_live_seq_id(id)) {
             continue;
         }
 

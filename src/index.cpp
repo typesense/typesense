@@ -4254,7 +4254,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // Vector indexes may retain a candidate when the stored document did not
                 // contain the non-stored vector field needed to remove it. Do not surface
                 // candidates whose document has since been deleted.
-                if (!is_live_seq_id(seq_id)) {
+                if (!is_live_seq_id_unlocked(seq_id)) {
                     continue;
                 }
 
@@ -8120,6 +8120,10 @@ bool Index::validate_seq_id(const uint32_t& seq_id) const {
 
 bool Index::is_live_seq_id(const uint32_t& seq_id) const {
     std::shared_lock lock(seq_ids_mutex);
+    return is_live_seq_id_unlocked(seq_id);
+}
+
+bool Index::is_live_seq_id_unlocked(const uint32_t& seq_id) const {
     return seq_ids->contains(seq_id);
 }
 

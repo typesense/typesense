@@ -274,6 +274,11 @@ class filter_result_iterator_t {
 private:
     std::string collection_name;
     const Index* index = nullptr;
+    // Production filtering runs under the Index read lock, which keeps the
+    // live-ID list stable while this monotonic cursor is consumed.
+    id_list_t::iterator_t live_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+    uint32_t live_seq_ids_last_checked = 0;
+    bool live_seq_ids_checked = false;
     const filter_node_t* filter_node = nullptr;
     filter_result_iterator_t* left_it = nullptr;
     filter_result_iterator_t* right_it = nullptr;
@@ -341,6 +346,8 @@ private:
 
     /// Initializes the state of iterator node after it's creation.
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
+
+    bool is_live_seq_id(uint32_t id);
 
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();

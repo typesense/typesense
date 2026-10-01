@@ -522,6 +522,8 @@ private:
     id_list_t* seq_ids;
     mutable std::shared_mutex seq_ids_mutex;
 
+    bool is_live_seq_id_unlocked(const uint32_t& seq_id) const;
+
     // tracks which docs are missing a field
     spp::sparse_hash_map<std::string, id_list_t*> field_missing_index;
 
