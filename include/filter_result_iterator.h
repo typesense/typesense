@@ -435,6 +435,11 @@ public:
     /// Recursively computes the result of each node and stores the final result in the root node.
     void compute_iterators();
 
+    /// A new iterator over this iterator's computed result, so that a second pass over the same filter need not
+    /// evaluate it again. nullptr when there is nothing safe to share: the result is not computed, is empty, timed
+    /// out, or carries references. An empty copy would read as "no filter" rather than "no match".
+    [[nodiscard]] filter_result_iterator_t* computed_copy(uint64_t search_begin_us, uint64_t search_stop_us) const;
+
     /// Handles moving the individual iterators to id internally and checks if `id` matches the filter.
     ///
     /// \return

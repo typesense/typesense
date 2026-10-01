@@ -7036,3 +7036,54 @@ TEST_F(CollectionVectorTest, HybridPhraseConjunctionAcrossFields) {
     for(const auto& hit : json["hits"]) ids.insert(hit["document"]["id"].get<std::string>());
     EXPECT_EQ((std::set<std::string>{"keyword", "vector"}), ids);
 }
+
+TEST_F(CollectionVectorTest, HybridSearchVectorPartKeepsFilterMatchesThatMissThePhrase) {
+    // The vector part of a hybrid search reads a copy of the computed filter. The copy is taken before a phrase query
+    // narrows the keyword side, so the nearest documents that lack the phrase must still be found.
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Cosine distances from [1, 0]: 1, 2 and 3 are close; 0 (the phrase match) and the rest are far.
+    for (int i = 0; i < 40; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = i == 0 ? "alpha beta" : "gamma";
+        doc["points"] = i + 1;
+        doc["vec"] = (i >= 1 && i <= 3) ? std::vector<float>{1, 0.01f * i} : std::vector<float>{0, 1};
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // HNSW: the path that reads the copied filter.
+    for (const std::string cutoff: {"0"}) {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "\"alpha beta\""},
+            {"query_by", "title"},
+            {"filter_by", "points:>0"},
+            {"vector_query", "vec:([1, 0], k: 3, distance_threshold: 0.5, flat_search_cutoff: " + cutoff + ")"},
+            {"exclude_fields", "vec"},
+            {"per_page", "50"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+        auto res = nlohmann::json::parse(json_res);
+        std::set<std::string> ids;
+        for (const auto& hit: res["hits"]) {
+            ids.insert(hit["document"]["id"].get<std::string>());
+        }
+        ASSERT_EQ(std::set<std::string>({"0", "1", "2", "3"}), ids) << "flat_search_cutoff: " << cutoff;
+        ASSERT_EQ(4, res["found"].get<size_t>());
+    }
+}
