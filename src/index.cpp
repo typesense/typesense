@@ -1543,7 +1543,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
     for(auto& a_facet : facets) {
         auto findex = a_facet.orig_index;
         if (!a_facet.reference_collection_name.empty()) {
-            auto const& ref_collection_name = a_facet.reference_collection_name;
+            auto const ref_collection_name = a_facet.reference_collection_name;
             if (reference_facet_ids == nullptr || reference_facet_ids->count(ref_collection_name) == 0 ||
                 reference_facet_ids->at(ref_collection_name).count == 0) {
                 continue;
@@ -1556,11 +1556,12 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
             }
 
             auto& ref_facet_result = reference_facet_ids->at(ref_collection_name);
-            a_facet.reference_collection_name.clear();
-            auto temp_orig_index = a_facet.orig_index;
+            auto ref_facet = a_facet;
+            const auto original_facet_index = ref_facet.orig_index;
             // Referenced collection only has to process a single facet.
-            a_facet.orig_index = 0;
-            std::vector<facet> ref_facets{a_facet};
+            ref_facet.reference_collection_name.clear();
+            ref_facet.orig_index = 0;
+            std::vector<facet> ref_facets{std::move(ref_facet)};
 
             ref_collection->do_facets_with_lock(ref_facets, facet_query, estimate_facets, facet_sample_percent,
                                                 {facet_infos[findex]}, group_limit, group_by_fields, group_missing_values,
@@ -1572,7 +1573,7 @@ Option<bool> Index::do_facets(std::vector<facet>& facets, facet_query_t & facet_
                 continue;
             }
             ref_facets[0].reference_collection_name = ref_collection_name;
-            ref_facets[0].orig_index = temp_orig_index;
+            ref_facets[0].orig_index = original_facet_index;
             a_facet = std::move(ref_facets[0]);
             a_facet.references = ref_facet_result;
             continue;
