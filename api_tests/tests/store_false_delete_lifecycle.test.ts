@@ -222,4 +222,66 @@ describe("store:false delete lifecycle", () => {
     await Promise.all(CLUSTER_NODES.map((node) => verifyDeletedState(node.port)));
     expect(await deleteByHiddenField(leader!.port)).toBe(0);
   });
+
+  it("keeps surviving prefix matches after deleting the first filter ID", async () => {
+    await manager.startSingleNode("search-modes-data", SINGLE_PORT, SINGLE_PEER_PORT, "store-false-search-modes");
+    const collection = "store_false_search_modes";
+    let response = await request(SINGLE_PORT, "/collections", {
+      method: "POST",
+      body: JSON.stringify({
+        name: collection,
+        fields: [
+          { name: "title", type: "string", store: false },
+          { name: "tag", type: "string", facet: true, store: false },
+        ],
+      }),
+    });
+    expect(response.status).toBe(201);
+
+    for (const id of ["dead", "live"]) {
+      response = await request(SINGLE_PORT, `/collections/${collection}/documents`, {
+        method: "POST",
+        body: JSON.stringify({ id, title: "hello world", tag: "same" }),
+      });
+      expect(response.status).toBe(201);
+    }
+
+    const prefixSearch = async () => {
+      const params = new URLSearchParams({
+        q: "hel", query_by: "title", filter_by: "tag:=same", enable_lazy_filter: "true",
+      });
+      const result = await request(SINGLE_PORT, `/collections/${collection}/documents/search?${params}`);
+      expect(result.ok).toBe(true);
+      return result.json() as Promise<SearchResponse>;
+    };
+    let result = await prefixSearch();
+    expect(result.found).toBe(2);
+
+    const deleteParams = new URLSearchParams({ filter_by: "id:=dead" });
+    response = await request(SINGLE_PORT, `/collections/${collection}/documents?${deleteParams}`, { method: "DELETE" });
+    expect(response.ok).toBe(true);
+    expect((await response.json() as { num_deleted: number }).num_deleted).toBe(1);
+
+    result = await prefixSearch();
+    expect(result.found).toBe(1);
+    expect(result.hits?.map((hit) => hit.document.id)).toEqual(["live"]);
+
+    // Expand the title posting list while leaving the filter with its stale
+    // first ID and one live match.
+    const extraDocuments = Array.from({ length: 130 }, (_, index) =>
+      JSON.stringify({ id: `other-${index}`, title: "hello world", tag: "other" })
+    ).join("\n");
+    response = await request(SINGLE_PORT, `/collections/${collection}/documents/import?action=create`, {
+      method: "POST",
+      body: extraDocuments,
+    });
+    expect(response.ok).toBe(true);
+    const imports = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { success: boolean });
+    expect(imports).toHaveLength(130);
+    expect(imports.every((item) => item.success)).toBe(true);
+    result = await prefixSearch();
+    expect(result.found).toBe(1);
+    expect(result.hits?.map((hit) => hit.document.id)).toEqual(["live"]);
+    await manager.stopServer("store-false-search-modes");
+  });
 });

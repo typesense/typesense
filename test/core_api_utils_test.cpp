@@ -3844,6 +3844,199 @@ TEST_F(CoreAPIUtilsTest, DeleteQueryOnNonStoredFacetRemovesDeletedIds) {
     collectionManager.drop_collection("non_stored_delete");
 }
 
+TEST_F(CoreAPIUtilsTest, DeletedNonStoredPostingsDoNotAffectPhraseOrVectorSearch) {
+    auto schema = R"({
+        "name": "deleted_search_modes",
+        "fields": [
+            {"name": "title", "type": "string", "store": false, "infix": true},
+            {"name": "tag", "type": "string", "facet": true, "store": false},
+            {"name": "vec", "type": "float[]", "num_dim": 3, "store": false}
+        ]
+    })"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto* coll = coll_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"dead","title":"hello world","tag":"same","vec":[1,0,0]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"live","title":"hello world","tag":"same","vec":[0,1,0]})").ok());
+
+    auto search = [&](const std::string& q, const std::string& filter_by,
+                      const std::string& vector_query = "", bool infix_search = false,
+                      bool include_facet = false) {
+        SCOPED_TRACE(q + " filter=" + filter_by + " vector=" + vector_query +
+                     " infix=" + std::to_string(infix_search));
+        auto req = std::make_shared<http_req>();
+        auto res = std::make_shared<http_res>(nullptr);
+        req->params["collection"] = "deleted_search_modes";
+        req->params["q"] = q;
+        req->params["query_by"] = "title";
+        if (!filter_by.empty()) req->params["filter_by"] = filter_by;
+        if (!vector_query.empty()) req->params["vector_query"] = vector_query;
+        req->params["search_cutoff_ms"] = "1000";
+        if (infix_search) {
+            req->params["infix"] = "always";
+            req->params["prefix"] = "false";
+            req->params["num_typos"] = "0";
+        }
+        if (include_facet) req->params["facet_by"] = "tag";
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        const bool handled = get_search(req, res);
+        EXPECT_TRUE(handled) << res->body;
+        return nlohmann::json::parse(res->body);
+    };
+
+    auto assert_ids = [&](const nlohmann::json& result, const std::vector<std::string>& expected_ids) {
+        ASSERT_FALSE(result.value("search_cutoff", false)) << result.dump();
+        ASSERT_EQ(expected_ids.size(), result["found"].get<size_t>()) << result.dump();
+        ASSERT_EQ(expected_ids.size(), result["hits"].size()) << result.dump();
+        std::vector<std::string> actual_ids;
+        for (const auto& hit : result["hits"]) {
+            actual_ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+        std::sort(actual_ids.begin(), actual_ids.end());
+        auto sorted_expected_ids = expected_ids;
+        std::sort(sorted_expected_ids.begin(), sorted_expected_ids.end());
+        ASSERT_EQ(sorted_expected_ids, actual_ids) << result.dump();
+    };
+
+    const std::vector<std::pair<std::string, std::string>> text_queries = {
+        {"\"hello world\"", ""}, {"\"hello world\"", "tag:=same"},
+        {"hello", ""}, {"hel", ""}, {"hello world", ""}
+    };
+    const std::vector<std::string> vector_queries = {
+        "vec:([1,0,0], k:10, flat_search_cutoff:100)",
+        "vec:([1,0,0], k:10, flat_search_cutoff:0)"
+    };
+    for (const auto& [q, filter_by] : text_queries) assert_ids(search(q, filter_by), {"dead", "live"});
+    for (const auto& vector_query : vector_queries) {
+        assert_ids(search("*", "tag:=same", vector_query), {"dead", "live"});
+    }
+    auto infix_before_delete = search("ell", "", "", true, true);
+    assert_ids(infix_before_delete, {"dead", "live"});
+    ASSERT_EQ(2, infix_before_delete["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    auto filtered_infix_before_delete = search("ell", "tag:=same", "", true, true);
+    assert_ids(filtered_infix_before_delete, {"dead", "live"});
+    ASSERT_EQ(2, filtered_infix_before_delete["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    const std::string nearest_vector_query = "vec:([1,0,0], k:1, flat_search_cutoff:0)";
+    assert_ids(search("*", "", nearest_vector_query), {"dead"});
+    assert_ids(search("*", "tag:=same", nearest_vector_query), {"dead"});
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "deleted_search_modes";
+    req->params["filter_by"] = "id:=dead";
+    del_remove_documents(req, res);
+    ASSERT_EQ(200, res->status_code) << res->body;
+    ASSERT_EQ(1, nlohmann::json::parse(res->body)["num_deleted"].get<size_t>());
+
+    for (const auto& [q, filter_by] : text_queries) assert_ids(search(q, filter_by), {"live"});
+    for (const auto& vector_query : vector_queries) {
+        assert_ids(search("*", "tag:=same", vector_query), {"live"});
+    }
+    auto infix_after_first_delete = search("ell", "", "", true, true);
+    assert_ids(infix_after_first_delete, {"live"});
+    ASSERT_EQ(1, infix_after_first_delete["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    auto filtered_infix_after_first_delete = search("ell", "tag:=same", "", true, true);
+    assert_ids(filtered_infix_after_first_delete, {"live"});
+    ASSERT_EQ(1, filtered_infix_after_first_delete["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    assert_ids(search("*", "", nearest_vector_query), {"live"});
+    assert_ids(search("*", "tag:=same", nearest_vector_query), {"live"});
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "deleted_search_modes";
+    req->params["filter_by"] = "id:=live";
+    del_remove_documents(req, res);
+    ASSERT_EQ(200, res->status_code) << res->body;
+    ASSERT_EQ(1, nlohmann::json::parse(res->body)["num_deleted"].get<size_t>());
+    for (const auto& [q, filter_by] : text_queries) assert_ids(search(q, filter_by), {});
+    for (const auto& vector_query : vector_queries) {
+        assert_ids(search("*", "tag:=same", vector_query), {});
+    }
+    assert_ids(search("*", "", nearest_vector_query), {});
+    assert_ids(search("*", "tag:=same", nearest_vector_query), {});
+    auto infix_after_all_deleted = search("ell", "", "", true, true);
+    assert_ids(infix_after_all_deleted, {});
+    ASSERT_TRUE(infix_after_all_deleted["facet_counts"][0]["counts"].empty())
+            << infix_after_all_deleted.dump();
+    auto filtered_infix_after_all_deleted = search("ell", "tag:=same", "", true, true);
+    assert_ids(filtered_infix_after_all_deleted, {});
+    ASSERT_TRUE(filtered_infix_after_all_deleted["facet_counts"][0]["counts"].empty())
+            << filtered_infix_after_all_deleted.dump();
+
+    collectionManager.drop_collection("deleted_search_modes");
+}
+
+TEST_F(CoreAPIUtilsTest, DeletedMiddlePostingAdvancesFilteredTextSearch) {
+    auto schema = R"({
+        "name": "deleted_middle_posting",
+        "fields": [
+            {"name": "title", "type": "string", "store": false},
+            {"name": "tag", "type": "string", "facet": true, "store": false}
+        ]
+    })"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto* coll = coll_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"earlier","title":"unrelated text","tag":"same"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"dead","title":"hello world again","tag":"same"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"live","title":"hello world again","tag":"same"})").ok());
+
+    auto search = [&](const std::string& q, const std::string& filter_by, bool lazy_filter) {
+        SCOPED_TRACE(q + " filter=" + filter_by + " lazy=" + std::to_string(lazy_filter));
+        auto req = std::make_shared<http_req>();
+        auto res = std::make_shared<http_res>(nullptr);
+        req->params["collection"] = "deleted_middle_posting";
+        req->params["q"] = q;
+        req->params["query_by"] = "title";
+        req->params["prefix"] = "false";
+        req->params["num_typos"] = "0";
+        req->params["filter_by"] = filter_by;
+        req->params["enable_lazy_filter"] = lazy_filter ? "true" : "false";
+        req->params["search_cutoff_ms"] = "1000";
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        const bool handled = get_search(req, res);
+        EXPECT_TRUE(handled) << res->body;
+        return nlohmann::json::parse(res->body);
+    };
+
+    auto assert_ids = [&](const nlohmann::json& result, const std::vector<std::string>& expected_ids) {
+        ASSERT_FALSE(result.value("search_cutoff", false)) << result.dump();
+        ASSERT_EQ(expected_ids.size(), result["found"].get<size_t>()) << result.dump();
+        ASSERT_EQ(expected_ids.size(), result["hits"].size()) << result.dump();
+        std::vector<std::string> actual_ids;
+        for (const auto& hit : result["hits"]) {
+            actual_ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+        std::sort(actual_ids.begin(), actual_ids.end());
+        auto sorted_expected_ids = expected_ids;
+        std::sort(sorted_expected_ids.begin(), sorted_expected_ids.end());
+        ASSERT_EQ(sorted_expected_ids, actual_ids) << result.dump();
+    };
+
+    const std::vector<std::string> queries = {"hello", "hello world", "hello world again"};
+    for (const auto& q : queries) {
+        assert_ids(search(q, "tag:=same", true), {"dead", "live"});
+        assert_ids(search(q, "tag:=same", false), {"dead", "live"});
+        assert_ids(search(q, "tag:!=other", true), {"dead", "live"});
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "deleted_middle_posting";
+    req->params["filter_by"] = "id:=dead";
+    del_remove_documents(req, res);
+    ASSERT_EQ(200, res->status_code) << res->body;
+    ASSERT_EQ(1, nlohmann::json::parse(res->body)["num_deleted"].get<size_t>());
+
+    for (const auto& q : queries) {
+        assert_ids(search(q, "tag:=same", true), {"live"});
+        assert_ids(search(q, "tag:=same", false), {"live"});
+        assert_ids(search(q, "tag:!=other", true), {"live"});
+    }
+
+    collectionManager.drop_collection("deleted_middle_posting");
+}
+
 TEST_F(CoreAPIUtilsTest, DeleteByIdOnNonStoredFieldsRemovesDeletedIds) {
     nlohmann::json schema = R"({
         "name": "non_stored_delete_by_id",

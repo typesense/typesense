@@ -3329,7 +3329,8 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
 }
 
 void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator, const vector_query_t& vector_query,
-                                    hnsw_index_t* field_vector_index, std::vector<std::pair<float, single_filter_result_t>>& dist_results) {
+                                    hnsw_index_t* field_vector_index, std::vector<std::pair<float, single_filter_result_t>>& dist_results,
+                                    id_list_t::iterator_t& live_seq_ids_iterator) {
 
     std::vector<float> normalized_q(vector_query.values.size());
     if (field_vector_index->distance_type == cosine) {
@@ -3337,6 +3338,11 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
     }
     while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
         auto seq_id = filter_result_iterator->seq_id;
+        live_seq_ids_iterator.skip_to(seq_id);
+        if (!live_seq_ids_iterator.valid() || live_seq_ids_iterator.id() != seq_id) {
+            filter_result_iterator->next();
+            continue;
+        }
         auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
         filter_result_iterator->next();
         std::vector<float> values;
@@ -3774,7 +3780,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
 
             if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+                auto live_ids = seq_ids->new_iterator();
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results, live_ids);
             } else if(!no_group_filter_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
@@ -3794,6 +3801,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             for (auto& dist_result : dist_results) {
                 auto& seq_id = dist_result.second.seq_id;
+                if (!is_live_seq_id_unlocked(seq_id)) {
+                    continue;
+                }
                 auto references = std::move(dist_result.second.reference_filter_results);
 
                 if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
@@ -4176,7 +4186,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
 
             if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+                auto live_ids = seq_ids->new_iterator();
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results, live_ids);
             } else if (!no_group_filter_provided || (filter_id_count >= vector_query.flat_search_cutoff &&
                         filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
@@ -6172,6 +6183,18 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         phrase_result_ids = excluded_phrase_result_ids;
     }
 
+    // Non-stored text can retain phrase postings after deletion. Keep the
+    // phrase array live before it is wrapped in an iterator without an Index.
+    auto live_phrase_ids = seq_ids->new_iterator();
+    uint32_t live_phrase_count = 0;
+    for(uint32_t i = 0; i < phrase_result_count; i++) {
+        live_phrase_ids.skip_to(phrase_result_ids[i]);
+        if (live_phrase_ids.valid() && live_phrase_ids.id() == phrase_result_ids[i]) {
+            phrase_result_ids[live_phrase_count++] = phrase_result_ids[i];
+        }
+    }
+    phrase_result_count = live_phrase_count;
+
     // AND phrase id matches with filter ids. A timed out iterator is also passed through
     // add_phrase_ids so the combined iterator retains the timeout state and fails closed.
     if(filter_result_iterator->validity != filter_result_iterator_t::invalid) {
@@ -6360,6 +6383,27 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
             if(!infix_ids.empty()) {
                 gfx::timsort(infix_ids.begin(), infix_ids.end());
                 infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
+
+                // Infix postings can retain IDs for deleted documents when
+                // their indexed field was not stored. Apply the live set
+                // before composing filter results so candidate IDs and any
+                // attached reference payloads remain aligned.
+                auto live_ids_iterator = seq_ids->new_iterator();
+                auto live_ids_end = infix_ids.begin();
+                for (auto candidate = infix_ids.begin(); candidate != infix_ids.end(); ++candidate) {
+                    if (!live_ids_iterator.valid()) {
+                        break;
+                    }
+                    live_ids_iterator.skip_to(*candidate);
+                    if (live_ids_iterator.valid() && live_ids_iterator.id() == *candidate) {
+                        *live_ids_end++ = *candidate;
+                    }
+                }
+                infix_ids.erase(live_ids_end, infix_ids.end());
+
+                if (infix_ids.empty()) {
+                    continue;
+                }
 
                 uint32_t* raw_infix_ids = nullptr;
                 size_t raw_infix_ids_length = 0;

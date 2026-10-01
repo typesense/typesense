@@ -347,8 +347,6 @@ private:
     /// Initializes the state of iterator node after it's creation.
     void init(const bool& enable_lazy_evaluation, const bool& validate_field_names);
 
-    bool is_live_seq_id(uint32_t id);
-
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();
 
@@ -449,6 +447,10 @@ public:
     /// 1 : id is valid
     /// -1: end of iterator / timed out
     [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
+
+    /// Returns whether `id` is present in the Index's authoritative live-ID set.
+    /// The caller must hold the Index read lock that protects the cursor's lifetime.
+    [[nodiscard]] bool is_live_seq_id(uint32_t id);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.

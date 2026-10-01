@@ -341,11 +341,13 @@ public:
                                 excluded_ids(excluded_ids), excluded_ids_length(excluded_ids_length) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        if (filter_result_iterator->approx_filter_ids_length == 0 && excluded_ids_length == 0) {
-            return true;
+        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+            return false;
         }
 
-        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+        // HNSW applies this functor before truncating candidates to k. Reject
+        // stale vector entries here so they cannot consume a live result slot.
+        if (!filter_result_iterator->is_live_seq_id(id)) {
             return false;
         }
 

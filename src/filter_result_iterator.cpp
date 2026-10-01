@@ -2639,7 +2639,16 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         return false;
     }
 
-    if (!is_live_seq_id(seq_id)) {
+    while (validity == valid && !is_live_seq_id(seq_id)) {
+        const auto previous_id = seq_id;
+        next();
+        if (validity == valid && seq_id == previous_id) {
+            // Complement iterators have no next() operation. Their membership
+            // probes below still apply the live-ID check.
+            break;
+        }
+    }
+    if (validity != valid) {
         return false;
     }
 
@@ -2664,13 +2673,21 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
                 num_existing_offsets = list->id_offsets[i];
                 existing_id = list->id_offsets[i + num_existing_offsets + 1];
             } else if (existing_id > seq_id) {
-                auto const& result = is_valid(existing_id);
-
+                const auto result = is_valid(existing_id);
                 if (result == 1) {
                     return true;
                 } else if (result == -1) {
                     return false;
                 }
+                // A rejected posting can leave seq_id unchanged (for example,
+                // when that ID is deleted). Advance the posting before probing
+                // again so candidate discovery always makes progress.
+                i += num_existing_offsets + 2;
+                if (i >= list->length) {
+                    return false;
+                }
+                num_existing_offsets = list->id_offsets[i];
+                existing_id = list->id_offsets[i + num_existing_offsets + 1];
             } else {
                 return true;
             }
@@ -2681,7 +2698,6 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         if (!it.valid()) {
             return false;
         }
-
         while (true) {
             if (it.id() < seq_id) {
                 it.skip_to(seq_id);
@@ -2690,11 +2706,15 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
                     return false;
                 }
             } else if (it.id() > seq_id) {
-                auto const& result = is_valid(it.id());
+                const auto result = is_valid(it.id());
 
                 if (result == 1) {
                     return true;
                 } else if (result == -1) {
+                    return false;
+                }
+                it.next();
+                if (!it.valid()) {
                     return false;
                 }
             } else {
