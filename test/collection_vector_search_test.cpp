@@ -6983,3 +6983,138 @@ TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
     embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ("xyzw", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
 }
+
+TEST_F(CollectionVectorTest, HybridSearchFlatAndHnswKeepTheSameNearestNeighbours) {
+    // A hybrid search's filter must give the same vector matches whichever pass computes them: the k nearest
+    // documents within distance_threshold, never a hidden one. The string filter matches enough documents to stay
+    // lazy in a test build (string_filter_ids_threshold).
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Cosine distances from [1, 0]: 0 -> 0, 1 -> ~0.01, 2 -> 1, 3 -> 2, 4 -> ~0.05.
+    std::vector<std::pair<std::string, std::vector<float>>> docs = {
+        {"alpha beta", {1, 0}},
+        {"gamma", {0.99, 0.14}},
+        {"gamma", {0, 1}},
+        {"gamma", {-1, 0}},
+        {"gamma", {0.95, 0.31}},
+    };
+
+    for (size_t i = 0; i < docs.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = docs[i].first;
+        doc["vec"] = docs[i].second;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto search_ids = [&](const std::string& vector_query, const std::string& hidden_hits) {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "alpha"},
+            {"query_by", "title"},
+            {"filter_by", "title:[alpha, gamma]"},
+            {"vector_query", vector_query},
+            {"hidden_hits", hidden_hits},
+            {"exclude_fields", "vec"},
+            {"per_page", "10"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+
+        auto res = nlohmann::json::parse(json_res);
+        std::set<std::string> ids;
+        for (const auto& hit: res["hits"]) {
+            ids.insert(hit["document"]["id"].get<std::string>());
+        }
+        EXPECT_EQ(ids.size(), res["found"].get<size_t>());
+        return ids;
+    };
+
+    // 1 is hidden, so the two nearest are 0 and 4.
+    const std::set<std::string> nearest_two_not_hidden = {"0", "4"};
+
+    // Brute force (flat_search_cutoff above the filter's matches) and HNSW (cutoff 0) agree.
+    ASSERT_EQ(nearest_two_not_hidden, search_ids("vec:([1, 0], k: 2, distance_threshold: 0.5, flat_search_cutoff: 1000)", "1"));
+    ASSERT_EQ(nearest_two_not_hidden, search_ids("vec:([1, 0], k: 2, distance_threshold: 0.5, flat_search_cutoff: 0)", "1"));
+
+    // k bounds the vector matches: only the nearest one, which is also the keyword match.
+    ASSERT_EQ(std::set<std::string>({"0"}), search_ids("vec:([1, 0], k: 1, distance_threshold: 0.5, flat_search_cutoff: 1000)", ""));
+    ASSERT_EQ(std::set<std::string>({"0"}), search_ids("vec:([1, 0], k: 1, distance_threshold: 0.5, flat_search_cutoff: 0)", ""));
+
+    // distance_threshold bounds them: 2 and 3 are too far even with a large k.
+    const std::set<std::string> within_threshold = {"0", "1", "4"};
+    ASSERT_EQ(within_threshold, search_ids("vec:([1, 0], k: 10, distance_threshold: 0.5, flat_search_cutoff: 1000)", ""));
+    ASSERT_EQ(within_threshold, search_ids("vec:([1, 0], k: 10, distance_threshold: 0.5, flat_search_cutoff: 0)", ""));
+}
+
+TEST_F(CollectionVectorTest, HybridSearchFlatAndHnswKeepTheSameGroups) {
+    // A grouped hybrid search without a k grows its k until the vector matches hold enough groups. The brute-force
+    // pass must grow it the same way: here the 100 nearest documents all belong to one group.
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "int32", "facet": true},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 2}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // The cosine distance from [1, 0] grows with the id; ids 0-99 are group 0, 100-199 group 1, and so on.
+    for (size_t i = 0; i < 400; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = i == 0 ? "apple" : "banana";
+        doc["group"] = i / 100;
+        doc["points"] = i;
+        doc["vec"] = std::vector<float>{std::cos(i * 0.003f), std::sin(i * 0.003f)};
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto search_groups = [&](const std::string& flat_search_cutoff) {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "apple"},
+            {"query_by", "title"},
+            {"filter_by", "points:>=0"},
+            {"group_by", "group"},
+            {"group_limit", "1"},
+            {"vector_query", "vec:([1, 0], flat_search_cutoff: " + flat_search_cutoff + ")"},
+            {"exclude_fields", "vec"},
+            {"per_page", "4"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        EXPECT_TRUE(search_op.ok()) << search_op.error();
+
+        auto res = nlohmann::json::parse(json_res);
+        std::vector<std::string> groups;
+        for (const auto& group: res["grouped_hits"]) {
+            groups.push_back(group["group_key"].dump() + ":" + group["hits"][0]["document"]["id"].get<std::string>());
+        }
+        return groups;
+    };
+
+    const std::vector<std::string> nearest_of_each_group = {"[0]:0", "[1]:100", "[2]:200", "[3]:300"};
+
+    // Brute force (the filter matches 400 documents, below the cutoff) and HNSW (cutoff 0) find the same groups.
+    ASSERT_EQ(nearest_of_each_group, search_groups("1000"));
+    ASSERT_EQ(nearest_of_each_group, search_groups("0"));
+}
