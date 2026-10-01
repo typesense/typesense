@@ -12331,6 +12331,62 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"][1]["product_price"]);
 }
 
+TEST_F(CollectionJoinTest, ScopedEmbeddedJoinDoesNotExposeRequestJoinMatches) {
+    auto schema_json = R"({
+        "name": "Products",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+    auto add_op = collection_create_op.get()->add(R"({"id": "product_a", "name": "Shampoo"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    schema_json = R"({
+        "name": "Customers",
+        "fields": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "product_id", "type": "string", "reference": "Products.id"}
+        ]
+    })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+    add_op = collection_create_op.get()->add(
+            R"({"id": "allowed", "customer_id": "customer_a", "product_id": "product_a"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = collection_create_op.get()->add(
+            R"({"id": "restricted", "customer_id": "customer_b", "product_id": "product_a"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "name,$Customers(customer_id)"},
+    };
+    // This is the embedded filter resolved from a scoped search key. The request-side JOIN may decide whether the
+    // Product matches, but it must not broaden the Customer documents authorized for inclusion in the response.
+    nlohmann::json embedded_params = {
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+    };
+    std::string json_res;
+    uint64_t now_ts = 0;
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+
+    const auto& included_customers = res_obj["hits"][0]["document"]["Customers"];
+    ASSERT_TRUE(included_customers.is_object()) << included_customers.dump();
+    ASSERT_EQ("customer_a", included_customers["customer_id"]);
+}
+
 TEST_F(CollectionJoinTest, QueryByReference) {
     auto schema_json =
             R"({
