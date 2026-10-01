@@ -3453,8 +3453,24 @@ void Index::process_grouped_vector_results_hnsw(
                                    filter_functor, current_k, dist_results, is_wildcard_non_phrase_query);
     };
 
+    grow_vector_k_for_groups(run_hnsw, dist_results, filter_result_iterator_no_groups, vector_query, field_vector_index,
+                             initial_k, fetch_size, group_max_candidates, group_limit, group_by_fields,
+                             group_missing_values);
+}
+
+void Index::grow_vector_k_for_groups(const std::function<void(size_t)>& search_k,
+                                     const std::vector<std::pair<float, single_filter_result_t>>& dist_results,
+                                     filter_result_iterator_t* filter_result_iterator_no_groups,
+                                     const vector_query_t& vector_query,
+                                     const hnsw_index_t* field_vector_index,
+                                     size_t initial_k,
+                                     size_t fetch_size,
+                                     size_t group_max_candidates,
+                                     size_t group_limit,
+                                     const std::vector<std::string>& group_by_fields,
+                                     bool group_missing_values) const {
     if (group_limit == 0 || vector_query.k != 0) {
-        run_hnsw(initial_k);
+        search_k(initial_k);
         return;
     }
 
@@ -3515,7 +3531,7 @@ void Index::process_grouped_vector_results_hnsw(
     const size_t max_k = no_group_filter_provided ? std::max<size_t>(filter_id_count, current_k) : num_seq_ids();
 
     while (true) {
-        run_hnsw(current_k);
+        search_k(current_k);
         auto group_discovery = analyze_group_discovery(dist_results);
 
         if (group_discovery.docs_seen == 0 ||

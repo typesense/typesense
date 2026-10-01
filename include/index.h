@@ -6,6 +6,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <condition_variable>
+#include <functional>
 #include <art.h>
 #include <number.h>
 #include <sparsepp.h>
@@ -961,6 +962,21 @@ public:
                                              bool group_missing_values,
                                              bool is_wildcard_non_phrase_query,
                                              std::vector<std::pair<float, single_filter_result_t>>& dist_results) const;
+
+    /// Calls `search_k(k)` with a k that grows from `initial_k` until the results it leaves in `dist_results` hold
+    /// enough distinct groups for a grouped vector query. Without grouping, or with an explicit k in the query,
+    /// calls it once with `initial_k`.
+    void grow_vector_k_for_groups(const std::function<void(size_t)>& search_k,
+                                  const std::vector<std::pair<float, single_filter_result_t>>& dist_results,
+                                  filter_result_iterator_t* filter_result_iterator_no_groups,
+                                  const vector_query_t& vector_query,
+                                  const hnsw_index_t* field_vector_index,
+                                  size_t initial_k,
+                                  size_t fetch_size,
+                                  size_t group_max_candidates,
+                                  size_t group_limit,
+                                  const std::vector<std::string>& group_by_fields,
+                                  bool group_missing_values) const;
 
     Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                               size_t max_extra_prefix, size_t max_extra_suffix) const;
