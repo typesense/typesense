@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <stdint.h>
 #include <array>
+#include <vector>
 
 /* Different intersection routines adapted from:
  * https://github.com/lemire/SIMDCompressionAndIntersection/blob/master/src/intersection.cpp
@@ -13,6 +14,10 @@ public:
   static size_t and_scalar(const uint32_t *A, const size_t lenA, const uint32_t *B, const size_t lenB, uint32_t **out);
 
   static size_t or_scalar(const uint32_t *A, const size_t lenA, const uint32_t *B, const size_t lenB, uint32_t **out);
+
+  /// Sorts `ids` ascending and removes duplicates. Ids gathered from many sorted lists (a date range, a list of
+  /// filter values) are often dense over their range; those are rebuilt from a bitmap in linear time instead of sorted.
+  static void sort_unique(std::vector<uint32_t>& ids);
 
   static size_t exclude_scalar(const uint32_t *src, const size_t lenSrc, const uint32_t *filter, const size_t lenFilter,
                               uint32_t **out);

@@ -1,5 +1,7 @@
 #include "array_utils.h"
 #include <memory.h>
+#include <algorithm>
+#include <timsort.hpp>
 
 size_t ArrayUtils::and_scalar(const uint32_t *A, const size_t lenA,
                               const uint32_t *B, const size_t lenB, uint32_t **results) {
@@ -178,4 +180,37 @@ bool ArrayUtils::skip_index_to_id(uint32_t& curr_index, uint32_t const* const ar
 
     curr_index = start;
     return false;
+}
+
+void ArrayUtils::sort_unique(std::vector<uint32_t>& ids) {
+    // Below this many ids a sort is cheap enough; a bitmap only pays off for large, dense sets.
+    constexpr size_t BITMAP_MIN_IDS = 1 << 14;
+
+    if (ids.size() >= BITMAP_MIN_IDS) {
+        const uint32_t max_id = *std::max_element(ids.begin(), ids.end());
+        const size_t words = static_cast<size_t>(max_id) / 64 + 1;
+
+        // Dense: at least one id per 64 of the range, so the bitmap is no larger than the ids and both passes
+        // are linear.
+        if (words <= ids.size()) {
+            std::vector<uint64_t> bits(words, 0);
+            for (const uint32_t id: ids) {
+                bits[id >> 6] |= uint64_t(1) << (id & 63);
+            }
+
+            // The unique ids are no more than before, so the vector keeps its storage.
+            ids.clear();
+            for (size_t w = 0; w < words; w++) {
+                uint64_t word = bits[w];
+                while (word != 0) {
+                    ids.push_back(static_cast<uint32_t>(w * 64 + __builtin_ctzll(word)));
+                    word &= word - 1;
+                }
+            }
+            return;
+        }
+    }
+
+    gfx::timsort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 }
