@@ -23,6 +23,8 @@ constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
 #ifdef TEST_BUILD
 std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply = nullptr;
+std::function<void()> collection_manager_after_cascade_first_lock = nullptr;
+std::function<void()> collection_manager_after_cascade_retry_release = nullptr;
 #endif
 
 struct staged_async_reference_backfill_t {
@@ -3772,8 +3774,20 @@ static void lock_cascade_remove_tree(cascade_remove_node_t* cascade_tree) {
     // complete set and block on the contended lock in the next round. This lets a join which already holds that
     // collection acquire one of the locks released here and finish, instead of forming an AB-BA cycle with the cascade.
     size_t blocking_lock_index = 0;
+#ifdef TEST_BUILD
+    bool first_lock_acquired = false;
+    bool first_retry_released = false;
+#endif
     while (true) {
         collection_locks[blocking_lock_index]->lock();
+#ifdef TEST_BUILD
+        if (!first_lock_acquired) {
+            first_lock_acquired = true;
+            if (collection_manager_after_cascade_first_lock != nullptr) {
+                collection_manager_after_cascade_first_lock();
+            }
+        }
+#endif
 
         size_t failed_lock_index = collection_locks.size();
         for (size_t offset = 1; offset < collection_locks.size(); offset++) {
@@ -3793,6 +3807,14 @@ static void lock_cascade_remove_tree(cascade_remove_node_t* cascade_tree) {
                 collection_lock->unlock();
             }
         }
+#ifdef TEST_BUILD
+        if (!first_retry_released) {
+            first_retry_released = true;
+            if (collection_manager_after_cascade_retry_release != nullptr) {
+                collection_manager_after_cascade_retry_release();
+            }
+        }
+#endif
 
         blocking_lock_index = failed_lock_index;
         std::this_thread::yield();

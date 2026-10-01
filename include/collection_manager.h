@@ -17,6 +17,8 @@ const std::string ERROR_could_not_locate_document_in_store = "Could not locate t
 
 #ifdef TEST_BUILD
 extern std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply;
+extern std::function<void()> collection_manager_after_cascade_first_lock;
+extern std::function<void()> collection_manager_after_cascade_retry_release;
 #endif
 
 // Singleton, for managing meta information of all collections and house keeping
