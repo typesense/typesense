@@ -4171,6 +4171,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             VectorFilterFunctor filterFunctor(filter_result_iterator_no_groups, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
+            // Compute the filter once, as the wildcard vector search does. Left lazy, the filter functor resets it for
+            // every node the HNSW search visits and walks its posting lists again up to that node: with a selective
+            // string filter the search visits much of the graph and takes tens of seconds. Computed, each check is a
+            // lookup, and the count below is exact rather than approximate.
+            filter_result_iterator_no_groups->reset();
+            filter_result_iterator_no_groups->compute_iterators();
+
             uint32_t filter_id_count = filter_result_iterator_no_groups->approx_filter_ids_length;
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
