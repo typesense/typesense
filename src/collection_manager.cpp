@@ -3565,8 +3565,8 @@ Option<bool> CollectionManager::update_collection_synonym_sets(const std::string
 }
 
 Option<bool> CollectionManager::update_collection_curation_sets(const std::string& collection,
-                                                                const std::vector<std::string>& curation_sets,
-                                                                bool is_live_req) {
+                                                                 const std::vector<std::string>& curation_sets,
+                                                                 bool is_live_req) {
     auto collection_ptr = get_collection(collection);
     if (collection_ptr == nullptr) {
         return Option<bool>(400, "failed to get collection.");
