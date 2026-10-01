@@ -1,5 +1,6 @@
 #include "system_metrics.h"
 
+#include <cstdio>
 #include <sys/resource.h>
 #include <sys/statvfs.h>
 #if __linux__
@@ -228,6 +229,18 @@ uint64_t SystemMetrics::get_memory_used_bytes() {
 #endif
 
     return memory_used_bytes;
+}
+
+bool SystemMetrics::purge_jemalloc_unused_memory() {
+#if defined(__linux__) && !defined(ASAN_BUILD)
+    char purge_command[32];
+    const int length = std::snprintf(purge_command, sizeof(purge_command),
+                                     "arena.%u.purge", MALLCTL_ARENAS_ALL);
+    return length > 0 && static_cast<size_t>(length) < sizeof(purge_command) &&
+           impl_mallctl(purge_command, nullptr, nullptr, nullptr, 0) == 0;
+#else
+    return false;
+#endif
 }
 
 mallctl_stats_t SystemMetrics::get_cached_mallctl_stats() {
