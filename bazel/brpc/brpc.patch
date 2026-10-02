@@ -1,85 +1,7 @@
---- src/bvar/default_variables.cpp
-+++ src/bvar/default_variables.cpp
-@@ -429,13 +429,21 @@
- static bool read_proc_io(ProcIO* s) {
- #if defined(OS_LINUX)
-     butil::ScopedFILE fp("/proc/self/io", "r");
-     if (NULL == fp) {
--        PLOG_ONCE(WARNING) << "Fail to open /proc/self/io";
-+        // Use fprintf instead of PLOG_ONCE to avoid SIGSEGV when glog is not
-+        // yet initialized (static initialization order fiasco on WSL/containers
-+        // where /proc/self/io may not exist).
-+        static bool ever_printed_io_err = false;
-+        if (!ever_printed_io_err) {
-+            fprintf(stderr, "WARNING: Fail to open /proc/self/io, errno=%d. "
-+                            "I/O related bvars will be unavailable.\n", errno);
-+            ever_printed_io_err = true;
-+        }
-         return false;
-     }
-     errno = 0;
-     if (fscanf(fp, "%*s %lu %*s %lu %*s %lu %*s %lu %*s %lu %*s %lu %*s %lu",
-                &s->rchar, &s->wchar, &s->syscr, &s->syscw,
-                &s->read_bytes, &s->write_bytes, &s->cancelled_write_bytes)
-         != 7) {
--        PLOG(WARNING) << "Fail to fscanf";
-+        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/io, errno=%d. "
-+                        "I/O related bvars will be unavailable.\n", errno);
-         return false;
-     }
-     return true;
-@@ -442,19 +450,6 @@
-         return false;
-     }
-     return true;
--#elif defined(OS_MACOSX)
--    // TODO(zhujiashun): get rchar, wchar, syscr, syscw, cancelled_write_bytes
--    // in MacOS.
--    memset(s, 0, sizeof(ProcIO));
--    static pid_t pid = getpid();
--    rusage_info_current rusage;
--    if (proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, (void**)&rusage) != 0) {
--        PLOG(WARNING) << "Fail to proc_pid_rusage";
--        return false;
--    }
--    s->read_bytes = rusage.ri_diskio_bytesread;
--    s->write_bytes = rusage.ri_diskio_byteswritten;
--    return true;
- #else 
-     return false;
- #endif
-@@ -73,7 +73,12 @@
- static bool read_proc_status(ProcStat &stat) {
-     stat = ProcStat();
-     errno = 0;
- #if defined(OS_LINUX)
-     // Read status from /proc/self/stat. Information from `man proc' is out of date,
-     // see http://man7.org/linux/man-pages/man5/proc.5.html
-     butil::ScopedFILE fp("/proc/self/stat", "r");
-     if (NULL == fp) {
--        PLOG_ONCE(WARNING) << "Fail to open /proc/self/stat";
-+        static bool ever_printed_stat_err = false;
-+        if (!ever_printed_stat_err) {
-+            fprintf(stderr, "WARNING: Fail to open /proc/self/stat, errno=%d. "
-+                            "Process status related bvars will be unavailable.\n", errno);
-+            ever_printed_stat_err = true;
-+        }
-         return false;
-     }
-@@ -94,7 +99,8 @@
-                &stat.flags, &stat.minflt, &stat.cminflt, &stat.majflt,
-                &stat.cmajflt, &stat.utime, &stat.stime, &stat.cutime, &stat.cstime,
-                &stat.priority, &stat.nice, &stat.num_threads) != 19) {
--        PLOG(WARNING) << "Fail to fscanf";
-+        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/stat, errno=%d. "
-+                        "Process status related bvars will be unavailable.\n", errno);
-         return false;
-     }
-     return true;
-
-
---- BUILD.bazel
-+++ BUILD.bazel
+diff --git a/BUILD.bazel b/BUILD.bazel
+index 0bdaa4d3..c53f83b7 100644
+--- a/BUILD.bazel
++++ b/BUILD.bazel
 @@ -51,7 +51,7 @@ LINKOPTS = [
      "-pthread",
      "-ldl",
@@ -107,5 +29,70 @@
          "//conditions:default": [],
      }) + select({
          "//bazel/config:brpc_with_boringssl": ["@boringssl//:ssl", "@boringssl//:crypto"],
-
-
+diff --git a/src/bvar/default_variables.cpp b/src/bvar/default_variables.cpp
+index be02c50a..8c04be28 100644
+--- a/src/bvar/default_variables.cpp
++++ b/src/bvar/default_variables.cpp
+@@ -79,7 +79,12 @@ static bool read_proc_status(ProcStat &stat) {
+     // see http://man7.org/linux/man-pages/man5/proc.5.html
+     butil::ScopedFILE fp("/proc/self/stat", "r");
+     if (NULL == fp) {
+-        PLOG_ONCE(WARNING) << "Fail to open /proc/self/stat";
++        static bool ever_printed_stat_err = false;
++        if (!ever_printed_stat_err) {
++            fprintf(stderr, "WARNING: Fail to open /proc/self/stat, errno=%d. "
++                            "Process status related bvars will be unavailable.\\n", errno);
++            ever_printed_stat_err = true;
++        }
+         return false;
+     }
+     if (fscanf(fp, "%d %*s %c "
+@@ -92,7 +97,8 @@ static bool read_proc_status(ProcStat &stat) {
+                &stat.flags, &stat.minflt, &stat.cminflt, &stat.majflt,
+                &stat.cmajflt, &stat.utime, &stat.stime, &stat.cutime, &stat.cstime,
+                &stat.priority, &stat.nice, &stat.num_threads) != 19) {
+-        PLOG(WARNING) << "Fail to fscanf";
++        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/stat, errno=%d. "
++                        "Process status related bvars will be unavailable.\\n", errno);
+         return false;
+     }
+     return true;
+@@ -430,7 +436,12 @@ static bool read_proc_io(ProcIO* s) {
+ #if defined(OS_LINUX)
+     butil::ScopedFILE fp("/proc/self/io", "r");
+     if (NULL == fp) {
+-        PLOG_ONCE(WARNING) << "Fail to open /proc/self/io";
++        static bool ever_printed_io_err = false;
++        if (!ever_printed_io_err) {
++            fprintf(stderr, "WARNING: Fail to open /proc/self/io, errno=%d. "
++                            "I/O related bvars will be unavailable.\\n", errno);
++            ever_printed_io_err = true;
++        }
+         return false;
+     }
+     errno = 0;
+@@ -438,22 +449,10 @@ static bool read_proc_io(ProcIO* s) {
+                &s->rchar, &s->wchar, &s->syscr, &s->syscw,
+                &s->read_bytes, &s->write_bytes, &s->cancelled_write_bytes)
+         != 7) {
+-        PLOG(WARNING) << "Fail to fscanf";
+-        return false;
+-    }
+-    return true;
+-#elif defined(OS_MACOSX)
+-    // TODO(zhujiashun): get rchar, wchar, syscr, syscw, cancelled_write_bytes
+-    // in MacOS.
+-    memset(s, 0, sizeof(ProcIO));
+-    static pid_t pid = getpid();
+-    rusage_info_current rusage;
+-    if (proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, (void**)&rusage) != 0) {
+-        PLOG(WARNING) << "Fail to proc_pid_rusage";
++        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/io, errno=%d. "
++                        "I/O related bvars will be unavailable.\\n", errno);
+         return false;
+     }
+-    s->read_bytes = rusage.ri_diskio_bytesread;
+-    s->write_bytes = rusage.ri_diskio_byteswritten;
+     return true;
+ #else 
+     return false;
