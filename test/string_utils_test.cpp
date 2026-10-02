@@ -4,6 +4,7 @@
 #include <unicode/translit.h>
 #include <json.hpp>
 #include <join.h>
+#include <unordered_set>
 
 TEST(StringUtilsTest, ShouldJoinString) {
     std::vector<std::string> parts = {"foo", "bar", "baz", "bazinga"};
@@ -563,4 +564,31 @@ TEST(StringUtilsTest, ShouldURLEncode) {
     // Test mixed content
     ASSERT_STREQ("Hello%20World%21%20%E2%82%AC%20test%40example.com", 
                  StringUtils::url_encode("Hello World! € test@example.com").c_str());
+}
+
+TEST(StringUtilsTest, HashCombineMixedKeepsNearbySmallValuesApart) {
+    // Chained over small numbers, hash_combine lets a step in one value undo a step in the next.
+    ASSERT_EQ(StringUtils::hash_combine(StringUtils::hash_combine(1, 202601), 1),
+              StringUtils::hash_combine(StringUtils::hash_combine(1, 202602), 64));
+    ASSERT_NE(StringUtils::hash_combine_mixed(StringUtils::hash_combine(1, 202601), 1),
+              StringUtils::hash_combine_mixed(StringUtils::hash_combine(1, 202602), 64));
+
+    // Every pair of a dense grid of consecutive values must combine to its own number.
+    std::unordered_set<uint64_t> plain, mixed;
+    const uint64_t firsts = 512, seconds = 4096;
+
+    for(uint64_t first = 0; first < firsts; first++) {
+        const uint64_t combined = StringUtils::hash_combine(1, 202601 + first);
+        for(uint64_t second = 0; second < seconds; second++) {
+            plain.insert(StringUtils::hash_combine(combined, second));
+            mixed.insert(StringUtils::hash_combine_mixed(combined, second));
+        }
+    }
+
+    ASSERT_LT(plain.size(), firsts * seconds);
+    ASSERT_EQ(firsts * seconds, mixed.size());
+
+    // The order of the values still matters.
+    ASSERT_NE(StringUtils::hash_combine_mixed(StringUtils::hash_combine_mixed(1, 5), 7),
+              StringUtils::hash_combine_mixed(StringUtils::hash_combine_mixed(1, 7), 5));
 }
