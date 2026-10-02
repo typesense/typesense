@@ -30,7 +30,7 @@ index 0bdaa4d3..c53f83b7 100644
      }) + select({
          "//bazel/config:brpc_with_boringssl": ["@boringssl//:ssl", "@boringssl//:crypto"],
 diff --git src/bvar/default_variables.cpp src/bvar/default_variables.cpp
-index be02c50a..8c04be28 100644
+index be02c50a..0875751b 100644
 --- src/bvar/default_variables.cpp
 +++ src/bvar/default_variables.cpp
 @@ -79,7 +79,12 @@ static bool read_proc_status(ProcStat &stat) {
@@ -41,7 +41,7 @@ index be02c50a..8c04be28 100644
 +        static bool ever_printed_stat_err = false;
 +        if (!ever_printed_stat_err) {
 +            fprintf(stderr, "WARNING: Fail to open /proc/self/stat, errno=%d. "
-+                            "Process status related bvars will be unavailable.\\n", errno);
++                            "Process status related bvars will be unavailable.\n", errno);
 +            ever_printed_stat_err = true;
 +        }
          return false;
@@ -53,25 +53,28 @@ index be02c50a..8c04be28 100644
                 &stat.priority, &stat.nice, &stat.num_threads) != 19) {
 -        PLOG(WARNING) << "Fail to fscanf";
 +        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/stat, errno=%d. "
-+                        "Process status related bvars will be unavailable.\\n", errno);
++                        "Process status related bvars will be unavailable.\n", errno);
          return false;
      }
      return true;
-@@ -430,7 +436,12 @@ static bool read_proc_io(ProcIO* s) {
+@@ -430,7 +436,15 @@ static bool read_proc_io(ProcIO* s) {
  #if defined(OS_LINUX)
      butil::ScopedFILE fp("/proc/self/io", "r");
      if (NULL == fp) {
 -        PLOG_ONCE(WARNING) << "Fail to open /proc/self/io";
++        // Use fprintf instead of PLOG_ONCE to avoid SIGSEGV when glog is not
++        // yet initialized (static initialization order fiasco on WSL/containers
++        // where /proc/self/io may not exist).
 +        static bool ever_printed_io_err = false;
 +        if (!ever_printed_io_err) {
 +            fprintf(stderr, "WARNING: Fail to open /proc/self/io, errno=%d. "
-+                            "I/O related bvars will be unavailable.\\n", errno);
++                            "I/O related bvars will be unavailable.\n", errno);
 +            ever_printed_io_err = true;
 +        }
          return false;
      }
      errno = 0;
-@@ -438,22 +449,10 @@ static bool read_proc_io(ProcIO* s) {
+@@ -438,22 +452,10 @@ static bool read_proc_io(ProcIO* s) {
                 &s->rchar, &s->wchar, &s->syscr, &s->syscw,
                 &s->read_bytes, &s->write_bytes, &s->cancelled_write_bytes)
          != 7) {
@@ -88,7 +91,7 @@ index be02c50a..8c04be28 100644
 -    if (proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, (void**)&rusage) != 0) {
 -        PLOG(WARNING) << "Fail to proc_pid_rusage";
 +        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/io, errno=%d. "
-+                        "I/O related bvars will be unavailable.\\n", errno);
++                        "I/O related bvars will be unavailable.\n", errno);
          return false;
      }
 -    s->read_bytes = rusage.ri_diskio_bytesread;
