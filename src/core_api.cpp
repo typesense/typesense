@@ -170,13 +170,13 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
     res->wait();
 
     auto req_res = new async_req_res_t(req, res, true);
-    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    HttpServer::deliver_stream_response(req_res);
 }
 
 void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res, size_t timeout_ms) {
     defer_processing_t* defer = new defer_processing_t(req, res, timeout_ms, server);
     //LOG(INFO) << "core_api req " << req.get() << ", use count: " << req.use_count();
-    server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
+    HttpServer::deliver_defer_processing(defer);
 }
 
 // we cannot return errors here because that will end up as auth failure and won't convey

@@ -313,14 +313,14 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;
         auto req_res = new async_req_res_t(request, response, true);
-        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        return HttpServer::deliver_stream_response(req_res);
     }
 
     if(config->get_skip_writes() && request->path_without_query != "/config") {
         response->set_422("Skipping writes.");
         response->final = true;
         auto req_res = new async_req_res_t(request, response, true);
-        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        return HttpServer::deliver_stream_response(req_res);
     }
 
     route_path* rpath = nullptr;
@@ -334,7 +334,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
             response->set_422("Another collection update operation is in progress.");
             response->final = true;
             auto req_res = new async_req_res_t(request, response, true);
-            return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            return HttpServer::deliver_stream_response(req_res);
         }
     }
 
@@ -357,7 +357,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
             response->set_422(res.error());
             response->final = true;
             auto req_res = new async_req_res_t(request, response, true);
-            return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            return HttpServer::deliver_stream_response(req_res);
         }
     }
 
@@ -405,7 +405,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
 
         response->set_500("Could not find a leader.");
         auto req_res = new async_req_res_t(request, response, true);
-        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        return HttpServer::deliver_stream_response(req_res);
     }
 
     if (response->proxied_stream) {
@@ -475,7 +475,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         }
 
         auto req_res = new async_req_res_t(request, response, true);
-        message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        HttpServer::deliver_stream_response(req_res);
         pending_writes--;
     });
 }
@@ -992,12 +992,11 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 
 ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
                                    Store *store, Store* analytics_store, ThreadPool* thread_pool,
-                                   http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, const Config* config,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), server(server), batched_indexer(batched_indexer),
         store(store), analytics_store(analytics_store),
-        thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
+        thread_pool(thread_pool), api_uses_ssl(api_uses_ssl),
         config(config),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
@@ -1031,14 +1030,14 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
     if(node == nullptr) {
         res->set_500("Could not trigger a snapshot, as node is not initialized.");
         auto req_res = new async_req_res_t(req, res, true);
-        get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        HttpServer::deliver_stream_response(req_res);
         return ;
     }
 
     if(snapshot_in_progress) {
         res->set_409("Another snapshot is in progress.");
         auto req_res = new async_req_res_t(req, res, true);
-        get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        HttpServer::deliver_stream_response(req_res);
         return ;
     }
 
@@ -1131,10 +1130,6 @@ bool ReplicationState::reset_peers() {
     }
 
     return false;
-}
-
-http_message_dispatcher* ReplicationState::get_message_dispatcher() const {
-    return message_dispatcher;
 }
 
 Store* ReplicationState::get_store() {
@@ -1377,7 +1372,7 @@ void OnDemandSnapshotClosure::Run() {
     res->body = response.dump();
 
     auto req_res = new async_req_res_t(req, res, true);
-    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    HttpServer::deliver_stream_response(req_res);
 
     // wait for response to be sent
     res->wait();
