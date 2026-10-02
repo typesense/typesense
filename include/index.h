@@ -649,6 +649,20 @@ private:
                                       const std::vector<char>& token_separators,
                                       std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
+    static void tokenize_doc_field(const field& the_field,
+                                   const nlohmann::json& value,
+                                   const std::vector<char>& local_symbols_to_index,
+                                   const std::vector<char>& local_token_separators,
+                                   std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
+
+    static int64_t float_points(float value);
+
+    static int64_t sort_index_value_to_points(const field& a_field, int64_t value);
+
+    static int64_t token_score_from_sort_index(void* obj, uint32_t seq_id);
+
+    static void yield_index_lock(void* obj);
+
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster<KV>*& curated_topster,
@@ -740,6 +754,9 @@ public:
     // in the query that have the least individual hits one by one until enough results are found.
     static const int DROP_TOKENS_THRESHOLD = 1;
 
+    // Postings scored between index lock releases during a token score rebuild.
+    static constexpr size_t TOKEN_SCORE_YIELD_BUDGET = 100000;
+
     enum {DEFAULT_TOPSTER_SIZE = 250};
 
     Index() = delete;
@@ -753,6 +770,11 @@ public:
           const std::vector<char>& token_separators);
 
     ~Index();
+
+    // Recomputes every token's max_score from the live sort index. Takes the index write lock
+    // and drops it periodically so searches are not blocked for the whole walk; the walk itself
+    // tolerates a writer restructuring the tree while the lock is down.
+    void rebuild_token_scores(const std::string& default_sorting_field);
 
     static void concat_topster_ids(Topster<KV>*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 

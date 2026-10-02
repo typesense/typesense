@@ -869,6 +869,7 @@ public:
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
+    static constexpr const char* TOKEN_SCORE_REBUILD_LOG_PREFIX = "$TR";
 
     static constexpr const char* COLLECTION_NAME_KEY = "name";
     static constexpr const char* COLLECTION_ID_KEY = "id";
@@ -945,6 +946,11 @@ public:
     tsl::htrie_set<char> get_object_reference_fields() const;
 
     std::string get_default_sorting_field();
+
+    // Recomputes token max_score values from current document scores. A positive Raft log
+    // index makes the operation durable-idempotent so completed rebuilds are not repeated
+    // when the log is replayed after restart. Returns false when that entry was already run.
+    Option<bool> rebuild_token_scores(int64_t raft_log_index = 0);
 
     std::vector<std::string> get_synonym_sets() const;
     std::vector<std::string> get_curation_sets() const;
