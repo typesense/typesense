@@ -852,7 +852,18 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 // Only root node of the object filter needs to be marked. Prevents redundant calls to
                 // `filter_result_iterator_t::validate_object_filter()` on every sub-node of the object filter tree.
                 filter_node->is_object_filter_root = true;
-                filter_node->object_field_name = object_prefix.substr(0, object_prefix.size() - 1);
+                const auto object_field_name = object_prefix.substr(0, object_prefix.size() - 1);
+                std::vector<filter_node_t*> object_filter_nodes{filter_node};
+                while (!object_filter_nodes.empty()) {
+                    auto* object_filter_node = object_filter_nodes.back();
+                    object_filter_nodes.pop_back();
+                    object_filter_node->object_field_name = object_field_name;
+
+                    if (object_filter_node->isOperator) {
+                        object_filter_nodes.push_back(object_filter_node->left);
+                        object_filter_nodes.push_back(object_filter_node->right);
+                    }
+                }
                 filter_node->filter_query = object_expression;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
