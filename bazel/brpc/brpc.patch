@@ -1,7 +1,7 @@
-diff --git a/BUILD.bazel b/BUILD.bazel
+diff --git BUILD.bazel BUILD.bazel
 index 0bdaa4d3..c53f83b7 100644
---- a/BUILD.bazel
-+++ b/BUILD.bazel
+--- BUILD.bazel
++++ BUILD.bazel
 @@ -51,7 +51,7 @@ LINKOPTS = [
      "-pthread",
      "-ldl",
@@ -29,10 +29,10 @@ index 0bdaa4d3..c53f83b7 100644
          "//conditions:default": [],
      }) + select({
          "//bazel/config:brpc_with_boringssl": ["@boringssl//:ssl", "@boringssl//:crypto"],
-diff --git a/src/bvar/default_variables.cpp b/src/bvar/default_variables.cpp
+diff --git src/bvar/default_variables.cpp src/bvar/default_variables.cpp
 index be02c50a..8c04be28 100644
---- a/src/bvar/default_variables.cpp
-+++ b/src/bvar/default_variables.cpp
+--- src/bvar/default_variables.cpp
++++ src/bvar/default_variables.cpp
 @@ -79,7 +79,12 @@ static bool read_proc_status(ProcStat &stat) {
      // see http://man7.org/linux/man-pages/man5/proc.5.html
      butil::ScopedFILE fp("/proc/self/stat", "r");
