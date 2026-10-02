@@ -358,9 +358,10 @@ struct StringUtils {
 
     static size_t get_num_chars(const std::string& text);
 
+    static std::string truncate_utf8(const std::string& text, size_t max_bytes);
+
     static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,
                                                      std::vector<std::string>& tokens);
-
     static size_t get_occurence_count(const std::string& str, char symbol);
 
     static std::string url_encode(const std::string& value) {
