@@ -133,6 +133,8 @@ private:
     uint32_t synonym_index = 0;
     std::map<uint32_t, synonym_t> synonym_definitions;
     synonym_node_t synonym_trie_root;
+    std::map<uint32_t, synonym_t> folded_synonym_definitions;
+    synonym_node_t folded_synonym_trie_root;
     std::string name;
 public:
 
@@ -163,7 +165,8 @@ public:
     void synonym_reduction(const std::vector<std::string>& tokens,
                            const std::string& locale,
                            std::vector<std::vector<std::string>>& results,
-                           bool synonym_prefix, uint32_t synonym_num_typos) const;
+                           bool synonym_prefix, uint32_t synonym_num_typos,
+                           bool ascii_folding = false) const;
 
     // Returns copies (not pointers into synonym_definitions): the shared lock is released when this
     // returns, so a concurrent remove/upsert must not be able to free what the caller still holds.
@@ -185,6 +188,8 @@ public:
         swap(first.synonym_index, second.synonym_index);
         swap(first.synonym_definitions, second.synonym_definitions);
         swap(first.synonym_trie_root, second.synonym_trie_root);
+        swap(first.folded_synonym_definitions, second.folded_synonym_definitions);
+        swap(first.folded_synonym_trie_root, second.folded_synonym_trie_root);
         swap(first.name, second.name);
     }
 };

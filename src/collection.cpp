@@ -914,6 +914,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+        field_json[fields::ascii_folding] = coll_field.ascii_folding;
         field_json[fields::store] = coll_field.store;
         field_json[fields::truncate_len] = coll_field.truncate_len;
         field_json[fields::stem_dictionary] = coll_field.stem_dictionary;
@@ -1504,7 +1505,8 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::string& curated_sort_by,
                                      nlohmann::json& curation_metadata,
                                      bool enable_synonyms, bool synonym_prefix,
-                                     uint32_t synonym_num_typos) const {
+                                     uint32_t synonym_num_typos,
+                                     bool ascii_folding) const {
 
     if(!wildcard_tag_matched && !tags_matched && !curation.rule.tags.empty()) {
         // only untagged curations must be considered when no tags are given in the query
@@ -1539,7 +1541,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
             std::vector<std::vector<std::string>> results;
             std::vector<std::string> tokens;
             StringUtils::split(query, tokens, " ");
-            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos);
+            synonym_reduction(tokens, curation.rule.locale, results, synonym_prefix, synonym_num_typos, {}, ascii_folding);
 
             if(!results.empty()) {
                 int i = 0;
@@ -1619,7 +1621,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
                                 diversity_t& diversity, bool synonym_prefix,
-                                uint32_t synonym_num_typos) const {
+                                uint32_t synonym_num_typos,
+                                bool ascii_folding) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1665,9 +1668,14 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
 
             auto stemmer = stem ? StemmerManager::get_instance().get_stemmer(locale, dictionary) : nullptr;
 
-            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer);
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators, stemmer,
+                                false, true, ascii_folding);
             tokenizer.tokenize(tokens);
             return StringUtils::join(tokens, " ");
+        };
+
+        auto normalized_curation_query = [&](const curation_t& curation) {
+            return ascii_folding ? Tokenizer::ascii_fold(curation.rule.normalized_query) : curation.rule.normalized_query;
         };
 
         if(!curation_set_curations.empty()) {
@@ -1691,12 +1699,12 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                           }
 
                           bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                                ov->rule.normalized_query,
+                                                                normalized_curation_query(*ov),
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
                                                                 excluded_ids, filter_sort_curations, filter_curated_hits,
                                                                 curated_sort_by, curation_metadata, ov->rule.synonyms,
-                                                                synonym_prefix, synonym_num_typos);
+                                                                synonym_prefix, synonym_num_typos, ascii_folding);
                           if(match_found) {
                               base_query = compute_base_query();
                               all_tags_found = true;
@@ -1721,12 +1729,12 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                       }
 
                       bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
-                                                             ov->rule.normalized_query,
+                                                             normalized_curation_query(*ov),
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
                                                             excluded_ids, filter_sort_curations, filter_curated_hits,
                                                             curated_sort_by, curation_metadata, ov->rule.synonyms,
-                                                            synonym_prefix, synonym_num_typos);
+                                                            synonym_prefix, synonym_num_typos, ascii_folding);
                       if(match_found) {
                         base_query = compute_base_query();
                         if (!ov->diversity.similarity_equation.empty()) {
@@ -1760,12 +1768,13 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                       query = tokenize_query(true, ov->rule.locale, ov->rule.stemming_dictionary);
                   }
 
-                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
+                  bool match_found = does_curation_match(*ov, query, excluded_set, actual_query,
+                                                        normalized_curation_query(*ov), filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
                                                         excluded_ids, filter_sort_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
-                                                        synonym_num_typos);
+                                                        synonym_num_typos, ascii_folding);
                   if(match_found) {
                       base_query = compute_base_query();
                       if(ov->stop_processing) { break; }
@@ -2963,6 +2972,18 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    bool ascii_folding_initialized = false;
+    bool ascii_folding = false;
+    for(const auto& processed_search_field: processed_search_fields) {
+        const field search_field = search_schema.at(processed_search_field.name);
+        if(!ascii_folding_initialized) {
+            ascii_folding = search_field.ascii_folding;
+            ascii_folding_initialized = true;
+        } else if(search_field.ascii_folding != ascii_folding) {
+            return Option<bool>(400, "All `query_by` fields must have the same `ascii_folding` value.");
+        }
+    }
+
     // validate group by fields
     std::vector<std::string> group_by_fields;
     bool skipped_invalid_group_field = false;
@@ -3188,7 +3209,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
-                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
+                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos, ascii_folding);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }
@@ -3276,7 +3297,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer(),
-                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators);
+                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators,
+                           most_weighted_field.ascii_folding);
 
         // process filter curations first, before synonyms (order is important)
 
@@ -3285,7 +3307,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
                                  most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
-                                 most_weighted_field.token_separators);
+                                 most_weighted_field.token_separators, most_weighted_field.ascii_folding);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -3761,7 +3783,8 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
 
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols, separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
+                  symbols, separators, fq_field.get_stemmer(), false, true,
+                  fq_field.ascii_folding).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -4756,7 +4779,8 @@ void Collection::expand_search_query(const tsl::htrie_map<char, field>& search_s
         }
 
         const auto& qtokens = search_params->searched_query_tokens[q_index];
-        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators,
+                            search_field_it->get_stemmer(), false, true, search_field_it->ascii_folding);
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
@@ -5131,7 +5155,8 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
                                           const std::string& query_locale,
                                           std::shared_ptr<Stemmer> stemmer,
                                           const std::vector<char>& query_symbols_to_index,
-                                          const std::vector<char>& query_token_separators) const {
+                                          const std::vector<char>& query_token_separators,
+                                          bool ascii_folding) const {
 
     std::vector<const curation_t*> matched_dynamic_curations;
     auto compute_normalized_query = [&](const curation_t& curation) {
@@ -5146,7 +5171,7 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
 
       std::vector<std::string> tokens;
       Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
+                          use_search_field_stemmer ? stemmer : nullptr, true, true, ascii_folding);
       tokenizer.tokenize(tokens);
       auto query_normalized = StringUtils::join(tokens, " ");
       size_t i = 0;
@@ -5316,7 +5341,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                                     std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
                                     const std::vector<char>& most_weighted_field_symbols_to_index,
-                                    const std::vector<char>& most_weighted_field_token_separators) const {
+                                    const std::vector<char>& most_weighted_field_token_separators,
+                                    const bool ascii_folding) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -5358,13 +5384,14 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 custom_symbols.push_back('-');
             }
             
-            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, separators, stemmer, false, true, ascii_folding).tokenize(tokens);
             if(stemmer) {
-                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr).tokenize(tokens_non_stemmed);
+                Tokenizer(query, true, false, locale, custom_symbols, separators, nullptr, false, true, ascii_folding).tokenize(tokens_non_stemmed);
             }
         }
 
-        for (const auto& val: stopwordStruct.stopwords) {
+        const auto& stopwords = ascii_folding ? stopwordStruct.folded_stopwords : stopwordStruct.stopwords;
+        for (const auto& val: stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
             tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }
@@ -5647,7 +5674,7 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
-    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
+    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding).tokenize(raw_query_tokens);
 
     if(raw_query_tokens.empty()) {
         return ;
@@ -5955,10 +5982,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
     const Match& match = match_index.match;
 
-    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
     // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
-    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
     if(search_field.locale == "ko") {
         text = string_utils.unicode_nfkd(text);
@@ -5981,8 +6008,10 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
         };
 
         std::vector<TextToken> text_tokens;
-        Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
-        Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
+        Tokenizer text_tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators,
+                                 search_field.get_stemmer(), false, true, search_field.ascii_folding);
+        Tokenizer text_word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators,
+                                      search_field.get_stemmer(), false, true, search_field.ascii_folding);
 
         std::string token;
         size_t token_index = 0, tok_start = 0, tok_end = 0;
@@ -7138,7 +7167,8 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                      const std::string& locale,
                                      std::vector<std::vector<std::string>>& results,
                                      bool synonym_prefix, uint32_t synonym_num_typos,
-                                     const std::vector<std::string>& param_synonym_sets) const {
+                                     const std::vector<std::string>& param_synonym_sets,
+                                     bool ascii_folding) const {
     std::shared_lock lock(mutex);
     //return synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
     // Merge with the existing synonym sets
@@ -7148,6 +7178,15 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
             synonym_sets_merged.insert(param_synonym_set);
         }
     }
+
+    std::vector<std::string> folded_tokens;
+    if(ascii_folding) {
+        folded_tokens = tokens;
+        for(auto& token : folded_tokens) {
+            token = Tokenizer::ascii_fold(token);
+        }
+    }
+
     for(const auto& synonym_set : synonym_sets_merged) {
         auto synonym_index_op = SynonymIndexManager::get_instance().get_synonym_index(synonym_set);
         if(!synonym_index_op.ok()) {
@@ -7156,7 +7195,11 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
             continue;
         }
         auto synonym_index = synonym_index_op.get();
-        synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+        if(ascii_folding) {
+            synonym_index->synonym_reduction(folded_tokens, locale, results, synonym_prefix, synonym_num_typos, true);
+        } else {
+            synonym_index->synonym_reduction(tokens, locale, results, synonym_prefix, synonym_num_typos);
+        }
     }
 }
 
@@ -10200,7 +10243,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                     std::vector<std::string> fquery_tokens;
                     Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
-                              separators, the_field.get_stemmer()).tokenize(fquery_tokens);
+                              separators, the_field.get_stemmer(), false, true,
+                              the_field.ascii_folding).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -10222,7 +10266,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                         }
 
                         Tokenizer(facet_query.query, true, false, the_field.locale, symbols,
-                                  separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
+                                  separators, the_field.get_stemmer(), false, true,
+                                  the_field.ascii_folding).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -10235,7 +10280,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
 
                     std::vector<std::string> raw_fquery_tokens;
                     Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols,
-                              separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
+                              separators, the_field.get_stemmer(), false, true,
+                              the_field.ascii_folding).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;

@@ -2668,6 +2668,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
           "enable_nested_fields":false,
           "fields":[
             {
+              "ascii_folding":false,
               "facet":false,
               "index":true,
               "infix":false,
@@ -2910,6 +2911,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "fallback_field_type":"",
             "fields":[
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2928,6 +2930,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "truncate_len": 100
                 },
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2945,6 +2948,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -2962,6 +2966,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -3019,6 +3024,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
             "fallback_field_type":"",
             "fields":[
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -3037,6 +3043,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "truncate_len": 100
                 },
                 {
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -3054,6 +3061,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -3071,6 +3079,7 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
                     "stem_dictionary": "",
                     "truncate_len": 100
                 },{
+                    "ascii_folding":false,
                     "facet":true,
                     "index":true,
                     "infix":false,
@@ -3385,6 +3394,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
         "enable_nested_fields":true,
         "fields":[
                 {
+                    "ascii_folding":false,
                     "facet":false,
                     "index":true,
                     "infix":false,
@@ -3400,6 +3410,7 @@ TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
                     "truncate_len":100
                 },
                 {
+                    "ascii_folding":false,
                     "facet":false,
                     "index":true,
                     "infix":false,

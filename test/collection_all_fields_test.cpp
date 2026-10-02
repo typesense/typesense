@@ -636,6 +636,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ(".*", fields[0].name);
     ASSERT_EQ("string*", fields[0].type);
     ASSERT_FALSE(fields[0].track_missing_values);
+    ASSERT_FALSE(fields[0].ascii_folding);
 
     fields_json[0][fields::track_missing_values] = true;
     fields.clear();
@@ -716,6 +717,54 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("ko", fields[0].locale);
+}
+
+TEST_F(CollectionAllFieldsTest, AsciiFoldingFieldConfiguration) {
+    nlohmann::json fields_json = R"([
+        {"name": "title", "type": "string"},
+        {"name": "aliases", "type": "string[]", "ascii_folding": true},
+        {"name": ".*", "type": "string*", "ascii_folding": true}
+    ])"_json;
+    std::string fallback_field_type;
+    std::vector<field> parsed_fields;
+
+    auto parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, parsed_fields);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(3, parsed_fields.size());
+    ASSERT_FALSE(parsed_fields[0].ascii_folding);
+    ASSERT_TRUE(parsed_fields[1].ascii_folding);
+    ASSERT_TRUE(parsed_fields[2].ascii_folding);
+
+    auto serialized_field = field::field_to_json_field(parsed_fields[1]);
+    ASSERT_TRUE(serialized_field[fields::ascii_folding]);
+    auto deserialized_field = field::field_from_json(serialized_field);
+    ASSERT_TRUE(deserialized_field.ascii_folding);
+
+    fields_json = R"([
+        {"name": "title", "type": "string", "ascii_folding": "true"}
+    ])"_json;
+    parsed_fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, parsed_fields);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("The `ascii_folding` property of the field `title` should be a boolean.", parse_op.error());
+
+    fields_json = R"([
+        {"name": "price", "type": "int32", "ascii_folding": true}
+    ])"_json;
+    parsed_fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, parsed_fields);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("The `ascii_folding` property of the field `price` is only allowed for indexed string, string[] or string* fields.",
+              parse_op.error());
+
+    fields_json = R"([
+        {"name": "unindexed", "type": "string", "index": false, "ascii_folding": true}
+    ])"_json;
+    parsed_fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, parsed_fields);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("The `ascii_folding` property of the field `unindexed` is only allowed for indexed string, string[] or string* fields.",
+              parse_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
@@ -1986,6 +2035,50 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
     ASSERT_EQ('&', fields[1].token_separators[0]);
     ASSERT_EQ(1, fields[1].symbols_to_index.size());
     ASSERT_EQ('$', fields[1].symbols_to_index[0]);
+}
+
+TEST_F(CollectionAllFieldsTest, AsciiFoldingSchemaResponseAndRestart) {
+    nlohmann::json schema = R"({
+        "name": "AsciiFolding",
+        "fields": [
+            {"name": "title", "type": "string", "ascii_folding": true},
+            {"name": "aliases", "type": "string[]", "ascii_folding": true},
+            {"name": "plain", "type": "string", "ascii_folding": false},
+            {"name": ".*", "type": "string*", "ascii_folding": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* collection = create_op.get();
+    auto schema_fields = collection->get_fields();
+    ASSERT_EQ(4, schema_fields.size());
+    ASSERT_TRUE(schema_fields[0].ascii_folding);
+    ASSERT_TRUE(schema_fields[1].ascii_folding);
+    ASSERT_FALSE(schema_fields[2].ascii_folding);
+    ASSERT_TRUE(schema_fields[3].ascii_folding);
+
+    auto response = collection->get_summary_json();
+    ASSERT_TRUE(response["fields"][0][fields::ascii_folding]);
+    ASSERT_TRUE(response["fields"][1][fields::ascii_folding]);
+    ASSERT_FALSE(response["fields"][2][fields::ascii_folding]);
+    ASSERT_TRUE(response["fields"][3][fields::ascii_folding]);
+
+    collectionManager.dispose();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    collection = collectionManager.get_collection("AsciiFolding").get();
+    ASSERT_NE(nullptr, collection);
+    schema_fields = collection->get_fields();
+    ASSERT_TRUE(schema_fields[0].ascii_folding);
+    ASSERT_TRUE(schema_fields[1].ascii_folding);
+    ASSERT_FALSE(schema_fields[2].ascii_folding);
+    ASSERT_TRUE(schema_fields[3].ascii_folding);
 }
 
 TEST_F(CollectionAllFieldsTest, FieldNameEmpty) {
