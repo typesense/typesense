@@ -90,6 +90,7 @@ namespace fields {
     
     static const std::string hnsw_params = "hnsw_params";
     static const std::string track_missing_values = "track_missing_values";
+    static const std::string description = "description";
 }
 
 enum vector_distance_type_t {
@@ -145,6 +146,9 @@ struct field {
     bool range_index;
 
     bool track_missing_values = false;
+
+    // free text meaning of the field, surfaced to nl search models and api consumers, never indexed
+    std::string description;
 
     bool is_reference_helper = false;
     bool cascade_delete = true;
