@@ -2,6 +2,7 @@
 #include <vector>
 #include <queue>
 #include <set>
+#include <thread>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -22,6 +23,8 @@ constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
 #ifdef TEST_BUILD
 std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply = nullptr;
+std::function<void()> collection_manager_after_cascade_first_lock = nullptr;
+std::function<void()> collection_manager_after_cascade_retry_release = nullptr;
 #endif
 
 struct staged_async_reference_backfill_t {
@@ -3751,9 +3754,70 @@ void CollectionManager::lock_nested_referencing_collections_helper(const std::st
 
         cascade_node->ref_infos.emplace_back(ref_info);
         cascade_node->nested_references.emplace_back(new cascade_remove_node_t({red_coll_it->second,
-                                                            std::unique_lock<std::shared_mutex>(red_coll_it->second->get_mutex())}));
+                std::unique_lock<std::shared_mutex>(red_coll_it->second->get_mutex(), std::defer_lock)}));
         lock_nested_referencing_collections_helper(ref_coll_name, cascade_node->nested_references.back(),
                                                    referencing_collections);
+    }
+}
+
+static void lock_cascade_remove_tree(cascade_remove_node_t* cascade_tree) {
+    std::vector<std::unique_lock<std::shared_mutex>*> collection_locks;
+    std::vector<cascade_remove_node_t*> pending_nodes{cascade_tree};
+    while (!pending_nodes.empty()) {
+        auto* node = pending_nodes.back();
+        pending_nodes.pop_back();
+        collection_locks.emplace_back(&node->lock);
+        pending_nodes.insert(pending_nodes.end(), node->nested_references.begin(), node->nested_references.end());
+    }
+
+    // Acquire one lock while holding no other collection lock, then try the rest. If a lock is contended, release the
+    // complete set and block on the contended lock in the next round. This lets a join which already holds that
+    // collection acquire one of the locks released here and finish, instead of forming an AB-BA cycle with the cascade.
+    size_t blocking_lock_index = 0;
+#ifdef TEST_BUILD
+    bool first_lock_acquired = false;
+    bool first_retry_released = false;
+#endif
+    while (true) {
+        collection_locks[blocking_lock_index]->lock();
+#ifdef TEST_BUILD
+        if (!first_lock_acquired) {
+            first_lock_acquired = true;
+            if (collection_manager_after_cascade_first_lock != nullptr) {
+                collection_manager_after_cascade_first_lock();
+            }
+        }
+#endif
+
+        size_t failed_lock_index = collection_locks.size();
+        for (size_t offset = 1; offset < collection_locks.size(); offset++) {
+            const auto lock_index = (blocking_lock_index + offset) % collection_locks.size();
+            if (!collection_locks[lock_index]->try_lock()) {
+                failed_lock_index = lock_index;
+                break;
+            }
+        }
+
+        if (failed_lock_index == collection_locks.size()) {
+            return;
+        }
+
+        for (auto* collection_lock : collection_locks) {
+            if (collection_lock->owns_lock()) {
+                collection_lock->unlock();
+            }
+        }
+#ifdef TEST_BUILD
+        if (!first_retry_released) {
+            first_retry_released = true;
+            if (collection_manager_after_cascade_retry_release != nullptr) {
+                collection_manager_after_cascade_retry_release();
+            }
+        }
+#endif
+
+        blocking_lock_index = failed_lock_index;
+        std::this_thread::yield();
     }
 }
 
@@ -3772,10 +3836,12 @@ void CollectionManager::lock_nested_referencing_collections(const std::string& c
     }
 
     cascade_tree = new cascade_remove_node_t({coll_it->second,
-                                              std::unique_lock<std::shared_mutex>(coll_it->second->get_mutex())});
+                                              std::unique_lock<std::shared_mutex>(coll_it->second->get_mutex(),
+                                                                                 std::defer_lock)});
 
     std::set<std::string> referencing_collections{coll_name};
     lock_nested_referencing_collections_helper(coll_name, cascade_tree, referencing_collections);
+    lock_cascade_remove_tree(cascade_tree);
 }
 
 nlohmann::json CollectionManager::preprocess_union_hits_for_conversation(const nlohmann::json& hits) {
