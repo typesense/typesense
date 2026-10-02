@@ -1,6 +1,34 @@
 --- src/bvar/default_variables.cpp
 +++ src/bvar/default_variables.cpp
-@@ -442,19 +442,6 @@
+@@ -429,13 +429,21 @@
+ static bool read_proc_io(ProcIO* s) {
+ #if defined(OS_LINUX)
+     butil::ScopedFILE fp("/proc/self/io", "r");
+     if (NULL == fp) {
+-        PLOG_ONCE(WARNING) << "Fail to open /proc/self/io";
++        // Use fprintf instead of PLOG_ONCE to avoid SIGSEGV when glog is not
++        // yet initialized (static initialization order fiasco on WSL/containers
++        // where /proc/self/io may not exist).
++        static bool ever_printed_io_err = false;
++        if (!ever_printed_io_err) {
++            fprintf(stderr, "WARNING: Fail to open /proc/self/io, errno=%d. "
++                            "I/O related bvars will be unavailable.\n", errno);
++            ever_printed_io_err = true;
++        }
+         return false;
+     }
+     errno = 0;
+     if (fscanf(fp, "%*s %lu %*s %lu %*s %lu %*s %lu %*s %lu %*s %lu %*s %lu",
+                &s->rchar, &s->wchar, &s->syscr, &s->syscw,
+                &s->read_bytes, &s->write_bytes, &s->cancelled_write_bytes)
+         != 7) {
+-        PLOG(WARNING) << "Fail to fscanf";
++        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/io, errno=%d. "
++                        "I/O related bvars will be unavailable.\n", errno);
+         return false;
+     }
+     return true;
+@@ -442,19 +450,6 @@
          return false;
      }
      return true;
@@ -20,6 +48,34 @@
  #else 
      return false;
  #endif
+@@ -73,7 +73,12 @@
+ static bool read_proc_status(ProcStat &stat) {
+     stat = ProcStat();
+     errno = 0;
+ #if defined(OS_LINUX)
+     // Read status from /proc/self/stat. Information from `man proc' is out of date,
+     // see http://man7.org/linux/man-pages/man5/proc.5.html
+     butil::ScopedFILE fp("/proc/self/stat", "r");
+     if (NULL == fp) {
+-        PLOG_ONCE(WARNING) << "Fail to open /proc/self/stat";
++        static bool ever_printed_stat_err = false;
++        if (!ever_printed_stat_err) {
++            fprintf(stderr, "WARNING: Fail to open /proc/self/stat, errno=%d. "
++                            "Process status related bvars will be unavailable.\n", errno);
++            ever_printed_stat_err = true;
++        }
+         return false;
+     }
+@@ -94,7 +99,8 @@
+                &stat.flags, &stat.minflt, &stat.cminflt, &stat.majflt,
+                &stat.cmajflt, &stat.utime, &stat.stime, &stat.cutime, &stat.cstime,
+                &stat.priority, &stat.nice, &stat.num_threads) != 19) {
+-        PLOG(WARNING) << "Fail to fscanf";
++        fprintf(stderr, "WARNING: Fail to fscanf /proc/self/stat, errno=%d. "
++                        "Process status related bvars will be unavailable.\n", errno);
+         return false;
+     }
+     return true;
 
 
 --- BUILD.bazel
