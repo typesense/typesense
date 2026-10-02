@@ -182,6 +182,14 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
         }
     }
 
+    if (istate.fit != nullptr && !istate.fit->is_live_seq_id(id)) {
+        // Treat stale postings like excluded IDs so intersect() advances the
+        // posting side without moving a filter cursor that may be a lazy
+        // complement iterator.
+        is_excluded = true;
+        return false;
+    }
+
     // decide if this result be matched with filter results
     if(istate.filter_ids_length != 0) {
         if(istate.filter_ids_index >= istate.filter_ids_length) {
@@ -209,7 +217,13 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     }
 
     if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
-        return istate.fit->is_valid(id) == 1;
+        if (istate.fit->is_valid(id) == 1) {
+            return true;
+        }
+        if (istate.fit->validity == filter_result_iterator_t::valid && istate.fit->seq_id == id) {
+            istate.fit->next();
+        }
+        return false;
     }
 
     return true;
@@ -226,6 +240,13 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
             is_excluded = true;
             return false;
         }
+    }
+
+    if (istate.fit != nullptr && !istate.fit->is_live_seq_id(id)) {
+        // Keep filter progress independent of this stale candidate. In
+        // particular, next() is a no-op for lazy complement filters.
+        is_excluded = true;
+        return false;
     }
 
     // decide if this result be matched with filter results
@@ -262,6 +283,12 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
 
             istate.fit->next();
             return true;
+        }
+
+        // A deleted posting can be rejected while the filter still points to
+        // that ID. Move it forward so intersect() cannot retry the same pair.
+        if (istate.fit->validity == filter_result_iterator_t::valid && istate.fit->seq_id == id) {
+            istate.fit->next();
         }
 
         return false;

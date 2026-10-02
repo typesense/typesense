@@ -274,6 +274,11 @@ class filter_result_iterator_t {
 private:
     std::string collection_name;
     const Index* index = nullptr;
+    // Production filtering runs under the Index read lock, which keeps the
+    // live-ID list stable while this monotonic cursor is consumed.
+    id_list_t::iterator_t live_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+    uint32_t live_seq_ids_last_checked = 0;
+    bool live_seq_ids_checked = false;
     const filter_node_t* filter_node = nullptr;
     filter_result_iterator_t* left_it = nullptr;
     filter_result_iterator_t* right_it = nullptr;
@@ -442,6 +447,10 @@ public:
     /// 1 : id is valid
     /// -1: end of iterator / timed out
     [[nodiscard]] int is_valid(uint32_t id, const bool& curation_timeout = false);
+
+    /// Returns whether `id` is present in the Index's authoritative live-ID set.
+    /// The caller must hold the Index read lock that protects the cursor's lifetime.
+    [[nodiscard]] bool is_live_seq_id(uint32_t id);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.

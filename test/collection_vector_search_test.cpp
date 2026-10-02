@@ -2328,6 +2328,56 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
 }
 
+TEST_F(CollectionVectorTest, DeleteByIdMasksNonStoredVectorMatches) {
+    nlohmann::json schema = R"({
+        "name": "non_stored_vector_delete",
+        "fields": [
+            {"name": "embedding", "type": "float[]", "num_dim": 2, "store": false},
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"vector_to_delete","title":"Removed","embedding":[1.0,0.0]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"vector_to_keep","title":"Kept","embedding":[0.0,1.0]})").ok());
+
+    const std::string vector_query = "embedding:([1.0,0.0], distance_threshold:0.01)";
+    auto search_vector = [&]() {
+        return coll->search("Removed", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false,
+                            6000 * 1000, 4, 7, fallback, 4, {off}, 32767, 32767, 2,
+                            false, true, vector_query);
+    };
+
+    auto before_op = search_vector();
+    ASSERT_TRUE(before_op.ok());
+    ASSERT_EQ(1, before_op.get()["found"].get<size_t>());
+    ASSERT_EQ("vector_to_delete", before_op.get()["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_FALSE(coll->get("vector_to_delete").get().contains("embedding"));
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "non_stored_vector_delete";
+    req->params["id"] = "vector_to_delete";
+    del_remove_document(req, res);
+    ASSERT_EQ(200, res->status_code);
+    ASSERT_FALSE(nlohmann::json::parse(res->body).contains("embedding"));
+    ASSERT_FALSE(coll->get("vector_to_delete").ok());
+    ASSERT_EQ(1, coll->get_num_documents());
+
+    auto after_op = search_vector();
+    ASSERT_TRUE(after_op.ok());
+    ASSERT_EQ(0, after_op.get()["found"].get<size_t>());
+    ASSERT_TRUE(after_op.get()["hits"].empty());
+}
+
 TEST_F(CollectionVectorTest, GroupByWithVectorSearchFacetsRespectDistanceThreshold) {
     nlohmann::json schema = R"({
         "name": "grouped_vector_facets",

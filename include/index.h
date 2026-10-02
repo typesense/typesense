@@ -341,11 +341,13 @@ public:
                                 excluded_ids(excluded_ids), excluded_ids_length(excluded_ids_length) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        if (filter_result_iterator->approx_filter_ids_length == 0 && excluded_ids_length == 0) {
-            return true;
+        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+            return false;
         }
 
-        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+        // HNSW applies this functor before truncating candidates to k. Reject
+        // stale vector entries here so they cannot consume a live result slot.
+        if (!filter_result_iterator->is_live_seq_id(id)) {
             return false;
         }
 
@@ -521,6 +523,8 @@ private:
     // this is used for wildcard queries
     id_list_t* seq_ids;
     mutable std::shared_mutex seq_ids_mutex;
+
+    bool is_live_seq_id_unlocked(const uint32_t& seq_id) const;
 
     // tracks which docs are missing a field
     spp::sparse_hash_map<std::string, id_list_t*> field_missing_index;
@@ -1022,6 +1026,8 @@ public:
     size_t num_seq_ids() const;
 
     bool validate_seq_id(const uint32_t& seq_id) const;
+
+    bool is_live_seq_id(const uint32_t& seq_id) const;
 
     void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
                           const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
