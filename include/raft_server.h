@@ -21,11 +21,14 @@ class ReplicationState;
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
+    ReplicationState* replication_state;
     const std::shared_ptr<http_req> request;
     const std::shared_ptr<http_res> response;
 
 public:
-    ReplicationClosure(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response): request(request), response(response) {
+    ReplicationClosure(ReplicationState* replication_state, const std::shared_ptr<http_req>& request,
+                       const std::shared_ptr<http_res>& response):
+                       replication_state(replication_state), request(request), response(response) {
 
     }
 

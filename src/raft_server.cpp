@@ -28,6 +28,12 @@ void ReplicationClosure::Run() {
     // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
+
+    // failed entries never reach on_apply, so release the pending write here
+    if(!status().ok()) {
+        LOG(ERROR) << "Write failed to replicate, error: " << status().error_str();
+        replication_state->decr_pending_writes();
+    }
 }
 
 // State machine implementation
@@ -374,7 +380,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     braft::Task task;
     task.data = &bufBuilder.buf();
     // This callback would be invoked when the task actually executes or fails
-    task.done = new ReplicationClosure(request, response);
+    task.done = new ReplicationClosure(this, request, response);
 
     //LOG(INFO) << "write() post request ref count " << request.use_count();
 
@@ -383,10 +389,11 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
+    // count before apply, since the closure can run before apply returns
+    pending_writes++;
+
     // Now the task is applied to the group
     node->apply(task);
-
-    pending_writes++;
 }
 
 void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
