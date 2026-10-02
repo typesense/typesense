@@ -34,10 +34,7 @@ rules_foreign_cc_dependencies(
 # brpc and its dependencies
 git_repository(
     name = "com_github_brpc_brpc",
-    commit = "df31bf51f08ca6afa59ef3b4f3749bf20ebd1858",
-    patches = [
-        "//bazel/brpc:brpc.patch",
-    ],
+    commit = "2621a26088897ec904e8483ef0ea68c6ad5a1131",
     remote = "https://github.com/apache/brpc.git",
 )
 
