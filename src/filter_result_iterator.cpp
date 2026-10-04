@@ -2476,7 +2476,7 @@ bool filter_result_iterator_t::is_live_seq_id(uint32_t id) {
         return true;
     }
 
-    if (live_seq_ids_checked && id < live_seq_ids_last_checked) {
+    if (!live_seq_ids_checked || id < live_seq_ids_last_checked) {
         live_seq_ids_iterator = index->seq_ids->new_iterator();
     }
     live_seq_ids_last_checked = id;
@@ -2538,7 +2538,8 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
 
                 return validity == invalid ? -1 : 0;
             }
-            return is_live_seq_id(id) ? 1 : 0;
+            // Both children already validated this match against the live IDs.
+            return 1;
         } else {
             validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
 
@@ -2586,7 +2587,8 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& curation_timeout
                     reference[item.first] = item.second;
                 }
             }
-            return is_live_seq_id(id) ? 1 : 0;
+            // Every matching child already validated this ID.
+            return 1;
         }
     }
 
@@ -2731,10 +2733,7 @@ void filter_result_iterator_t::reset(const bool& curation_timeout) {
         return;
     }
 
-    if (index != nullptr) {
-        live_seq_ids_iterator = index->seq_ids->new_iterator();
-        live_seq_ids_checked = false;
-    }
+    live_seq_ids_checked = false;
 
     if (!curation_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
@@ -3005,10 +3004,6 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
         collection_name(collection_name),
         index(index),
         filter_node(filter_node) {
-    if (index != nullptr) {
-        live_seq_ids_iterator = index->seq_ids->new_iterator();
-    }
-
     if (filter_node == nullptr) {
         validity = invalid;
         return;

@@ -4014,10 +4014,16 @@ TEST_F(CoreAPIUtilsTest, DeletedMiddlePostingAdvancesFilteredTextSearch) {
     };
 
     const std::vector<std::string> queries = {"hello", "hello world", "hello world again"};
+    const std::vector<std::string> filters = {
+        "tag:=same", "tag:!=other", "tag:=same && tag:!=other",
+        "tag:=other || tag:=same", "(tag:=same && tag:!=other) || tag:=missing"
+    };
     for (const auto& q : queries) {
-        assert_ids(search(q, "tag:=same", true), {"dead", "live"});
-        assert_ids(search(q, "tag:=same", false), {"dead", "live"});
-        assert_ids(search(q, "tag:!=other", true), {"dead", "live"});
+        for (const auto& filter : filters) {
+            for (bool lazy : {false, true}) {
+                assert_ids(search(q, filter, lazy), {"dead", "live"});
+            }
+        }
     }
 
     auto req = std::make_shared<http_req>();
@@ -4029,9 +4035,11 @@ TEST_F(CoreAPIUtilsTest, DeletedMiddlePostingAdvancesFilteredTextSearch) {
     ASSERT_EQ(1, nlohmann::json::parse(res->body)["num_deleted"].get<size_t>());
 
     for (const auto& q : queries) {
-        assert_ids(search(q, "tag:=same", true), {"live"});
-        assert_ids(search(q, "tag:=same", false), {"live"});
-        assert_ids(search(q, "tag:!=other", true), {"live"});
+        for (const auto& filter : filters) {
+            for (bool lazy : {false, true}) {
+                assert_ids(search(q, filter, lazy), {"live"});
+            }
+        }
     }
 
     collectionManager.drop_collection("deleted_middle_posting");

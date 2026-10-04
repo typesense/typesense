@@ -3340,7 +3340,10 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
     while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
         auto seq_id = filter_result_iterator->seq_id;
         live_seq_ids_iterator.skip_to(seq_id);
-        if (!live_seq_ids_iterator.valid() || live_seq_ids_iterator.id() != seq_id) {
+        if (!live_seq_ids_iterator.valid()) {
+            break;
+        }
+        if (live_seq_ids_iterator.id() != seq_id) {
             filter_result_iterator->next();
             continue;
         }

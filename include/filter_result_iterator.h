@@ -276,6 +276,7 @@ private:
     const Index* index = nullptr;
     // Production filtering runs under the Index read lock, which keeps the
     // live-ID list stable while this monotonic cursor is consumed.
+    // Initialize on the first probe; operator nodes may only combine live child matches.
     id_list_t::iterator_t live_seq_ids_iterator = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
     uint32_t live_seq_ids_last_checked = 0;
     bool live_seq_ids_checked = false;
