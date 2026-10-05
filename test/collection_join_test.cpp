@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <thread>
 #include <collection_manager.h>
 #include "collection.h"
@@ -6729,6 +6731,101 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["coll_c"][1]["id"]);
 }
 
+TEST_F(CollectionJoinTest, CascadeDeleteDoesNotHoldParentWhileWaitingForReferencingCollection) {
+    auto parent_schema = R"({
+        "name": "DeadlockParents",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto parent_create_op = collectionManager.create_collection(parent_schema);
+    ASSERT_TRUE(parent_create_op.ok());
+    auto parent = parent_create_op.get();
+
+    auto child_schema = R"({
+        "name": "DeadlockLinks",
+        "fields": [
+            {"name": "parent_id", "type": "string", "reference": "DeadlockParents.id"}
+        ]
+    })"_json;
+    auto child_create_op = collectionManager.create_collection(child_schema);
+    ASSERT_TRUE(child_create_op.ok());
+    auto child = child_create_op.get();
+
+    // A join search on DeadlockLinks holds the child shared while it acquires DeadlockParents shared. Keep the child
+    // locked while the cascade tries to acquire both collections; the test hook below reports when it has acquired the
+    // parent exclusively.
+    std::shared_lock parent_search_lock(parent->get_mutex());
+    std::shared_lock child_search_lock(child->get_mutex());
+
+    std::promise<void> cascade_first_lock_acquired_promise;
+    auto cascade_first_lock_acquired = cascade_first_lock_acquired_promise.get_future();
+    std::promise<void> cascade_retry_released_promise;
+    auto cascade_retry_released = cascade_retry_released_promise.get_future();
+    std::promise<void> cascade_locks_acquired_promise;
+    auto cascade_locks_acquired = cascade_locks_acquired_promise.get_future();
+    std::promise<void> release_cascade_locks_promise;
+    auto release_cascade_locks = release_cascade_locks_promise.get_future();
+    std::atomic<bool> cascade_tree_created{false};
+
+    collection_manager_after_cascade_first_lock = [&]() {
+        cascade_first_lock_acquired_promise.set_value();
+    };
+    collection_manager_after_cascade_retry_release = [&]() {
+        cascade_retry_released_promise.set_value();
+    };
+    struct reset_cascade_lock_hook_t {
+        ~reset_cascade_lock_hook_t() {
+            collection_manager_after_cascade_first_lock = nullptr;
+            collection_manager_after_cascade_retry_release = nullptr;
+        }
+    } reset_cascade_lock_hook;
+
+    auto cascade_worker = std::async(std::launch::async, [&]() {
+        cascade_remove_node_t* cascade_tree = nullptr;
+        collectionManager.lock_nested_referencing_collections("DeadlockParents", cascade_tree);
+        cascade_tree_created = cascade_tree != nullptr;
+        cascade_locks_acquired_promise.set_value();
+
+        // Keep the locks alive until the assertions are complete, and destroy them on the thread that acquired them.
+        release_cascade_locks.wait();
+        if (cascade_tree != nullptr) {
+            for (auto* nested_reference : cascade_tree->nested_references) {
+                delete nested_reference;
+            }
+            delete cascade_tree;
+        }
+    });
+
+    parent_search_lock.unlock();
+    EXPECT_EQ(std::future_status::ready,
+              cascade_first_lock_acquired.wait_for(std::chrono::seconds(2)));
+
+    // The regressed cascade acquired DeadlockParents exclusively and then blocked on DeadlockLinks. A real join search
+    // would block reacquiring DeadlockParents while retaining DeadlockLinks, completing the AB-BA cycle. A deadlock-safe
+    // cascade lock acquisition must release the parent while the child is contended.
+    EXPECT_EQ(std::future_status::ready,
+              cascade_retry_released.wait_for(std::chrono::seconds(2)));
+    const bool parent_became_readable = parent->get_mutex().try_lock_shared();
+    if (parent_became_readable) {
+        parent->get_mutex().unlock_shared();
+    }
+
+    EXPECT_TRUE(parent_became_readable)
+            << "Cascade delete held the parent lock while waiting for a referencing collection lock.";
+    EXPECT_EQ(std::future_status::timeout,
+              cascade_locks_acquired.wait_for(std::chrono::milliseconds(0)));
+
+    // Unwind the deliberately contended acquisition even when the regression assertion above fails.
+    child_search_lock.unlock();
+    EXPECT_EQ(std::future_status::ready,
+              cascade_locks_acquired.wait_for(std::chrono::seconds(2)));
+    EXPECT_TRUE(cascade_tree_created);
+    release_cascade_locks_promise.set_value();
+    EXPECT_EQ(std::future_status::ready, cascade_worker.wait_for(std::chrono::seconds(2)));
+    cascade_worker.get();
+}
+
 TEST_F(CollectionJoinTest, CascadeDeletion) {
     auto schema_json =
             R"({
@@ -13441,6 +13538,221 @@ TEST_F(CollectionJoinTest, FacetByReference) {
     ASSERT_EQ("140", res_obj["facet_counts"][0]["counts"][1]["value"].get<std::string>());
     ASSERT_EQ("75", res_obj["facet_counts"][0]["counts"][2]["value"].get<std::string>());
     ASSERT_EQ("73.5", res_obj["facet_counts"][0]["counts"][3]["value"].get<std::string>());
+}
+
+TEST_F(CollectionJoinTest, PinnedHitsPreserveReferenceFacetIdentity) {
+    auto listings_schema = R"({
+        "name": "listings",
+        "fields": [
+            {"name": "listing_id", "type": "string"},
+            {"name": "title", "type": "string"},
+            {"name": "is_hidden", "type": "int32"}
+        ]
+    })"_json;
+    auto listings_create_op = collectionManager.create_collection(listings_schema);
+    ASSERT_TRUE(listings_create_op.ok());
+
+    const std::vector<nlohmann::json> listings = {
+        R"({"id":"l1","listing_id":"l1","title":"backpack red","is_hidden":0})"_json,
+        R"({"id":"l2","listing_id":"l2","title":"backpack blue","is_hidden":0})"_json,
+        R"({"id":"l3","listing_id":"l3","title":"backpack green","is_hidden":0})"_json
+    };
+    for (const auto& listing : listings) {
+        auto add_op = listings_create_op.get()->add(listing.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto offers_schema = R"({
+        "name": "offers",
+        "fields": [
+            {"name": "listing_ref", "type": "string", "reference": "listings.listing_id"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "price", "type": "int32", "facet": true}
+        ]
+    })"_json;
+    auto offers_create_op = collectionManager.create_collection(offers_schema);
+    ASSERT_TRUE(offers_create_op.ok());
+
+    const std::vector<nlohmann::json> offers = {
+        R"({"listing_ref":"l1","in_stock":true,"price":10})"_json,
+        R"({"listing_ref":"l2","in_stock":true,"price":20})"_json,
+        R"({"listing_ref":"l3","in_stock":true,"price":30})"_json
+    };
+    for (const auto& offer : offers) {
+        auto add_op = offers_create_op.get()->add(offer.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "listings"},
+        {"q", "backpack"},
+        {"query_by", "title"},
+        {"filter_by", "$offers(in_stock:=true && price:>0) && is_hidden:=0"},
+        {"facet_by", "$offers(price)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"]);
+    ASSERT_EQ("$offers(price)", res_obj["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["counts"].size());
+    std::map<std::string, size_t> facet_counts;
+    for (const auto& count : res_obj["facet_counts"][0]["counts"]) {
+        facet_counts[count["value"].get<std::string>()] = count["count"].get<size_t>();
+    }
+    ASSERT_EQ(1, facet_counts.at("10"));
+    ASSERT_EQ(1, facet_counts.at("20"));
+    ASSERT_EQ(1, facet_counts.at("30"));
+    ASSERT_DOUBLE_EQ(20.0, res_obj["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_DOUBLE_EQ(10.0, res_obj["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_DOUBLE_EQ(30.0, res_obj["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_DOUBLE_EQ(60.0, res_obj["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_EQ(3, res_obj["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
+    req_params["pinned_hits"] = "l1:1,l2:2";
+    req_params["filter_curated_hits"] = "true";
+    try {
+        search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    } catch (const std::exception& e) {
+        FAIL() << "Pinned search with a reference facet threw: " << e.what();
+    }
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+}
+
+TEST_F(CollectionJoinTest, PinnedReferenceFacetMetadataEdgeCases) {
+    auto listings_schema = R"({
+        "name": "listings",
+        "fields": [
+            {"name": "listing_id", "type": "string"},
+            {"name": "title", "type": "string"},
+            {"name": "is_hidden", "type": "int32"},
+            {"name": "price", "type": "int32", "facet": true}
+        ]
+    })"_json;
+    auto listings_create_op = collectionManager.create_collection(listings_schema);
+    ASSERT_TRUE(listings_create_op.ok());
+
+    const std::vector<nlohmann::json> listings = {
+        R"({"id":"l1","listing_id":"l1","title":"backpack red","is_hidden":0,"price":1010})"_json,
+        R"({"id":"l2","listing_id":"l2","title":"backpack blue","is_hidden":0,"price":1020})"_json,
+        R"({"id":"l3","listing_id":"l3","title":"backpack green","is_hidden":0,"price":1030})"_json,
+        R"({"id":"l4","listing_id":"l4","title":"backpack yellow","is_hidden":0,"price":1040})"_json,
+        R"({"id":"l5","listing_id":"l5","title":"backpack black","is_hidden":1,"price":1050})"_json
+    };
+    for (const auto& listing : listings) {
+        auto add_op = listings_create_op.get()->add(listing.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto offers_schema = R"({
+        "name": "offers",
+        "fields": [
+            {"name": "listing_ref", "type": "string", "reference": "listings.listing_id"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "price", "type": "int32", "facet": true},
+            {"name": "seller", "type": "string", "facet": true}
+        ]
+    })"_json;
+    auto offers_create_op = collectionManager.create_collection(offers_schema);
+    ASSERT_TRUE(offers_create_op.ok());
+
+    const std::vector<nlohmann::json> offers = {
+        R"({"listing_ref":"l1","in_stock":true,"price":10,"seller":"s1"})"_json,
+        R"({"listing_ref":"l2","in_stock":true,"price":20,"seller":"s2"})"_json,
+        R"({"listing_ref":"l3","in_stock":true,"price":30,"seller":"s3"})"_json,
+        R"({"listing_ref":"l4","in_stock":false,"price":40,"seller":"s4"})"_json,
+        R"({"listing_ref":"l5","in_stock":true,"price":50,"seller":"s5"})"_json
+    };
+    for (const auto& offer : offers) {
+        auto add_op = offers_create_op.get()->add(offer.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    ASSERT_TRUE(collectionManager.upsert_symlink("offers_alias", "offers").ok());
+
+    std::map<std::string, std::string> req_params = {
+        {"collection", "listings"},
+        {"q", "backpack"},
+        {"query_by", "title"},
+        {"filter_by", "$offers(in_stock:=true && price:>0) && is_hidden:=0"},
+        {"facet_by", "price, $offers_alias(price, seller)"},
+        {"pinned_hits", "l1:1,l2:2"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto assert_mixed_result = [&](const nlohmann::json& result) {
+        ASSERT_EQ(3, result["found"]);
+        ASSERT_EQ(3, result["hits"].size());
+        ASSERT_EQ("l1", result["hits"][0]["document"]["id"]);
+        ASSERT_EQ("l2", result["hits"][1]["document"]["id"]);
+        ASSERT_EQ("l3", result["hits"][2]["document"]["id"]);
+        ASSERT_EQ(3, result["facet_counts"].size());
+        ASSERT_EQ("price", result["facet_counts"][0]["field_name"]);
+        ASSERT_EQ("$offers_alias(price)", result["facet_counts"][1]["field_name"]);
+        ASSERT_EQ("$offers_alias(seller)", result["facet_counts"][2]["field_name"]);
+
+        std::map<std::string, size_t> local_prices;
+        for (const auto& count : result["facet_counts"][0]["counts"]) {
+            local_prices[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, local_prices.size());
+        ASSERT_EQ(1, local_prices.at("1010"));
+        ASSERT_EQ(1, local_prices.at("1020"));
+        ASSERT_EQ(1, local_prices.at("1030"));
+
+        std::map<std::string, size_t> offer_prices;
+        for (const auto& count : result["facet_counts"][1]["counts"]) {
+            offer_prices[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, offer_prices.size());
+        ASSERT_EQ(1, offer_prices.at("10"));
+        ASSERT_EQ(1, offer_prices.at("20"));
+        ASSERT_EQ(1, offer_prices.at("30"));
+
+        std::map<std::string, size_t> sellers;
+        for (const auto& count : result["facet_counts"][2]["counts"]) {
+            sellers[count["value"].get<std::string>()] = count["count"].get<size_t>();
+        }
+        ASSERT_EQ(3, sellers.size());
+        ASSERT_EQ(1, sellers.at("s1"));
+        ASSERT_EQ(1, sellers.at("s2"));
+        ASSERT_EQ(1, sellers.at("s3"));
+    };
+
+    for (const auto* filter_curated_hits : {"true", "false"}) {
+        req_params["filter_curated_hits"] = filter_curated_hits;
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        assert_mixed_result(nlohmann::json::parse(json_res));
+    }
+
+    req_params["filter_curated_hits"] = "true";
+    req_params["filter_by"] = "$offers(in_stock:=true && price:>0) && is_hidden:=0 && listing_id:!=l3";
+    auto pinned_only_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(pinned_only_op.ok()) << pinned_only_op.error();
+    auto pinned_only_result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, pinned_only_result["found"]);
+    ASSERT_EQ(2, pinned_only_result["hits"].size());
+    ASSERT_EQ("l1", pinned_only_result["hits"][0]["document"]["id"]);
+    ASSERT_EQ("l2", pinned_only_result["hits"][1]["document"]["id"]);
+    ASSERT_EQ("price", pinned_only_result["facet_counts"][0]["field_name"]);
+    ASSERT_EQ("$offers_alias(price)", pinned_only_result["facet_counts"][1]["field_name"]);
+    ASSERT_EQ("$offers_alias(seller)", pinned_only_result["facet_counts"][2]["field_name"]);
+    ASSERT_EQ(2, pinned_only_result["facet_counts"][1]["counts"].size());
+    ASSERT_DOUBLE_EQ(15.0, pinned_only_result["facet_counts"][1]["stats"]["avg"].get<double>());
+    ASSERT_DOUBLE_EQ(10.0, pinned_only_result["facet_counts"][1]["stats"]["min"].get<double>());
+    ASSERT_DOUBLE_EQ(20.0, pinned_only_result["facet_counts"][1]["stats"]["max"].get<double>());
+    ASSERT_DOUBLE_EQ(30.0, pinned_only_result["facet_counts"][1]["stats"]["sum"].get<double>());
+    ASSERT_EQ(2, pinned_only_result["facet_counts"][1]["stats"]["total_values"].get<size_t>());
 }
 
 TEST_F(CollectionJoinTest, GroupByWithVectorQueryDoesNotLeakReferenceFacets) {
