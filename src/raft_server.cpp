@@ -24,6 +24,35 @@ namespace braft {
     DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 }
 
+namespace {
+std::string lookup_hostname_ip(const std::string& host) {
+    struct addrinfo hints, *result;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int status = getaddrinfo(host.c_str(), nullptr, &hints, &result);
+    if(status != 0) {
+        LOG(ERROR) << "Unable to resolve host: " << host << ", error: " << gai_strerror(status);
+        return {};
+    }
+
+    char ip_str[INET6_ADDRSTRLEN];
+    std::string resolved_ip;
+    if(result->ai_family == AF_INET) {
+        auto* addr = reinterpret_cast<sockaddr_in*>(result->ai_addr);
+        inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
+        resolved_ip = ip_str;
+    } else if(result->ai_family == AF_INET6) {
+        auto* addr = reinterpret_cast<sockaddr_in6*>(result->ai_addr);
+        inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
+        resolved_ip = std::string("[") + ip_str + "]";
+    }
+    freeaddrinfo(result);
+    return resolved_ip;
+}
+}
+
 void ReplicationClosure::Run() {
     // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
@@ -162,6 +191,12 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 }
 
 std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
+    return hostname2ipstr(hostname, lookup_hostname_ip);
+}
+
+std::string ReplicationState::hostname2ipstr(
+        const std::string& hostname,
+        const std::function<std::string(const std::string&)>& address_lookup) {
     if(hostname.size() > 64) {
         LOG(ERROR) << "Host name is too long (must be < 64 characters): " << hostname;
         return "";
@@ -172,35 +207,7 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
         return hostname;
     }
 
-    struct addrinfo hints, *result;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;     // Allow both IPv4 and IPv6
-    hints.ai_socktype = SOCK_STREAM; // TCP
-
-    int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
-    if (status != 0) {
-        LOG(ERROR) << "Unable to resolve host: " << hostname << ", error: " << gai_strerror(status);
-        return hostname; // Return original hostname on error
-    }
-
-    char ip_str[INET6_ADDRSTRLEN];
-    std::string resolved_ip;
-
-    // Get the first resolved address
-    if (result->ai_family == AF_INET) {
-        // IPv4
-        struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
-        inet_ntop(AF_INET, &(addr->sin_addr), ip_str, INET_ADDRSTRLEN);
-        resolved_ip = ip_str;
-    } else if (result->ai_family == AF_INET6) {
-        // IPv6
-        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)result->ai_addr;
-        inet_ntop(AF_INET6, &(addr->sin6_addr), ip_str, INET6_ADDRSTRLEN);
-        resolved_ip = std::string("[") + ip_str + "]";
-    }
-
-    freeaddrinfo(result);
-
+    std::string resolved_ip = address_lookup(hostname);
     if(resolved_ip.empty()) {
         return hostname; // Return original hostname if resolution didn't produce a valid IP
     }
@@ -209,6 +216,14 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
 }
 
 std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
+    return resolve_node_hosts(nodes_config, [](const std::string& hostname) {
+        return lookup_hostname_ip(hostname);
+    });
+}
+
+std::string ReplicationState::resolve_node_hosts(
+        const string& nodes_config,
+        const std::function<std::string(const std::string&)>& hostname_resolver) {
     std::vector<std::string> final_nodes_vec;
     std::vector<std::string> node_strings;
     StringUtils::split(nodes_config, node_strings, ",");
@@ -229,7 +244,7 @@ std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
             continue;
         }
 
-        std::string resolved_ip = hostname2ipstr(node_parts[0]);
+        std::string resolved_ip = hostname2ipstr(node_parts[0], hostname_resolver);
         if(resolved_ip.empty()) {
             LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
             continue;

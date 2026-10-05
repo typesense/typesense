@@ -2,6 +2,9 @@
 #include <chrono>
 #include <future>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #define private public
 #include "raft_server.h"
@@ -32,20 +35,6 @@ namespace {
         return result == ipv4_version || result == ipv6_version;
     }
 
-    bool is_ipv4(const std::string& str) {
-        struct sockaddr_in sa;
-        return inet_pton(AF_INET, str.c_str(), &(sa.sin_addr)) != 0;
-    }
-
-    bool is_ipv6_with_brackets(const std::string& str) {
-        if (str.length() < 2 || str[0] != '[' || str[str.length() - 1] != ']') {
-            return false;
-        }
-
-        std::string ipv6 = str.substr(1, str.length() - 2); // Remove [ and ]
-        struct sockaddr_in6 sa;
-        return inet_pton(AF_INET6, ipv6.c_str(), &(sa.sin6_addr)) != 0;
-    }
 }
 
 TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
@@ -202,11 +191,62 @@ TEST(RaftServerTest, ResolveNodesConfigWithIPv6) {
     ASSERT_EQ("[fe80::1%eth0]:8107:8108",
               ReplicationState::resolve_node_hosts("[fe80::1%eth0]:8107:8108"));
 
-    // Test with real IPv6 hostname resolution - need to skip if resolution fails
-    std::string ipv6_result = ReplicationState::resolve_node_hosts("ipv6.test-ipv6.com:8107:8108");
-    if (!ipv6_result.empty()) {
-        EXPECT_TRUE(ipv6_result.find('[') == 0);  // Should start with '[' for IPv6
-        EXPECT_TRUE(ipv6_result.find("]:8107:8108") != std::string::npos);
+}
+
+TEST(RaftServerTest, IncompleteDnsResolutionMustNotProduceAUsablePeerList) {
+    const std::unordered_map<std::string, std::string> addresses = {
+        {"node-a", "10.0.0.1"}, {"node-b", "10.0.0.2"}, {"node-c", "10.0.0.3"}
+    };
+    const auto lookup = [&addresses](const std::string& host) {
+        auto it = addresses.find(host);
+        return it == addresses.end() ? std::string() : it->second;
+    };
+
+    // These are desired safety assertions. Today the resolver returns the
+    // unresolved hostname or silently drops it, so these fail until IU-2
+    // introduces complete-resolution validation.
+    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
+        "missing:8107:8108,node-b:7107:7108,node-c:6107:6108", lookup));
+    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
+        "node-a:8107:8108,missing:7107:7108,node-c:6107:6108", lookup));
+    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
+        "node-a:8107:8108,node-b:7107:7108,missing:6107:6108", lookup));
+    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
+        "missing-a:8107:8108,missing-b:7107:7108,missing-c:6107:6108", lookup));
+    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
+        "node-a:8107:8108,not-a-peer,node-c:6107:6108", lookup));
+}
+
+TEST(RaftServerTest, ResolverInjectionPreservesValidIpv4Ipv6AndMixedLists) {
+    const auto lookup = [](const std::string& host) {
+        if(host == "v4-node") return std::string("192.0.2.10");
+        if(host == "v6-node") return std::string("[2001:db8::10]");
+        return std::string();
+    };
+    EXPECT_EQ("192.0.2.10:8107:8108",
+              ReplicationState::resolve_node_hosts("v4-node:8107:8108", lookup));
+    EXPECT_EQ("[2001:db8::10]:7107:7108",
+              ReplicationState::resolve_node_hosts("v6-node:7107:7108", lookup));
+    EXPECT_EQ("192.0.2.10:8107:8108,[2001:db8::10]:7107:7108",
+              ReplicationState::resolve_node_hosts(
+                  "v4-node:8107:8108,v6-node:7107:7108", lookup));
+}
+
+TEST(RaftServerTest, BraftParseFailureRetainsOnlyTheValidPrefix) {
+    // The parser's prefix behavior is the hazard IU-3 must keep from reaching
+    // change_peers/reset_peers. This test characterizes Braft; it does not
+    // treat a successful prefix parse as acceptable Typesense behavior.
+    for(const auto& test_case : std::vector<std::pair<std::string, size_t>>{
+            {"bad:8107:8108,127.0.0.2:7107:7108", 0},
+            {"127.0.0.1:8107:8108,bad:7107:7108,127.0.0.3:6107:6108", 1},
+            {"127.0.0.1:8107:8108,bad:7107:7108", 1},
+            {"127.0.0.1:8107:8108,127.0.0.2:7107:7108,bad:6107:6108", 2},
+            {"127.0.0.1:8107:8108,127.0.0.2:bad:7108", 1}}) {
+        braft::Configuration parsed;
+        EXPECT_NE(0, parsed.parse_from(test_case.first));
+        std::vector<braft::PeerId> peers;
+        parsed.list_peers(&peers);
+        EXPECT_EQ(test_case.second, peers.size()) << test_case.first;
     }
 }
 
@@ -233,23 +273,16 @@ TEST(Hostname2IPStrTest, InvalidHostnames) {
     std::string long_hostname(65, 'a');
     ASSERT_EQ("", ReplicationState::hostname2ipstr(long_hostname));
 
-    // Test non-existent hostname - implementation returns original hostname
+    // Deterministically exercise the getaddrinfo-failure fallback. IU-2 will
+    // change this expected behavior to an explicit unresolved result.
     ASSERT_EQ("non.existent.hostname.local",
-              ReplicationState::hostname2ipstr("non.existent.hostname.local"));
+              ReplicationState::hostname2ipstr("non.existent.hostname.local",
+                  [](const std::string&) { return std::string(); }));
 }
 
-TEST(Hostname2IPStrTest, PublicHostnames) {
-    // Test IPv6-only hostname resolution
-    std::string ipv6_result = ReplicationState::hostname2ipstr("ipv6.test-ipv6.com");
-    if (!ipv6_result.empty() && ipv6_result != "ipv6.test-ipv6.com") {
-        EXPECT_TRUE(is_ipv6_with_brackets(ipv6_result))
-            << "ipv6.test-ipv6.com did not resolve to IPv6: " << ipv6_result;
-    }
-
-    // Test IPv4-only hostname resolution
-    std::string ipv4_result = ReplicationState::hostname2ipstr("ipv4.test-ipv6.com");
-    if (!ipv4_result.empty() && ipv4_result != "ipv4.test-ipv6.com") {
-        EXPECT_TRUE(is_ipv4(ipv4_result))
-            << "ipv4.test-ipv6.com did not resolve to IPv4: " << ipv4_result;
-    }
+TEST(Hostname2IPStrTest, ResolverResultsAreDeterministic) {
+    EXPECT_EQ("192.0.2.10", ReplicationState::hostname2ipstr(
+        "v4-node", [](const std::string&) { return std::string("192.0.2.10"); }));
+    EXPECT_EQ("[2001:db8::10]", ReplicationState::hostname2ipstr(
+        "v6-node", [](const std::string&) { return std::string("[2001:db8::10]"); }));
 }

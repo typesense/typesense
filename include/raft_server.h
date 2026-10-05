@@ -8,6 +8,7 @@
 #include <braft/protobuf_file.h>         // braft::ProtoBufFile
 #include <rocksdb/db.h>
 #include <future>
+#include <functional>
 
 #include "http_data.h"
 #include "threadpool.h"
@@ -243,11 +244,20 @@ public:
      * @param hostname The hostname to resolve.
      * @return A string representation of the resolved IP address.
      *         For IPv6 addresses, the IP will be enclosed in square brackets.
-     *         Returns empty string if resolution fails or hostname is invalid.
+     *         Currently returns the original hostname if address lookup fails.
      */
     static std::string hostname2ipstr(const std::string& hostname);
+    static std::string hostname2ipstr(
+        const std::string& hostname,
+        const std::function<std::string(const std::string&)>& address_lookup);
 
     static std::string resolve_node_hosts(const std::string& nodes_config);
+
+    // Resolver overload keeps hostname-dependent behavior deterministic in tests.
+    // Production callers use the overload above.
+    static std::string resolve_node_hosts(
+        const std::string& nodes_config,
+        const std::function<std::string(const std::string&)>& hostname_resolver);
 
     int64_t get_num_queued_writes();
 
