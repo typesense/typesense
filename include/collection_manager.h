@@ -223,7 +223,7 @@ public:
 
     std::map<std::string, std::map<std::string, reference_info_t>> _get_referenced_ins() const;
 
-    void process_embedding_field_delete(const std::string& model_name);
+    void process_embedding_field_delete(const nlohmann::json& model_config, const size_t num_dims);
 
     static void _populate_referenced_ins(const std::vector<std::string>& collection_meta_jsons,
                                          std::map<std::string, std::map<std::string, reference_info_t>>& referenced_ins);

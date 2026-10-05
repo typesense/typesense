@@ -9173,12 +9173,13 @@ void Collection::remove_embedding_field(const std::string& field_name) {
         return;
     }
 
-    const auto& del_field = embedding_fields[field_name];
-    bool is_personalization_field = del_field.embed[fields::model_config].count(fields::personalization_type) != 0;
-    const auto& model_name = del_field.embed[fields::model_config][fields::model_name].get<std::string>();
+    // copy before erase, the config is still needed to find the embedder
+    const auto model_config = embedding_fields[field_name].embed[fields::model_config];
+    const size_t num_dim = embedding_fields[field_name].num_dim;
+    bool is_personalization_field = model_config.count(fields::personalization_type) != 0;
     embedding_fields.erase(field_name);
     if (!is_personalization_field) {
-        CollectionManager::get_instance().process_embedding_field_delete(model_name);
+        CollectionManager::get_instance().process_embedding_field_delete(model_config, num_dim);
     }
 }
 

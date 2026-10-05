@@ -1300,9 +1300,8 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     u_lock.unlock();
     for(const auto& embedding_field : embedding_fields) {
-        const auto& model_name = embedding_field.embed[fields::model_config][fields::model_name].get<std::string>();
         if (embedding_field.embed.count(fields::personalization_type) == 0) {
-            process_embedding_field_delete(model_name);
+            process_embedding_field_delete(embedding_field.embed[fields::model_config], embedding_field.num_dim);
         }
     }
 
@@ -3376,9 +3375,20 @@ std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager
     return referenced_ins;
 }
 
-void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
+static std::string get_text_embedder_key(const nlohmann::json& model_config, const size_t num_dims) {
+    const auto& model_name = model_config[fields::model_name].get<std::string>();
+    return EmbedderManager::is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) :
+                                                          model_name;
+}
+
+void CollectionManager::process_embedding_field_delete(const nlohmann::json& model_config, const size_t num_dims) {
     std::shared_lock lock(mutex);
-    bool found = false;
+    bool found_text_embedder = false;
+    bool found_image_embedder = false;
+
+    const auto& model_name = model_config[fields::model_name].get<std::string>();
+    // text embedders are keyed by model key, image embedders by model name
+    const auto& model_key = get_text_embedder_key(model_config, num_dims);
 
     for(const auto& collection: collections) {
         // will be deadlock if we try to acquire lock on collection here
@@ -3387,18 +3397,23 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
 
         for(const auto& embedding_field: embedding_fields) {
             if(embedding_field.embed.count(fields::model_config) != 0) {
-                const auto& model_config = embedding_field.embed[fields::model_config];
-                if(model_config[fields::model_name].get<std::string>() == model_name) {
-                    found = true;
-                    break;
+                const auto& field_model_config = embedding_field.embed[fields::model_config];
+                if(field_model_config[fields::model_name].get<std::string>() == model_name) {
+                    found_image_embedder = true;
+                    if(get_text_embedder_key(field_model_config, embedding_field.num_dim) == model_key) {
+                        found_text_embedder = true;
+                    }
                 }
             }
         }
     }
 
-    if(!found) {
+    if(!found_text_embedder) {
         LOG(INFO) << "Deleting text embedder: " << model_name;
-        EmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_text_embedder(model_key);
+    }
+
+    if(!found_image_embedder) {
         EmbedderManager::get_instance().delete_image_embedder(model_name);
     }
 }
