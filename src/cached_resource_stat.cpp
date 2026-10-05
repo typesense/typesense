@@ -27,6 +27,11 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
     return resource_status;
 }
 
+void cached_resource_stat_t::invalidate_cache() {
+    std::lock_guard lk(m);
+    last_checked_ts = 0;
+}
+
 cached_resource_stat_t::resource_check_t
 cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, const int disk_used_max_percentage,
                                             const int memory_used_max_percentage) {
@@ -57,23 +62,14 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
         return cached_resource_stat_t::OK;
     }
 
-    // A delete can free documents while jemalloc still holds their dirty pages.
-    // Purge them only when the guard would reject a write, then use the actual
-    // OS/cgroup reading again. A failed purge leaves the original guard intact.
-    uint64_t memory_free_min_bytes = std::min<uint64_t>(500ULL * 1024 * 1024,
-                                                        ((100ULL - memory_used_max_percentage) * memory_total_bytes) / 100);
-    if(memory_used_bytes >= memory_total_bytes ||
-       memory_total_bytes - memory_used_bytes < memory_free_min_bytes) {
-        if(SystemMetrics::get_instance().purge_jemalloc_unused_memory()) {
-            memory_used_bytes = SystemMetrics::get_instance().get_memory_used_bytes();
-        }
-    }
-
     if(memory_used_bytes >= memory_total_bytes) {
+        HouseKeeper::get_instance().request_memory_purge();
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 
     // compare with 500M or `100 - memory_used_max_percentage` of total memory, whichever is lower
+    uint64_t memory_free_min_bytes = std::min<uint64_t>(500ULL * 1024 * 1024,
+                                                        ((100ULL - memory_used_max_percentage) * memory_total_bytes) / 100);
     uint64_t free_mem = (memory_total_bytes - memory_used_bytes);
 
     if(free_mem < memory_free_min_bytes) {
@@ -81,7 +77,7 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
         LOG(INFO) << "memory_total: " << memory_total_bytes << ", memory_available: " << memory_available_bytes
                   << ", all_memory_used: " << memory_used_bytes << ", free_mem: " << free_mem
                   << ", memory_free_min: " << memory_free_min_bytes;
-        HouseKeeper::get_instance().log_running_queries();
+        HouseKeeper::get_instance().request_memory_purge();
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 

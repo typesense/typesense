@@ -26,6 +26,60 @@
 #endif
 #endif
 
+#ifndef ASAN_BUILD
+namespace {
+// Called after refreshing epoch. Failed reads are omitted, not reported as zero.
+void get_jemalloc_diagnostics(nlohmann::json& result, int epoch_error) {
+    const std::string prefix = "typesense_jemalloc_";
+    unsigned errors = 0;
+    if(epoch_error != 0) {
+        result[prefix + "stats_read_errors"] = "1";
+        return;
+    }
+    auto read = [&](const std::string& name, auto& value) {
+        size_t size = sizeof(value);
+        const int error = impl_mallctl(name.c_str(), &value, &size, nullptr, 0);
+        if(error != 0) {
+            ++errors;
+        }
+        return error == 0;
+    };
+    auto emit = [&](const std::string& name, const std::string& key, auto value) {
+        if(read(name, value)) {
+            result[prefix + key] = std::to_string(value);
+        }
+    };
+    emit("background_thread", "background_thread_enabled", false);
+    emit("stats.background_thread.num_threads", "background_thread_num_threads", size_t{0});
+    emit("stats.background_thread.num_runs", "background_thread_num_runs", uint64_t{0});
+    emit("arenas.page", "page_size", size_t{0});
+    const auto merged = "stats.arenas." + std::to_string(MALLCTL_ARENAS_ALL) + ".";
+    emit(merged + "pdirty", "dirty_pages", size_t{0});
+    emit(merged + "pmuzzy", "muzzy_pages", size_t{0});
+    emit(merged + "dirty_purged", "dirty_purged_pages", uint64_t{0});
+    emit(merged + "muzzy_purged", "muzzy_purged_pages", uint64_t{0});
+
+    unsigned narenas = 0;
+    if(read("arenas.narenas", narenas)) {
+        for(unsigned i = 0; i < narenas; ++i) {
+            const auto arena = "arena." + std::to_string(i) + ".";
+            bool initialized = false;
+            if(!read(arena + "initialized", initialized) || !initialized) {
+                continue;
+            }
+            const auto key = "arena_" + std::to_string(i) + "_";
+            emit(arena + "dirty_decay_ms", key + "dirty_decay_ms", ssize_t{0});
+            emit(arena + "muzzy_decay_ms", key + "muzzy_decay_ms", ssize_t{0});
+            const auto stats = "stats.arenas." + std::to_string(i) + ".";
+            emit(stats + "pdirty", key + "dirty_pages", size_t{0});
+            emit(stats + "pmuzzy", key + "muzzy_pages", size_t{0});
+        }
+    }
+    result[prefix + "stats_read_errors"] = std::to_string(errors);
+}
+}
+#endif
+
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
@@ -37,7 +91,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     // MEMORY METRICS
 
-    size_t sz, active = 1, allocated = 1, resident, metadata, mapped, retained;
+    size_t sz, active = 1, allocated = 1, resident = 0, metadata = 0, mapped = 0, retained = 0;
     sz = sizeof(size_t);
     uint64_t epoch = 1;
 
@@ -45,7 +99,8 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     // See: http://jemalloc.net/jemalloc.3.html#stats.active
 
     impl_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
-    impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    size_t epoch_size = sizeof(epoch);
+    const int epoch_error = impl_mallctl("epoch", &epoch, &epoch_size, &epoch, sizeof(epoch));
 
     impl_mallctl("stats.active", &active, &sz, nullptr, 0);
     impl_mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
@@ -53,11 +108,12 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     impl_mallctl("stats.metadata", &metadata, &sz, nullptr, 0);
     impl_mallctl("stats.mapped", &mapped, &sz, nullptr, 0);
     impl_mallctl("stats.retained", &retained, &sz, nullptr, 0);
+    get_jemalloc_diagnostics(result, epoch_error);
 #endif
 
     result["typesense_memory_active_bytes"] = std::to_string(active);
     result["typesense_memory_allocated_bytes"] = std::to_string(allocated);
-    result["typesense_memory_resident_bytes"] = std::to_string(active);
+    result["typesense_memory_resident_bytes"] = std::to_string(resident);
     result["typesense_memory_metadata_bytes"] = std::to_string(metadata);
     result["typesense_memory_mapped_bytes"] = std::to_string(mapped);
     result["typesense_memory_retained_bytes"] = std::to_string(retained);

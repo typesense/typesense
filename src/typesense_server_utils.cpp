@@ -499,11 +499,15 @@ int run_server(const Config & config, const std::string & version, void (*master
         // to help with releasing memory back to the OS and improve tail latency.
         // See: https://github.com/jemalloc/jemalloc/issues/1398
         bool background_thread = true;
+        int background_thread_error = 0;
 #ifdef __APPLE__
-        je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+        background_thread_error = je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
 #elif __linux__
-        mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+        background_thread_error = mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
 #endif
+        if(background_thread_error != 0) {
+            LOG(WARNING) << "Failed to enable jemalloc background threads: " << background_thread_error;
+        }
     } else {
         LOG(WARNING) << "Typesense is NOT using jemalloc.";
     }
