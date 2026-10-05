@@ -397,6 +397,103 @@ TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
     }
 }
 
+TEST_F(CollectionManagerTest, GCPEmbedderIsKeyedByRegion) {
+    // init_collection skips remote validation, so no network is needed
+    nlohmann::json central_meta = R"({
+        "name": "gcp_central", "id": 201, "created_at": 0, "default_sorting_field": "",
+        "fields": [
+            {"name": "title", "type": "string", "facet": false},
+            {"name": "embedding", "type": "float[]", "facet": false, "num_dim": 768, "embed": {
+                "from": ["title"],
+                "model_config": {
+                    "model_name": "gcp/gemini-embedding-001",
+                    "project_id": "test-project",
+                    "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com", "private_key": "dummy"}
+                }
+            }}
+        ]
+    })"_json;
+
+    nlohmann::json west_meta = central_meta;
+    west_meta["name"] = "gcp_west";
+    west_meta["id"] = 202;
+    west_meta["fields"][1]["embed"]["model_config"]["region"] = "us-west1";
+
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
+    auto central_op = collectionManager.init_collection(central_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(central_op.ok());
+    collectionManager.add_to_collections(central_op.get());
+
+    auto west_op = collectionManager.init_collection(west_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(west_op.ok());
+    collectionManager.add_to_collections(west_op.get());
+
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto& central_config = central_meta["fields"][1]["embed"]["model_config"];
+    const auto& west_config = west_meta["fields"][1]["embed"]["model_config"];
+
+    auto central_embedder_op = embedder_manager.get_text_embedder(central_config, 768);
+    auto west_embedder_op = embedder_manager.get_text_embedder(west_config, 768);
+    ASSERT_TRUE(central_embedder_op.ok());
+    ASSERT_TRUE(west_embedder_op.ok());
+    ASSERT_NE(central_embedder_op.get(), west_embedder_op.get());
+
+    // no region and the default region share an embedder
+    auto explicit_central_config = central_config;
+    explicit_central_config["region"] = "us-central1";
+    auto explicit_central_embedder_op = embedder_manager.get_text_embedder(explicit_central_config, 768);
+    ASSERT_TRUE(explicit_central_embedder_op.ok());
+    ASSERT_EQ(central_embedder_op.get(), explicit_central_embedder_op.get());
+}
+
+TEST_F(CollectionManagerTest, RemoteEmbedderIsEvictedWithItsLastField) {
+    // init_collection skips remote validation, so no network is needed
+    nlohmann::json first_meta = R"({
+        "name": "gcp_first", "id": 203, "created_at": 0, "default_sorting_field": "",
+        "fields": [
+            {"name": "title", "type": "string", "facet": false},
+            {"name": "embedding", "type": "float[]", "facet": false, "num_dim": 768, "embed": {
+                "from": ["title"],
+                "model_config": {
+                    "model_name": "gcp/gemini-embedding-001",
+                    "project_id": "test-project",
+                    "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com", "private_key": "dummy"}
+                }
+            }}
+        ]
+    })"_json;
+
+    nlohmann::json second_meta = first_meta;
+    second_meta["name"] = "gcp_second";
+    second_meta["id"] = 204;
+
+    // alter persists the meta, so it has to be in the store
+    ASSERT_TRUE(store->insert(Collection::get_meta_key("gcp_first"), first_meta.dump()));
+    ASSERT_TRUE(store->insert(Collection::get_meta_key("gcp_second"), second_meta.dump()));
+
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
+    auto first_op = collectionManager.init_collection(first_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(first_op.ok());
+    collectionManager.add_to_collections(first_op.get());
+
+    auto second_op = collectionManager.init_collection(second_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(second_op.ok());
+    collectionManager.add_to_collections(second_op.get());
+
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto& model_config = first_meta["fields"][1]["embed"]["model_config"];
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    // still used by the second collection
+    nlohmann::json drop_payload = R"({"fields": [{"name": "embedding", "drop": true}]})"_json;
+    auto alter_op = collectionManager.get_collection("gcp_first")->alter(drop_payload);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_second").ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+}
+
 TEST_F(CollectionManagerTest, ShouldInitCollection) {
     nlohmann::json collection_meta1 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
