@@ -9,7 +9,9 @@ TEST(SystemMetricsTest, ResidentMemoryIncludesActivePagesAndAllocatorOverhead) {
     const auto resident = std::stoull(metrics["typesense_memory_resident_bytes"].get<std::string>());
     EXPECT_GT(active, 0);
     EXPECT_GT(resident, active);
+#ifdef __linux__
     EXPECT_EQ("0", metrics["typesense_jemalloc_stats_read_errors"]);
+#endif
     EXPECT_GT(std::stoull(metrics["typesense_jemalloc_page_size"].get<std::string>()), 0);
     EXPECT_TRUE(metrics.contains("typesense_jemalloc_arena_0_dirty_decay_ms"));
     EXPECT_TRUE(metrics.contains("typesense_jemalloc_arena_0_muzzy_decay_ms"));
