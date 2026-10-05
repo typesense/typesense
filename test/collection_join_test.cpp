@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <thread>
 #include <collection_manager.h>
 #include "collection.h"
@@ -6727,6 +6729,101 @@ TEST_F(CollectionJoinTest, CascadeDeleteOption) {
     ASSERT_EQ(2, res_obj["hits"][0]["document"]["coll_c"].size()); // c_1 has been re-indexed
     ASSERT_EQ("c_2", res_obj["hits"][0]["document"]["coll_c"][0]["id"]);
     ASSERT_EQ("c_1", res_obj["hits"][0]["document"]["coll_c"][1]["id"]);
+}
+
+TEST_F(CollectionJoinTest, CascadeDeleteDoesNotHoldParentWhileWaitingForReferencingCollection) {
+    auto parent_schema = R"({
+        "name": "DeadlockParents",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto parent_create_op = collectionManager.create_collection(parent_schema);
+    ASSERT_TRUE(parent_create_op.ok());
+    auto parent = parent_create_op.get();
+
+    auto child_schema = R"({
+        "name": "DeadlockLinks",
+        "fields": [
+            {"name": "parent_id", "type": "string", "reference": "DeadlockParents.id"}
+        ]
+    })"_json;
+    auto child_create_op = collectionManager.create_collection(child_schema);
+    ASSERT_TRUE(child_create_op.ok());
+    auto child = child_create_op.get();
+
+    // A join search on DeadlockLinks holds the child shared while it acquires DeadlockParents shared. Keep the child
+    // locked while the cascade tries to acquire both collections; the test hook below reports when it has acquired the
+    // parent exclusively.
+    std::shared_lock parent_search_lock(parent->get_mutex());
+    std::shared_lock child_search_lock(child->get_mutex());
+
+    std::promise<void> cascade_first_lock_acquired_promise;
+    auto cascade_first_lock_acquired = cascade_first_lock_acquired_promise.get_future();
+    std::promise<void> cascade_retry_released_promise;
+    auto cascade_retry_released = cascade_retry_released_promise.get_future();
+    std::promise<void> cascade_locks_acquired_promise;
+    auto cascade_locks_acquired = cascade_locks_acquired_promise.get_future();
+    std::promise<void> release_cascade_locks_promise;
+    auto release_cascade_locks = release_cascade_locks_promise.get_future();
+    std::atomic<bool> cascade_tree_created{false};
+
+    collection_manager_after_cascade_first_lock = [&]() {
+        cascade_first_lock_acquired_promise.set_value();
+    };
+    collection_manager_after_cascade_retry_release = [&]() {
+        cascade_retry_released_promise.set_value();
+    };
+    struct reset_cascade_lock_hook_t {
+        ~reset_cascade_lock_hook_t() {
+            collection_manager_after_cascade_first_lock = nullptr;
+            collection_manager_after_cascade_retry_release = nullptr;
+        }
+    } reset_cascade_lock_hook;
+
+    auto cascade_worker = std::async(std::launch::async, [&]() {
+        cascade_remove_node_t* cascade_tree = nullptr;
+        collectionManager.lock_nested_referencing_collections("DeadlockParents", cascade_tree);
+        cascade_tree_created = cascade_tree != nullptr;
+        cascade_locks_acquired_promise.set_value();
+
+        // Keep the locks alive until the assertions are complete, and destroy them on the thread that acquired them.
+        release_cascade_locks.wait();
+        if (cascade_tree != nullptr) {
+            for (auto* nested_reference : cascade_tree->nested_references) {
+                delete nested_reference;
+            }
+            delete cascade_tree;
+        }
+    });
+
+    parent_search_lock.unlock();
+    EXPECT_EQ(std::future_status::ready,
+              cascade_first_lock_acquired.wait_for(std::chrono::seconds(2)));
+
+    // The regressed cascade acquired DeadlockParents exclusively and then blocked on DeadlockLinks. A real join search
+    // would block reacquiring DeadlockParents while retaining DeadlockLinks, completing the AB-BA cycle. A deadlock-safe
+    // cascade lock acquisition must release the parent while the child is contended.
+    EXPECT_EQ(std::future_status::ready,
+              cascade_retry_released.wait_for(std::chrono::seconds(2)));
+    const bool parent_became_readable = parent->get_mutex().try_lock_shared();
+    if (parent_became_readable) {
+        parent->get_mutex().unlock_shared();
+    }
+
+    EXPECT_TRUE(parent_became_readable)
+            << "Cascade delete held the parent lock while waiting for a referencing collection lock.";
+    EXPECT_EQ(std::future_status::timeout,
+              cascade_locks_acquired.wait_for(std::chrono::milliseconds(0)));
+
+    // Unwind the deliberately contended acquisition even when the regression assertion above fails.
+    child_search_lock.unlock();
+    EXPECT_EQ(std::future_status::ready,
+              cascade_locks_acquired.wait_for(std::chrono::seconds(2)));
+    EXPECT_TRUE(cascade_tree_created);
+    release_cascade_locks_promise.set_value();
+    EXPECT_EQ(std::future_status::ready, cascade_worker.wait_for(std::chrono::seconds(2)));
+    cascade_worker.get();
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {
