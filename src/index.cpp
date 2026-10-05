@@ -6192,6 +6192,9 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
     auto live_phrase_ids = seq_ids->new_iterator();
     uint32_t live_phrase_count = 0;
     for(uint32_t i = 0; i < phrase_result_count; i++) {
+        if (!live_phrase_ids.valid()) {
+            break;
+        }
         live_phrase_ids.skip_to(phrase_result_ids[i]);
         if (live_phrase_ids.valid() && live_phrase_ids.id() == phrase_result_ids[i]) {
             phrase_result_ids[live_phrase_count++] = phrase_result_ids[i];

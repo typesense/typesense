@@ -3844,6 +3844,40 @@ TEST_F(CoreAPIUtilsTest, DeleteQueryOnNonStoredFacetRemovesDeletedIds) {
     collectionManager.drop_collection("non_stored_delete");
 }
 
+TEST_F(CoreAPIUtilsTest, PhraseSearchStopsAfterLiveIdsAreExhausted) {
+    auto schema = R"({
+        "name": "phrase_live_ids_exhausted",
+        "fields": [{"name": "title", "type": "string", "store": false}]
+    })"_json;
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    auto* coll = coll_op.get();
+    for (const auto& id : {"live", "dead1", "dead2"}) {
+        ASSERT_TRUE(coll->add(nlohmann::json({{"id", id}, {"title", "hello world"}}).dump()).ok());
+    }
+
+    auto check_phrase = [&](size_t expected_count) {
+        auto result = coll->search("\"hello world\"", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(result.ok()) << result.error();
+        ASSERT_EQ(expected_count, result.get()["found"].get<size_t>());
+        ASSERT_EQ(expected_count, result.get()["hits"].size());
+        if (expected_count == 1) {
+            ASSERT_EQ("live", result.get()["hits"][0]["document"]["id"]);
+        }
+    };
+    check_phrase(3);
+
+    // Retained phrase IDs are [0, 1, 2], but only ID 0 is live. Seeking
+    // to ID 1 exhausts the cursor; ID 2 must not seek through it again.
+    ASSERT_TRUE(coll->remove("dead1").ok());
+    ASSERT_TRUE(coll->remove("dead2").ok());
+    check_phrase(1);
+
+    ASSERT_TRUE(coll->remove("live").ok());
+    check_phrase(0);
+    collectionManager.drop_collection("phrase_live_ids_exhausted");
+}
+
 TEST_F(CoreAPIUtilsTest, DeletedNonStoredPostingsDoNotAffectPhraseOrVectorSearch) {
     auto schema = R"({
         "name": "deleted_search_modes",
