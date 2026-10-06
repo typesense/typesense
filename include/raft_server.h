@@ -178,6 +178,7 @@ public:
         DurableMembershipStatus status = DurableMembershipStatus::invalid;
         std::string diagnostic;
         bool has_snapshot = false;
+        std::vector<std::string> proxy_allowed_src_ips;
     };
 
     static constexpr const char* log_dir_name = "log";
@@ -243,6 +244,7 @@ public:
 
     static DurableMembershipResult inspect_durable_membership(const std::string& raft_dir,
                                                                const braft::PeerId& local_peer);
+    static void apply_recovered_proxy_allowlist(const DurableMembershipResult& membership);
 
     static bool wait_for_nodes_retry(std::string& nodes_config, const std::string& nodes_config_path,
                                      const std::atomic<bool>& quit_abruptly,

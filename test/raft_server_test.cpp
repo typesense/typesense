@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <butil/at_exit.h>
+#include <api_acl.h>
 
 #define private public
 #include "raft_server.h"
@@ -123,20 +124,42 @@ namespace {
         bool server_started;
     };
 
-    bool append_configuration_log(const std::string& raft_root, const std::vector<braft::PeerId>& peers) {
+    bool append_log_entry(const std::string& raft_root, const int64_t index, const int64_t term,
+                          const std::vector<braft::PeerId>* peers = nullptr) {
         std::filesystem::create_directories(raft_root);
         braft::ConfigurationManager ignored_configuration_manager;
         std::unique_ptr<braft::SegmentLogStorage> log_storage(
             new braft::SegmentLogStorage(raft_root + "/log"));
         if(!log_storage || log_storage->init(&ignored_configuration_manager) != 0) return false;
         auto* entry = new braft::LogEntry;
-        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
-        entry->id = braft::LogId(1, 1);
-        entry->peers = new std::vector<braft::PeerId>(peers);
+        entry->type = peers ? braft::ENTRY_TYPE_CONFIGURATION : braft::ENTRY_TYPE_NO_OP;
+        entry->id = braft::LogId(index, term);
+        if(peers) entry->peers = new std::vector<braft::PeerId>(*peers);
         entry->AddRef();
         const int result = log_storage->append_entry(entry);
         entry->Release();
         return result == 0;
+    }
+
+    bool append_configuration_log(const std::string& raft_root, const std::vector<braft::PeerId>& peers) {
+        return append_log_entry(raft_root, 1, 1, &peers);
+    }
+
+    bool save_snapshot_configuration(const std::string& raft_root, const int64_t index, const int64_t term,
+                                     const std::vector<std::string>& peers,
+                                     const std::vector<std::string>& old_peers = {}) {
+        braft::LocalSnapshotStorage snapshot_storage(raft_root + "/snapshot");
+        if(snapshot_storage.init() != 0) return false;
+        braft::SnapshotWriter* writer = snapshot_storage.create();
+        if(writer == nullptr) return false;
+        braft::SnapshotMeta meta;
+        meta.set_last_included_index(index);
+        meta.set_last_included_term(term);
+        for(const auto& peer : peers) meta.add_peers(peer);
+        for(const auto& peer : old_peers) meta.add_old_peers(peer);
+        const int saved = writer->save_meta(meta);
+        const int closed = snapshot_storage.close(writer);
+        return saved == 0 && closed == 0;
     }
 
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
@@ -187,6 +210,20 @@ namespace {
         std::string nodes;
         bool proxy_allowlist;
         std::vector<std::string> proxy_ips;
+    };
+
+    class ScopedApiAclDestinationPolicy {
+    public:
+        explicit ScopedApiAclDestinationPolicy(const Config& config) :
+            acl(APIAcl::instance()), configured_policy(config.get_proxy_disallowed_dest_cidrs()) {
+            acl.set_disallowed_dest_cidrs("");
+        }
+        ~ScopedApiAclDestinationPolicy() {
+            acl.set_disallowed_dest_cidrs(configured_policy);
+        }
+    private:
+        APIAcl& acl;
+        std::string configured_policy;
     };
 
 }
@@ -442,6 +479,7 @@ TEST(RaftServerTest, EmptyInitialConfigRestoresLogBackedMembership) {
 
     const auto production_probe = ReplicationState::inspect_durable_membership(root, self_peer);
     EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered, production_probe.status);
+    EXPECT_EQ(std::vector<std::string>{"127.0.0.1"}, production_probe.proxy_allowed_src_ips);
     LocalRaftNode node(port, root);
     ASSERT_TRUE(node.init("", 500));
     const std::string peers = raft_peers_line(node.description());
@@ -473,19 +511,8 @@ TEST(RaftServerTest, EmptyInitialConfigRestoresSnapshotBackedMembership) {
     const std::string root = "/tmp/typesense-raft-iu4-snapshot-" + std::to_string(getpid()) + "-" +
                              std::to_string(port);
     const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
-    std::filesystem::create_directories(root);
-    {
-        braft::LocalSnapshotStorage snapshot_storage(root + "/snapshot");
-        ASSERT_EQ(0, snapshot_storage.init());
-        braft::SnapshotWriter* writer = snapshot_storage.create();
-        ASSERT_NE(nullptr, writer);
-        braft::SnapshotMeta snapshot_meta;
-        snapshot_meta.set_last_included_index(1);
-        snapshot_meta.set_last_included_term(1);
-        snapshot_meta.add_peers(self);
-        ASSERT_EQ(0, writer->save_meta(snapshot_meta));
-        ASSERT_EQ(0, snapshot_storage.close(writer));
-    }
+    ASSERT_TRUE(append_configuration_log(root, {braft::PeerId("127.0.0.1:1:8108")}));
+    ASSERT_TRUE(save_snapshot_configuration(root, 2, 1, {self}));
 
     const braft::PeerId self_peer(self);
     EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered,
@@ -493,6 +520,115 @@ TEST(RaftServerTest, EmptyInitialConfigRestoresSnapshotBackedMembership) {
     LocalRaftNode restarted(port, root);
     ASSERT_TRUE(restarted.init("", 500));
     EXPECT_EQ("peers: " + self_peer.to_string(), raft_peers_line(restarted.description()));
+}
+
+TEST(RaftServerTest, SnapshotConfigurationPrecedenceMatchesBraftLogManager) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    const std::string excluded = "127.0.0.1:1:8108";
+    const braft::PeerId self_peer(self);
+
+    // A newer snapshot beyond the log tail discards an older log configuration.
+    const std::string snapshot_wins_root = "/tmp/typesense-raft-iu4-snapshot-wins-" +
+                                           std::to_string(getpid()) + "-" + std::to_string(port);
+    ASSERT_TRUE(append_configuration_log(snapshot_wins_root, {braft::PeerId(excluded)}));
+    ASSERT_TRUE(save_snapshot_configuration(snapshot_wins_root, 2, 1, {self}));
+    const auto snapshot_wins = ReplicationState::inspect_durable_membership(snapshot_wins_root, self_peer);
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered, snapshot_wins.status);
+    LocalRaftNode restarted(port, snapshot_wins_root);
+    ASSERT_TRUE(restarted.init("", 500));
+    EXPECT_EQ("peers: " + self_peer.to_string(), raft_peers_line(restarted.description()));
+
+    // Matching log term preserves a later configuration log, which excludes self.
+    const int matching_port = get_available_port();
+    ASSERT_GT(matching_port, 0);
+    const braft::PeerId matching_self("127.0.0.1:" + std::to_string(matching_port) + ":8108");
+    const std::string matching_root = "/tmp/typesense-raft-iu4-snapshot-match-" +
+                                      std::to_string(getpid()) + "-" + std::to_string(matching_port);
+    ASSERT_TRUE(append_configuration_log(matching_root, {braft::PeerId(excluded)}));
+    ASSERT_TRUE(append_log_entry(matching_root, 2, 1));
+    const std::vector<braft::PeerId> excluded_peer{braft::PeerId(excluded)};
+    ASSERT_TRUE(append_log_entry(matching_root, 3, 1, &excluded_peer));
+    ASSERT_TRUE(save_snapshot_configuration(matching_root, 2, 1, {matching_self.to_string()}));
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::invalid,
+              ReplicationState::inspect_durable_membership(matching_root, matching_self).status);
+
+    // A mismatched term truncates both sides of the snapshot boundary; snapshot wins.
+    const int mismatch_port = get_available_port();
+    ASSERT_GT(mismatch_port, 0);
+    const std::string mismatch_root = "/tmp/typesense-raft-iu4-snapshot-mismatch-" +
+                                      std::to_string(getpid()) + "-" + std::to_string(mismatch_port);
+    ASSERT_TRUE(append_configuration_log(mismatch_root, {braft::PeerId(excluded)}));
+    ASSERT_TRUE(append_log_entry(mismatch_root, 2, 2));
+    ASSERT_TRUE(append_log_entry(mismatch_root, 3, 2, &excluded_peer));
+    ASSERT_TRUE(save_snapshot_configuration(mismatch_root, 2, 1, {self}));
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered,
+              ReplicationState::inspect_durable_membership(mismatch_root, self_peer).status);
+    std::filesystem::remove_all(matching_root);
+    std::filesystem::remove_all(mismatch_root);
+}
+
+TEST(RaftServerTest, RecoveredPeerAllowlistIsRestrictiveAndFailedRefreshKeepsIt) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-proxy-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    ASSERT_TRUE(append_configuration_log(root, {braft::PeerId(self), braft::PeerId("127.0.0.2:1:8108")}));
+    auto& config = Config::get_instance();
+    ScopedConfigRestore restore_config(config);
+    config.proxy_allow_only_peer_src_ips = true;
+    ScopedApiAclDestinationPolicy restore_acl_policy(config);
+    APIAcl& acl = APIAcl::instance();
+    const auto durable = ReplicationState::inspect_durable_membership(root, braft::PeerId(self));
+    ASSERT_EQ(ReplicationState::DurableMembershipStatus::recovered, durable.status);
+    ReplicationState::apply_recovered_proxy_allowlist(durable);
+    const auto allowed = config.get_proxy_allowed_src_ips();
+    EXPECT_EQ((std::vector<std::string>{"127.0.0.1", "127.0.0.2"}), allowed);
+
+    // The standard and SSE proxy handlers both pass the peer-only flag to this guard.
+    EXPECT_TRUE(acl.is_allowed("127.0.0.1", "http://127.0.0.1:8108/path", allowed, true));
+    EXPECT_FALSE(acl.is_allowed("192.0.2.1", "http://127.0.0.1:8108/path", allowed, true));
+
+    ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    const std::atomic<bool> reset_on_error(true);
+    state.refresh_nodes({ReplicationState::PeerConfigStatus::unresolved_host, self, "DNS unavailable"},
+                        1, reset_on_error);
+    EXPECT_EQ(allowed, config.get_proxy_allowed_src_ips());
+
+    const int transitional_port = get_available_port();
+    ASSERT_GT(transitional_port, 0);
+    const std::string transitional_self = "127.0.0.1:" + std::to_string(transitional_port) + ":8108";
+    const std::string transitional_root = "/tmp/typesense-raft-iu4-proxy-joint-" +
+                                          std::to_string(getpid()) + "-" + std::to_string(transitional_port);
+    ASSERT_TRUE(save_snapshot_configuration(transitional_root, 1, 1,
+                                            {"127.0.0.2:" + std::to_string(transitional_port) + ":8108"},
+                                            {transitional_self}));
+    const auto transitional = ReplicationState::inspect_durable_membership(
+        transitional_root, braft::PeerId(transitional_self));
+    ASSERT_EQ(ReplicationState::DurableMembershipStatus::recovered, transitional.status);
+    EXPECT_EQ((std::vector<std::string>{"127.0.0.2", "127.0.0.1"}),
+              transitional.proxy_allowed_src_ips);
+    std::filesystem::remove_all(transitional_root);
+
+    const int ipv6_port = get_available_port();
+    ASSERT_GT(ipv6_port, 0);
+    const std::string ipv6_self = "[::1]:" + std::to_string(ipv6_port) + ":8108";
+    const std::string ipv6_root = "/tmp/typesense-raft-iu4-proxy-ipv6-" +
+                                  std::to_string(getpid()) + "-" + std::to_string(ipv6_port);
+    ASSERT_TRUE(save_snapshot_configuration(ipv6_root, 1, 1, {ipv6_self}));
+    const auto ipv6_durable = ReplicationState::inspect_durable_membership(ipv6_root, braft::PeerId(ipv6_self));
+    ASSERT_EQ(ReplicationState::DurableMembershipStatus::recovered, ipv6_durable.status);
+    EXPECT_TRUE(ipv6_durable.proxy_allowed_src_ips.empty());
+    ReplicationState::apply_recovered_proxy_allowlist(ipv6_durable);
+    EXPECT_FALSE(acl.is_allowed("192.0.2.1", "http://127.0.0.1:8108/path",
+                                config.get_proxy_allowed_src_ips(), true));
+    EXPECT_TRUE(acl.is_allowed("192.0.2.1", "http://127.0.0.1:8108/path", {}, false));
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(ipv6_root);
 }
 
 TEST(RaftServerTest, NonemptyUnopenableSnapshotStorageIsNotFresh) {

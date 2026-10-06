@@ -121,6 +121,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
                     if(quit_abruptly.load()) return -1;
                     recovered_durable_membership = true;
                     recovered_snapshot = durable.has_snapshot;
+                    apply_recovered_proxy_allowlist(durable);
                     LOG(WARNING) << "Starting from durable Raft membership while configured peer DNS is unresolved: "
                                  << durable.diagnostic;
                     break;
@@ -320,7 +321,15 @@ ReplicationState::DurableMembershipResult ReplicationState::inspect_durable_memb
             }
             snapshot_configuration.old_conf.add_peer(peer);
         }
+        const int64_t snapshot_index = meta.last_included_index();
+        const int64_t local_snapshot_term = logs->get_term(snapshot_index);
         configurations.set_snapshot(snapshot_configuration);
+        if(local_snapshot_term == 0) {
+            configurations.truncate_prefix(snapshot_index + 1);
+        } else if(local_snapshot_term != meta.last_included_term()) {
+            configurations.truncate_prefix(snapshot_index + 1);
+            configurations.truncate_suffix(snapshot_index);
+        }
         snapshots->close(reader);
         result.has_snapshot = true;
     }
@@ -338,10 +347,35 @@ ReplicationState::DurableMembershipResult ReplicationState::inspect_durable_memb
     if(!latest.conf.empty() && (latest.conf.contains(local_peer) || latest.old_conf.contains(local_peer))) {
         result.status = DurableMembershipStatus::recovered;
         result.diagnostic = "durable membership includes this node";
+        std::vector<braft::PeerId> durable_peers;
+        std::vector<braft::PeerId> old_durable_peers;
+        latest.conf.list_peers(&durable_peers);
+        latest.old_conf.list_peers(&old_durable_peers);
+        durable_peers.insert(durable_peers.end(), old_durable_peers.begin(), old_durable_peers.end());
+        for(const auto& peer : durable_peers) {
+            if(butil::get_endpoint_type(peer.addr) != AF_INET) continue;
+            std::string endpoint = butil::endpoint2str(peer.addr).c_str();
+            const size_t port_separator = endpoint.rfind(':');
+            if(port_separator == std::string::npos) continue;
+            const std::string ip = endpoint.substr(0, port_separator);
+            in_addr parsed_ip{};
+            if(::inet_pton(AF_INET, ip.c_str(), &parsed_ip) == 1 &&
+               std::find(result.proxy_allowed_src_ips.begin(), result.proxy_allowed_src_ips.end(), ip) ==
+                   result.proxy_allowed_src_ips.end()) {
+                result.proxy_allowed_src_ips.push_back(ip);
+            }
+        }
         return result;
     }
     result.diagnostic = "durable Raft membership does not include this node";
     return result;
+}
+
+void ReplicationState::apply_recovered_proxy_allowlist(const DurableMembershipResult& membership) {
+    if(membership.status == DurableMembershipStatus::recovered &&
+       Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+        Config::get_instance().set_proxy_src_ips(membership.proxy_allowed_src_ips);
+    }
 }
 
 // An absent configuration intentionally selects the local single-node peer.

@@ -588,6 +588,7 @@ public:
     void load_config_cmd_args(cmdline::parser & options);
 
     void update_proxy_src_ips(const std::string& nodes_config);
+    void set_proxy_src_ips(const std::vector<std::string>& node_ips);
 
     // validation
 

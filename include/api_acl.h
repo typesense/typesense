@@ -49,7 +49,8 @@ public:
   //  - dest_url host does NOT resolve into any disallowed CIDR
   bool is_allowed(const std::string& src_ip,
                   const std::string& dest_url,
-                  const std::vector<std::string>& allowed_src_ips) {
+                  const std::vector<std::string>& allowed_src_ips,
+                  const bool deny_empty_allowed_src_ips = false) {
     // 1) Throttle (class-level)
     if (!throttle_ok_()) return false;
 
@@ -61,6 +62,9 @@ public:
     }
 
     // 3) src_ip must be in allowed_ips
+    if (deny_empty_allowed_src_ips && allowed_src_ips.empty()) {
+      return false;
+    }
     uint32_t src = 0;
     if (!parse_ipv4(src_ip, src)) {
       return false;
@@ -255,4 +259,3 @@ private:
   std::mutex rate_mu_;
   std::deque<std::chrono::steady_clock::time_point> hits_;
 };
-

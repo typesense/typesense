@@ -3223,7 +3223,8 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         return false;
     }
@@ -3555,7 +3556,8 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         res->final = true;
         stream_response(req, res);

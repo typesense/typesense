@@ -851,3 +851,8 @@ void Config::update_proxy_src_ips(const std::string& nodes_config) {
     std::unique_lock lock(m);
     proxy_allowed_src_ips = std::move(node_ips);
 }
+
+void Config::set_proxy_src_ips(const std::vector<std::string>& node_ips) {
+    std::unique_lock lock(m);
+    proxy_allowed_src_ips = node_ips;
+}
