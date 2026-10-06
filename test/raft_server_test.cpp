@@ -408,6 +408,47 @@ TEST(RaftServerTest, IncompleteDnsResolutionMustNotProduceAUsablePeerList) {
     }
 }
 
+TEST(RaftServerTest, MalformedHostnameSyntaxIsRejectedBeforeDnsResolution) {
+    size_t resolver_calls = 0;
+    const auto resolver = [&resolver_calls](const std::string&) {
+        ++resolver_calls;
+        return std::string();
+    };
+
+    for(const auto& config : {
+            "bad/host:8107:8108",
+            "bad\\host:8107:8108",
+            "bad host:8107:8108",
+            ".node:8107:8108",
+            "node..:8107:8108",
+            "node..example:8107:8108",
+            "missing:8107:8108,bad/host:7107:7108",
+            "missing:8107:8108,bad host:7107:7108"}) {
+        resolver_calls = 0;
+        auto result = ReplicationState::resolve_node_hosts(config, resolver);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, result.status) << config;
+        EXPECT_TRUE(result.configuration.empty()) << config;
+        EXPECT_EQ(0, resolver_calls) << config;
+    }
+}
+
+TEST(RaftServerTest, ValidDnsHostFormsRemainRetryableWhenUnresolved) {
+    std::vector<std::string> resolved_hosts;
+    const auto resolver = [&resolved_hosts](const std::string& host) {
+        resolved_hosts.push_back(host);
+        return std::string();
+    };
+
+    for(const auto& host : {"node_1", "node", "node.example."}) {
+        resolved_hosts.clear();
+        auto result = ReplicationState::resolve_node_hosts(std::string(host) + ":8107:8108", resolver);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::unresolved_host, result.status) << host;
+        EXPECT_TRUE(result.configuration.empty()) << host;
+        ASSERT_EQ(1, resolved_hosts.size()) << host;
+        EXPECT_EQ(host, resolved_hosts.front());
+    }
+}
+
 TEST(RaftServerTest, ResolverInjectionPreservesValidIpv4Ipv6AndMixedLists) {
     const auto lookup = [](const std::string& host) {
         if(host == "v4-node") return std::string("192.0.2.10");

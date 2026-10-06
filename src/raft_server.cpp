@@ -439,6 +439,31 @@ ReplicationState::PeerConfigResult ReplicationState::resolve_node_hosts(
     StringUtils::split(nodes_config, entries, ",", true, true);
     std::vector<std::string> syntax_entries;
     syntax_entries.reserve(entries.size());
+    const auto valid_hostname_syntax = [](const std::string& hostname) {
+        if(hostname.empty()) {
+            return false;
+        }
+        bool at_label_start = true;
+        for(size_t i = 0; i < hostname.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(hostname[i]);
+            if(c == '.') {
+                // A single trailing dot is the DNS absolute-name form. Empty
+                // labels anywhere else are malformed.
+                if(at_label_start) {
+                    return false;
+                }
+                at_label_start = true;
+                continue;
+            }
+            const bool alpha_numeric = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                       (c >= '0' && c <= '9');
+            if(!alpha_numeric && c != '-' && c != '_') {
+                return false;
+            }
+            at_label_start = false;
+        }
+        return !at_label_start || hostname.back() == '.';
+    };
     for(size_t i = 0; i < entries.size(); ++i) {
         const std::string& entry = entries[i];
         if(entry.empty()) {
@@ -449,6 +474,14 @@ ReplicationState::PeerConfigResult ReplicationState::resolve_node_hosts(
         if(!entry.empty() && entry.front() != '[') {
             const size_t first_colon = entry.find(':');
             const size_t second_colon = first_colon == std::string::npos ? first_colon : entry.find(':', first_colon + 1);
+            if(first_colon != std::string::npos && first_colon > 0) {
+                const std::string host = entry.substr(0, first_colon);
+                in_addr ipv4{};
+                if(inet_pton(AF_INET, host.c_str(), &ipv4) != 1 && !valid_hostname_syntax(host)) {
+                    return failure(PeerConfigStatus::invalid_configuration,
+                                   "invalid host syntax in peer entry " + std::to_string(i + 1) + ": " + host);
+                }
+            }
             if(first_colon != std::string::npos &&
                (second_colon == std::string::npos || entry.find(':', second_colon + 1) == std::string::npos)) {
                 const std::string host = entry.substr(0, first_colon);

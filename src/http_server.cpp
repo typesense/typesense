@@ -231,6 +231,11 @@ int HttpServer::create_listener() {
 }
 
 int HttpServer::run(ReplicationState* replication_state) {
+    // Shutdown may be requested by the raft worker before the API loop starts.
+    if(exit_loop.load()) {
+        return 0;
+    }
+
     this->replication_state = replication_state;
 
     metrics_refresh_timer = h2o_custom_timer_t(this);
@@ -248,6 +253,12 @@ int HttpServer::run(ReplicationState* replication_state) {
 
     while(!exit_loop) {
         h2o_evloop_run(ctx.loop, INT32_MAX);
+    }
+
+    if(listener_socket != nullptr) {
+        h2o_socket_read_stop(listener_socket);
+        h2o_socket_close(listener_socket);
+        listener_socket = nullptr;
     }
 
     return 0;
@@ -269,11 +280,6 @@ void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool t
 }
 
 void HttpServer::stop() {
-    if(listener_socket != nullptr) {
-        h2o_socket_read_stop(listener_socket);
-        h2o_socket_close(listener_socket);
-    }
-
     // this will break the event loop
     exit_loop = true;
 

@@ -418,12 +418,12 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
 
     if (braft::add_service(&raft_server, peering_endpoint) != 0) {
         LOG(ERROR) << "Failed to add peering service";
-        exit(-1);
+        return -1;
     }
 
     if (raft_server.Start(peering_endpoint, nullptr) != 0) {
         LOG(ERROR) << "Failed to start peering service";
-        exit(-1);
+        return -1;
     }
 
     size_t election_timeout_ms = 5000;
@@ -436,7 +436,9 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             return 0;
         }
         LOG(ERROR) << "Failed to start peering state";
-        exit(-1);
+        raft_server.Stop(0);
+        raft_server.Join();
+        return -1;
     }
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
@@ -675,8 +677,10 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
     }
 
+    std::atomic<int> raft_start_status{0};
     std::thread raft_thread([&replication_state, &store, &config, &state_dir,
-                             &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
+                             &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer,
+                             &raft_start_status]() {
 
         std::thread batch_indexing_thread([batch_indexer]() {
             batch_indexer->run();
@@ -699,14 +703,14 @@ int run_server(const Config & config, const std::string & version, void (*master
         RemoteEmbedder::init(&replication_state);
 
         std::string path_to_nodes = config.get_nodes();
-        start_raft_server(replication_state, store, state_dir, path_to_nodes,
-                          config.get_peering_address(),
-                          config.get_peering_port(),
-                          config.get_peering_subnet(),
-                          config.get_api_port(),
-                          config.get_snapshot_interval_seconds(),
-                          config.get_snapshot_max_byte_count_per_rpc(),
-                          config.get_reset_peers_on_error());
+        raft_start_status.store(start_raft_server(replication_state, store, state_dir, path_to_nodes,
+                                                  config.get_peering_address(),
+                                                  config.get_peering_port(),
+                                                  config.get_peering_subnet(),
+                                                  config.get_api_port(),
+                                                  config.get_snapshot_interval_seconds(),
+                                                  config.get_snapshot_max_byte_count_per_rpc(),
+                                                  config.get_reset_peers_on_error()));
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();
@@ -754,6 +758,9 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Typesense API service has quit.";
     quit_raft_service = true;  // we set this once again in case API thread crashes instead of a signal
     raft_thread.join();
+    if(raft_start_status.load() != 0) {
+        ret_code = 1;
+    }
 
     LOG(INFO) << "Deleting batch indexer";
 
