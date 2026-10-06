@@ -155,6 +155,22 @@ private:
 
 public:
 
+    enum class PeerConfigStatus {
+        resolved,
+        unresolved_host,
+        invalid_configuration
+    };
+
+    struct PeerConfigResult {
+        PeerConfigStatus status;
+        std::string configuration;
+        std::string diagnostic;
+
+        bool ok() const {
+            return status == PeerConfigStatus::resolved;
+        }
+    };
+
     static constexpr const char* log_dir_name = "log";
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
@@ -212,8 +228,8 @@ public:
     // for manual / external snapshots
     void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-    static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
-                                       const std::string &nodes_config);
+    static PeerConfigResult to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
+                                            const std::string &nodes_config);
 
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
@@ -244,18 +260,18 @@ public:
      * @param hostname The hostname to resolve.
      * @return A string representation of the resolved IP address.
      *         For IPv6 addresses, the IP will be enclosed in square brackets.
-     *         Currently returns the original hostname if address lookup fails.
+     *         Returns an empty string if address lookup fails.
      */
     static std::string hostname2ipstr(const std::string& hostname);
     static std::string hostname2ipstr(
         const std::string& hostname,
         const std::function<std::string(const std::string&)>& address_lookup);
 
-    static std::string resolve_node_hosts(const std::string& nodes_config);
+    static PeerConfigResult resolve_node_hosts(const std::string& nodes_config);
 
     // Resolver overload keeps hostname-dependent behavior deterministic in tests.
     // Production callers use the overload above.
-    static std::string resolve_node_hosts(
+    static PeerConfigResult resolve_node_hosts(
         const std::string& nodes_config,
         const std::function<std::string(const std::string&)>& hostname_resolver);
 

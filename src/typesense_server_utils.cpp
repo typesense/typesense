@@ -447,11 +447,12 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
             if(!refreshed_nodes_op.ok()) {
                 LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
             } else {
-                const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
-                                                                                    refreshed_nodes_op.get());
-                if(nodes_config.empty()) {
-                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                const auto peer_config_result = ReplicationState::to_nodes_config(
+                    peering_endpoint, api_port, refreshed_nodes_op.get());
+                if(!peer_config_result.ok()) {
+                    LOG(WARNING) << "Skipping peer refresh: " << peer_config_result.diagnostic;
                 } else {
+                    const std::string& nodes_config = peer_config_result.configuration;
                     if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
                         Config::get_instance().update_proxy_src_ips(nodes_config);
                     }

@@ -146,51 +146,40 @@ TEST(RaftServerTest, RestoresEmptyAndLegacyNullBatchedIndexerState) {
 }
 
 TEST(RaftServerTest, ResolveNodesConfigWithHostNames) {
-    ASSERT_EQ("127.0.0.1:8107:8108,127.0.0.1:7107:7108,127.0.0.1:6107:6108",
-              ReplicationState::resolve_node_hosts("127.0.0.1:8107:8108,127.0.0.1:7107:7108,127.0.0.1:6107:6108"));
+    auto numeric = ReplicationState::resolve_node_hosts("127.0.0.1:8107:8108,127.0.0.1:7107:7108,127.0.0.1:6107:6108");
+    ASSERT_TRUE(numeric.ok());
+    EXPECT_EQ("127.0.0.1:8107:8108,127.0.0.1:7107:7108,127.0.0.1:6107:6108", numeric.configuration);
 
-    // Test localhost resolution - should accept either IPv4 or IPv6
-    std::string localhost_result1 = ReplicationState::resolve_node_hosts("localhost:8107:8108,localhost:7107:7108,localhost:6107:6108");
-    ASSERT_TRUE(matches_either_ip_version(
-        localhost_result1,
+    auto localhost = ReplicationState::resolve_node_hosts("localhost:8107:8108,localhost:7107:7108,localhost:6107:6108");
+    ASSERT_TRUE(localhost.ok()) << localhost.diagnostic;
+    EXPECT_TRUE(matches_either_ip_version(localhost.configuration,
         "127.0.0.1:8107:8108,127.0.0.1:7107:7108,127.0.0.1:6107:6108",
-        "[::1]:8107:8108,[::1]:7107:7108,[::1]:6107:6108"
-    )) << "Result was: " << localhost_result1;
+        "[::1]:8107:8108,[::1]:7107:7108,[::1]:6107:6108"));
 
-    std::string localhost_result2 = ReplicationState::resolve_node_hosts("localhost:8107:8108localhost:7107:7108,localhost:6107:6108");
-    ASSERT_TRUE(matches_either_ip_version(
-        localhost_result2,
-        "localhost:8107:8108localhost:7107:7108,127.0.0.1:6107:6108",
-        "localhost:8107:8108localhost:7107:7108,[::1]:6107:6108"
-    )) << "Result was: " << localhost_result2;
-
-    // hostname must be less than 64 chars
-    ASSERT_EQ("",
-              ReplicationState::resolve_node_hosts("typesense-node-2.typesense-service.typesense-"
-                                                   "namespace.svc.cluster.local:6107:6108"));
+    auto too_long = ReplicationState::resolve_node_hosts("typesense-node-2.typesense-service.typesense-namespace.svc.cluster.local:6107:6108");
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, too_long.status);
+    auto empty = ReplicationState::resolve_node_hosts("");
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, empty.status);
+    for(const auto& config : {"127.0.0.1:8107:8108,,127.0.0.2:7107:7108",
+                              "127.0.0.1:8107:8108,"}) {
+        auto result = ReplicationState::resolve_node_hosts(config);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, result.status) << config;
+        EXPECT_TRUE(result.configuration.empty()) << config;
+    }
 }
 
 TEST(RaftServerTest, ResolveNodesConfigWithIPv6) {
-    // Basic IPv6 addresses
-    ASSERT_EQ("[2001:db8::1]:8107:8108,[2001:db8::2]:7107:7108",
-              ReplicationState::resolve_node_hosts("[2001:db8::1]:8107:8108,[2001:db8::2]:7107:7108"));
-
-    // IPv6 with IPv4 mixed
-    ASSERT_EQ("[2001:db8::1]:8107:8108,127.0.0.1:7107:7108",
-              ReplicationState::resolve_node_hosts("[2001:db8::1]:8107:8108,127.0.0.1:7107:7108"));
-
-    // IPv6 localhost
-    ASSERT_EQ("[::1]:8107:8108",
-              ReplicationState::resolve_node_hosts("[::1]:8107:8108"));
-
-    // Malformed IPv6 inputs should be passed through unchanged
-    ASSERT_EQ("[2001:db8::1:8107:8108",  // Missing closing bracket
-              ReplicationState::resolve_node_hosts("[2001:db8::1:8107:8108"));
-
-    // IPv6 with zone index
-    ASSERT_EQ("[fe80::1%eth0]:8107:8108",
-              ReplicationState::resolve_node_hosts("[fe80::1%eth0]:8107:8108"));
-
+    auto ipv6 = ReplicationState::resolve_node_hosts("[2001:db8::1]:8107:8108,[2001:db8::2]:7107:7108");
+    ASSERT_TRUE(ipv6.ok()) << ipv6.diagnostic;
+    EXPECT_EQ("[2001:db8::1]:8107:8108,[2001:db8::2]:7107:7108", ipv6.configuration);
+    auto mixed = ReplicationState::resolve_node_hosts("[2001:db8::1]:8107:8108,127.0.0.1:7107:7108");
+    ASSERT_TRUE(mixed.ok()) << mixed.diagnostic;
+    EXPECT_EQ("[2001:db8::1]:8107:8108,127.0.0.1:7107:7108", mixed.configuration);
+    auto ipv6_loopback = ReplicationState::resolve_node_hosts("[::1]:8107:8108");
+    ASSERT_TRUE(ipv6_loopback.ok()) << ipv6_loopback.diagnostic;
+    EXPECT_EQ("[::1]:8107:8108", ipv6_loopback.configuration);
+    auto malformed = ReplicationState::resolve_node_hosts("[2001:db8::1:8107:8108");
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, malformed.status);
 }
 
 TEST(RaftServerTest, IncompleteDnsResolutionMustNotProduceAUsablePeerList) {
@@ -201,20 +190,31 @@ TEST(RaftServerTest, IncompleteDnsResolutionMustNotProduceAUsablePeerList) {
         auto it = addresses.find(host);
         return it == addresses.end() ? std::string() : it->second;
     };
+    for(const auto& config : {"missing:8107:8108,node-b:7107:7108,node-c:6107:6108",
+                              "node-a:8107:8108,missing:7107:7108,node-c:6107:6108",
+                              "node-a:8107:8108,node-b:7107:7108,missing:6107:6108",
+                              "missing-a:8107:8108,missing-b:7107:7108,missing-c:6107:6108"}) {
+        auto result = ReplicationState::resolve_node_hosts(config, lookup);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::unresolved_host, result.status) << config;
+        EXPECT_TRUE(result.configuration.empty()) << config;
+    }
+    auto malformed = ReplicationState::resolve_node_hosts("node-a:8107:8108,not-a-peer,node-c:6107:6108", lookup);
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, malformed.status);
+    EXPECT_TRUE(malformed.configuration.empty());
+    auto precedence = ReplicationState::resolve_node_hosts("missing:8107:8108,not-a-peer", lookup);
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, precedence.status);
 
-    // These are desired safety assertions. Today the resolver returns the
-    // unresolved hostname or silently drops it, so these fail until IU-2
-    // introduces complete-resolution validation.
-    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
-        "missing:8107:8108,node-b:7107:7108,node-c:6107:6108", lookup));
-    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
-        "node-a:8107:8108,missing:7107:7108,node-c:6107:6108", lookup));
-    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
-        "node-a:8107:8108,node-b:7107:7108,missing:6107:6108", lookup));
-    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
-        "missing-a:8107:8108,missing-b:7107:7108,missing-c:6107:6108", lookup));
-    EXPECT_EQ("", ReplicationState::resolve_node_hosts(
-        "node-a:8107:8108,not-a-peer,node-c:6107:6108", lookup));
+    bool empty_host_lookup_called = false;
+    const auto empty_host_lookup = [&empty_host_lookup_called](const std::string&) {
+        empty_host_lookup_called = true;
+        return std::string("10.0.0.9");
+    };
+    for(const auto& config : {":8107:8108", ":8107"}) {
+        auto empty_host = ReplicationState::resolve_node_hosts(config, empty_host_lookup);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, empty_host.status) << config;
+        EXPECT_TRUE(empty_host.configuration.empty()) << config;
+        EXPECT_FALSE(empty_host_lookup_called) << config;
+    }
 }
 
 TEST(RaftServerTest, ResolverInjectionPreservesValidIpv4Ipv6AndMixedLists) {
@@ -223,13 +223,38 @@ TEST(RaftServerTest, ResolverInjectionPreservesValidIpv4Ipv6AndMixedLists) {
         if(host == "v6-node") return std::string("[2001:db8::10]");
         return std::string();
     };
-    EXPECT_EQ("192.0.2.10:8107:8108",
-              ReplicationState::resolve_node_hosts("v4-node:8107:8108", lookup));
-    EXPECT_EQ("[2001:db8::10]:7107:7108",
-              ReplicationState::resolve_node_hosts("v6-node:7107:7108", lookup));
-    EXPECT_EQ("192.0.2.10:8107:8108,[2001:db8::10]:7107:7108",
-              ReplicationState::resolve_node_hosts(
-                  "v4-node:8107:8108,v6-node:7107:7108", lookup));
+    auto ipv4 = ReplicationState::resolve_node_hosts("v4-node:8107:8108", lookup);
+    ASSERT_TRUE(ipv4.ok()) << ipv4.diagnostic;
+    EXPECT_EQ("192.0.2.10:8107:8108", ipv4.configuration);
+    auto ipv6 = ReplicationState::resolve_node_hosts("v6-node:7107:7108", lookup);
+    ASSERT_TRUE(ipv6.ok()) << ipv6.diagnostic;
+    EXPECT_EQ("[2001:db8::10]:7107:7108", ipv6.configuration);
+    auto mixed = ReplicationState::resolve_node_hosts("v4-node:8107:8108,v6-node:7107:7108", lookup);
+    ASSERT_TRUE(mixed.ok()) << mixed.diagnostic;
+    EXPECT_EQ("192.0.2.10:8107:8108,[2001:db8::10]:7107:7108", mixed.configuration);
+    auto whitespace = ReplicationState::resolve_node_hosts("v4-node:8108, v4-node:7108", lookup);
+    ASSERT_TRUE(whitespace.ok()) << whitespace.diagnostic;
+    EXPECT_EQ("192.0.2.10:8108,192.0.2.10:7108", whitespace.configuration);
+    auto legacy = ReplicationState::resolve_node_hosts("192.0.2.10:8108");
+    ASSERT_TRUE(legacy.ok()) << legacy.diagnostic;
+    EXPECT_EQ("192.0.2.10:8108", legacy.configuration);
+    auto legacy_hostname = ReplicationState::resolve_node_hosts("v4-node:8108", lookup);
+    ASSERT_TRUE(legacy_hostname.ok()) << legacy_hostname.diagnostic;
+    EXPECT_EQ("192.0.2.10:8108", legacy_hostname.configuration);
+    auto missing_legacy_hostname = ReplicationState::resolve_node_hosts("missing:8108", lookup);
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::unresolved_host, missing_legacy_hostname.status);
+    EXPECT_TRUE(missing_legacy_hostname.configuration.empty());
+}
+
+TEST(RaftServerTest, EmptyResolverInputAndAbsentNodesConfigurationDiffer) {
+    auto empty_peer_list = ReplicationState::resolve_node_hosts("");
+    EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, empty_peer_list.status);
+
+    butil::EndPoint endpoint;
+    ASSERT_EQ(0, butil::str2endpoint("127.0.0.1", 8107, &endpoint));
+    auto absent_nodes = ReplicationState::to_nodes_config(endpoint, 8108, "");
+    ASSERT_TRUE(absent_nodes.ok()) << absent_nodes.diagnostic;
+    EXPECT_EQ("127.0.0.1:8107:8108", absent_nodes.configuration);
 }
 
 TEST(RaftServerTest, BraftParseFailureRetainsOnlyTheValidPrefix) {
@@ -273,9 +298,7 @@ TEST(Hostname2IPStrTest, InvalidHostnames) {
     std::string long_hostname(65, 'a');
     ASSERT_EQ("", ReplicationState::hostname2ipstr(long_hostname));
 
-    // Deterministically exercise the getaddrinfo-failure fallback. IU-2 will
-    // change this expected behavior to an explicit unresolved result.
-    ASSERT_EQ("non.existent.hostname.local",
+    ASSERT_EQ("",
               ReplicationState::hostname2ipstr("non.existent.hostname.local",
                   [](const std::string&) { return std::string(); }));
 }

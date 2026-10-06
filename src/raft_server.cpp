@@ -5,6 +5,7 @@
 #include "store.h"
 #include "thread_local_vars.h"
 #include <algorithm>
+#include <arpa/inet.h>
 #include <butil/files/file_enumerator.h>
 #include <collection_manager.h>
 #include <conversation_model_manager.h>
@@ -75,20 +76,22 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     size_t max_tries = 3;
 
     while(true) {
-        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
+        PeerConfigResult peer_config = to_nodes_config(peering_endpoint, api_port, nodes);
 
-        if(actual_nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
-            continue;
+        if(peer_config.status == PeerConfigStatus::invalid_configuration) {
+            LOG(ERROR) << "Invalid nodes configuration: " << peer_config.diagnostic;
+            return -1;
         }
 
-        if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+        if(peer_config.status == PeerConfigStatus::unresolved_host) {
             if(--max_tries == 0) {
-                LOG(ERROR) << "Giving up parsing nodes configuration: `" << nodes << "`";
+                LOG(ERROR) << "Giving up resolving nodes configuration: `" << nodes << "`: "
+                           << peer_config.diagnostic;
                 return -1;
             }
 
-            LOG(ERROR) << "Failed to parse nodes configuration: `" << nodes << "` -- " << " will retry shortly...";
+            LOG(WARNING) << "Waiting for DNS resolution of nodes configuration: `" << nodes << "`: "
+                         << peer_config.diagnostic << "; will retry shortly...";
 
             size_t i = 0;
             while(i++ < 30) {
@@ -100,6 +103,12 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
             }
 
             continue;
+        }
+
+        const std::string& actual_nodes_config = peer_config.configuration;
+        if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+            LOG(ERROR) << "Validated nodes configuration could not be parsed by Braft: " << actual_nodes_config;
+            return -1;
         }
 
         if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
@@ -179,15 +188,20 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     return 0;
 }
 
-// can return empty string if DNS resolution fails on all nodes
-std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
-                                              const std::string& nodes_config) {
+// An absent configuration intentionally selects the local single-node peer.
+ReplicationState::PeerConfigResult ReplicationState::to_nodes_config(
+        const butil::EndPoint& peering_endpoint, const int api_port, const std::string& nodes_config) {
     if(nodes_config.empty()) {
         // endpoint2str gives us "<ip>:<peering_port>", we just need to add ":<api_port>"
-        return std::string(butil::endpoint2str(peering_endpoint).c_str()) + ":" + std::to_string(api_port);
-    } else {
-        return resolve_node_hosts(nodes_config);
+        const std::string self_config = std::string(butil::endpoint2str(peering_endpoint).c_str()) + ":" +
+                                        std::to_string(api_port);
+        braft::Configuration parsed;
+        if(parsed.parse_from(self_config) != 0) {
+            return {PeerConfigStatus::invalid_configuration, {}, "invalid synthesized self peer: " + self_config};
+        }
+        return {PeerConfigStatus::resolved, self_config, {}};
     }
+    return resolve_node_hosts(nodes_config);
 }
 
 std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
@@ -209,56 +223,111 @@ std::string ReplicationState::hostname2ipstr(
 
     std::string resolved_ip = address_lookup(hostname);
     if(resolved_ip.empty()) {
-        return hostname; // Return original hostname if resolution didn't produce a valid IP
+        return {};
     }
 
     return resolved_ip;
 }
 
-std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
+ReplicationState::PeerConfigResult ReplicationState::resolve_node_hosts(const string& nodes_config) {
     return resolve_node_hosts(nodes_config, [](const std::string& hostname) {
         return lookup_hostname_ip(hostname);
     });
 }
 
-std::string ReplicationState::resolve_node_hosts(
+ReplicationState::PeerConfigResult ReplicationState::resolve_node_hosts(
         const string& nodes_config,
         const std::function<std::string(const std::string&)>& hostname_resolver) {
-    std::vector<std::string> final_nodes_vec;
-    std::vector<std::string> node_strings;
-    StringUtils::split(nodes_config, node_strings, ",");
-
-    for(const auto& node_str: node_strings) {
-        // Check if this is already an IPv6 address node by looking for []
-        if(node_str.find('[') == 0) {
-            final_nodes_vec.push_back(node_str);
-            continue;
-        }
-
-        // could be an IP or a hostname that must be resolved
-        std::vector<std::string> node_parts;
-        StringUtils::split(node_str, node_parts, ":");
-
-        if(node_parts.size() != 3) {
-            final_nodes_vec.push_back(node_str);
-            continue;
-        }
-
-        std::string resolved_ip = hostname2ipstr(node_parts[0], hostname_resolver);
-        if(resolved_ip.empty()) {
-            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
-            continue;
-        }
-
-        final_nodes_vec.push_back(resolved_ip + ":" + node_parts[1] + ":" + node_parts[2]);
+    auto failure = [](PeerConfigStatus status, const std::string& diagnostic) {
+        return PeerConfigResult{status, {}, diagnostic};
+    };
+    if(nodes_config.empty()) {
+        return failure(PeerConfigStatus::invalid_configuration, "peer list is empty");
     }
 
-    if(final_nodes_vec.empty()) {
-        return "";
+    std::vector<std::string> entries;
+    StringUtils::split(nodes_config, entries, ",", true, true);
+    std::vector<std::string> syntax_entries;
+    syntax_entries.reserve(entries.size());
+    for(size_t i = 0; i < entries.size(); ++i) {
+        const std::string& entry = entries[i];
+        if(entry.empty()) {
+            return failure(PeerConfigStatus::invalid_configuration,
+                           "empty peer entry at position " + std::to_string(i + 1));
+        }
+        std::string syntax_entry = entry;
+        if(!entry.empty() && entry.front() != '[') {
+            const size_t first_colon = entry.find(':');
+            const size_t second_colon = first_colon == std::string::npos ? first_colon : entry.find(':', first_colon + 1);
+            if(first_colon != std::string::npos &&
+               (second_colon == std::string::npos || entry.find(':', second_colon + 1) == std::string::npos)) {
+                const std::string host = entry.substr(0, first_colon);
+                if(host.empty()) {
+                    return failure(PeerConfigStatus::invalid_configuration,
+                                   "empty host in peer entry " + std::to_string(i + 1) + ": " + entry);
+                }
+                in_addr ipv4{};
+                if(inet_pton(AF_INET, host.c_str(), &ipv4) != 1) {
+                    if(host.size() > 64) {
+                        return failure(PeerConfigStatus::invalid_configuration,
+                                       "entry " + std::to_string(i + 1) + " host exceeds 64 characters: " + host);
+                    }
+                    syntax_entry = "127.0.0.1" + entry.substr(first_colon);
+                }
+            }
+        }
+        braft::Configuration single_entry_validation;
+        if(single_entry_validation.parse_from(syntax_entry) != 0) {
+            return failure(PeerConfigStatus::invalid_configuration,
+                           "invalid peer entry " + std::to_string(i + 1) + ": " + entry);
+        }
+        syntax_entries.push_back(std::move(syntax_entry));
     }
 
-    std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");
-    return final_nodes_config;
+    const std::string syntax_config = StringUtils::join(syntax_entries, ",");
+    braft::Configuration syntax_validation;
+    if(syntax_validation.parse_from(syntax_config) != 0) {
+        return failure(PeerConfigStatus::invalid_configuration,
+                       "Braft rejected peer list syntax: " + nodes_config);
+    }
+
+    std::vector<std::string> resolved_entries;
+    resolved_entries.reserve(entries.size());
+    for(size_t i = 0; i < entries.size(); ++i) {
+        const std::string& entry = entries[i];
+        std::string resolved_entry = entry;
+        if(!entry.empty() && entry.front() != '[') {
+            const size_t first_colon = entry.find(':');
+            const size_t second_colon = first_colon == std::string::npos ? first_colon : entry.find(':', first_colon + 1);
+            if(first_colon != std::string::npos &&
+               (second_colon == std::string::npos || entry.find(':', second_colon + 1) == std::string::npos)) {
+                const std::string host = entry.substr(0, first_colon);
+                in_addr ipv4{};
+                if(inet_pton(AF_INET, host.c_str(), &ipv4) != 1) {
+                    const std::string ip = hostname2ipstr(host, hostname_resolver);
+                    if(ip.empty()) {
+                        return failure(PeerConfigStatus::unresolved_host,
+                                       "entry " + std::to_string(i + 1) + " host could not be resolved: " + host);
+                    }
+                    resolved_entry = ip + entry.substr(first_colon);
+                }
+            }
+        }
+        braft::Configuration resolved_entry_validation;
+        if(resolved_entry_validation.parse_from(resolved_entry) != 0) {
+            return failure(PeerConfigStatus::invalid_configuration,
+                           "invalid resolved peer entry " + std::to_string(i + 1) + ": " + resolved_entry);
+        }
+        resolved_entries.push_back(std::move(resolved_entry));
+    }
+
+    const std::string final_config = StringUtils::join(resolved_entries, ",");
+    braft::Configuration final_validation;
+    if(final_validation.parse_from(final_config) != 0) {
+        return failure(PeerConfigStatus::invalid_configuration,
+                       "Braft rejected resolved peer list: " + final_config);
+    }
+    return {PeerConfigStatus::resolved, final_config, {}};
 }
 
 Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& request) {
@@ -1120,14 +1189,13 @@ bool ReplicationState::reset_peers() {
             return false;
         }
 
-        const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
-                                                                            Config::get_instance().get_api_port(),
-                                                                            refreshed_nodes_op.get());
-
-        if(nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
+        const auto peer_config_result = ReplicationState::to_nodes_config(
+            peering_endpoint, Config::get_instance().get_api_port(), refreshed_nodes_op.get());
+        if(!peer_config_result.ok()) {
+            LOG(WARNING) << "Unable to reset peers from configuration: " << peer_config_result.diagnostic;
             return false;
         }
+        const std::string& nodes_config = peer_config_result.configuration;
 
         if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
             Config::get_instance().update_proxy_src_ips(nodes_config);
