@@ -52,6 +52,27 @@ std::string lookup_hostname_ip(const std::string& host) {
     freeaddrinfo(result);
     return resolved_ip;
 }
+
+bool parse_peer_configuration(const std::string& nodes, braft::Configuration& configuration) {
+    if(nodes.empty()) {
+        return false;
+    }
+
+    std::vector<std::string> node_entries;
+    StringUtils::split(nodes, node_entries, ",", true, true);
+    if(node_entries.empty() || std::any_of(node_entries.begin(), node_entries.end(),
+                                           [](const std::string& entry) { return entry.empty(); })) {
+        return false;
+    }
+
+    braft::Configuration parsed;
+    if(parsed.parse_from(nodes) != 0 || parsed.empty()) {
+        return false;
+    }
+
+    configuration = std::move(parsed);
+    return true;
+}
 }
 
 void ReplicationClosure::Run() {
@@ -913,17 +934,26 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     return 0;
 }
 
-void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
+void ReplicationState::refresh_nodes(const PeerConfigResult& peer_config, const size_t raft_counter,
                                      const std::atomic<bool>& reset_peers_on_error) {
+    if(!peer_config.ok()) {
+        LOG(WARNING) << "Skipping peer refresh: " << peer_config.diagnostic;
+        return;
+    }
+
+    braft::Configuration new_conf;
+    if(!parse_peer_configuration(peer_config.configuration, new_conf)) {
+        LOG(WARNING) << "Skipping peer refresh with invalid or incomplete configuration: "
+                     << peer_config.configuration;
+        return;
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(!node) {
         LOG(WARNING) << "Node state is not initialized: unable to refresh nodes.";
         return ;
     }
-
-    braft::Configuration new_conf;
-    new_conf.parse_from(nodes);
 
     braft::NodeStatus nodeStatus;
     node->get_status(&nodeStatus);
@@ -1197,12 +1227,15 @@ bool ReplicationState::reset_peers() {
         }
         const std::string& nodes_config = peer_config_result.configuration;
 
+        braft::Configuration peer_config;
+        if(!parse_peer_configuration(nodes_config, peer_config)) {
+            LOG(WARNING) << "Unable to reset peers from invalid configuration: " << nodes_config;
+            return false;
+        }
+
         if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
             Config::get_instance().update_proxy_src_ips(nodes_config);
         }
-
-        braft::Configuration peer_config;
-        peer_config.parse_from(nodes_config);
 
         std::vector<braft::PeerId> peers;
         peer_config.list_peers(&peers);
@@ -1307,7 +1340,19 @@ nlohmann::json ReplicationState::get_status() {
     return status;
 }
 
-void ReplicationState::do_snapshot(const std::string& nodes) {
+void ReplicationState::do_snapshot(const PeerConfigResult& peer_config_result) {
+    if(!peer_config_result.ok()) {
+        LOG(WARNING) << "Skipping snapshot peer-health check: " << peer_config_result.diagnostic;
+        return;
+    }
+
+    braft::Configuration peer_config;
+    if(!parse_peer_configuration(peer_config_result.configuration, peer_config)) {
+        LOG(WARNING) << "Skipping snapshot peer-health check with invalid or incomplete configuration: "
+                     << peer_config_result.configuration;
+        return;
+    }
+
     auto current_ts = std::time(nullptr);
     if(current_ts - last_snapshot_ts < snapshot_interval_s) {
         //LOG(INFO) << "Skipping snapshot: not enough time has elapsed.";
@@ -1319,8 +1364,6 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
     if(is_leader()) {
         // run the snapshot only if there are no other recovering followers
         std::vector<braft::PeerId> peers;
-        braft::Configuration peer_config;
-        peer_config.parse_from(nodes);
         peer_config.list_peers(&peers);
 
         std::shared_lock lock(node_mutex);

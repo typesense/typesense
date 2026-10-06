@@ -456,9 +456,9 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
                     if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
                         Config::get_instance().update_proxy_src_ips(nodes_config);
                     }
-                    replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
+                    replication_state.refresh_nodes(peer_config_result, raft_counter, reset_peers_on_error);
                     if(raft_counter % 60 == 0) {
-                        replication_state.do_snapshot(nodes_config);
+                        replication_state.do_snapshot(peer_config_result);
                     }
                 }
             }

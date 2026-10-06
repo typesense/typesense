@@ -1,16 +1,119 @@
 #include <gtest/gtest.h>
 #include <chrono>
+#include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <future>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <butil/at_exit.h>
 
 #define private public
 #include "raft_server.h"
+#include <braft/node.h>
 #undef private
 
 namespace {
+    class TestRaftStateMachine : public braft::StateMachine {
+    public:
+        void on_apply(braft::Iterator& iter) override {
+            while(iter.valid()) {
+                iter.next();
+            }
+        }
+    };
+
+    int get_available_port() {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if(fd < 0) return -1;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        if(bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+            close(fd);
+            return -1;
+        }
+        socklen_t length = sizeof(address);
+        if(getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length) != 0) {
+            close(fd);
+            return -1;
+        }
+        const int port = ntohs(address.sin_port);
+        close(fd);
+        return port;
+    }
+
+    class LocalRaftNode {
+    public:
+        LocalRaftNode() : port(get_available_port()), root(
+            "/tmp/typesense-raft-iu3-" + std::to_string(getpid()) + "-" + std::to_string(port)),
+            node(nullptr), server_started(false) {}
+
+        bool init() {
+            if(port <= 0) return false;
+            std::filesystem::create_directories(root);
+            butil::EndPoint endpoint;
+            if(butil::str2endpoint("127.0.0.1", port, &endpoint) != 0) return false;
+            if(braft::add_service(&server, endpoint) != 0 || server.Start(endpoint, nullptr) != 0) return false;
+            server_started = true;
+
+            braft::Configuration initial_conf;
+            if(initial_conf.parse_from("127.0.0.1:" + std::to_string(port) + ":8108," +
+                                       "127.0.0.1:1:8108,127.0.0.1:2:8108") != 0) return false;
+            braft::NodeOptions options;
+            options.election_timeout_ms = 10000;
+            options.snapshot_interval_s = -1;
+            options.initial_conf = initial_conf;
+            options.fsm = &fsm;
+            options.log_uri = "local://" + root + "/log";
+            options.raft_meta_uri = "local://" + root + "/meta";
+            options.snapshot_uri = "local://" + root + "/snapshot";
+            options.disable_cli = true;
+            node = new braft::Node("iu3_test", braft::PeerId(endpoint, 8108));
+            if(node->init(options) != 0) {
+                delete node;
+                node = nullptr;
+                return false;
+            }
+            return true;
+        }
+
+        ~LocalRaftNode() {
+            if(node != nullptr) {
+                node->shutdown(nullptr);
+                node->join();
+                delete node;
+            }
+            if(server_started) {
+                server.Stop(0);
+                server.Join();
+            }
+            std::filesystem::remove_all(root);
+        }
+
+        std::string description() const {
+            std::ostringstream output;
+            node->_impl->describe(output, false);
+            return output.str();
+        }
+
+        const int port;
+        const std::string root;
+        brpc::Server server;
+        TestRaftStateMachine fsm;
+        braft::Node* node;
+        bool server_started;
+    };
+
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
                                                    const bool live_response) {
         auto req = std::make_shared<http_req>();
@@ -34,6 +137,32 @@ namespace {
                                  const std::string& ipv6_version) {
         return result == ipv4_version || result == ipv6_version;
     }
+
+    std::string raft_peers_line(const std::string& description) {
+        const auto peers_position = description.find("peers:");
+        if(peers_position == std::string::npos) return {};
+        const auto line_end = description.find('\n', peers_position);
+        std::string peers_line = description.substr(
+            peers_position, line_end == std::string::npos ? line_end : line_end - peers_position);
+        if(!peers_line.empty() && peers_line.back() == '\r') peers_line.pop_back();
+        return peers_line;
+    }
+
+    class ScopedConfigRestore {
+    public:
+        explicit ScopedConfigRestore(Config& config) : config(config), nodes(config.nodes),
+            proxy_allowlist(config.proxy_allow_only_peer_src_ips), proxy_ips(config.proxy_allowed_src_ips) {}
+        ~ScopedConfigRestore() {
+            config.nodes = nodes;
+            config.proxy_allow_only_peer_src_ips = proxy_allowlist;
+            config.proxy_allowed_src_ips = proxy_ips;
+        }
+    private:
+        Config& config;
+        std::string nodes;
+        bool proxy_allowlist;
+        std::vector<std::string> proxy_ips;
+    };
 
 }
 
@@ -273,6 +402,85 @@ TEST(RaftServerTest, BraftParseFailureRetainsOnlyTheValidPrefix) {
         parsed.list_peers(&peers);
         EXPECT_EQ(test_case.second, peers.size()) << test_case.first;
     }
+}
+
+TEST(RaftServerTest, FailedPeerResultsDoNotMutateLiveRaftMembership) {
+    butil::AtExitManager at_exit_manager;
+    LocalRaftNode local_node;
+    ASSERT_TRUE(local_node.init());
+
+    auto& config = Config::get_instance();
+    ScopedConfigRestore restore_config(config);
+    const std::vector<std::string> old_proxy_ips = config.get_proxy_allowed_src_ips();
+
+    Store store(local_node.root + "/store");
+    std::atomic<bool> skip_writes(false);
+    BatchedIndexer indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    ReplicationState state(nullptr, &indexer, &store, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    state.node = local_node.node;
+    state.peering_endpoint = local_node.node->node_id().peer_id.addr;
+
+    const std::string self_peer = "127.0.0.1:" + std::to_string(local_node.port) + ":8108";
+    const std::string initial_peers_line = raft_peers_line(local_node.description());
+    ASSERT_FALSE(initial_peers_line.empty());
+    ASSERT_NE(std::string::npos, initial_peers_line.find(self_peer));
+    ASSERT_NE(std::string::npos, initial_peers_line.find("127.0.0.1:1:8108"));
+    ASSERT_NE(std::string::npos, initial_peers_line.find("127.0.0.1:2:8108"));
+
+    const std::atomic<bool> reset_on_error(true);
+    ReplicationState::PeerConfigResult failed_prefix{
+        ReplicationState::PeerConfigStatus::unresolved_host, self_peer, "unresolved later peer"};
+    for(const auto& incomplete : {
+            ReplicationState::PeerConfigResult{ReplicationState::PeerConfigStatus::unresolved_host,
+                                                self_peer, "unresolved first peer"},
+            ReplicationState::PeerConfigResult{ReplicationState::PeerConfigStatus::unresolved_host,
+                                                self_peer, "unresolved middle peer"},
+            ReplicationState::PeerConfigResult{ReplicationState::PeerConfigStatus::unresolved_host,
+                                                self_peer, "unresolved last peer"}}) {
+        state.refresh_nodes(incomplete, 1, reset_on_error);
+        EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description()));
+    }
+
+    for(const auto& invalid_nodes : std::vector<std::string>{"not-a-peer," + self_peer,
+                                                              self_peer + ",not-a-peer,127.0.0.1:3:8108",
+                                                              self_peer + ",127.0.0.1:3:8108,not-a-peer",
+                                                              self_peer + ",", ""}) {
+        ReplicationState::PeerConfigResult malformed{
+            ReplicationState::PeerConfigStatus::resolved, invalid_nodes, ""};
+        state.refresh_nodes(malformed, 1, reset_on_error);
+        EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description())) << invalid_nodes;
+    }
+
+    state.last_snapshot_ts = 0;
+    state.do_snapshot(failed_prefix);
+    EXPECT_EQ(0u, state.last_snapshot_ts);
+
+    const std::filesystem::path nodes_file = local_node.root + "/nodes.conf";
+    {
+        std::ofstream nodes(nodes_file);
+        ASSERT_TRUE(nodes.good());
+        nodes << "127.0.0.1:8107:8108,not-a-peer";
+    }
+    config.nodes = nodes_file.string();
+    config.proxy_allow_only_peer_src_ips = true;
+    state.peering_endpoint = local_node.node->node_id().peer_id.addr;
+    EXPECT_FALSE(state.reset_peers());
+    EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description()));
+    EXPECT_EQ(old_proxy_ips, config.get_proxy_allowed_src_ips());
+
+    ReplicationState::PeerConfigResult valid_single_peer{
+        ReplicationState::PeerConfigStatus::resolved, self_peer, ""};
+    state.refresh_nodes(valid_single_peer, 0, reset_on_error);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    std::string final_description;
+    do {
+        final_description = raft_peers_line(local_node.description());
+        if(final_description.find("peers: " + self_peer) != std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    } while(std::chrono::steady_clock::now() < deadline);
+    EXPECT_EQ("peers: " + self_peer, final_description);
 }
 
 TEST(Hostname2IPStrTest, IPAddresses) {

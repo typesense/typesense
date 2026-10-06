@@ -193,7 +193,7 @@ public:
     void read(const std::shared_ptr<http_res>& response);
 
     // updates cluster membership
-    void refresh_nodes(const std::string & nodes, const size_t raft_counter,
+    void refresh_nodes(const PeerConfigResult& peer_config, const size_t raft_counter,
                        const std::atomic<bool>& reset_peers_on_error);
 
     void refresh_catchup_status(bool log_msg);
@@ -236,7 +236,7 @@ public:
     void set_snapshot_in_progress(const bool snapshot_in_progress);
 
     // for timed snapshots
-    void do_snapshot(const std::string& nodes);
+    void do_snapshot(const PeerConfigResult& peer_config);
 
     void persist_applying_index();
 
