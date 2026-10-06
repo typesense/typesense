@@ -39,4 +39,7 @@ public:
     resource_check_t has_enough_resources(const std::string& data_dir_path,
                                           const int disk_used_max_percentage,
                                           const int memory_used_max_percentage);
+
+    // Force the next resource check to read fresh memory after housekeeping purges jemalloc.
+    void invalidate_cache();
 };

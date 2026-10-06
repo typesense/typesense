@@ -10,6 +10,7 @@ private:
     std::condition_variable cv;
 
     std::atomic<bool> quit = false;
+    std::atomic<bool> purge_requested = false;
     std::atomic<uint32_t> remove_expired_keys_interval_s = 3600;
     std::atomic<uint32_t> memory_req_min_age_s = 6;
     std::atomic<uint32_t> memory_usage_interval_s = 3;
@@ -60,6 +61,8 @@ public:
     void log_bad_queries();
 
     void log_running_queries();
+
+    void request_memory_purge();
 
     size_t get_num_inflight_queries();
 
