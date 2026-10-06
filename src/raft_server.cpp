@@ -14,6 +14,10 @@
 #include <http_client.h>
 #include <string_utils.h>
 #include <thread>
+#include <filesystem>
+#include <memory>
+#include <braft/log.h>
+#include <braft/snapshot.h>
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -86,6 +90,7 @@ void ReplicationClosure::Run() {
 int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int api_port,
                             int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
                             const std::string & raft_dir, const std::string & nodes,
+                            const std::string& nodes_config_path,
                             const std::atomic<bool>& quit_abruptly) {
 
     this->election_timeout_interval_ms = election_timeout_ms;
@@ -94,10 +99,13 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     braft::NodeOptions node_options;
 
-    size_t max_tries = 3;
+    bool recovered_durable_membership = false;
+    bool recovered_snapshot = false;
+    bool membership_inspected = false;
+    std::string current_nodes = nodes;
 
     while(true) {
-        PeerConfigResult peer_config = to_nodes_config(peering_endpoint, api_port, nodes);
+        PeerConfigResult peer_config = to_nodes_config(peering_endpoint, api_port, current_nodes);
 
         if(peer_config.status == PeerConfigStatus::invalid_configuration) {
             LOG(ERROR) << "Invalid nodes configuration: " << peer_config.diagnostic;
@@ -105,24 +113,27 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         }
 
         if(peer_config.status == PeerConfigStatus::unresolved_host) {
-            if(--max_tries == 0) {
-                LOG(ERROR) << "Giving up resolving nodes configuration: `" << nodes << "`: "
-                           << peer_config.diagnostic;
-                return -1;
-            }
-
-            LOG(WARNING) << "Waiting for DNS resolution of nodes configuration: `" << nodes << "`: "
-                         << peer_config.diagnostic << "; will retry shortly...";
-
-            size_t i = 0;
-            while(i++ < 30) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                if(quit_abruptly) {
-                    // enables quitting of server during retries
+            if(!membership_inspected) {
+                membership_inspected = true;
+                const auto durable = inspect_durable_membership(
+                    raft_dir, braft::PeerId(peering_endpoint, api_port));
+                if(durable.status == DurableMembershipStatus::recovered) {
+                    if(quit_abruptly.load()) return -1;
+                    recovered_durable_membership = true;
+                    recovered_snapshot = durable.has_snapshot;
+                    LOG(WARNING) << "Starting from durable Raft membership while configured peer DNS is unresolved: "
+                                 << durable.diagnostic;
+                    break;
+                }
+                if(durable.status == DurableMembershipStatus::invalid) {
+                    LOG(ERROR) << "Cannot safely start while peer DNS is unresolved: " << durable.diagnostic;
                     return -1;
                 }
             }
 
+            LOG(WARNING) << "Waiting for complete DNS resolution of nodes configuration: `" << current_nodes << "`: "
+                         << peer_config.diagnostic << "; will retry shortly...";
+            if(!wait_for_nodes_retry(current_nodes, nodes_config_path, quit_abruptly)) return -1;
             continue;
         }
 
@@ -138,6 +149,11 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
         LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
         break;
+    }
+
+    if(recovered_durable_membership) {
+        node_options.initial_conf = braft::Configuration();
+        LOG(INFO) << "Using persisted Raft membership; initial configuration is intentionally empty.";
     }
 
     this->read_caught_up = false;
@@ -174,7 +190,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::Node* node = new braft::Node("default_group", braft::PeerId(peering_endpoint, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
-    bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
+    bool snapshot_exists = recovered_durable_membership ? recovered_snapshot : dir_enum_count(snapshot_dir) > 0;
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
@@ -207,6 +223,125 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     std::unique_lock lock(node_mutex);
     this->node = node;
     return 0;
+}
+
+bool ReplicationState::wait_for_nodes_retry(std::string& nodes_config, const std::string& nodes_config_path,
+                                            const std::atomic<bool>& quit_abruptly,
+                                            const std::chrono::milliseconds retry_interval) {
+    const auto deadline = std::chrono::steady_clock::now() + retry_interval;
+    while(!quit_abruptly.load()) {
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if(remaining <= std::chrono::steady_clock::duration::zero()) break;
+        std::this_thread::sleep_for(std::min(
+            remaining, std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(100))));
+    }
+    if(quit_abruptly.load()) return false;
+    if(!nodes_config_path.empty()) {
+        const auto refreshed = Config::fetch_nodes_config(nodes_config_path);
+        if(!refreshed.ok()) {
+            LOG(WARNING) << "Unable to reread nodes configuration while waiting for DNS: " << refreshed.error();
+        } else {
+            nodes_config = refreshed.get();
+        }
+    }
+    return true;
+}
+
+ReplicationState::DurableMembershipResult ReplicationState::inspect_durable_membership(
+        const std::string& raft_dir, const braft::PeerId& local_peer) {
+    DurableMembershipResult result;
+    const std::string snapshot_path = raft_dir + "/" + snapshot_dir_name;
+    std::error_code fs_error;
+    const bool snapshot_exists = std::filesystem::exists(snapshot_path, fs_error);
+    if(fs_error) {
+        result.diagnostic = "unable to inspect snapshot directory " + snapshot_path + ": " + fs_error.message();
+        return result;
+    }
+    bool snapshot_had_entries = false;
+    if(snapshot_exists) {
+        if(!std::filesystem::is_directory(snapshot_path, fs_error) || fs_error) {
+            result.diagnostic = "snapshot path is not an accessible directory: " + snapshot_path;
+            return result;
+        }
+        std::filesystem::directory_iterator it(snapshot_path, fs_error);
+        if(fs_error) {
+            result.diagnostic = "unable to enumerate snapshot directory " + snapshot_path + ": " + fs_error.message();
+            return result;
+        }
+        snapshot_had_entries = it != std::filesystem::directory_iterator();
+    }
+
+    braft::ConfigurationManager configurations;
+    std::unique_ptr<braft::SegmentLogStorage> logs(
+        new braft::SegmentLogStorage(raft_dir + "/" + log_dir_name));
+    if(logs->init(&configurations) != 0) {
+        result.diagnostic = "unable to load durable Raft log configuration";
+        return result;
+    }
+    const int64_t last_log_index = logs->last_log_index();
+
+    std::unique_ptr<braft::LocalSnapshotStorage> snapshots(
+        new braft::LocalSnapshotStorage(snapshot_path));
+    if(snapshots->init() != 0) {
+        result.diagnostic = "unable to initialize durable Raft snapshot storage";
+        return result;
+    }
+    braft::SnapshotReader* reader = snapshots->open();
+    if(reader == nullptr) {
+        if(snapshot_had_entries) {
+            result.diagnostic = "snapshot directory contains data but Braft cannot open its latest snapshot";
+            return result;
+        }
+    } else {
+        braft::SnapshotMeta meta;
+        if(reader->load_meta(&meta) != 0 || meta.last_included_index() <= 0 ||
+           meta.last_included_term() <= 0 || meta.peers_size() == 0) {
+            snapshots->close(reader);
+            result.diagnostic = "latest Raft snapshot has invalid or missing membership metadata";
+            return result;
+        }
+        braft::ConfigurationEntry snapshot_configuration;
+        snapshot_configuration.id = braft::LogId(meta.last_included_index(), meta.last_included_term());
+        for(int i = 0; i < meta.peers_size(); ++i) {
+            braft::PeerId peer;
+            if(peer.parse(meta.peers(i)) != 0) {
+                snapshots->close(reader);
+                result.diagnostic = "latest Raft snapshot contains an invalid peer identity";
+                return result;
+            }
+            snapshot_configuration.conf.add_peer(peer);
+        }
+        for(int i = 0; i < meta.old_peers_size(); ++i) {
+            braft::PeerId peer;
+            if(peer.parse(meta.old_peers(i)) != 0) {
+                snapshots->close(reader);
+                result.diagnostic = "latest Raft snapshot contains an invalid transitional peer identity";
+                return result;
+            }
+            snapshot_configuration.old_conf.add_peer(peer);
+        }
+        configurations.set_snapshot(snapshot_configuration);
+        snapshots->close(reader);
+        result.has_snapshot = true;
+    }
+
+    const braft::ConfigurationEntry& latest = configurations.last_configuration();
+    if(latest.conf.empty() && latest.old_conf.empty()) {
+        if(last_log_index == 0 && !snapshot_had_entries) {
+            result.status = DurableMembershipStatus::fresh;
+            result.diagnostic = "no durable Raft log or snapshot membership exists";
+        } else {
+            result.diagnostic = "durable Raft data exists without a recoverable membership configuration";
+        }
+        return result;
+    }
+    if(!latest.conf.empty() && (latest.conf.contains(local_peer) || latest.old_conf.contains(local_peer))) {
+        result.status = DurableMembershipStatus::recovered;
+        result.diagnostic = "durable membership includes this node";
+        return result;
+    }
+    result.diagnostic = "durable Raft membership does not include this node";
+    return result;
 }
 
 // An absent configuration intentionally selects the local single-node peer.

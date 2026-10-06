@@ -429,7 +429,12 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
     size_t election_timeout_ms = 5000;
 
     if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                                nodes_config_op.get(), quit_raft_service) != 0) {
+                                nodes_config_op.get(), path_to_nodes, quit_raft_service) != 0) {
+        if(quit_raft_service.load()) {
+            raft_server.Stop(0);
+            raft_server.Join();
+            return 0;
+        }
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }

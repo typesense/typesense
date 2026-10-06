@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -18,7 +19,9 @@
 
 #define private public
 #include "raft_server.h"
+#include <braft/log.h>
 #include <braft/node.h>
+#include <braft/snapshot.h>
 #undef private
 
 namespace {
@@ -28,6 +31,10 @@ namespace {
             while(iter.valid()) {
                 iter.next();
             }
+        }
+
+        int on_snapshot_load(braft::SnapshotReader*) override {
+            return 0;
         }
     };
 
@@ -54,11 +61,12 @@ namespace {
 
     class LocalRaftNode {
     public:
-        LocalRaftNode() : port(get_available_port()), root(
-            "/tmp/typesense-raft-iu3-" + std::to_string(getpid()) + "-" + std::to_string(port)),
+        explicit LocalRaftNode(const int port = get_available_port(), const std::string& root = {}) :
+            port(port), root(root.empty() ? "/tmp/typesense-raft-iu4-" + std::to_string(getpid()) + "-" +
+                                         std::to_string(port) : root),
             node(nullptr), server_started(false) {}
 
-        bool init() {
+        bool init(const std::string& initial_nodes = "__default__", const int election_timeout_ms = 10000) {
             if(port <= 0) return false;
             std::filesystem::create_directories(root);
             butil::EndPoint endpoint;
@@ -67,10 +75,11 @@ namespace {
             server_started = true;
 
             braft::Configuration initial_conf;
-            if(initial_conf.parse_from("127.0.0.1:" + std::to_string(port) + ":8108," +
-                                       "127.0.0.1:1:8108,127.0.0.1:2:8108") != 0) return false;
+            const std::string nodes = initial_nodes == "__default__" ?
+                "127.0.0.1:" + std::to_string(port) + ":8108,127.0.0.1:1:8108,127.0.0.1:2:8108" : initial_nodes;
+            if(!nodes.empty() && initial_conf.parse_from(nodes) != 0) return false;
             braft::NodeOptions options;
-            options.election_timeout_ms = 10000;
+            options.election_timeout_ms = election_timeout_ms;
             options.snapshot_interval_s = -1;
             options.initial_conf = initial_conf;
             options.fsm = &fsm;
@@ -113,6 +122,22 @@ namespace {
         braft::Node* node;
         bool server_started;
     };
+
+    bool append_configuration_log(const std::string& raft_root, const std::vector<braft::PeerId>& peers) {
+        std::filesystem::create_directories(raft_root);
+        braft::ConfigurationManager ignored_configuration_manager;
+        std::unique_ptr<braft::SegmentLogStorage> log_storage(
+            new braft::SegmentLogStorage(raft_root + "/log"));
+        if(!log_storage || log_storage->init(&ignored_configuration_manager) != 0) return false;
+        auto* entry = new braft::LogEntry;
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->id = braft::LogId(1, 1);
+        entry->peers = new std::vector<braft::PeerId>(peers);
+        entry->AddRef();
+        const int result = log_storage->append_entry(entry);
+        entry->Release();
+        return result == 0;
+    }
 
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
                                                    const bool live_response) {
@@ -402,6 +427,115 @@ TEST(RaftServerTest, BraftParseFailureRetainsOnlyTheValidPrefix) {
         parsed.list_peers(&peers);
         EXPECT_EQ(test_case.second, peers.size()) << test_case.first;
     }
+}
+
+TEST(RaftServerTest, EmptyInitialConfigRestoresLogBackedMembership) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-log-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    const braft::PeerId self_peer(self);
+    const braft::PeerId other_peer("127.0.0.1:1:8108");
+    ASSERT_TRUE(append_configuration_log(root, {self_peer, other_peer}));
+
+    const auto production_probe = ReplicationState::inspect_durable_membership(root, self_peer);
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered, production_probe.status);
+    LocalRaftNode node(port, root);
+    ASSERT_TRUE(node.init("", 500));
+    const std::string peers = raft_peers_line(node.description());
+    EXPECT_NE(std::string::npos, peers.find(self));
+    EXPECT_NE(std::string::npos, peers.find(other_peer.to_string()));
+    EXPECT_FALSE(node.node->is_leader());
+}
+
+TEST(RaftServerTest, EmptyInitialConfigDoesNotElectFreshNode) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-fresh-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::fresh,
+              ReplicationState::inspect_durable_membership(root, braft::PeerId(self)).status);
+    LocalRaftNode node(port, root);
+    ASSERT_TRUE(node.init("", 100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    EXPECT_FALSE(node.node->is_leader());
+    EXPECT_EQ("peers:", raft_peers_line(node.description()));
+}
+
+TEST(RaftServerTest, EmptyInitialConfigRestoresSnapshotBackedMembership) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-snapshot-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    std::filesystem::create_directories(root);
+    {
+        braft::LocalSnapshotStorage snapshot_storage(root + "/snapshot");
+        ASSERT_EQ(0, snapshot_storage.init());
+        braft::SnapshotWriter* writer = snapshot_storage.create();
+        ASSERT_NE(nullptr, writer);
+        braft::SnapshotMeta snapshot_meta;
+        snapshot_meta.set_last_included_index(1);
+        snapshot_meta.set_last_included_term(1);
+        snapshot_meta.add_peers(self);
+        ASSERT_EQ(0, writer->save_meta(snapshot_meta));
+        ASSERT_EQ(0, snapshot_storage.close(writer));
+    }
+
+    const braft::PeerId self_peer(self);
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered,
+              ReplicationState::inspect_durable_membership(root, self_peer).status);
+    LocalRaftNode restarted(port, root);
+    ASSERT_TRUE(restarted.init("", 500));
+    EXPECT_EQ("peers: " + self_peer.to_string(), raft_peers_line(restarted.description()));
+}
+
+TEST(RaftServerTest, NonemptyUnopenableSnapshotStorageIsNotFresh) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-corrupt-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    std::filesystem::create_directories(root + "/snapshot/unrecognized");
+    std::ofstream(root + "/snapshot/unrecognized/invalid-meta") << "not a snapshot";
+
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::invalid,
+              ReplicationState::inspect_durable_membership(
+                  root, braft::PeerId("127.0.0.1:" + std::to_string(port) + ":8108")).status);
+    std::filesystem::remove_all(root);
+}
+
+TEST(RaftServerTest, StartupRetryRereadsNodesFile) {
+    const std::string path = "/tmp/typesense-raft-iu4-nodes-" + std::to_string(getpid());
+    const std::string old_nodes = "127.0.0.1:1:8108";
+    const std::string updated_nodes = "127.0.0.1:2:8108,127.0.0.1:3:8108";
+    std::ofstream(path) << updated_nodes;
+    std::string nodes_config = old_nodes;
+    std::atomic<bool> quit(false);
+
+    ASSERT_TRUE(ReplicationState::wait_for_nodes_retry(nodes_config, path, quit, std::chrono::milliseconds(0)));
+    EXPECT_EQ(updated_nodes, nodes_config);
+    std::filesystem::remove(path);
+}
+
+TEST(RaftServerTest, StartupRetryStopsPromptlyOnShutdown) {
+    std::string nodes_config = "127.0.0.1:1:8108";
+    std::atomic<bool> quit(false);
+    std::thread signal_shutdown([&quit]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        quit.store(true);
+    });
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_FALSE(ReplicationState::wait_for_nodes_retry(nodes_config, "", quit, std::chrono::seconds(5)));
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    signal_shutdown.join();
+    EXPECT_LT(elapsed, std::chrono::seconds(2));
+    EXPECT_EQ("127.0.0.1:1:8108", nodes_config);
 }
 
 TEST(RaftServerTest, FailedPeerResultsDoNotMutateLiveRaftMembership) {

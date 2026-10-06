@@ -9,6 +9,7 @@
 #include <rocksdb/db.h>
 #include <future>
 #include <functional>
+#include <chrono>
 
 #include "http_data.h"
 #include "threadpool.h"
@@ -171,6 +172,14 @@ public:
         }
     };
 
+    enum class DurableMembershipStatus { fresh, recovered, invalid };
+
+    struct DurableMembershipResult {
+        DurableMembershipStatus status = DurableMembershipStatus::invalid;
+        std::string diagnostic;
+        bool has_snapshot = false;
+    };
+
     static constexpr const char* log_dir_name = "log";
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
@@ -184,6 +193,7 @@ public:
     int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
               const std::string & raft_dir, const std::string & nodes,
+              const std::string& nodes_config_path,
               const std::atomic<bool>& quit_abruptly);
 
     // Generic write method for synchronizing all writes
@@ -230,6 +240,13 @@ public:
 
     static PeerConfigResult to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                             const std::string &nodes_config);
+
+    static DurableMembershipResult inspect_durable_membership(const std::string& raft_dir,
+                                                               const braft::PeerId& local_peer);
+
+    static bool wait_for_nodes_retry(std::string& nodes_config, const std::string& nodes_config_path,
+                                     const std::atomic<bool>& quit_abruptly,
+                                     std::chrono::milliseconds retry_interval = std::chrono::seconds(10));
 
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
