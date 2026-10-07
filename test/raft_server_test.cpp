@@ -529,6 +529,48 @@ TEST(RaftServerTest, EmptyInitialConfigRestoresLogBackedMembership) {
     EXPECT_FALSE(node.node->is_leader());
 }
 
+TEST(RaftServerTest, TemporarySnapshotDoesNotBlockLogBackedMembershipRecovery) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-temp-snapshot-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    ASSERT_TRUE(append_configuration_log(root, {braft::PeerId(self), braft::PeerId("127.0.0.2:1:8108")}));
+    const std::string temp_path = root + "/snapshot/temp";
+    std::filesystem::create_directories(temp_path);
+    std::ofstream(temp_path + "/partial.data") << "interrupted snapshot contents";
+
+    const auto durable = ReplicationState::inspect_durable_membership(root, braft::PeerId(self));
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::recovered, durable.status) << durable.diagnostic;
+    EXPECT_FALSE(std::filesystem::exists(temp_path))
+        << "Braft should clean its unfinished temporary snapshot directory during inspection";
+
+    LocalRaftNode node(port, root);
+    ASSERT_TRUE(node.init("", 500));
+    const std::string peers = raft_peers_line(node.description());
+    EXPECT_NE(std::string::npos, peers.find(self));
+    EXPECT_NE(std::string::npos, peers.find("127.0.0.2:1:8108"));
+    EXPECT_FALSE(node.node->is_leader());
+}
+
+TEST(RaftServerTest, TemporarySnapshotWithoutMembershipIsFresh) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-temp-snapshot-fresh-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string temp_path = root + "/snapshot/temp";
+    std::filesystem::create_directories(temp_path);
+    std::ofstream(temp_path + "/partial.data") << "interrupted snapshot contents";
+
+    const auto durable = ReplicationState::inspect_durable_membership(
+        root, braft::PeerId("127.0.0.1:" + std::to_string(port) + ":8108"));
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::fresh, durable.status) << durable.diagnostic;
+    EXPECT_FALSE(std::filesystem::exists(temp_path));
+    std::filesystem::remove_all(root);
+}
+
 TEST(RaftServerTest, EmptyInitialConfigDoesNotElectFreshNode) {
     butil::AtExitManager at_exit_manager;
     const int port = get_available_port();
@@ -680,6 +722,38 @@ TEST(RaftServerTest, NonemptyUnopenableSnapshotStorageIsNotFresh) {
                              std::to_string(port);
     std::filesystem::create_directories(root + "/snapshot/unrecognized");
     std::ofstream(root + "/snapshot/unrecognized/invalid-meta") << "not a snapshot";
+
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::invalid,
+              ReplicationState::inspect_durable_membership(
+                  root, braft::PeerId("127.0.0.1:" + std::to_string(port) + ":8108")).status);
+    std::filesystem::remove_all(root);
+}
+
+TEST(RaftServerTest, MalformedCompletedSnapshotIsNotFresh) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-malformed-snapshot-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    const std::string self = "127.0.0.1:" + std::to_string(port) + ":8108";
+    ASSERT_TRUE(append_configuration_log(root, {braft::PeerId(self)}));
+    const std::string completed_snapshot = root + "/snapshot/snapshot_00000000000000000001";
+    std::filesystem::create_directories(completed_snapshot);
+    std::ofstream(completed_snapshot + "/__raft_snapshot_meta") << "not a valid Braft snapshot metadata file";
+
+    EXPECT_EQ(ReplicationState::DurableMembershipStatus::invalid,
+              ReplicationState::inspect_durable_membership(root, braft::PeerId(self)).status);
+    std::filesystem::remove_all(root);
+}
+
+TEST(RaftServerTest, TemporarySnapshotPathMustBeDirectory) {
+    butil::AtExitManager at_exit_manager;
+    const int port = get_available_port();
+    ASSERT_GT(port, 0);
+    const std::string root = "/tmp/typesense-raft-iu4-temp-snapshot-file-" + std::to_string(getpid()) + "-" +
+                             std::to_string(port);
+    std::filesystem::create_directories(root + "/snapshot");
+    std::ofstream(root + "/snapshot/temp") << "not a temporary snapshot directory";
 
     EXPECT_EQ(ReplicationState::DurableMembershipStatus::invalid,
               ReplicationState::inspect_durable_membership(

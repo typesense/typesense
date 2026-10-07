@@ -269,7 +269,27 @@ ReplicationState::DurableMembershipResult ReplicationState::inspect_durable_memb
             result.diagnostic = "unable to enumerate snapshot directory " + snapshot_path + ": " + fs_error.message();
             return result;
         }
-        snapshot_had_entries = it != std::filesystem::directory_iterator();
+        const std::filesystem::directory_iterator end;
+        while(it != end) {
+            const auto entry_path = it->path();
+            const auto entry_status = it->symlink_status(fs_error);
+            if(fs_error) {
+                result.diagnostic = "unable to inspect snapshot entry " + entry_path.string() + ": " + fs_error.message();
+                return result;
+            }
+            // Braft uses `temp` for an in-progress snapshot and removes it during init; it is not a
+            // completed snapshot that failed to open.
+            const bool unfinished_snapshot_directory = entry_path.filename() == "temp" &&
+                                                       entry_status.type() == std::filesystem::file_type::directory;
+            if(!unfinished_snapshot_directory) {
+                snapshot_had_entries = true;
+            }
+            it.increment(fs_error);
+            if(fs_error) {
+                result.diagnostic = "unable to enumerate snapshot directory " + snapshot_path + ": " + fs_error.message();
+                return result;
+            }
+        }
     }
 
     braft::ConfigurationManager configurations;
