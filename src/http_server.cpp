@@ -14,6 +14,12 @@
 #include "sole.hpp"
 #include "core_api.h"
 #include "collection_manager.h"
+#include "tsconfig.h"
+
+// The message dispatcher of the event loop the current thread runs. Set by each loop thread on
+// startup; read in catch_all_handler to tag every request with its owning loop, so that its
+// response is delivered back on that same loop.
+static thread_local http_message_dispatcher* tls_res_dispatcher = nullptr;
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -23,32 +29,55 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
         exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
         ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
         cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
-    accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
 
-    listener_socket = nullptr; // initialized later
-
     signal(SIGPIPE, SIG_IGN);
-    h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
-    ctx.globalconf->server_name.base = nullptr;  // initialized later
+    config.server_name.base = nullptr;  // initialized in run()
 
-    message_dispatcher = new http_message_dispatcher;
-    message_dispatcher->init(ctx.loop);
+    // The number of event loops is derived from `thread-pool-size` (resolved the same way as the
+    // worker thread pools), capped at the core count since loops beyond that cannot run in
+    // parallel anyway.
+    const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+    size_t pool_size = Config::get_instance().get_thread_pool_size();
+    if(pool_size == 0) {
+        pool_size = proc_count * 8;
+    }
+    const size_t num_loops = std::max<size_t>(1, std::min(pool_size, proc_count));
+
+    for(size_t i = 0; i < num_loops; i++) {
+        ev_loop_t* loop = new ev_loop_t();
+        loop->server = this;
+        loop->index = i;
+        h2o_context_init(&loop->ctx, h2o_evloop_create(), &config);
+        loop->accept_ctx.ctx = &loop->ctx;
+        loop->accept_ctx.hosts = config.hosts;
+        loop->dispatcher = new http_message_dispatcher;
+        loop->dispatcher->init(loop->ctx.loop);
+
+        // used during destructor
+        loop->ssl_refresh_timer.timer.expire_at = 0;
+
+        loops.push_back(loop);
+    }
 
     // used during destructor
-    ssl_refresh_timer.timer.expire_at = 0;
     metrics_refresh_timer.timer.expire_at = 0;
 
     meta_thread_pool = new ThreadPool(4);
-
-    accept_ctx->ssl_ctx = nullptr;
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
-    HttpServer* http_server = reinterpret_cast<HttpServer*>(listener->data);
+    // listener->data is the accept context of the event loop that owns this listener, so that the
+    // connection is handled entirely on that loop. All loops poll dup()s of one listening socket,
+    // so they race accept() on a shared queue: losing the race yields NULL (EAGAIN), and while
+    // connections remain queued the level-triggered evloop fires this callback again.
+    // Deliberately accepts one connection per wakeup (h2o's own server batches up to 10):
+    // returning to the poll loop between accepts gives the other loops a chance to win the next
+    // connection, spreading load across loops at the cost of extra wakeups.
+    h2o_accept_ctx_t* accept_ctx = reinterpret_cast<h2o_accept_ctx_t*>(listener->data);
     h2o_socket_t *sock;
 
     if (err != NULL) {
@@ -59,7 +88,7 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
         return;
     }
 
-    h2o_accept(http_server->accept_ctx, sock);
+    h2o_accept(accept_ctx, sock);
 }
 
 void HttpServer::on_metrics_refresh_timeout(h2o_timer_t *entry) {
@@ -72,7 +101,7 @@ void HttpServer::on_metrics_refresh_timeout(h2o_timer_t *entry) {
 
     // link the timer for the next cycle
     h2o_timer_link(
-        hs->ctx.loop,
+        hs->loops[0]->ctx.loop,
         AppMetrics::METRICS_REFRESH_INTERVAL_MS,
         &hs->metrics_refresh_timer.timer
     );
@@ -81,25 +110,31 @@ void HttpServer::on_metrics_refresh_timeout(h2o_timer_t *entry) {
 void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
     h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
 
-    LOG(INFO) << "Refreshing SSL certs from disk.";
+    // Each event loop refreshes its own SSL context on its own thread, so no SSL state is ever
+    // shared across loops.
+    ev_loop_t* loop = static_cast<ev_loop_t*>(custom_timer->data);
+    HttpServer* hs = loop->server;
 
-    HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
-    SSL_CTX* old_ssl_ctx = hs->accept_ctx->ssl_ctx;
+    if(loop->index == 0) {
+        LOG(INFO) << "Refreshing SSL certs from disk.";
+    }
 
-    bool refresh_success = initialize_ssl_ctx(hs->ssl_cert_path.c_str(), hs->ssl_cert_key_path.c_str(), hs->accept_ctx);
+    SSL_CTX* old_ssl_ctx = loop->accept_ctx.ssl_ctx;
+
+    bool refresh_success = initialize_ssl_ctx(hs->ssl_cert_path.c_str(), hs->ssl_cert_key_path.c_str(), &loop->accept_ctx);
 
     if (refresh_success) {
         // delete the old SSL context but after some time, to allow existing connections to drain
         h2o_custom_timer_t* ssl_ctx_delete_timer = new h2o_custom_timer_t(old_ssl_ctx);
         h2o_timer_init(&ssl_ctx_delete_timer->timer, on_ssl_ctx_delete_timeout);
         uint64_t delete_lag = std::max<uint64_t>(60 * 1000, hs->SSL_REFRESH_INTERVAL_MS / 2);
-        h2o_timer_link(hs->ctx.loop, delete_lag, &ssl_ctx_delete_timer->timer);
+        h2o_timer_link(loop->ctx.loop, delete_lag, &ssl_ctx_delete_timer->timer);
     } else {
         LOG(ERROR) << "SSL cert refresh failed.";
     }
 
     // link the timer for the next cycle
-    h2o_timer_link(hs->ctx.loop, hs->SSL_REFRESH_INTERVAL_MS, &hs->ssl_refresh_timer.timer);
+    h2o_timer_link(loop->ctx.loop, hs->SSL_REFRESH_INTERVAL_MS, &loop->ssl_refresh_timer.timer);
 }
 
 void HttpServer::on_ssl_ctx_delete_timeout(h2o_timer_t *entry) {
@@ -111,22 +146,24 @@ void HttpServer::on_ssl_ctx_delete_timeout(h2o_timer_t *entry) {
     delete custom_timer;
 }
 
-int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
+int HttpServer::setup_ssl(ev_loop_t* loop) {
     // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
-    ssl_refresh_timer = h2o_custom_timer_t(this);
-    h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);
-    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);
+    loop->ssl_refresh_timer = h2o_custom_timer_t(loop);
+    h2o_timer_init(&loop->ssl_refresh_timer.timer, on_ssl_refresh_timeout);
+    h2o_timer_link(loop->ctx.loop, SSL_REFRESH_INTERVAL_MS, &loop->ssl_refresh_timer.timer);
 
-    LOG(INFO) << "SSL cert refresh interval: " << (SSL_REFRESH_INTERVAL_MS / 1000) << "s";
+    if(loop->index == 0) {
+        LOG(INFO) << "SSL cert refresh interval: " << (SSL_REFRESH_INTERVAL_MS / 1000) << "s";
+    }
 
-    if(!initialize_ssl_ctx(cert_file, key_file, accept_ctx)) {
+    if(!initialize_ssl_ctx(ssl_cert_path.c_str(), ssl_cert_key_path.c_str(), &loop->accept_ctx)) {
         return -1;
     }
 
     return 0;
 }
 
-int HttpServer::create_listener() {
+int HttpServer::bind_listen_fd() {
     struct addrinfo hints;
     struct addrinfo *result, *rp;
     int fd = -1, reuseaddr_flag = 1;
@@ -185,9 +222,11 @@ int HttpServer::create_listener() {
             break;
         }
 
-        // Log the specific bind error to help with debugging
+        // Log the specific bind error to help with debugging. errno must be captured before
+        // LOG(): the LogMessage constructor runs first and can clobber it.
+        const int bind_errno = errno;
         LOG(WARNING) << "Failed to bind to address (family=" << rp->ai_family
-                    << "): " << strerror(errno);
+                    << "): " << strerror(bind_errno);
         close(fd);
     }
 
@@ -204,28 +243,21 @@ int HttpServer::create_listener() {
         return -1;
     }
 
+    return fd;
+}
+
+int HttpServer::create_listener(ev_loop_t* loop, int fd) {
     if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
-        int ssl_setup_code = setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+        int ssl_setup_code = setup_ssl(loop);
         if(ssl_setup_code != 0) {
             close(fd);
             return -1;
         }
     }
 
-    ctx.globalconf->server_name = h2o_strdup(nullptr, "", SIZE_MAX);
-    ctx.globalconf->http2.active_stream_window_size = ACTIVE_STREAM_WINDOW_SIZE;
-    ctx.globalconf->http2.idle_timeout = REQ_TIMEOUT_MS;
-    ctx.globalconf->max_request_entity_size = (size_t(10) * 1024 * 1024 * 1024); // 10 GB
-
-    ctx.globalconf->http1.req_timeout = REQ_TIMEOUT_MS;
-    ctx.globalconf->http1.req_io_timeout = REQ_TIMEOUT_MS;
-
-    accept_ctx->ctx = &ctx;
-    accept_ctx->hosts = config.hosts;
-
-    listener_socket = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
-    listener_socket->data = this;
-    h2o_socket_read_start(listener_socket, on_accept);
+    loop->listener = h2o_evloop_socket_create(loop->ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
+    loop->listener->data = &loop->accept_ctx;
+    h2o_socket_read_start(loop->listener, on_accept);
 
     return 0;
 }
@@ -233,24 +265,82 @@ int HttpServer::create_listener() {
 int HttpServer::run(ReplicationState* replication_state) {
     this->replication_state = replication_state;
 
+    // h2o global config, shared by the contexts of all event loops
+    config.server_name = h2o_strdup(nullptr, "", SIZE_MAX);
+    config.http2.active_stream_window_size = ACTIVE_STREAM_WINDOW_SIZE;
+    config.http2.idle_timeout = REQ_TIMEOUT_MS;
+    config.max_request_entity_size = (size_t(10) * 1024 * 1024 * 1024); // 10 GB
+
+    config.http1.req_timeout = REQ_TIMEOUT_MS;
+    config.http1.req_io_timeout = REQ_TIMEOUT_MS;
+
     metrics_refresh_timer = h2o_custom_timer_t(this);
     h2o_timer_init(&metrics_refresh_timer.timer, on_metrics_refresh_timeout);
-    h2o_timer_link(ctx.loop, AppMetrics::METRICS_REFRESH_INTERVAL_MS, &metrics_refresh_timer.timer);
+    h2o_timer_link(loops[0]->ctx.loop, AppMetrics::METRICS_REFRESH_INTERVAL_MS, &metrics_refresh_timer.timer);
 
-    if (create_listener() != 0) {
-        LOG(ERROR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
+    // One socket is bound to the port; every loop accepts from it via its own dup()'d fd. Idle
+    // loops win the accept race, so load follows capacity, and a second process binding the same
+    // port still fails with EADDRINUSE (unlike SO_REUSEPORT, which would silently split traffic).
+    int listen_fd = bind_listen_fd();
+    if(listen_fd < 0) {
+        // bind_listen_fd has already logged the specific cause
+        LOG(ERROR) << "Failed to listen on " << listen_address << ":" << listen_port;
         return 1;
-    } else {
-        LOG(INFO) << "Typesense has started listening on port " << listen_port;
     }
 
-    message_dispatcher->on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
+    for(ev_loop_t* loop : loops) {
+        // every dispatcher gets the full set of registered message handlers (registration
+        // happens before run(), so a plain copy is safe)
+        loop->dispatcher->message_handlers = message_handlers;
+        loop->dispatcher->on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
 
-    while(!exit_loop) {
-        h2o_evloop_run(ctx.loop, INT32_MAX);
+        int fd = (loop->index == 0) ? listen_fd : dup(listen_fd);
+        if(fd == -1) {
+            const int dup_errno = errno;  // capture before LOG() can clobber it
+            LOG(ERROR) << "Failed to dup listener fd - " << strerror(dup_errno);
+            return 1;
+        }
+
+        if(create_listener(loop, fd) != 0) {
+            LOG(ERROR) << "Failed to set up listener on " << listen_address << ":" << listen_port;
+            return 1;
+        }
+    }
+
+    LOG(INFO) << "Typesense has started listening on port " << listen_port
+              << " (" << loops.size() << " event loops)";
+
+    for(size_t i = 1; i < loops.size(); i++) {
+        loops[i]->thread = std::thread([this, loop = loops[i]]() {
+            loop_run(loop);
+        });
+    }
+
+    loop_run(loops[0]);
+
+    for(size_t i = 1; i < loops.size(); i++) {
+        if(loops[i]->thread.joinable()) {
+            loops[i]->thread.join();
+        }
     }
 
     return 0;
+}
+
+void HttpServer::loop_run(ev_loop_t* loop) {
+    tls_res_dispatcher = loop->dispatcher;
+
+    while(!exit_loop) {
+        h2o_evloop_run(loop->ctx.loop, INT32_MAX);
+    }
+
+    // stop accepting new connections; done here so that only the owning thread ever touches
+    // this loop's listener socket
+    if(loop->listener != nullptr) {
+        h2o_socket_read_stop(loop->listener);
+        h2o_socket_close(loop->listener);
+        loop->listener = nullptr;
+    }
 }
 
 bool HttpServer::on_stop_server(void *data) {
@@ -269,16 +359,14 @@ void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool t
 }
 
 void HttpServer::stop() {
-    if(listener_socket != nullptr) {
-        h2o_socket_read_stop(listener_socket);
-        h2o_socket_close(listener_socket);
-    }
-
-    // this will break the event loop
+    // this will break the event loops
     exit_loop = true;
 
-    // send a message to activate the idle event loop to exit, just in case
-    message_dispatcher->send_message(STOP_SERVER_MESSAGE, nullptr);
+    // send a message to wake up each idle event loop so it can exit; a loop closes its own
+    // listener on the way out (only the owning thread may touch its sockets)
+    for(ev_loop_t* loop : loops) {
+        loop->dispatcher->send_message(STOP_SERVER_MESSAGE, nullptr);
+    }
 }
 
 h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const char *path,
@@ -589,6 +677,10 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
                                                                    api_auth_key_sent, api_auth_key_prefix, body, client_ip,
                                                                    is_binary_body);
 
+    // tag the request with the dispatcher of the event loop handling it, so that its response is
+    // delivered back on this same loop (the only thread allowed to touch the connection's socket)
+    request->res_dispatcher = tls_res_dispatcher;
+
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
     std::shared_ptr<http_res> response = std::make_shared<http_res>(custom_gen);
@@ -846,14 +938,12 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
         return 0;
     }
 
-    auto message_dispatcher = handler->http_server->get_message_dispatcher();
-
     auto thread_pool = use_meta_thread_pool ? handler->http_server->get_meta_thread_pool() :
                        handler->http_server->get_thread_pool();
 
     // LOG(INFO) << "Before enqueue res: " << response
     thread_pool->log_exhaustion();
-    thread_pool->enqueue([rpath, message_dispatcher, request, response]() {
+    thread_pool->enqueue([rpath, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
         (rpath->handler)(request, response);
@@ -861,7 +951,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
         if(!rpath->async_res) {
             // lifecycle of non async res will be owned by stream responder
             auto req_res = new async_req_res_t(request, response, true);
-            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            deliver_stream_response(req_res);
         }
         //LOG(INFO) << "Response done " << response.get();
     });
@@ -913,7 +1003,12 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
         h2o_timer_unlink(&req->defer_timer.timer);
     }
 
-    h2o_timer_link(ctx.loop, timeout_ms, &req->defer_timer.timer);
+    // Schedule the timer on the event loop that owns this request's connection. Linking it to any
+    // other loop would race on that loop's timerwheel and fire the continuation on the wrong
+    // thread. Both callers (response_proceed, on_deferred_processing_message) already run on the
+    // owning loop, so linking here stays single-threaded.
+    h2o_loop_t* owning_loop = (req->res_dispatcher != nullptr) ? req->res_dispatcher->loop : loops[0]->ctx.loop;
+    h2o_timer_link(owning_loop, timeout_ms, &req->defer_timer.timer);
 
     if(exit_loop) {
         // otherwise, replication thread could be stuck waiting on a future
@@ -921,10 +1016,6 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
         req->notify();
         res->notify();
     }
-}
-
-void HttpServer::send_message(const std::string & type, void* data) {
-    message_dispatcher->send_message(type, data);
 }
 
 int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string & message) {
@@ -1075,45 +1166,44 @@ void HttpServer::del(const std::string & path, bool (*handler)(const std::shared
 }
 
 void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
-    message_dispatcher->on(message, handler);
+    // must be called before run(): each loop's dispatcher receives a copy of these handlers
+    message_handlers.emplace(message, handler);
 }
 
 HttpServer::~HttpServer() {
-    delete message_dispatcher;
-
-    if(ssl_refresh_timer.timer.expire_at != 0) {
-        // avoid callback since it recreates timeout
-        clear_timeouts({&ssl_refresh_timer.timer}, false);
-    }
-
     if(metrics_refresh_timer.timer.expire_at != 0) {
         // avoid callback since it recreates timeout
         clear_timeouts({&metrics_refresh_timer.timer}, false);
     }
 
-    h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);
+    for(ev_loop_t* loop : loops) {
+        delete loop->dispatcher;
 
-    h2o_context_dispose(&ctx);
+        if(loop->ssl_refresh_timer.timer.expire_at != 0) {
+            // avoid callback since it recreates timeout
+            clear_timeouts({&loop->ssl_refresh_timer.timer}, false);
+        }
 
-    if(ctx.globalconf->server_name.base != nullptr) {
-        free(ctx.globalconf->server_name.base);
-        ctx.globalconf->server_name.base = nullptr;
+        h2o_timerwheel_run(loop->ctx.loop->_timeouts, 9999999999999);
+
+        h2o_context_dispose(&loop->ctx);
+
+        // Flaky, sometimes assertion on timeouts occur, preventing a clean shutdown
+        //h2o_evloop_destroy(loop->ctx.loop);
+
+        SSL_CTX_free(loop->accept_ctx.ssl_ctx);
+        delete loop;
     }
 
-    // Flaky, sometimes assertion on timeouts occur, preventing a clean shutdown
-    //h2o_evloop_destroy(ctx.loop);
+    if(config.server_name.base != nullptr) {
+        free(config.server_name.base);
+        config.server_name.base = nullptr;
+    }
 
     h2o_config_dispose(&config);
 
-    SSL_CTX_free(accept_ctx->ssl_ctx);
-    delete accept_ctx;
-
     meta_thread_pool->shutdown();
     delete meta_thread_pool;
-}
-
-http_message_dispatcher* HttpServer::get_message_dispatcher() const {
-    return message_dispatcher;
 }
 
 ReplicationState* HttpServer::get_replication_state() const {
@@ -1141,6 +1231,77 @@ uint64_t HttpServer::node_state() const {
 
 nlohmann::json HttpServer::node_status() {
     return replication_state->get_status();
+}
+
+void HttpServer::deliver_stream_response(async_req_res_t* req_res) {
+    http_message_dispatcher* dispatcher = req_res->res_dispatcher();
+
+    if(dispatcher != nullptr) {
+        dispatcher->send_message(STREAM_RESPONSE_MESSAGE, req_res);
+        return;
+    }
+
+    // The request has no owning event loop (a write replayed from the log, or tests):
+    // mirror the dead-request path of on_stream_response_message.
+    req_res->req_notify();
+    req_res->res_notify();
+
+    if(req_res->destroy_after_use) {
+        delete req_res;
+    }
+}
+
+void HttpServer::deliver_request_proceed(deferred_req_res_t* req_res) {
+    http_message_dispatcher* dispatcher = req_res->req->res_dispatcher;
+
+    if(dispatcher != nullptr) {
+        dispatcher->send_message(REQUEST_PROCEED_MESSAGE, req_res);
+        return;
+    }
+
+    // no owning event loop, so there is no connection to read more input from
+    if(req_res->destroy_after_use) {
+        delete req_res;
+    }
+}
+
+void HttpServer::deliver_defer_processing(defer_processing_t* defer) {
+    http_message_dispatcher* dispatcher = defer->req->res_dispatcher;
+
+    if(dispatcher != nullptr) {
+        dispatcher->send_message(DEFER_PROCESSING_MESSAGE, defer);
+        return;
+    }
+
+    // No owning event loop, i.e. a write replayed from the log (on a follower or during
+    // startup replay). The continuation must still run — chunked handlers like batched
+    // deletes re-schedule themselves through here, and dropping the deferral would apply
+    // only their first batch and diverge replicas. Without a loop to host the timer,
+    // drive the handler directly on the worker pool (mirrors on_deferred_process_request).
+    HttpServer* server = defer->server;
+    route_path* found_rpath = nullptr;
+
+    if(server != nullptr) {
+        server->get_route(defer->req->route_hash, &found_rpath);
+    }
+
+    if(found_rpath != nullptr) {
+        const std::shared_ptr<http_req> req = defer->req;
+        const std::shared_ptr<http_res> res = defer->res;
+        auto handler = found_rpath->handler;
+        server->thread_pool->enqueue([handler, req, res]() {
+            handler(req, res);
+        });
+        delete defer;
+        return;
+    }
+
+    // no server (tests) or unknown route: nothing can drive this request anymore,
+    // so mark it dead and wake up any waiters
+    defer->res->is_alive = false;
+    defer->req->notify();
+    defer->res->notify();
+    delete defer;
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
