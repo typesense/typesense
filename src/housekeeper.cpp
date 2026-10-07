@@ -1,9 +1,11 @@
 #include <map>
 #include <collection_manager.h>
 #include <system_metrics.h>
+#include <cached_resource_stat.h>
 #include "housekeeper.h"
 
 void HouseKeeper::run() {
+    auto next_purge_at = std::chrono::steady_clock::time_point::min();
     uint64_t prev_remove_expired_keys_s = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -15,11 +17,24 @@ void HouseKeeper::run() {
 
     while(!quit) {
         std::unique_lock lk(mutex);
-        cv.wait_for(lk, std::chrono::milliseconds(3050), [&] { return quit.load(); });
+        cv.wait_for(lk, std::chrono::milliseconds(3050), [&] {
+            return quit.load() || (purge_requested.load() && std::chrono::steady_clock::now() >= next_purge_at);
+        });
 
         if(quit) {
             lk.unlock();
             break;
+        }
+
+        // Cache invalidation can cause another request immediately. Keep the purge
+        // cooldown independent of the resource cache, and retain requests until it expires.
+        if(std::chrono::steady_clock::now() >= next_purge_at && purge_requested.exchange(false)) {
+            lk.unlock();
+            log_running_queries();
+            SystemMetrics::get_instance().purge_jemalloc_unused_memory();
+            cached_resource_stat_t::get_instance().invalidate_cache();
+            next_purge_at = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            lk.lock();
         }
 
         auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
@@ -58,6 +73,12 @@ void HouseKeeper::run() {
 void HouseKeeper::stop() {
     quit = true;
     cv.notify_all();
+}
+
+void HouseKeeper::request_memory_purge() {
+    if(!purge_requested.exchange(true)) {
+        cv.notify_one();
+    }
 }
 
 void HouseKeeper::init() {

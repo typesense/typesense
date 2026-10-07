@@ -1602,6 +1602,63 @@ TEST_F(CoreAPIUtilsTest, Union) {
     ASSERT_EQ(20, response["found"]);
 }
 
+TEST_F(CoreAPIUtilsTest, UnionSearchCutoffWithNothingToReturnIsRequestTimeout) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 10; i++) {
+        nlohmann::json doc;
+        doc["title"] = "widget " + std::to_string(i);
+        ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
+    }
+
+    nlohmann::json body;
+    body["union"] = true;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "widget";
+    search["query_by"] = "title";
+    body["searches"].push_back(search);
+
+    auto make_req = [&body]() {
+        auto req = std::make_shared<http_req>();
+        req->body = body.dump();
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        // The search's budget is spent before it starts, so it is cut off before it finds anything.
+        req->params["search_cutoff_ms"] = "0";
+        req->params["use_cache"] = "true";
+        return req;
+    };
+
+    auto req = make_req();
+    auto res = std::make_shared<http_res>(nullptr);
+    // The handler streams its own response, so it has to mark it final.
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
+    ASSERT_EQ("Request Timeout", nlohmann::json::parse(res->body)["message"]);
+    ASSERT_TRUE(res->final);
+
+    // The 408 asks the client to retry, so it must not have been cached as the answer to that retry.
+    req = make_req();
+    res = std::make_shared<http_res>(nullptr);
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
+    ASSERT_TRUE(res->final);
+}
+
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
