@@ -25,13 +25,34 @@ namespace braft {
 }
 
 void ReplicationClosure::Run() {
-    // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
 
     // failed entries never reach on_apply, so release the pending write here
     if(!status().ok()) {
         LOG(ERROR) << "Write failed to replicate, error: " << status().error_str();
+
+        bool send_response;
+        {
+            std::unique_lock response_lock(response->mres);
+            send_response = response->is_alive && !response->proxied_stream;
+            response->final = true;
+            if(response->proxied_stream) {
+                response->is_alive = false;
+            } else {
+                response->set_503("Write failed to replicate.");
+            }
+        }
+
+        auto* dispatcher = replication_state->get_message_dispatcher();
+        if(send_response && dispatcher != nullptr) {
+            auto* req_res = new async_req_res_t(request, response, true);
+            dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        } else {
+            request->notify();
+            response->notify();
+        }
+
         replication_state->decr_pending_writes();
     }
 }
