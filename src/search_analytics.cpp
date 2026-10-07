@@ -104,7 +104,7 @@ Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nloh
       data["q"].get<std::string>(),
       event_type,
       data.contains("timestamp") ? data["timestamp"].get<uint64_t>() : uint64_t(now_ts_useconds),
-      data["user_id"].get<std::string>(),
+      data.contains("user_id") ? data["user_id"].get<std::string>() : "",
       data.contains("filter_by") ? data["filter_by"].get<std::string>() : "",
       data.contains("analytics_tag") ? data["analytics_tag"].get<std::string>() : ""
     };
@@ -123,6 +123,9 @@ Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nloh
     const auto& log_event_it = search_log_events.find(event_name);
     if(log_event_it == search_log_events.end()) {
       return Option<bool>(400, "Rule does not exist");
+    }
+    if(!data.contains("user_id") || !data["user_id"].is_string()) {
+      return Option<bool>(400, "'user_id' should be a string and is required");
     }
     const auto& meta_fields = search_rules.find(event_name)->second.meta_fields;
     search_log_events[event_name].push_back(search_event_t{
