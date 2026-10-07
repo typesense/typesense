@@ -478,6 +478,49 @@ TEST(RaftServerTest, ResolverInjectionPreservesValidIpv4Ipv6AndMixedLists) {
     EXPECT_TRUE(missing_legacy_hostname.configuration.empty());
 }
 
+TEST(RaftServerTest, ExplicitApiPortsRequireCompleteDecimalValuesBeforeDns) {
+    size_t resolver_calls = 0;
+    const auto resolver = [&resolver_calls](const std::string&) {
+        ++resolver_calls;
+        return std::string("192.0.2.10");
+    };
+
+    for(const auto& config : {
+            "127.0.0.1:8107:",
+            "127.0.0.1:8107:not-a-port",
+            "127.0.0.1:8107:8108garbage",
+            "127.0.0.1:8107:0",
+            "127.0.0.1:8107:65536",
+            "127.0.0.1:8107:99999",
+            "127.0.0.1:8107:999999999999999999999999",
+            "127.0.0.1:8107: 8108",
+            "127.0.0.1:8107:+8108",
+            "127.0.0.1:8107:-1",
+            "missing-host:8107:8108garbage",
+            "[2001:db8::1]:8107:8108garbage"}) {
+        resolver_calls = 0;
+        const auto result = ReplicationState::resolve_node_hosts(config, resolver);
+        EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, result.status) << config;
+        EXPECT_TRUE(result.configuration.empty()) << config;
+        EXPECT_EQ(0, resolver_calls) << config;
+    }
+
+    for(const auto& config : {"127.0.0.1:8107:1", "127.0.0.1:8107:65535",
+                              "127.0.0.1:8108", "missing-host:8108",
+                              "[2001:db8::1]:8107:65535"}) {
+        resolver_calls = 0;
+        const auto result = ReplicationState::resolve_node_hosts(config, resolver);
+        if(config == std::string("missing-host:8108")) {
+            ASSERT_TRUE(result.ok()) << result.diagnostic;
+            EXPECT_EQ("192.0.2.10:8108", result.configuration);
+            EXPECT_EQ(1, resolver_calls);
+        } else {
+            EXPECT_TRUE(result.ok()) << result.diagnostic;
+            EXPECT_EQ(0, resolver_calls);
+        }
+    }
+}
+
 TEST(RaftServerTest, EmptyResolverInputAndAbsentNodesConfigurationDiffer) {
     auto empty_peer_list = ReplicationState::resolve_node_hosts("");
     EXPECT_EQ(ReplicationState::PeerConfigStatus::invalid_configuration, empty_peer_list.status);
@@ -829,6 +872,8 @@ TEST(RaftServerTest, FailedPeerResultsDoNotMutateLiveRaftMembership) {
     for(const auto& invalid_nodes : std::vector<std::string>{"not-a-peer," + self_peer,
                                                               self_peer + ",not-a-peer,127.0.0.1:3:8108",
                                                               self_peer + ",127.0.0.1:3:8108,not-a-peer",
+                                                              self_peer + ",127.0.0.1:3:8108garbage",
+                                                              self_peer + ",127.0.0.1:3:99999",
                                                               self_peer + ",", ""}) {
         ReplicationState::PeerConfigResult malformed{
             ReplicationState::PeerConfigStatus::resolved, invalid_nodes, ""};
@@ -853,6 +898,15 @@ TEST(RaftServerTest, FailedPeerResultsDoNotMutateLiveRaftMembership) {
     EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description()));
     EXPECT_EQ(old_proxy_ips, config.get_proxy_allowed_src_ips());
 
+    {
+        std::ofstream nodes(nodes_file);
+        ASSERT_TRUE(nodes.good());
+        nodes << self_peer << "garbage";
+    }
+    EXPECT_FALSE(state.reset_peers());
+    EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description()));
+    EXPECT_EQ(old_proxy_ips, config.get_proxy_allowed_src_ips());
+
     ReplicationState::PeerConfigResult valid_single_peer{
         ReplicationState::PeerConfigStatus::resolved, self_peer, ""};
     state.refresh_nodes(valid_single_peer, 0, reset_on_error);
@@ -866,6 +920,31 @@ TEST(RaftServerTest, FailedPeerResultsDoNotMutateLiveRaftMembership) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     } while(std::chrono::steady_clock::now() < deadline);
     EXPECT_EQ("peers: " + self_peer, final_description);
+}
+
+TEST(RaftServerTest, MalformedSelfApiPortCannotResetLiveMembership) {
+    butil::AtExitManager at_exit_manager;
+    LocalRaftNode local_node;
+    ASSERT_TRUE(local_node.init());
+
+    auto& config = Config::get_instance();
+    ScopedConfigRestore restore_config(config);
+    Store store(local_node.root + "/store");
+    std::atomic<bool> skip_writes(false);
+    BatchedIndexer indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    ReplicationState state(nullptr, &indexer, &store, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    state.node = local_node.node;
+
+    const std::string self_peer = "127.0.0.1:" + std::to_string(local_node.port) + ":8108";
+    const std::string initial_peers_line = raft_peers_line(local_node.description());
+    ASSERT_NE(std::string::npos, initial_peers_line.find(self_peer));
+    ASSERT_NE(std::string::npos, initial_peers_line.find("127.0.0.1:1:8108"));
+    ASSERT_NE(std::string::npos, initial_peers_line.find("127.0.0.1:2:8108"));
+
+    const std::atomic<bool> reset_on_error(true);
+    state.refresh_nodes({ReplicationState::PeerConfigStatus::resolved, self_peer + "garbage", ""},
+                        1, reset_on_error);
+    EXPECT_EQ(initial_peers_line, raft_peers_line(local_node.description()));
 }
 
 TEST(Hostname2IPStrTest, IPAddresses) {

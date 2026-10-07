@@ -30,6 +30,52 @@ namespace braft {
 }
 
 namespace {
+bool valid_api_port_number(const std::string& value) {
+    if(value.empty()) {
+        return false;
+    }
+
+    unsigned int port = 0;
+    for(const unsigned char digit : value) {
+        if(digit < '0' || digit > '9') {
+            return false;
+        }
+        const unsigned int numeric_digit = digit - '0';
+        if(port > (65535u - numeric_digit) / 10u) {
+            return false;
+        }
+        port = port * 10u + numeric_digit;
+    }
+    return port >= 1 && port <= 65535;
+}
+
+bool valid_optional_api_port(const std::string& peer) {
+    size_t first_separator = std::string::npos;
+    if(!peer.empty() && peer.front() == '[') {
+        const size_t closing_bracket = peer.find(']');
+        if(closing_bracket == std::string::npos || closing_bracket + 1 >= peer.size() ||
+           peer[closing_bracket + 1] != ':') {
+            return false;
+        }
+        first_separator = closing_bracket + 1;
+    } else {
+        first_separator = peer.find(':');
+    }
+    if(first_separator == std::string::npos) {
+        return true;
+    }
+
+    const size_t api_port_separator = peer.find(':', first_separator + 1);
+    if(api_port_separator == std::string::npos) {
+        // Two-field Braft peers intentionally omit the API port/id.
+        return true;
+    }
+    if(peer.find(':', api_port_separator + 1) != std::string::npos) {
+        return false;
+    }
+    return valid_api_port_number(peer.substr(api_port_separator + 1));
+}
+
 std::string lookup_hostname_ip(const std::string& host) {
     struct addrinfo hints, *result;
     memset(&hints, 0, sizeof(hints));
@@ -66,6 +112,10 @@ bool parse_peer_configuration(const std::string& nodes, braft::Configuration& co
     StringUtils::split(nodes, node_entries, ",", true, true);
     if(node_entries.empty() || std::any_of(node_entries.begin(), node_entries.end(),
                                            [](const std::string& entry) { return entry.empty(); })) {
+        return false;
+    }
+    if(std::any_of(node_entries.begin(), node_entries.end(),
+                   [](const std::string& entry) { return !valid_optional_api_port(entry); })) {
         return false;
     }
 
@@ -489,6 +539,10 @@ ReplicationState::PeerConfigResult ReplicationState::resolve_node_hosts(
         if(entry.empty()) {
             return failure(PeerConfigStatus::invalid_configuration,
                            "empty peer entry at position " + std::to_string(i + 1));
+        }
+        if(!valid_optional_api_port(entry)) {
+            return failure(PeerConfigStatus::invalid_configuration,
+                           "invalid API port in peer entry " + std::to_string(i + 1) + ": " + entry);
         }
         std::string syntax_entry = entry;
         if(!entry.empty() && entry.front() != '[') {
