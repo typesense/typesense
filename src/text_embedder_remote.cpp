@@ -1027,6 +1027,9 @@ std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config, size_
     } else {
         key = name + ":" + project + ":" + model_config["client_secret"].get<std::string>();
     }
+    // embedders are shared by key, so fields on different regions need different keys
+    const bool has_region = model_config.count("region") > 0 && model_config["region"].is_string();
+    key += ":" + (has_region ? model_config["region"].get<std::string>() : GCP_DEFAULT_REGION);
     if(num_dims > 0) {
         key += ":" + std::to_string(num_dims);
     }

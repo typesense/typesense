@@ -1293,17 +1293,15 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     }
 
     std::unique_lock u_lock(mutex);
-    collections.erase(actual_coll_name);
+    // concurrent drops of the same collection both get here, only the one that removed it owns the refs
+    const bool removed = collections.erase(actual_coll_name) > 0;
     collection_id_names.erase(collection->get_collection_id());
 
     const auto& embedding_fields = collection->get_embedding_fields();
 
     u_lock.unlock();
-    for(const auto& embedding_field : embedding_fields) {
-        const auto& model_name = embedding_field.embed[fields::model_config][fields::model_name].get<std::string>();
-        if (embedding_field.embed.count(fields::personalization_type) == 0) {
-            process_embedding_field_delete(model_name);
-        }
+    if(removed) {
+        Collection::release_text_embedders(embedding_fields);
     }
 
     return Option<nlohmann::json>(collection_json);
@@ -3373,33 +3371,6 @@ void CollectionManager::remove_referenced_ins_with_lock(const std::string& refer
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
     std::shared_lock lock(mutex);
     return referenced_ins;
-}
-
-void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
-    std::shared_lock lock(mutex);
-    bool found = false;
-
-    for(const auto& collection: collections) {
-        // will be deadlock if we try to acquire lock on collection here
-        // caller of this function should have already acquired lock on collection
-        const auto& embedding_fields = collection.second->get_embedding_fields_unsafe();
-
-        for(const auto& embedding_field: embedding_fields) {
-            if(embedding_field.embed.count(fields::model_config) != 0) {
-                const auto& model_config = embedding_field.embed[fields::model_config];
-                if(model_config[fields::model_name].get<std::string>() == model_name) {
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    if(!found) {
-        LOG(INFO) << "Deleting text embedder: " << model_name;
-        EmbedderManager::get_instance().delete_text_embedder(model_name);
-        EmbedderManager::get_instance().delete_image_embedder(model_name);
-    }
 }
 
 std::unordered_set<std::string> CollectionManager::get_collection_references(const std::string& coll_name) {

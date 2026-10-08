@@ -42,10 +42,16 @@ public:
     EmbedderManager(const EmbedderManager&) = delete;
     EmbedderManager& operator=(const EmbedderManager&) = delete;
 
-    Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config, size_t num_dims = 0);
+    Option<std::shared_ptr<TextEmbedder>> get_text_embedder(const nlohmann::json& model_config, size_t num_dims = 0);
     Option<ImageEmbedder*> get_image_embedder(const nlohmann::json& model_config);
 
     void delete_text_embedder(const std::string& model_path);
+
+    // fields hold a ref on their embedder, the last release evicts it
+    void acquire_text_embedder(const nlohmann::json& model_config, size_t num_dims);
+    void release_text_embedder(const nlohmann::json& model_config, size_t num_dims);
+
+    static std::string get_text_embedder_key(const nlohmann::json& model_config, size_t num_dims);
     void delete_all_text_embedders();
 
     void delete_image_embedder(const std::string& model_path);
@@ -98,6 +104,7 @@ private:
     EmbedderManager() = default;
 
     std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> text_embedders;
+    std::unordered_map<std::string, size_t> text_embedder_refs;
     std::unordered_map<std::string, std::shared_ptr<ImageEmbedder>> image_embedders;
     std::unordered_map<std::string, text_embedding_model> public_models;
     std::mutex text_embedders_mutex, image_embedders_mutex;
