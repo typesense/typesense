@@ -3454,6 +3454,49 @@ TEST_F(CollectionNestedFieldsTest, UpdateWithNullValueONestedArrayField) {
     ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
 }
 
+TEST_F(CollectionNestedFieldsTest, RepeatedUpsertWithNullTypedNestedSubFieldDoesNotLogRemovalError) {
+    // un-indexing a value that was never indexed must be a silent no-op.
+    nlohmann::json schema = R"({
+        "name": "loads",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "load_number", "type": "string"},
+          {"name": "commodities", "type": "object[]", "optional": true},
+          {"name": "commodities.weight", "type": "int64[]", "optional": true},
+          {"name": "commodities.qtyUnit", "type": "string[]", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "id": "1",
+        "load_number": "L1",
+        "commodities": [{"weight": 500, "qtyUnit": "lb"}, {"weight": null, "qtyUnit": null}]
+    })"_json;
+
+    // re-sync the same document, then delete it. both remove paths (update diff and full delete)
+    // funnel through remove_field with the re-flattened null.
+    testing::internal::CaptureStderr();
+
+    ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
+    for(size_t i = 0; i < 4; i++) {
+        ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+    }
+
+    // the non-null values remain searchable and correctly indexed
+    auto results = coll1->search("*", {}, "commodities.weight: 500", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_TRUE(coll1->remove("1").ok());
+
+    std::string captured = testing::internal::GetCapturedStderr();
+    ASSERT_EQ(std::string::npos, captured.find("Error while removing field"))
+        << "removal error logged for null typed nested sub-field:\n" << captured;
+}
+
 TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) {
     nlohmann::json schema = R"({
         "name": "coll1",
