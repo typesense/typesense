@@ -450,7 +450,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
                 const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                     refreshed_nodes_op.get());
                 if(nodes_config.empty()) {
-                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                    LOG(WARNING) << "Unable to resolve all nodes in peer configuration.";
                 } else {
                     if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
                         Config::get_instance().update_proxy_src_ips(nodes_config);

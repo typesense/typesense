@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
+#include <braft/log.h>
+#include <braft/raft.h>
+#include <braft/snapshot.h>
+#include <brpc/server.h>
 #include <chrono>
+#include <filesystem>
 #include <future>
 #include <string>
 
@@ -45,6 +50,102 @@ namespace {
         std::string ipv6 = str.substr(1, str.length() - 2); // Remove [ and ]
         struct sockaddr_in6 sa;
         return inet_pton(AF_INET6, ipv6.c_str(), &(sa.sin6_addr)) != 0;
+    }
+
+    class NoopStateMachine : public braft::StateMachine {
+    public:
+        void on_apply(braft::Iterator& iter) override {
+            for(; iter.valid(); iter.next()) {
+                braft::AsyncClosureGuard done_guard(iter.done());
+            }
+        }
+
+        void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) override {
+            done->Run();
+        }
+
+        int on_snapshot_load(braft::SnapshotReader* reader) override {
+            return 0;
+        }
+    };
+
+    // a braft node with a peering server, started with an empty `initial_conf` like a node with unresolved peers
+    struct TestRaftNode {
+        brpc::Server server;
+        NoopStateMachine fsm;
+        braft::Node* node = nullptr;
+
+        int start(const std::string& peer, const std::string& raft_dir) {
+            braft::PeerId peer_id(peer);
+            if(braft::add_service(&server, peer_id.addr) != 0 || server.Start(peer_id.addr, nullptr) != 0) {
+                return -1;
+            }
+
+            braft::NodeOptions node_options;
+            node_options.election_timeout_ms = 300;
+            node_options.snapshot_interval_s = -1;
+            node_options.fsm = &fsm;
+            node_options.node_owns_fsm = false;
+            node_options.log_uri = "local://" + raft_dir + "/log";
+            node_options.raft_meta_uri = "local://" + raft_dir + "/meta";
+            node_options.snapshot_uri = "local://" + raft_dir + "/snapshot";
+            node_options.disable_cli = true;
+
+            node = new braft::Node("default_group", peer_id);
+            return node->init(node_options);
+        }
+
+        bool wait_for_leader() {
+            for(size_t i = 0; i < 100 && !node->is_leader(); i++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            return node->is_leader();
+        }
+
+        std::vector<braft::PeerId> peers() {
+            std::vector<braft::PeerId> peers;
+            node->list_peers(&peers);
+            return peers;
+        }
+
+        ~TestRaftNode() {
+            if(node) {
+                node->shutdown(nullptr);
+                node->join();
+                delete node;
+            }
+            server.Stop(0);
+            server.Join();
+        }
+    };
+
+    void append_configuration_entry(const std::string& log_dir, const std::string& peer) {
+        braft::ConfigurationManager configuration_manager;
+        braft::SegmentLogStorage log_storage(log_dir);
+        ASSERT_EQ(0, log_storage.init(&configuration_manager));
+
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->AddRef();
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->id = braft::LogId(1, 1);
+        entry->peers = new std::vector<braft::PeerId>{braft::PeerId(peer)};
+        ASSERT_EQ(0, log_storage.append_entry(entry));
+        entry->Release();
+    }
+
+    void save_snapshot(const std::string& snapshot_dir, const std::string& peer) {
+        braft::LocalSnapshotStorage snapshot_storage(snapshot_dir);
+        ASSERT_EQ(0, snapshot_storage.init());
+
+        braft::SnapshotWriter* writer = snapshot_storage.create();
+        ASSERT_NE(nullptr, writer);
+
+        braft::SnapshotMeta meta;
+        meta.set_last_included_index(5);
+        meta.set_last_included_term(1);
+        meta.add_peers(peer);
+        ASSERT_EQ(0, writer->save_meta(meta));
+        ASSERT_EQ(0, snapshot_storage.close(writer));
     }
 }
 
@@ -181,6 +282,147 @@ TEST(RaftServerTest, ResolveNodesConfigWithHostNames) {
                                                    "namespace.svc.cluster.local:6107:6108"));
 }
 
+TEST(RaftServerTest, ResolveNodesConfigFailsWhenAnyHostIsUnresolved) {
+    // a partial peer list must not be returned, regardless of the position of the unresolved host
+    ASSERT_EQ("", ReplicationState::resolve_node_hosts("non.existent.hostname.invalid:8107:8108,"
+                                                       "127.0.0.1:7107:7108,127.0.0.1:6107:6108"));
+    ASSERT_EQ("", ReplicationState::resolve_node_hosts("127.0.0.1:8107:8108,"
+                                                       "non.existent.hostname.invalid:7107:7108,127.0.0.1:6107:6108"));
+    ASSERT_EQ("", ReplicationState::resolve_node_hosts("127.0.0.1:8107:8108,127.0.0.1:7107:7108,"
+                                                       "non.existent.hostname.invalid:6107:6108"));
+
+    butil::EndPoint peering_endpoint;
+    butil::str2endpoint("127.0.0.1", 8107, &peering_endpoint);
+    ASSERT_EQ("", ReplicationState::to_nodes_config(peering_endpoint, 8108,
+                                                    "127.0.0.1:8107:8108,non.existent.hostname.invalid:7107:7108"));
+}
+
+TEST(RaftServerTest, PersistedRaftState) {
+    const std::string raft_dir = "/tmp/typesense_test/raft_persisted_state";
+    const std::string snapshot_dir = raft_dir + "/snapshot";
+    std::filesystem::remove_all(raft_dir);
+
+    // fresh node
+    ASSERT_FALSE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    // unfinished snapshot is neither a snapshot nor persisted state
+    std::filesystem::create_directories(snapshot_dir + "/temp");
+    ASSERT_FALSE(ReplicationState::has_completed_snapshot(snapshot_dir));
+    ASSERT_FALSE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    // log with an unfinished snapshot: start() must still initialize the db, since braft won't load a snapshot
+    append_configuration_entry(raft_dir + "/log", "127.0.0.1:8107:8108");
+    ASSERT_FALSE(ReplicationState::has_completed_snapshot(snapshot_dir));
+    ASSERT_TRUE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    // completed snapshot without log
+    std::filesystem::remove_all(raft_dir);
+    save_snapshot(snapshot_dir, "127.0.0.1:8107:8108");
+    ASSERT_TRUE(ReplicationState::has_completed_snapshot(snapshot_dir));
+    ASSERT_TRUE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    std::filesystem::remove_all(raft_dir);
+}
+
+TEST(RaftServerTest, LogBackedMembershipIsRecoveredWithoutInitialConf) {
+    const std::string raft_dir = "/tmp/typesense_test/raft_log_membership";
+    const std::string peer = "127.0.0.1:18107:18108";
+    std::filesystem::remove_all(raft_dir);
+
+    append_configuration_entry(raft_dir + "/log", peer);
+    // an interrupted snapshot must not get in the way of recovery from the log
+    std::filesystem::create_directories(raft_dir + "/snapshot/temp");
+    ASSERT_TRUE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    {
+        TestRaftNode raft_node;
+        ASSERT_EQ(0, raft_node.start(peer, raft_dir));
+        ASSERT_TRUE(raft_node.wait_for_leader());
+        ASSERT_EQ(std::vector<braft::PeerId>{braft::PeerId(peer)}, raft_node.peers());
+    }
+
+    std::filesystem::remove_all(raft_dir);
+}
+
+TEST(RaftServerTest, SnapshotBackedMembershipIsRecoveredWithoutInitialConf) {
+    const std::string raft_dir = "/tmp/typesense_test/raft_snapshot_membership";
+    const std::string peer = "127.0.0.1:18117:18118";
+    std::filesystem::remove_all(raft_dir);
+
+    save_snapshot(raft_dir + "/snapshot", peer);
+    ASSERT_TRUE(ReplicationState::has_persisted_raft_state(raft_dir));
+
+    {
+        TestRaftNode raft_node;
+        ASSERT_EQ(0, raft_node.start(peer, raft_dir));
+        ASSERT_TRUE(raft_node.wait_for_leader());
+        ASSERT_EQ(std::vector<braft::PeerId>{braft::PeerId(peer)}, raft_node.peers());
+    }
+
+    std::filesystem::remove_all(raft_dir);
+}
+
+TEST(RaftServerTest, FailedPeerRefreshPreservesLiveMembership) {
+    const std::string raft_dir = "/tmp/typesense_test/raft_refresh_membership";
+    const std::string peer = "127.0.0.1:18127:18128";
+    std::filesystem::remove_all(raft_dir);
+
+    append_configuration_entry(raft_dir + "/log", peer);
+
+    TestRaftNode raft_node;
+    ASSERT_EQ(0, raft_node.start(peer, raft_dir));
+    ASSERT_TRUE(raft_node.wait_for_leader());
+
+    auto& config = Config::get_instance();
+    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+    replication_state.node = raft_node.node;
+    std::atomic<bool> reset_peers_on_error(true);
+
+    // unresolved host
+    replication_state.refresh_nodes(ReplicationState::to_nodes_config(raft_node.node->node_id().peer_id.addr, 18128,
+                                    peer + ",non.existent.hostname.invalid:7107:7108"), 1, reset_peers_on_error);
+    // braft parses the valid prefix of a malformed config: applying it would remove this node from the cluster
+    replication_state.refresh_nodes("127.0.0.1:19107:19108,bad:peer:entry:here", 1, reset_peers_on_error);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    replication_state.node = nullptr;
+
+    ASSERT_TRUE(raft_node.node->is_leader());
+    ASSERT_EQ(std::vector<braft::PeerId>{braft::PeerId(peer)}, raft_node.peers());
+
+    std::filesystem::remove_all(raft_dir);
+}
+
+TEST(RaftServerTest, FreshNodeWaitsForUnresolvedHostsUntilQuit) {
+    const std::string raft_dir = "/tmp/typesense_test/raft_fresh_node";
+    std::filesystem::remove_all(raft_dir);
+
+    auto& config = Config::get_instance();
+    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
+                                       &config, 1, 1);
+
+    butil::EndPoint peering_endpoint;
+    butil::str2endpoint("127.0.0.1", 8107, &peering_endpoint);
+
+    std::atomic<bool> quit_abruptly(false);
+    auto start = std::async(std::launch::async, [&]() {
+        return replication_state.start(peering_endpoint, 8108, 5000, 4194304, raft_dir,
+                                       "127.0.0.1:8107:8108,non.existent.hostname.invalid:7107:7108",
+                                       quit_abruptly);
+    });
+
+    // must not start with a partial peer list
+    ASSERT_EQ(std::future_status::timeout, start.wait_for(std::chrono::milliseconds(500)));
+
+    quit_abruptly = true;
+    ASSERT_EQ(std::future_status::ready, start.wait_for(std::chrono::seconds(3)));
+    ASSERT_EQ(-1, start.get());
+    ASSERT_EQ(nullptr, replication_state.node);
+
+    std::filesystem::remove_all(raft_dir);
+}
+
 TEST(RaftServerTest, ResolveNodesConfigWithIPv6) {
     // Basic IPv6 addresses
     ASSERT_EQ("[2001:db8::1]:8107:8108,[2001:db8::2]:7107:7108",
@@ -233,9 +475,8 @@ TEST(Hostname2IPStrTest, InvalidHostnames) {
     std::string long_hostname(65, 'a');
     ASSERT_EQ("", ReplicationState::hostname2ipstr(long_hostname));
 
-    // Test non-existent hostname - implementation returns original hostname
-    ASSERT_EQ("non.existent.hostname.local",
-              ReplicationState::hostname2ipstr("non.existent.hostname.local"));
+    // Test non-existent hostname
+    ASSERT_EQ("", ReplicationState::hostname2ipstr("non.existent.hostname.local"));
 }
 
 TEST(Hostname2IPStrTest, PublicHostnames) {
