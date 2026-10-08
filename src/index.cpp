@@ -8505,6 +8505,10 @@ void Index::process_embed_results(const std::vector<std::pair<index_record*, std
 
 
 void Index::repair_hnsw_index() {
+    // Before re-enabling collection housekeeping, serialize repair with resizeIndex().
+    // repair_m protects against dropping the index, but resizing does not take it.
+    // Once the index lock is released below, a resize can invalidate level-0 pointers
+    // used by repair; mremap unmaps the old address when the buffer moves.
     std::vector<std::string> vector_fields;
 
     // this lock ensures that the `vector_index` map is not mutated during read
