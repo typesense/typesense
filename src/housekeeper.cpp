@@ -4,6 +4,24 @@
 #include <cached_resource_stat.h>
 #include "housekeeper.h"
 
+namespace {
+// Set while the current thread holds `ifq_mutex`, so that a crash handler running on the
+// same thread does not try to re-acquire the mutex and deadlock.
+thread_local bool holds_ifq_mutex = false;
+
+class ifq_lock_t {
+    std::unique_lock<std::timed_mutex> lock;
+public:
+    explicit ifq_lock_t(std::timed_mutex& mutex): lock(mutex) {
+        holds_ifq_mutex = true;
+    }
+
+    ~ifq_lock_t() {
+        holds_ifq_mutex = false;
+    }
+};
+}
+
 void HouseKeeper::run() {
     auto next_purge_at = std::chrono::steady_clock::time_point::min();
     uint64_t prev_remove_expired_keys_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -89,18 +107,24 @@ uint64_t HouseKeeper::get_active_memory_used() {
 }
 
 void HouseKeeper::add_req(const std::shared_ptr<http_req>& req) {
-    std::unique_lock ifq_lock(ifq_mutex);
-    in_flight_queries.emplace(req->start_ts, req_metadata_t(req, get_active_memory_used()));
+    // must be built here, on the request's own thread, before the search starts mutating `req->params`
+    req_metadata_t req_metadata(get_query_log(req), get_active_memory_used());
+    ifq_lock_t ifq_lock(ifq_mutex);
+    in_flight_queries.emplace(req->start_ts, std::move(req_metadata));
 }
 
 void HouseKeeper::remove_req(uint64_t req_id) {
-    std::unique_lock ifq_lock(ifq_mutex);
+    ifq_lock_t ifq_lock(ifq_mutex);
     in_flight_queries.erase(req_id);
 }
 
 std::string HouseKeeper::get_query_log(const std::shared_ptr<http_req>& req) {
-    std::string search_payload = req->body;
+    std::string search_payload = req->body.substr(0, MAX_QUERY_LOG_BODY_SIZE);
     StringUtils::erase_char(search_payload, '\n');
+    if(req->body.size() > MAX_QUERY_LOG_BODY_SIZE) {
+        search_payload += "...[truncated]";
+    }
+
     std::string query_string = "?";
     for(const auto& param_kv: req->params) {
         if(param_kv.first != http_req::AUTH_HEADER && param_kv.first != http_req::USER_HEADER) {
@@ -112,7 +136,27 @@ std::string HouseKeeper::get_query_log(const std::shared_ptr<http_req>& req) {
 }
 
 void HouseKeeper::log_running_queries() {
-    std::unique_lock ifq_lock(ifq_mutex);
+    ifq_lock_t ifq_lock(ifq_mutex);
+    log_running_queries_unlocked();
+}
+
+void HouseKeeper::log_running_queries_on_crash() {
+    if(holds_ifq_mutex) {
+        LOG(ERROR) << "Crashed while holding the in-flight queries lock, skipping dump of in-flight search queries.";
+        return ;
+    }
+
+    // another thread holding the lock could itself be stuck behind the crashed thread
+    std::unique_lock ifq_lock(ifq_mutex, std::defer_lock);
+    if(!ifq_lock.try_lock_for(std::chrono::seconds(1))) {
+        LOG(ERROR) << "Unable to acquire the in-flight queries lock, skipping dump of in-flight search queries.";
+        return ;
+    }
+
+    log_running_queries_unlocked();
+}
+
+void HouseKeeper::log_running_queries_unlocked() {
     if(in_flight_queries.empty()) {
         LOG(INFO) << "No in-flight search queries were found.";
         return ;
@@ -121,12 +165,12 @@ void HouseKeeper::log_running_queries() {
     LOG(INFO) << "Dump of in-flight search queries:";
 
     for(const auto& kv: in_flight_queries) {
-        LOG(INFO) << get_query_log(kv.second.req);
+        LOG(INFO) << kv.second.query_log;
     }
 }
 
 void HouseKeeper::log_bad_queries() {
-    std::unique_lock ifq_lock(ifq_mutex);
+    ifq_lock_t ifq_lock(ifq_mutex);
 
     auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -155,13 +199,13 @@ void HouseKeeper::log_bad_queries() {
 
         if(high_memory || long_running) {
             LOG(INFO) << "Detected bad query, start_ts: " << req_ts << ", memory_diff: " << memory_diff
-                      << ", " << get_query_log(kv.second.req);
+                      << ", " << kv.second.query_log;
             kv.second.already_logged = true;
         }
     }
 }
 
 size_t HouseKeeper::get_num_inflight_queries() {
-  std::unique_lock ifq_lock(ifq_mutex);
+  ifq_lock_t ifq_lock(ifq_mutex);
   return in_flight_queries.size();
 }

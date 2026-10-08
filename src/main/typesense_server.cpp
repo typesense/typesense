@@ -168,7 +168,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
         }
     }
 
-    HouseKeeper::get_instance().log_running_queries();
+    HouseKeeper::get_instance().log_running_queries_on_crash();
     LOG(ERROR) << "Typesense " << TYPESENSE_VERSION << " is terminating abruptly.";
 }
 
