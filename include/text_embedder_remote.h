@@ -134,6 +134,10 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body, const std::string& url);
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const nlohmann::json& model_config);
+        // model_name without the `openai/` namespace, ada-002 has a fixed size and rejects `dimensions`
+        static bool should_send_dimensions(const bool has_custom_dims, const std::string& model_name) {
+            return has_custom_dims && model_name != "text-embedding-ada-002";
+        }
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 5000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
