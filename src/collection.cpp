@@ -35,6 +35,45 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 
+static bool is_personalization_embed(const field& f) {
+    return f.embed[fields::model_config].count(fields::personalization_type) != 0;
+}
+
+Option<bool> Collection::acquire_text_embedder(const field& f) {
+    if(is_personalization_embed(f)) {
+        return Option<bool>(true);
+    }
+
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto& model_config = f.embed[fields::model_config];
+
+    // take the ref first so nothing can evict the embedder from here on
+    embedder_manager.acquire_text_embedder(model_config, f.num_dim);
+    if(embedder_manager.get_text_embedder(model_config, f.num_dim).ok()) {
+        return Option<bool>(true);
+    }
+
+    // a last-field drop elsewhere can evict it between validation and here, re-init under the ref
+    size_t num_dim = f.num_dim;
+    const auto& model_name = model_config[fields::model_name].get<std::string>();
+    auto init_op = num_dim > 0 && EmbedderManager::is_remote_model(model_name) ?
+                   embedder_manager.init_remote_model_without_validation(model_config, num_dim) :
+                   embedder_manager.validate_and_init_model(model_config, num_dim);
+    if(!init_op.ok()) {
+        embedder_manager.release_text_embedder(model_config, f.num_dim);
+    }
+
+    return init_op;
+}
+
+void Collection::release_text_embedders(const tsl::htrie_map<char, field>& embedding_fields) {
+    for(const auto& f: embedding_fields) {
+        if(!is_personalization_embed(f)) {
+            EmbedderManager::get_instance().release_text_embedder(f.embed[fields::model_config], f.num_dim);
+        }
+    }
+}
+
 const std::string curation_t::MATCH_EXACT = "exact";
 const std::string curation_t::MATCH_CONTAINS = "contains";
 
@@ -7266,14 +7305,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
-            const auto& text_embedders = EmbedderManager::get_instance()._get_text_embedders();
-            const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
-            if(text_embedders.count(model_name) == 0) {
-                size_t dummy_num_dim = 0;
-                auto validate_model_res = EmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
-                if(!validate_model_res.ok()) {
-                    return Option<bool>(validate_model_res.code(), validate_model_res.error());
-                }
+            // a drop + re-add in the same alter evicts the embedder first, acquire re-inits it with the field's dims
+            auto acquire_op = acquire_text_embedder(f);
+            if(!acquire_op.ok()) {
+                return acquire_op;
             }
             embedding_fields.emplace(f.name, f);
         }
@@ -8348,6 +8383,11 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
         }
 
         if(field.embed.count(fields::from) != 0) {
+            auto acquire_op = acquire_text_embedder(field);
+            if(!acquire_op.ok()) {
+                release_text_embedders(embedding_fields);
+                return Option<Index*>(acquire_op.code(), acquire_op.error());
+            }
             embedding_fields.emplace(field.name, field);
         }
 
@@ -8362,6 +8402,8 @@ Option<Index*> Collection::init_index(const bool& is_live_request, const std::st
             if (!op.ok()) {
                 // Return an error in case the collection is not being loaded from disk.
                 if (is_live_request) {
+                    // the collection never gets built, give back the embedder refs taken so far
+                    release_text_embedders(embedding_fields);
                     return Option<Index*>(op.code(), op.error());
                 }
 
@@ -9179,7 +9221,7 @@ void Collection::remove_embedding_field(const std::string& field_name) {
     bool is_personalization_field = model_config.count(fields::personalization_type) != 0;
     embedding_fields.erase(field_name);
     if (!is_personalization_field) {
-        CollectionManager::get_instance().process_embedding_field_delete(model_config, num_dim);
+        EmbedderManager::get_instance().release_text_embedder(model_config, num_dim);
     }
 }
 

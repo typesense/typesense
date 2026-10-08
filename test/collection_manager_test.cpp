@@ -444,6 +444,10 @@ TEST_F(CollectionManagerTest, GCPEmbedderIsKeyedByRegion) {
     auto explicit_central_embedder_op = embedder_manager.get_text_embedder(explicit_central_config, 768);
     ASSERT_TRUE(explicit_central_embedder_op.ok());
     ASSERT_EQ(central_embedder_op.get(), explicit_central_embedder_op.get());
+
+    // embedder refs live in a singleton, release them for the next test
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_central").ok());
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_west").ok());
 }
 
 TEST_F(CollectionManagerTest, RemoteEmbedderIsEvictedWithItsLastField) {
@@ -492,6 +496,198 @@ TEST_F(CollectionManagerTest, RemoteEmbedderIsEvictedWithItsLastField) {
 
     ASSERT_TRUE(collectionManager.drop_collection("gcp_second").ok());
     ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+}
+
+TEST_F(CollectionManagerTest, UnregisteredCollectionHoldsItsEmbedder) {
+    // a collection being created holds its embedder before it is registered,
+    // so a concurrent last-field drop elsewhere must not evict it
+    nlohmann::json registered_meta = R"({
+        "name": "gcp_registered", "id": 205, "created_at": 0, "default_sorting_field": "",
+        "fields": [
+            {"name": "title", "type": "string", "facet": false},
+            {"name": "embedding", "type": "float[]", "facet": false, "num_dim": 768, "embed": {
+                "from": ["title"],
+                "model_config": {
+                    "model_name": "gcp/gemini-embedding-001",
+                    "project_id": "test-project",
+                    "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com", "private_key": "dummy"}
+                }
+            }}
+        ]
+    })"_json;
+
+    nlohmann::json pending_meta = registered_meta;
+    pending_meta["name"] = "gcp_pending";
+    pending_meta["id"] = 206;
+
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
+    auto registered_op = collectionManager.init_collection(registered_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(registered_op.ok());
+    collectionManager.add_to_collections(registered_op.get());
+
+    auto pending_op = collectionManager.init_collection(pending_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(pending_op.ok());
+
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto& model_config = registered_meta["fields"][1]["embed"]["model_config"];
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_registered").ok());
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    collectionManager.add_to_collections(pending_op.get());
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_pending").ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+}
+
+TEST_F(CollectionManagerTest, GCPEmbedderSurvivesDropAndReAddWithCustomDims) {
+    if (std::getenv("GCP_PROJECT_ID") == nullptr ||
+        std::getenv("GCP_SA_CLIENT_EMAIL") == nullptr ||
+        std::getenv("GCP_SA_PRIVATE_KEY") == nullptr) {
+        LOG(INFO) << "Skipping test as GCP service account env vars are not set";
+        return;
+    }
+
+    nlohmann::json schema = R"({
+        "name": "gcp_readd",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "embedding", "type": "float[]", "num_dim": 768, "embed": {
+                "from": ["title"],
+                "model_config": {"model_name": "gcp/gemini-embedding-001"}
+            }}
+        ]
+    })"_json;
+    auto& model_config = schema["fields"][1]["embed"]["model_config"];
+    model_config["project_id"] = std::getenv("GCP_PROJECT_ID");
+    model_config["service_account"] = nlohmann::json::object({
+        {"client_email", std::getenv("GCP_SA_CLIENT_EMAIL")},
+        {"private_key", std::getenv("GCP_SA_PRIVATE_KEY")}
+    });
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+
+    auto& embedder_manager = EmbedderManager::get_instance();
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    // same key dropped and re-added in one request
+    nlohmann::json alter_payload = nlohmann::json::object();
+    alter_payload["fields"] = nlohmann::json::array({
+        nlohmann::json::object({{"name", "embedding"}, {"drop", true}}),
+        schema["fields"][1]
+    });
+    auto alter_op = create_op.get()->alter(alter_payload);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_readd").ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+}
+
+static nlohmann::json gcp_embed_config() {
+    return R"({
+        "from": ["title"],
+        "model_config": {
+            "model_name": "gcp/gemini-embedding-001",
+            "project_id": "test-project",
+            "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com", "private_key": "dummy"}
+        }
+    })"_json;
+}
+
+static std::vector<field> gcp_embed_fields() {
+    // non embedding fields carry an empty embed object in production, never null
+    return {
+        field("title", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0,
+              vector_distance_type_t::cosine, "", nlohmann::json::object()),
+        field("embedding", field_types::FLOAT_ARRAY, false, false, true, "", -1, -1, false, 0, 768,
+              vector_distance_type_t::cosine, "", gcp_embed_config(), false, true, false, "",
+              R"({"M": 16, "ef_construction": 200})"_json)
+    };
+}
+
+TEST_F(CollectionManagerTest, NewCollectionRepairsEvictedEmbedder) {
+    // a last-field drop elsewhere can evict the embedder after validation but before the
+    // new collection takes its ref, so building the collection must re-init it
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto model_config = gcp_embed_config()["model_config"];
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+
+    auto coll_op = Collection::new_collection("gcp_repaired", 207, 0, 0, store, gcp_embed_fields(), "", 1.0f, "",
+                                              {}, {}, false, nullptr, {}, nlohmann::json::object(), {}, {}, {}, true);
+    ASSERT_TRUE(coll_op.ok()) << coll_op.error();
+    ASSERT_TRUE(embedder_manager.get_text_embedder(model_config, 768).ok());
+
+    collectionManager.add_to_collections(coll_op.get());
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_repaired").ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+}
+
+TEST_F(CollectionManagerTest, FailedCollectionCreationReleasesEmbedderRefs) {
+    auto& embedder_manager = EmbedderManager::get_instance();
+    const auto model_config = gcp_embed_config()["model_config"];
+    ASSERT_TRUE(embedder_manager.init_remote_model_without_validation(model_config, 768).ok());
+
+    // a mutual reference is rejected on a live request, after the embedding field took its ref
+    nlohmann::json ref_target_meta = R"({
+        "name": "ref_target", "id": 210, "created_at": 0, "default_sorting_field": "",
+        "fields": [{"name": "owner", "type": "string", "facet": false, "reference": "gcp_failed.id"}]
+    })"_json;
+    std::map<std::string, std::map<std::string, reference_info_t>> referenced_ins;
+    auto ref_target_op = collectionManager.init_collection(ref_target_meta, 0, store, 1.0f, referenced_ins);
+    ASSERT_TRUE(ref_target_op.ok());
+    collectionManager.add_to_collections(ref_target_op.get());
+
+    auto fields = gcp_embed_fields();
+    fields.emplace_back("owner", field_types::STRING, false, false, true, "", -1, -1, false, 0, 0,
+                        vector_distance_type_t::cosine, "ref_target.id", nlohmann::json::object());
+    auto coll_op = Collection::new_collection("gcp_failed", 208, 0, 0, store, fields, "", 1.0f, "",
+                                              {}, {}, false, nullptr, {}, nlohmann::json::object(), {}, {}, {}, true);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ(400, coll_op.code());
+
+    // nothing owns a ref now, so the next owner's drop must evict
+    auto owner_op = Collection::new_collection("gcp_owner", 209, 0, 0, store, gcp_embed_fields(), "", 1.0f, "",
+                                               {}, {}, false, nullptr, {}, nlohmann::json::object(), {}, {}, {}, true);
+    ASSERT_TRUE(owner_op.ok()) << owner_op.error();
+    collectionManager.add_to_collections(owner_op.get());
+    ASSERT_TRUE(collectionManager.drop_collection("gcp_owner").ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(model_config, 768).code());
+
+    ASSERT_TRUE(collectionManager.drop_collection("ref_target").ok());
+}
+
+TEST_F(CollectionManagerTest, ApiKeyRotationAddsToExistingEmbedderRefs) {
+    auto& embedder_manager = EmbedderManager::get_instance();
+    nlohmann::json old_config = R"({"model_name": "openai/text-embedding-3-small", "api_key": "k1"})"_json;
+    nlohmann::json new_config = R"({"model_name": "openai/text-embedding-3-small", "api_key": "k2"})"_json;
+
+    ASSERT_TRUE(embedder_manager.init_remote_model_without_validation(old_config, 1536).ok());
+    embedder_manager.acquire_text_embedder(old_config, 1536);
+    ASSERT_TRUE(embedder_manager.init_remote_model_without_validation(new_config, 1536).ok());
+    embedder_manager.acquire_text_embedder(new_config, 1536);
+
+    // rotating the first field onto the second field's key must not drop the second field's ref
+    ASSERT_TRUE(embedder_manager.update_remote_model_apikey(old_config, "k2", 1536).ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(old_config, 1536).code());
+
+    embedder_manager.release_text_embedder(new_config, 1536);
+    ASSERT_TRUE(embedder_manager.get_text_embedder(new_config, 1536).ok());
+
+    embedder_manager.release_text_embedder(new_config, 1536);
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(new_config, 1536).code());
+
+    // rotating onto a key with no entry yet
+    nlohmann::json fresh_config = R"({"model_name": "openai/text-embedding-3-small", "api_key": "k3"})"_json;
+    ASSERT_TRUE(embedder_manager.init_remote_model_without_validation(old_config, 1536).ok());
+    embedder_manager.acquire_text_embedder(old_config, 1536);
+    ASSERT_TRUE(embedder_manager.update_remote_model_apikey(old_config, "k3", 1536).ok());
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(old_config, 1536).code());
+    ASSERT_TRUE(embedder_manager.get_text_embedder(fresh_config, 1536).ok());
+
+    embedder_manager.release_text_embedder(fresh_config, 1536);
+    ASSERT_EQ(404, embedder_manager.get_text_embedder(fresh_config, 1536).code());
 }
 
 TEST_F(CollectionManagerTest, ShouldInitCollection) {

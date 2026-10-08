@@ -1293,16 +1293,15 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     }
 
     std::unique_lock u_lock(mutex);
-    collections.erase(actual_coll_name);
+    // concurrent drops of the same collection both get here, only the one that removed it owns the refs
+    const bool removed = collections.erase(actual_coll_name) > 0;
     collection_id_names.erase(collection->get_collection_id());
 
     const auto& embedding_fields = collection->get_embedding_fields();
 
     u_lock.unlock();
-    for(const auto& embedding_field : embedding_fields) {
-        if (embedding_field.embed.count(fields::personalization_type) == 0) {
-            process_embedding_field_delete(embedding_field.embed[fields::model_config], embedding_field.num_dim);
-        }
+    if(removed) {
+        Collection::release_text_embedders(embedding_fields);
     }
 
     return Option<nlohmann::json>(collection_json);
@@ -3373,49 +3372,6 @@ void CollectionManager::remove_referenced_ins_with_lock(const std::string& refer
 std::map<std::string, std::map<std::string, reference_info_t>> CollectionManager::_get_referenced_ins() const {
     std::shared_lock lock(mutex);
     return referenced_ins;
-}
-
-static std::string get_text_embedder_key(const nlohmann::json& model_config, const size_t num_dims) {
-    const auto& model_name = model_config[fields::model_name].get<std::string>();
-    return EmbedderManager::is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) :
-                                                          model_name;
-}
-
-void CollectionManager::process_embedding_field_delete(const nlohmann::json& model_config, const size_t num_dims) {
-    std::shared_lock lock(mutex);
-    bool found_text_embedder = false;
-    bool found_image_embedder = false;
-
-    const auto& model_name = model_config[fields::model_name].get<std::string>();
-    // text embedders are keyed by model key, image embedders by model name
-    const auto& model_key = get_text_embedder_key(model_config, num_dims);
-
-    for(const auto& collection: collections) {
-        // will be deadlock if we try to acquire lock on collection here
-        // caller of this function should have already acquired lock on collection
-        const auto& embedding_fields = collection.second->get_embedding_fields_unsafe();
-
-        for(const auto& embedding_field: embedding_fields) {
-            if(embedding_field.embed.count(fields::model_config) != 0) {
-                const auto& field_model_config = embedding_field.embed[fields::model_config];
-                if(field_model_config[fields::model_name].get<std::string>() == model_name) {
-                    found_image_embedder = true;
-                    if(get_text_embedder_key(field_model_config, embedding_field.num_dim) == model_key) {
-                        found_text_embedder = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if(!found_text_embedder) {
-        LOG(INFO) << "Deleting text embedder: " << model_name;
-        EmbedderManager::get_instance().delete_text_embedder(model_key);
-    }
-
-    if(!found_image_embedder) {
-        EmbedderManager::get_instance().delete_image_embedder(model_name);
-    }
 }
 
 std::unordered_set<std::string> CollectionManager::get_collection_references(const std::string& coll_name) {

@@ -818,6 +818,8 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return fail_snapshot_load_unlocked(reload_store);
     }
 
+    // init_db rebuilds collections that are still registered, add_to_collections drops the
+    // rebuilt copies and their embedder refs are never released, so those embedders stay cached
     const int init_db_status = init_db(true);
     if(init_db_status != 0) {
         return fail_snapshot_load_unlocked(init_db_status);

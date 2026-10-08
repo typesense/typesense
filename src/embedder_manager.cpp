@@ -60,7 +60,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
+    const auto& model_key = get_text_embedder_key(model_config, num_dims);
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
         text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
@@ -107,6 +107,15 @@ Option<bool> EmbedderManager::update_remote_model_apikey(const nlohmann::json &m
     const auto& updated_model_key = RemoteEmbedder::get_model_key(updated_model_config, num_dims);
     text_embedders[updated_model_key] = text_embedders[model_key];
     text_embedders.erase(model_key);
+    // one field rotates at a time, other fields on the old key keep their refs there
+    auto ref_it = text_embedder_refs.find(model_key);
+    if(ref_it != text_embedder_refs.end()) {
+        if(--ref_it->second == 0) {
+            text_embedder_refs.erase(ref_it);
+        }
+        // insert can rehash, so the old iterator is not used past this point
+        text_embedder_refs[updated_model_key]++;
+    }
 
     return Option<bool>(true);
 }
@@ -209,17 +218,55 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     return Option<bool>(true);
 }
 
-Option<TextEmbedder*> EmbedderManager::get_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
+Option<std::shared_ptr<TextEmbedder>> EmbedderManager::get_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    const std::string& model_name = model_config.at("model_name");
-    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
+    const auto& model_key = get_text_embedder_key(model_config, num_dims);
     auto text_embedder_it = text_embedders.find(model_key);
 
     if(text_embedder_it == text_embedders.end()) {
-        return Option<TextEmbedder*>(404, "Text embedder was not found.");
+        return Option<std::shared_ptr<TextEmbedder>>(404, "Text embedder was not found.");
     }
 
-    return Option<TextEmbedder*>(text_embedder_it->second.get());
+    // callers keep the embedder alive across the request even if it gets evicted meanwhile
+    return Option<std::shared_ptr<TextEmbedder>>(text_embedder_it->second);
+}
+
+std::string EmbedderManager::get_text_embedder_key(const nlohmann::json& model_config, size_t num_dims) {
+    const std::string& model_name = model_config.at("model_name");
+    return is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config, num_dims) : model_name;
+}
+
+void EmbedderManager::acquire_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
+    const auto& model_key = get_text_embedder_key(model_config, num_dims);
+    std::unique_lock<std::mutex> lock(text_embedders_mutex);
+    text_embedder_refs[model_key]++;
+}
+
+void EmbedderManager::release_text_embedder(const nlohmann::json& model_config, size_t num_dims) {
+    const auto& model_key = get_text_embedder_key(model_config, num_dims);
+    std::unique_lock<std::mutex> lock(text_embedders_mutex);
+    auto ref_it = text_embedder_refs.find(model_key);
+    if(ref_it == text_embedder_refs.end()) {
+        return;
+    }
+
+    if(ref_it->second > 0) {
+        ref_it->second--;
+    }
+
+    if(ref_it->second > 0) {
+        return;
+    }
+
+    // the key can contain credentials, log the model name only
+    LOG(INFO) << "Deleting text embedder: " << model_config.at("model_name").get<std::string>();
+    text_embedder_refs.erase(ref_it);
+    text_embedders.erase(model_key);
+    public_models.erase(model_key);
+
+    // local image models share the model name as key, erased under the same lock so a
+    // concurrent create of the same model cannot slip its new image embedder in between
+    delete_image_embedder(model_key);
 }
 
 Option<ImageEmbedder*> EmbedderManager::get_image_embedder(const nlohmann::json& model_config) {
@@ -244,6 +291,7 @@ void EmbedderManager::delete_text_embedder(const std::string& model_path) {
 void EmbedderManager::delete_all_text_embedders() {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     text_embedders.clear();
+    text_embedder_refs.clear();
     public_models.clear();
 }
 

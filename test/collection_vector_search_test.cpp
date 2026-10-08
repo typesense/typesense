@@ -2940,6 +2940,16 @@ TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
     ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
 }
 
+static bool has_embedder_with_prefix(const std::unordered_map<std::string, std::shared_ptr<TextEmbedder>>& embedder_map,
+                                     const std::string& prefix) {
+    for(const auto& kv: embedder_map) {
+        if(kv.first.rfind(prefix, 0) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 TEST_F(CollectionVectorTest, TestGCPServiceAccountValidationSkippable) {
     if (std::getenv("GCP_PROJECT_ID") == nullptr ||
         std::getenv("GCP_SA_CLIENT_EMAIL") == nullptr ||
@@ -2955,7 +2965,7 @@ TEST_F(CollectionVectorTest, TestGCPServiceAccountValidationSkippable) {
 
     auto embedder_map = EmbedderManager::get_instance()._get_text_embedders();
 
-    ASSERT_EQ(embedder_map.find("gcp/text-embedding-004:" + project_id + ":sa:" + sa_client_email), embedder_map.end());
+    ASSERT_FALSE(has_embedder_with_prefix(embedder_map, "gcp/text-embedding-004:" + project_id + ":sa:" + sa_client_email));
 
     nlohmann::json model_config = nlohmann::json::object();
     model_config["model_name"] = "gcp/text-embedding-004";
@@ -2971,7 +2981,8 @@ TEST_F(CollectionVectorTest, TestGCPServiceAccountValidationSkippable) {
     ASSERT_TRUE(op.ok());
 
     embedder_map = EmbedderManager::get_instance()._get_text_embedders();
-    ASSERT_NE(embedder_map.find("gcp/text-embedding-004:" + project_id + ":sa:" + sa_client_email), embedder_map.end());
+    // the key carries the region and the dims the validation call discovered
+    ASSERT_NE(embedder_map.find(EmbedderManager::get_text_embedder_key(model_config, num_dim)), embedder_map.end());
 }
 
 TEST_F(CollectionVectorTest, TestGCPOAuthValidationSkippable) {
@@ -2993,7 +3004,7 @@ TEST_F(CollectionVectorTest, TestGCPOAuthValidationSkippable) {
 
     auto embedder_map = EmbedderManager::get_instance()._get_text_embedders();
 
-    ASSERT_EQ(embedder_map.find("gcp/text-embedding-004:" + project_id + ":" + client_secret), embedder_map.end());
+    ASSERT_FALSE(has_embedder_with_prefix(embedder_map, "gcp/text-embedding-004:" + project_id + ":" + client_secret));
 
     nlohmann::json model_config = nlohmann::json::object();
     model_config["model_name"] = "gcp/text-embedding-004";
@@ -3009,7 +3020,8 @@ TEST_F(CollectionVectorTest, TestGCPOAuthValidationSkippable) {
     ASSERT_TRUE(op.ok());
 
     embedder_map = EmbedderManager::get_instance()._get_text_embedders();
-    ASSERT_NE(embedder_map.find("gcp/text-embedding-004:" + project_id + ":" + client_secret), embedder_map.end());
+    // the key carries the region and the dims the validation call discovered
+    ASSERT_NE(embedder_map.find(EmbedderManager::get_text_embedder_key(model_config, num_dim)), embedder_map.end());
 }
 
 

@@ -770,6 +770,8 @@ private:
 
     void remove_embedding_field(const std::string& field_name);
 
+    static Option<bool> acquire_text_embedder(const field& f);
+
     Option<bool> parse_and_validate_vector_query(const std::string& vector_query_str,
                                                  vector_query_t& vector_query,
                                                  const bool is_wildcard_query,
@@ -861,6 +863,7 @@ private:
                         const bool remove_from_store = true);
 
 public:
+    static void release_text_embedders(const tsl::htrie_map<char, field>& embedding_fields);
 
     enum {MAX_ARRAY_MATCHES = 5};
 
