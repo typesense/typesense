@@ -86,6 +86,8 @@ private:
     bool enable_search_logging;
 
     uint32_t max_per_page;
+    uint64_t max_query_len = 0;
+    bool max_query_len_valid = true;
   
     uint16_t filter_by_max_ops;
   
@@ -522,6 +524,13 @@ public:
         return this->max_per_page;
     }
 
+    uint64_t get_max_query_len() const {
+        return max_query_len;
+    }
+
+    // Startup configuration only; not safe to mutate while serving requests.
+    void set_max_query_len(const std::string& value);
+
     uint16_t get_filter_by_max_ops() const {
         return filter_by_max_ops;
     }
@@ -594,6 +603,10 @@ public:
     Option<bool> is_valid() {
         if(this->config_file_validity == -1) {
             return Option<bool>(500, "Error parsing the configuration file.");
+        }
+
+        if(!max_query_len_valid) {
+            return Option<bool>(500, "Invalid value for `max-query-len`; expected a non-negative integer.");
         }
 
         if(data_dir.empty()) {
