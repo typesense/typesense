@@ -101,6 +101,8 @@ private:
 
     uint32_t max_indexing_concurrency;
 
+    int async_batch_interval = -1;
+
     uint32_t proxy_rate_limit;
 
     std::string proxy_disallowed_dest_cidrs;
@@ -162,6 +164,8 @@ protected:
         this->db_keep_log_file_num = 5;
 
         this->max_indexing_concurrency = 4;
+
+        this->async_batch_interval = -1;
 
         this->proxy_rate_limit = 1000;
 
@@ -325,6 +329,9 @@ public:
         this->max_group_limit = max_group_limit;
     }
 
+    void set_async_batch_interval(int interval) {
+        this->async_batch_interval = interval;
+    }
     // getters
 
     std::string get_data_dir() const {
@@ -342,6 +349,7 @@ public:
     int32_t get_analytics_db_ttl() const {
         return this->analytics_db_ttl;
     }
+
     int32_t get_analytics_minute_rate_limit() const {
         return this->analytics_minute_rate_limit;
     }
@@ -548,6 +556,10 @@ public:
 
     uint32_t get_max_indexing_concurrency() const {
         return this->max_indexing_concurrency;
+    }
+
+    int get_async_batch_interval() const {
+        return this->async_batch_interval;
     }
 
     uint32_t get_proxy_rate_limit() const {
