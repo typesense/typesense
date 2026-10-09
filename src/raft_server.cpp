@@ -25,9 +25,36 @@ namespace braft {
 }
 
 void ReplicationClosure::Run() {
-    // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
+
+    // failed entries never reach on_apply, so release the pending write here
+    if(!status().ok()) {
+        LOG(ERROR) << "Write failed to replicate, error: " << status().error_str();
+
+        bool send_response;
+        {
+            std::unique_lock response_lock(response->mres);
+            send_response = response->is_alive && !response->proxied_stream;
+            response->final = true;
+            if(response->proxied_stream) {
+                response->is_alive = false;
+            } else {
+                response->set_503("Write failed to replicate.");
+            }
+        }
+
+        auto* dispatcher = replication_state->get_message_dispatcher();
+        if(send_response && dispatcher != nullptr) {
+            auto* req_res = new async_req_res_t(request, response, true);
+            dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        } else {
+            request->notify();
+            response->notify();
+        }
+
+        replication_state->decr_pending_writes();
+    }
 }
 
 // State machine implementation
@@ -374,7 +401,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     braft::Task task;
     task.data = &bufBuilder.buf();
     // This callback would be invoked when the task actually executes or fails
-    task.done = new ReplicationClosure(request, response);
+    task.done = new ReplicationClosure(this, request, response);
 
     //LOG(INFO) << "write() post request ref count " << request.use_count();
 
@@ -383,10 +410,11 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
+    // count before apply, since the closure can run before apply returns
+    pending_writes++;
+
     // Now the task is applied to the group
     node->apply(task);
-
-    pending_writes++;
 }
 
 void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
