@@ -63,6 +63,32 @@ TEST(BatchedIndexerTest, PreservesUtf8AcrossSerializedRequestChunks) {
     EXPECT_EQ(document, replayed_req.body);
 }
 
+TEST(BatchedIndexerTest, LoadsLegacyUnmarkedRequestBody) {
+    const std::string body = R"({"id":"1","title":"клима"})";
+    const nlohmann::json legacy_entry = {
+        {"route_hash", 0},
+        {"params", nlohmann::json::object()},
+        {"body", body},
+        {"start_ts", 1}
+    };
+
+    http_req replayed_req;
+    replayed_req.start_ts = 1;
+    replayed_req.load_from_json(legacy_entry.dump());
+
+    EXPECT_EQ(body, replayed_req.body);
+}
+
+TEST(BatchedIndexerTest, KeepsValidUtf8BodyAsText) {
+    const std::string body = R"({"id":"1","title":"клима"})";
+    http_req req;
+    req.body = body;
+
+    const auto serialized = nlohmann::json::parse(req.to_json());
+    EXPECT_FALSE(serialized["is_binary_body"].get<bool>());
+    EXPECT_EQ(body, serialized["body"].get<std::string>());
+}
+
 class BatchedIndexerAliasTest : public ::testing::Test {
 protected:
     std::atomic<bool> quit{false};

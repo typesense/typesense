@@ -471,8 +471,17 @@ struct http_req {
         if (is_binary_body) {
             j["body"] = StringUtils::base64_encode(body);
         }
-        const std::string j_dump = j.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-        return j_dump;
+        try {
+            return j.dump(-1, ' ', false, nlohmann::detail::error_handler_t::strict);
+        } catch (const nlohmann::json::type_error&) {
+            if (!is_binary_body) {
+                // A streamed text chunk can end inside a UTF-8 character. Preserve
+                // its bytes in the write log; replay joins chunks before parsing.
+                j["is_binary_body"] = true;
+                j["body"] = StringUtils::base64_encode(body);
+            }
+            return j.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+        }
     }
 
     static ip_addr_str_t get_ip_addr(h2o_req_t* h2o_req) {
