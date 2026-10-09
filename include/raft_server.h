@@ -214,6 +214,11 @@ public:
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
 
+    static bool has_completed_snapshot(const std::string& snapshot_dir);
+
+    // whether the node has a log or snapshot from which braft will recover the cluster membership
+    static bool has_persisted_raft_state(const std::string& raft_dir);
+
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
     void set_snapshot_in_progress(const bool snapshot_in_progress);
