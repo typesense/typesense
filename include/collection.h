@@ -1068,6 +1068,12 @@ private:
     size_t batch_finalize_memory_index(std::vector<index_record>& index_records,
                                        std::unordered_set<std::string>& found_fields);
 
+    // Same as `index_in_memory()`, for a caller that already holds a shared lock on `alter_mutex` (taking it
+    // a second time on the same thread is not safe). Used by `batch_index()` to restore an old document
+    // after a rejected update.
+    Option<uint32_t> index_in_memory_alter_locked(nlohmann::json & document, uint32_t seq_id,
+                                                  const index_operation_t op, const DIRTY_VALUES& dirty_values);
+
 public:
 
     Option<nlohmann::json> add(const std::string & json_str,
