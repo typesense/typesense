@@ -3391,3 +3391,38 @@ TEST_F(FilterTest, AndProbeKeepsReferences) {
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
 }
+
+TEST_F(FilterTest, UnbalancedBackticksAreRejected) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+
+    std::vector<std::string> malformed = {"name: `foo", "name: `foo && age: 1", "(name: `foo) && age: 1",
+                                          "name: [`foo`, `bar]"};
+    for (const auto& filter_query: malformed) {
+        filter_node_t* filter_tree_root = nullptr;
+        auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_FALSE(filter_op.ok()) << filter_query;
+        ASSERT_EQ(400, filter_op.code());
+        ASSERT_EQ("Could not parse the filter query: unbalanced backticks.", filter_op.error());
+        ASSERT_EQ(nullptr, filter_tree_root);
+    }
+
+    std::vector<std::string> valid = {"name: `foo && bar`", "name: [`foo (bar)`, `baz`] && age: 1"};
+    for (const auto& filter_query: valid) {
+        filter_node_t* filter_tree_root = nullptr;
+        auto filter_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix,
+                                                    filter_tree_root);
+        ASSERT_TRUE(filter_op.ok()) << filter_query << " " << filter_op.error();
+        delete filter_tree_root;
+    }
+}
