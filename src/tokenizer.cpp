@@ -7,8 +7,8 @@
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
                      const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer, bool is_placeholder,
-                     bool do_transliterate) :
-        i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer),
+                     bool do_transliterate, bool ascii_folding) :
+        i(0), normalize(normalize), no_op(no_op), ascii_folding(ascii_folding), locale(locale), stemmer(stemmer),
         is_placeholder(is_placeholder), do_transliterate(do_transliterate) {
 
     for(char c: symbols_to_index) {
@@ -206,6 +206,10 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 if(stemmer && !is_cyrillic(locale)) {
                     // cyrillic is already stemmed prior to transliteration
                     token = stemmer->stem(out);
+                }
+
+                if(ascii_folding) {
+                    token = ascii_fold(token);
                 }
 
                 out.clear();
@@ -413,6 +417,19 @@ std::string Tokenizer::normalize_ascii_no_spaces(const std::string& text) {
     }
 
     return analytics_query;
+}
+
+std::string Tokenizer::ascii_fold(const std::string& text) {
+    auto transliterator = TransliteratorPool::get_instance().acquire("Latin-ASCII");
+    if(transliterator == nullptr) {
+        return text;
+    }
+
+    auto unicode_text = icu::UnicodeString::fromUTF8(text);
+    transliterator->transliterate(unicode_text);
+    std::string folded_text;
+    unicode_text.toUTF8String(folded_text);
+    return folded_text;
 }
 
 bool Tokenizer::has_word_tokenizer(const std::string& locale) {

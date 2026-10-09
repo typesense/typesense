@@ -10,6 +10,7 @@
 struct stopword_struct_t {
     std::string id;
     spp::sparse_hash_set<std::string> stopwords;
+    spp::sparse_hash_set<std::string> folded_stopwords;
     std::string locale;
 
     nlohmann::json to_json() const {

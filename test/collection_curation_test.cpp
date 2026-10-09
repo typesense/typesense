@@ -1172,6 +1172,90 @@ TEST_F(CollectionCurationTest, RuleQueryWithAccentedChars) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionCurationTest, AsciiFoldingCurationsStaticFilterRule) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto schema = R"({
+        "name": "ascii_folding_static_curation",
+        "fields": [
+            {"name": "folded", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "plain", "type": "string", "locale": "es", "ascii_folding": false},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    coll->set_curation_sets({"index"});
+    ASSERT_TRUE(coll->add(R"({"id":"0","folded":"irrelevante","plain":"irrelevante","category":"zapatos","points":1})").ok());
+
+    auto results = coll->search("dipticos", {"folded"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, results["found"]);
+
+    nlohmann::json curation_json = R"({
+        "id": "accented-static-filter",
+        "rule": {"query": "dípticos", "match": "exact"},
+        "filter_by": "category: zapatos",
+        "remove_matched_tokens": true
+    })"_json;
+    ASSERT_TRUE(ov_manager.upsert_curation_item("index", curation_json).ok());
+
+    results = coll->search("dipticos", {"folded"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, results["found"]);
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("dipticos", {"plain"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, results["found"]);
+
+    collectionManager.drop_collection("ascii_folding_static_curation");
+}
+
+TEST_F(CollectionCurationTest, AsciiFoldingCurationsDynamicFilterRule) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto schema = R"({
+        "name": "ascii_folding_dynamic_curation",
+        "fields": [
+            {"name": "folded", "type": "string", "locale": "es", "ascii_folding": true},
+            {"name": "plain", "type": "string", "locale": "es", "ascii_folding": false},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    coll->set_curation_sets({"index"});
+    ASSERT_TRUE(coll->add(R"({"id":"0","folded":"dípticos","plain":"dípticos","category":"zapatos","points":1})").ok());
+
+    auto results = coll->search("dipticos zapatos", {"folded"}, "", {}, {}, {0},
+                                10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["found"]);
+
+    nlohmann::json curation_json = R"({
+        "id": "accented-dynamic-filter",
+        "rule": {"query": "dípticos {category}", "match": "contains"},
+        "filter_by": "category: {category}",
+        "remove_matched_tokens": true
+    })"_json;
+    ASSERT_TRUE(ov_manager.upsert_curation_item("index", curation_json).ok());
+
+    results = coll->search("dipticos zapatos", {"folded"}, "", {}, {}, {0},
+                           10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["found"]);
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll->search("dipticos zapatos", {"plain"}, "", {}, {}, {0},
+                           10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["found"]);
+
+    results = coll->search("dípticos zapatos", {"plain"}, "", {}, {}, {0},
+                           10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["found"]);
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    auto stored_curation = ov_manager.get_curation_item("index", "accented-dynamic-filter");
+    ASSERT_TRUE(stored_curation.ok());
+    ASSERT_EQ("dípticos {category}", stored_curation.get()["rule"]["query"].get<std::string>());
+
+    collectionManager.drop_collection("ascii_folding_dynamic_curation");
+}
+
 TEST_F(CollectionCurationTest, WindowForRule) {
     Collection *coll1;
     auto& ov_manager = CurationIndexManager::get_instance();

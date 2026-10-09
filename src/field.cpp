@@ -81,6 +81,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::stem) == 0) {
         json[fields::stem] = false;
     }
+    if (json.count(fields::ascii_folding) == 0) {
+        json[fields::ascii_folding] = false;
+    }
     if (json.count(fields::stem_dictionary) == 0) {
         json[fields::stem_dictionary] = "";
     }
@@ -146,6 +149,21 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     if(!field_json.at(fields::index).is_boolean()) {
         return Option<bool>(400, std::string("The `index` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(!field_json.at(fields::ascii_folding).is_boolean()) {
+        return Option<bool>(400, std::string("The `ascii_folding` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json[fields::ascii_folding].get<bool>() &&
+       (!field_json[fields::index].get<bool>() ||
+        (field_json[fields::type] != field_types::STRING &&
+         field_json[fields::type] != field_types::STRING_ARRAY &&
+         !field_types::is_string_or_array(field_json[fields::type])))) {
+        return Option<bool>(400, std::string("The `ascii_folding` property of the field `") +
+                                 field_json[fields::name].get<std::string>() +
+                                 std::string("` is only allowed for indexed string, string[] or string* fields."));
     }
 
     if(!field_json.at(fields::sort).is_boolean()) {
@@ -271,6 +289,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                              field_json["optional"], field_json[fields::index], field_json[fields::locale],
                              field_json[fields::sort], field_json[fields::infix]);
         fallback_field.track_missing_values = field_json[fields::track_missing_values];
+        fallback_field.ascii_folding = field_json[fields::ascii_folding];
 
         if(fallback_field.has_valid_type()) {
             fallback_field_type = fallback_field.type;
@@ -502,7 +521,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::store], field_json[fields::stem], field_json[fields::stem_dictionary],
                   field_json[fields::hnsw_params], field_json[fields::async_reference], field_json[fields::token_separators],
                   field_json[fields::symbols_to_index], field_json[fields::cascade_delete], field_json[fields::truncate_len],
-                  field_json[fields::track_missing_values])
+                  field_json[fields::track_missing_values], field_json[fields::ascii_folding])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -933,6 +952,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     field_val[fields::store] = field.store;
     field_val[fields::truncate_len] = field.truncate_len;
     field_val[fields::stem] = field.stem;
+    field_val[fields::ascii_folding] = field.ascii_folding;
     field_val[fields::range_index] = field.range_index;
     field_val[fields::track_missing_values] = field.track_missing_values;
     field_val[fields::stem_dictionary] = field.stem_dictionary;

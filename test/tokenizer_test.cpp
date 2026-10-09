@@ -410,6 +410,38 @@ TEST(TokenizerTest, ShouldTokenizeLocaleTextWithSwedishText) {
     ASSERT_EQ("angelholm", ttokens[0]);
 }
 
+TEST(TokenizerTest, ShouldOptionallyFoldLocaleLatinTokens) {
+    std::vector<std::string> tokens;
+
+    Tokenizer("Dípticos", true, false, "es").tokenize(tokens);
+    ASSERT_EQ(std::vector<std::string>({"dípticos"}), tokens);
+
+    tokens.clear();
+    Tokenizer("Dípticos Café Açaí e\u0301", true, false, "es", {}, {}, nullptr, false, true, true).tokenize(tokens);
+    ASSERT_EQ(std::vector<std::string>({"dipticos", "cafe", "acai", "e"}), tokens);
+
+    tokens.clear();
+    Tokenizer("södra Ängelholm", true, false, "sv", {}, {}, nullptr, false, true, true).tokenize(tokens);
+    ASSERT_EQ(std::vector<std::string>({"sodra", "angelholm"}), tokens);
+
+    tokens.clear();
+    Tokenizer("你好世界", true, false, "zh", {}, {}, nullptr, false, true, true).tokenize(tokens);
+    ASSERT_EQ(std::vector<std::string>({"你好", "世界"}), tokens);
+
+    const std::string text = "Dípticos Café";
+    Tokenizer tokenizer(text, true, false, "es", {}, {}, nullptr, false, true, true);
+    std::string token;
+    size_t token_index = 0;
+    size_t start_index = 0;
+    size_t end_index = 0;
+    ASSERT_TRUE(tokenizer.next(token, token_index, start_index, end_index));
+    ASSERT_EQ("dipticos", token);
+    ASSERT_EQ("Dípticos", text.substr(start_index, end_index - start_index + 1));
+    ASSERT_TRUE(tokenizer.next(token, token_index, start_index, end_index));
+    ASSERT_EQ("cafe", token);
+    ASSERT_EQ("Café", text.substr(start_index, end_index - start_index + 1));
+}
+
 TEST(TokenizerTest, ShouldTokenizeWithDifferentSymbolConfigs) {
     std::string str1 = "ความ-เหลื่อมล้ำ";
 
