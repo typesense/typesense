@@ -39,6 +39,30 @@ std::shared_ptr<http_res> make_res() {
 
 }  // namespace
 
+TEST(BatchedIndexerTest, PreservesUtf8AcrossSerializedRequestChunks) {
+    const std::string document = R"({"id":"1","title":"before-к-after"})" "\n";
+    const std::string target_character = "к";
+    const size_t character_start = document.find(target_character);
+    ASSERT_NE(std::string::npos, character_start);
+    ASSERT_EQ(2, target_character.size());
+    const size_t split_at = character_start + 1;
+
+    auto first_chunk = std::make_shared<http_req>();
+    first_chunk->start_ts = 1;
+    first_chunk->body = document.substr(0, split_at);
+
+    auto second_chunk = std::make_shared<http_req>();
+    second_chunk->start_ts = 1;
+    second_chunk->body = document.substr(split_at);
+
+    http_req replayed_req;
+    replayed_req.start_ts = 1;
+    replayed_req.load_from_json(first_chunk->to_json());
+    replayed_req.load_from_json(second_chunk->to_json());
+
+    EXPECT_EQ(document, replayed_req.body);
+}
+
 class BatchedIndexerAliasTest : public ::testing::Test {
 protected:
     std::atomic<bool> quit{false};
