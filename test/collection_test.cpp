@@ -8,6 +8,7 @@
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
+#include "tsconfig.h"
 #include "embedder_manager.h"
 #include "http_client.h"
 
@@ -5631,4 +5632,93 @@ TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     
     collectionManager.drop_collection("users_1");
     collectionManager.drop_collection("users_2");
+}
+namespace {
+struct RestoreCollectionQueryLimit {
+    const uint64_t previous = Config::get_instance().get_max_query_len();
+    ~RestoreCollectionQueryLimit() {
+        Config::get_instance().set_max_query_len(std::to_string(previous));
+    }
+};
+}
+
+TEST_F(CollectionTest, MaxQueryLengthTruncatesBeforeSearch) {
+    RestoreCollectionQueryLimit restore;
+    auto& config = Config::get_instance();
+    ASSERT_TRUE(collection->add(R"({"id":"query-limit","title":"café","points":500})").ok());
+    const auto search = [&](const std::string& query) {
+        std::map<std::string, std::string> params = {
+            {"q", query}, {"query_by", "title"}, {"num_typos", "0"},
+            {"prefix", "false"}, {"drop_tokens_threshold", "0"}
+        };
+        collection_search_args_t args;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto init_op = collection_search_args_t::init(params, collection->get_num_documents(), "", now, args);
+        if(!init_op.ok()) {
+            return Option<nlohmann::json>(init_op.code(), init_op.error());
+        }
+        return collection->search(args);
+    };
+
+    config.set_max_query_len("0");
+    const auto baseline = search("café");
+    ASSERT_TRUE(baseline.ok()) << baseline.error();
+    ASSERT_EQ(1, baseline.get()["found"]);
+    const auto unbounded = search("cafézzzzzz");
+    ASSERT_TRUE(unbounded.ok()) << unbounded.error();
+    EXPECT_EQ(0, unbounded.get()["found"]);
+    EXPECT_EQ("cafézzzzzz", unbounded.get()["request_params"]["q"]);
+
+    config.set_max_query_len("4");
+    const auto truncated = search("cafézzzzzz");
+    ASSERT_TRUE(truncated.ok()) << truncated.error();
+    EXPECT_EQ(baseline.get()["hits"], truncated.get()["hits"]);
+    EXPECT_EQ(baseline.get()["found"], truncated.get()["found"]);
+    EXPECT_EQ("café", truncated.get()["request_params"]["q"]);
+    const auto boundary = search("café");
+    ASSERT_TRUE(boundary.ok());
+    EXPECT_EQ(baseline.get()["hits"], boundary.get()["hits"]);
+    const auto wildcard = search("*");
+    ASSERT_TRUE(wildcard.ok());
+    EXPECT_EQ(collection->get_num_documents(), wildcard.get()["found"]);
+}
+
+TEST_F(CollectionTest, MaxQueryLengthCannotBeOverriddenBySearchParameters) {
+    RestoreCollectionQueryLimit restore;
+    Config::get_instance().set_max_query_len("4");
+    ASSERT_TRUE(collection->add(R"({"id":"query-limit","title":"café","points":500})").ok());
+    ASSERT_TRUE(collectionManager.upsert_preset("query-limit-preset", {
+        {"q", "cafézzzzzz"}, {"query_by", "title"}, {"max_query_len", 100}
+    }).ok());
+    const auto run = [&](std::map<std::string, std::string> params, nlohmann::json embedded) {
+        params["collection"] = "collection";
+        params["num_typos"] = "0";
+        params["prefix"] = "false";
+        params["drop_tokens_threshold"] = "0";
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, response, now);
+        if(!op.ok()) {
+            return Option<nlohmann::json>(op.code(), op.error());
+        }
+        return Option<nlohmann::json>(nlohmann::json::parse(response));
+    };
+    for(const std::string limit : {"0", "100"}) {
+        auto request = run({{"q", "cafézzzzzz"}, {"query_by", "title"}, {"max_query_len", limit}},
+                           nlohmann::json::object());
+        ASSERT_TRUE(request.ok()) << request.error();
+        EXPECT_EQ(1, request.get()["found"]);
+        EXPECT_EQ("café", request.get()["request_params"]["q"]);
+        auto scoped = run({{"q", "ignored"}, {"query_by", "title"}},
+                          {{"q", "cafézzzzzz"}, {"max_query_len", limit}});
+        ASSERT_TRUE(scoped.ok()) << scoped.error();
+        EXPECT_EQ(1, scoped.get()["found"]);
+        EXPECT_EQ("café", scoped.get()["request_params"]["q"]);
+    }
+    auto preset = run({{"preset", "query-limit-preset"}}, nlohmann::json::object());
+    ASSERT_TRUE(preset.ok()) << preset.error();
+    EXPECT_EQ(1, preset.get()["found"]);
+    EXPECT_EQ("café", preset.get()["request_params"]["q"]);
 }
