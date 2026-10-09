@@ -14,7 +14,8 @@ enum class TokenizerType {
     distilbert,
     xlm_roberta,
     clip,
-    siglip
+    siglip,
+    gemma
 };
 
 struct encoded_input_t {
@@ -89,6 +90,20 @@ class SigLIPTokenizer : public TextEmbeddingTokenizer {
         encoded_input_t Encode(const std::string& text) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::siglip;
+        }
+};
+
+class GemmaTokenizer : public TextEmbeddingTokenizer {
+    private:
+        std::unique_ptr<sentencepiece::SentencePieceProcessor> sentencepiece_tokenizer_;
+        static constexpr size_t max_length_ = 2048;
+        static constexpr int64_t bos_token_id_ = 2;
+        static constexpr int64_t eos_token_id_ = 1;
+    public:
+        GemmaTokenizer(const std::string& model_path);
+        encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::gemma;
         }
 };
 
