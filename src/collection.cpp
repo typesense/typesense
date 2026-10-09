@@ -1639,7 +1639,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
     if(enable_curations) {
         // Build curations list from curation sets only
         std::vector<const curation_t*> curation_set_curations;
-        std::shared_lock s_lock(mutex);
+        // The caller holds mutex through init_index_search_args_with_lock.
         const auto local_curation_sets = curation_sets;
         for(const auto& set_name : local_curation_sets) {
             auto get_index_op = CurationIndexManager::get_instance().get_curation_index(set_name);
@@ -1656,7 +1656,6 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
               curation_set_curations.push_back(kv.second); 
             }
         }
-        s_lock.unlock();
 
         auto tokenize_query = [&] (bool stem = false, const std::string& locale = "",
                 const std::string& dictionary = "") -> std::string {
