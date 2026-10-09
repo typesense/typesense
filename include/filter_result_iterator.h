@@ -237,7 +237,8 @@ struct filter_result_t {
         delete[] coll_to_references;
     }
 
-    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result,
+                                   const bool& intersect_references = false);
 
     static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 
@@ -344,6 +345,10 @@ private:
 
     /// Performs AND on the subtrees of operator.
     void and_filter_iterators();
+
+    /// Populates `reference` from both children of an AND node. References to the same collection are intersected
+    /// inside an object filter so object-array correlation is preserved.
+    bool merge_and_references();
 
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
