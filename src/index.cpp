@@ -7293,17 +7293,26 @@ void Index::get_distinct_id(posting_list_t::iterator_t& facet_index_it, const ui
         facet_index_it.skip_to_rev(seq_id);
     }
 
+    // A facet id is the value itself for an int32, float or bool field and a per-collection counter for every other
+    // type, so the ids of nearby values are nearby numbers. The first id keeps hash_combine's single step, which is
+    // one-to-one, so the ids of one-field groups do not change. Every further id is mixed: two hash_combine steps over
+    // such numbers give different groups the same id, e.g. (202601, 1) and (202602, 64), and merge them.
+    const auto combine_facet_id = [&distinct_id](const uint32_t facet_id) {
+        distinct_id = (distinct_id == 1) ? StringUtils::hash_combine(distinct_id, facet_id)
+                                         : StringUtils::hash_combine_mixed(distinct_id, facet_id);
+    };
+
     if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
         if (is_array) {
             //LOG(INFO) << "combining hashes for facet array ";
             std::vector<uint32_t> facet_hashes;
             posting_list_t::get_offsets(facet_index_it, facet_hashes);
             for (size_t i = 0; i < facet_hashes.size(); i++) {
-                distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
+                combine_facet_id(facet_hashes[i]);
             }
         } else {
             //LOG(INFO) << "combining hashes for facet ";
-            distinct_id = StringUtils::hash_combine(distinct_id, facet_index_it.offset());
+            combine_facet_id(facet_index_it.offset());
         }
     }
 
