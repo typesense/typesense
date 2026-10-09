@@ -167,3 +167,43 @@ TEST(FacetIndexTest, FacetCountIteratorSurvivesRepeatedUpdatesAndReorders) {
     ASSERT_EQ(3, findex.facet_val_num_ids("brand", "adidas"));
     ASSERT_EQ(3, findex.facet_node_count("brand", "adidas"));
 }
+
+TEST(FacetIndexTest, Int32NegativeOneAndOneFacetIdCollision) {
+    facet_index_t findex;
+    findex.initialize("experience_min");
+
+    // Int32 value -1 has raw uint32 representation 0xFFFFFFFF (UINT32_MAX)
+    int32_t val_neg = -1;
+    uint32_t hash_neg = reinterpret_cast<uint32_t&>(val_neg);
+    facet_value_id_t fval_neg("-1", hash_neg);
+
+    // Int32 value 1 has raw uint32 representation 1
+    int32_t val_pos = 1;
+    uint32_t hash_pos = reinterpret_cast<uint32_t&>(val_pos);
+    facet_value_id_t fval_pos("1", hash_pos);
+
+    // Insert document 0 with -1
+    {
+        std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
+        std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
+        fvalue_to_seq_ids[fval_neg] = {0};
+        seq_id_to_fvalues[0] = {fval_neg};
+        findex.insert("experience_min", fvalue_to_seq_ids, seq_id_to_fvalues, false);
+    }
+
+    // Insert document 1 with 1
+    {
+        std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
+        std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
+        fvalue_to_seq_ids[fval_pos] = {1};
+        seq_id_to_fvalues[1] = {fval_pos};
+        findex.insert("experience_min", fvalue_to_seq_ids, seq_id_to_fvalues, false);
+    }
+
+    // Verify -1 and 1 resolve to their distinct string representations without collision
+    ASSERT_EQ("-1", findex.get_facet_str_val("experience_min", hash_neg));
+    ASSERT_EQ("1", findex.get_facet_str_val("experience_min", hash_pos));
+
+    ASSERT_EQ(1, findex.facet_val_num_ids("experience_min", "-1"));
+    ASSERT_EQ(1, findex.facet_val_num_ids("experience_min", "1"));
+}
