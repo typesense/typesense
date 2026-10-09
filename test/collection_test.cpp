@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <cstdlib>
+#include <thread>
+#include <atomic>
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
@@ -5631,4 +5633,104 @@ TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     
     collectionManager.drop_collection("users_1");
     collectionManager.drop_collection("users_2");
+}
+
+TEST_F(CollectionTest, BulkImportDocumentsAlwaysFetchableWhenSearchable) {
+    // Broader regression test for https://github.com/typesense/typesense/issues/3028: while a large
+    // batch import is running on one thread, a concurrent search on another thread must never return
+    // fewer hits than it should for the `found` count it reports. Before the fix,
+    // `Collection::batch_index()` made newly imported seq_ids searchable before their documents were
+    // durably persisted, so a concurrent search could intermittently drop hits it could not fetch.
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll_bulk_visibility").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll_bulk_visibility", 1, fields, "points").get();
+    }
+
+    // Must stay within the default `max_per_page` (250), otherwise every search fails validation.
+    const size_t per_page = 250;
+
+    std::atomic<bool> import_in_progress(false);
+    std::atomic<bool> stop_search(false);
+    std::atomic<size_t> completed_searches(0);
+    std::atomic<size_t> failed_searches(0);
+    std::atomic<size_t> searches_during_import(0);
+    std::atomic<size_t> mismatches(0);
+    std::string first_search_error;
+
+    std::thread searcher([&]() {
+        while(!stop_search.load()) {
+            const bool during_import = import_in_progress.load();
+            auto res_op = coll1->search("racedoc", {"title"}, "", {}, sort_fields, {0}, per_page, 1,
+                                        FREQUENCY, {false});
+            if(!res_op.ok()) {
+                if(failed_searches.fetch_add(1) == 0) {
+                    first_search_error = res_op.error();
+                }
+                completed_searches++;
+                continue;
+            }
+
+            auto res = res_op.get();
+            size_t found = res["found"].get<size_t>();
+            size_t num_hits = res["hits"].size();
+            if(num_hits < std::min(found, per_page)) {
+                mismatches++;
+            }
+            if(during_import) {
+                searches_during_import++;
+            }
+            completed_searches++;
+        }
+    });
+
+    const size_t num_docs = 1000;
+    std::vector<std::string> import_records;
+    import_records.reserve(num_docs);
+    for(size_t i = 0; i < num_docs; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "racedoc";
+        doc["points"] = (int) i;
+        import_records.push_back(doc.dump());
+    }
+
+    // Import in batches and let the searcher finish at least one search before each batch, so searches
+    // are guaranteed to run while the import is in progress rather than only before or after it.
+    import_in_progress = true;
+    nlohmann::json dummy_document;
+    size_t num_imported = 0;
+    bool import_ok = true;
+    const size_t batch_size = 100;
+    for(size_t i = 0; i < num_docs; i += batch_size) {
+        const size_t searches_before = completed_searches.load();
+        while(completed_searches.load() == searches_before) {
+            std::this_thread::yield();
+        }
+
+        std::vector<std::string> batch(import_records.begin() + i,
+                                       import_records.begin() + std::min(num_docs, i + batch_size));
+        nlohmann::json import_response = coll1->add_many(batch, dummy_document);
+        import_ok = import_ok && import_response["success"].get<bool>();
+        num_imported += import_response["num_imported"].get<size_t>();
+    }
+    import_in_progress = false;
+
+    // Join before any fatal assertion: returning with a joinable std::thread would call std::terminate.
+    stop_search = true;
+    searcher.join();
+
+    ASSERT_TRUE(import_ok);
+    ASSERT_EQ(num_docs, num_imported);
+    ASSERT_EQ(0, failed_searches.load()) << first_search_error;
+    ASSERT_GT(searches_during_import.load(), 0);
+    ASSERT_EQ(0, mismatches.load());
+
+    collectionManager.drop_collection("coll_bulk_visibility");
 }
