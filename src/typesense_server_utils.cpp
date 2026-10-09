@@ -139,6 +139,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
     options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
+    options.add<std::string>("max-query-len", '\0', "Maximum query length in Unicode code points; longer queries are truncated. 0 disables the limit.", false, "0");
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
     options.add<uint32_t>("max-indexing-concurrency", '\0', "maximum concurrency for batch indexing docs.", false);

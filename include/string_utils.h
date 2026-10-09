@@ -358,6 +358,10 @@ struct StringUtils {
 
     static size_t get_num_chars(const std::string& text);
 
+    // Keep at most max_chars Unicode code points without splitting valid UTF-8.
+    // Zero disables truncation. Malformed bytes are traversed safely, not repaired.
+    static void truncate_utf8(std::string& text, uint64_t max_chars);
+
     static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,
                                                      std::vector<std::string>& tokens);
 

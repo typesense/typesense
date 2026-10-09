@@ -12,6 +12,7 @@
 #include <collection_manager.h>
 #include <string_utils.h>
 #include "curation_index_manager.h"
+#include "tsconfig.h"
 
 class UnionTest : public ::testing::Test {
 protected:
@@ -3267,4 +3268,43 @@ TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
     ASSERT_EQ(1 + docs_per_collection, json_res["found"].get<size_t>());
     ASSERT_EQ("0", json_res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
+
+TEST_F(UnionTest, MaxQueryLengthTruncatesEachMember) {
+    struct RestoreLimit {
+        const uint64_t previous = Config::get_instance().get_max_query_len();
+        ~RestoreLimit() { Config::get_instance().set_max_query_len(std::to_string(previous)); }
+    } restore;
+    auto created = collectionManager.create_collection("query_limit_union", 1,
+        {field("title", field_types::STRING, false)}, "");
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto* collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"id":"1","title":"café"})").ok());
+    ASSERT_TRUE(collection->add(R"({"id":"2","title":"soap"})").ok());
+
+    const auto run = [&](const std::string& first, const std::string& second) {
+        std::map<std::string, std::string> params = {{"max_query_len", "0"}};
+        std::vector<nlohmann::json> embedded = {nlohmann::json::object(), {{"max_query_len", 100}}};
+        nlohmann::json members = nlohmann::json::array();
+        for(const auto& q : {first, second}) {
+            members.push_back({{"collection", "query_limit_union"}, {"q", q}, {"query_by", "title"},
+                               {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}});
+        }
+        nlohmann::json response;
+        auto op = collectionManager.do_union(params, embedded, members, response, now_ts);
+        EXPECT_TRUE(op.ok()) << op.error();
+        EXPECT_FALSE(response.contains("error")) << response.dump();
+        return response;
+    };
+    auto& config = Config::get_instance();
+    config.set_max_query_len("0");
+    const auto expected = run("café", "soap");
+    ASSERT_EQ(2, expected["found"]);
+    const auto unbounded = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(0, unbounded["found"]);
+    config.set_max_query_len("4");
+    const auto truncated = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(expected["found"], truncated["found"]);
+    EXPECT_EQ(expected["hits"], truncated["hits"]);
+    EXPECT_EQ(expected["union_request_params"], truncated["union_request_params"]);
 }

@@ -5,6 +5,7 @@
 #include "curation_index_manager.h"
 #include "raft_server.h"
 #include "string_utils.h"
+#include "tsconfig.h"
 #include "synonym_index_manager.h"
 #include <analytics_manager.h>
 #include <collection_manager.h>
@@ -4055,4 +4056,83 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ("0", response["hits"][2]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
+}
+
+TEST_F(CoreAPIUtilsTest, MaxQueryLengthTruncatesSingleMultiAndUnionWithCache) {
+    struct RestoreLimitAndCache {
+        const uint64_t previous = Config::get_instance().get_max_query_len();
+        ~RestoreLimitAndCache() {
+            Config::get_instance().set_max_query_len(std::to_string(previous));
+            post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+        }
+    } restore;
+    post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+    auto& config = Config::get_instance();
+    config.set_max_query_len("4");
+    for(const std::string kind : {"single", "multi", "union"}) {
+        SCOPED_TRACE(kind);
+        const std::string name = "query_limit_" + kind;
+        auto created = collectionManager.create_collection(name, 1,
+            {field("title", field_types::STRING, false)}, "");
+        ASSERT_TRUE(created.ok()) << created.error();
+        auto* collection = created.get();
+        ASSERT_TRUE(collection->add(R"({"id":"1","title":"café"})").ok());
+        route_path route = kind == "single" ?
+            route_path("GET", {"collections", ":collection", "documents", "search"}, get_search, false, false) :
+            route_path("POST", {"multi_search"}, post_multi_search, false, false);
+        const auto invoke = [&](const std::string& query, bool cache) {
+            auto req = std::make_shared<http_req>();
+            req->route_hash = route.route_hash();
+            req->params = {{"use_cache", cache ? "true" : "false"}, {"cache_ttl", "600"}};
+            if(kind == "single") {
+                req->params.insert({{"collection", name}, {"q", query}, {"query_by", "title"},
+                                    {"num_typos", "0"}, {"prefix", "false"}, {"drop_tokens_threshold", "0"}});
+            } else {
+                nlohmann::json body = {{"searches", nlohmann::json::array({
+                    {{"collection", name}, {"q", query}, {"query_by", "title"},
+                     {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}},
+                    {{"collection", name}, {"q", query}, {"query_by", "title"},
+                     {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}}
+                })}};
+                if(kind == "union") { body["union"] = true; }
+                req->body = body.dump();
+            }
+            EXPECT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, route, "auth_key"));
+            auto res = std::make_shared<http_res>(nullptr);
+            EXPECT_TRUE(kind == "single" ? get_search(req, res) : post_multi_search(req, res));
+            EXPECT_EQ(200, res->status_code) << res->body;
+            return nlohmann::json::parse(res->body);
+        };
+        const auto members = [&](const nlohmann::json& response) {
+            return kind == "multi" ? response.at("results") : nlohmann::json::array({response});
+        };
+        const auto prefix = members(invoke("café", false));
+        const auto first_response = invoke("cafézzzzzz", true);
+        const auto first = members(first_response);
+        ASSERT_EQ(prefix.size(), first.size());
+        for(size_t i = 0; i < first.size(); ++i) {
+            EXPECT_EQ(prefix[i]["hits"], first[i]["hits"]);
+            EXPECT_EQ(prefix[i]["found"], first[i]["found"]);
+            if(kind == "union") {
+                for(const auto& params : first[i]["union_request_params"]) {
+                    EXPECT_EQ("café", params["q"]);
+                }
+            } else {
+                EXPECT_EQ("café", first[i]["request_params"]["q"]);
+            }
+        }
+        // Mutating the corpus independently proves the next response is cached.
+        ASSERT_TRUE(collection->add(R"({"id":"2","title":"café"})").ok());
+        EXPECT_EQ(first_response, invoke("cafézzzzzz", true));
+        const auto fresh = members(invoke("cafézzzzzz", false));
+        for(size_t i = 0; i < fresh.size(); ++i) {
+            EXPECT_GT(fresh[i]["found"].get<size_t>(), first[i]["found"].get<size_t>());
+        }
+        post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+        config.set_max_query_len("0");
+        for(const auto& member : members(invoke("cafézzzzzz", false))) {
+            EXPECT_EQ(0, member["found"]);
+        }
+        config.set_max_query_len("4");
+    }
 }
