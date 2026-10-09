@@ -1349,7 +1349,12 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     //
     // Since the in-memory index has not been touched yet for these records, a store write failure here
     // simply needs to mark the record as failed -- there is nothing to roll back in the index.
-    for(auto& index_record: index_records) {
+    //
+    // `written_to_store[i]` records which records Phase 2 actually persisted, so that a record which then
+    // fails in Phase 3 can have its store write undone (see the rollback after Phase 3).
+    std::vector<bool> written_to_store(index_records.size(), false);
+    for(size_t i = 0; i < index_records.size(); i++) {
+        auto& index_record = index_records[i];
         if(!index_record.indexed.ok()) {
             continue;
         }
@@ -1377,6 +1382,8 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             if(!write_ok) {
                 LOG(ERROR) << "Update to disk failed. Old document remains in-memory and on-disk.";
                 index_record.index_failure(500, "Could not write to on-disk storage.");
+            } else {
+                written_to_store[i] = true;
             }
 
         } else {
@@ -1400,6 +1407,8 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             if(!write_ok) {
                 LOG(ERROR) << "Write to disk failed, will not index the document in-memory.";
                 index_record.index_failure(500, "Could not write to on-disk storage.");
+            } else {
+                written_to_store[i] = true;
             }
         }
     }
@@ -1408,6 +1417,52 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     // corresponding seq_ids visible/searchable in the in-memory index. Records whose store write failed
     // above are skipped automatically since their `indexed` status is no longer ok().
     batch_finalize_memory_index(index_records, found_fields);
+
+    // A record can still fail inside Phase 3 after Phase 2 persisted it: some values are only rejected
+    // while being added to the in-memory index (e.g. an invalid geopolygon fails in
+    // `GeoPolygonIndex::addPolygon()`). Undo the Phase 2 write for those records so that the store matches
+    // what the API reports: a rejected insert must not be fetchable, and a rejected update must leave the
+    // previously stored document in place. The partially indexed in-memory state is undone the same way.
+    for(size_t i = 0; i < index_records.size(); i++) {
+        auto& index_record = index_records[i];
+        if(!written_to_store[i] || index_record.indexed.ok()) {
+            continue;
+        }
+
+        if(index_record.is_update) {
+            // Same best-effort restore as the other update-rollback paths in this file: drop the partially
+            // indexed new document, re-index the old one, and put the old stored body back on disk.
+            remove_document(index_record.new_doc, index_record.seq_id, false, false);
+
+            auto old_doc_for_index = index_record.old_doc;
+            auto restore_index_op = index_in_memory_alter_locked(old_doc_for_index, index_record.seq_id,
+                                                                 index_record.operation, index_record.dirty_values);
+            if(!restore_index_op.ok()) {
+                LOG(ERROR) << "Failed to restore the in-memory index for document `" <<
+                           index_record.old_doc.value("id", "") << "` in collection `" << name <<
+                           "` after a rejected update: " << restore_index_op.error();
+            }
+
+            auto old_doc_for_store = index_record.old_doc;
+            remove_flat_fields(old_doc_for_store);
+            for(auto& field: fields) {
+                if(!field.store) {
+                    old_doc_for_store.erase(field.name);
+                }
+            }
+            const std::string& serialized_json = old_doc_for_store.dump(-1, ' ', false,
+                                                                        nlohmann::detail::error_handler_t::ignore);
+            if(!store->insert(get_seq_id_key(index_record.seq_id), serialized_json)) {
+                LOG(ERROR) << "Failed to restore the stored document `" << index_record.old_doc.value("id", "") <<
+                           "` in collection `" << name << "` after a rejected update.";
+            }
+        } else {
+            // Removes whatever Phase 3 managed to index for this seq_id, the doc id -> seq_id mapping and the
+            // stored body. `num_documents` was already counted for this record by
+            // `Index::batch_memory_index()`, so the decrement here is also what keeps it accurate.
+            remove_document(index_record.doc, index_record.seq_id, true, false);
+        }
+    }
 
     // NOTE: `alter_shlock` is deliberately still held here and through the rest of this function (it is
     // only released by its destructor when `batch_index()` returns). Phase 4 below reads the `fields`
@@ -1511,6 +1566,12 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
 Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                              const index_operation_t op, const DIRTY_VALUES& dirty_values) {
     std::shared_lock alter_shlock(alter_mutex);
+    return index_in_memory_alter_locked(document, seq_id, op, dirty_values);
+}
+
+Option<uint32_t> Collection::index_in_memory_alter_locked(nlohmann::json &document, uint32_t seq_id,
+                                                          const index_operation_t op, const DIRTY_VALUES& dirty_values) {
+    // NOTE: the caller must already hold a shared lock on `alter_mutex`.
     std::shared_lock shlock(mutex);
 
     Option<uint32_t> validation_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
