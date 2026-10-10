@@ -2043,6 +2043,105 @@ TEST_F(CollectionJoinTest, RecreateAsyncReferencedCollection) {
     }
 }
 
+TEST_F(CollectionJoinTest, RecreatedAsyncReferencedCollectionDoesNotJoinReusedSequenceId) {
+    auto products_schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "product_id", "type": "int32"}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id": "p100", "product_id": 100})").ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id": "p200", "product_id": 200})").ok());
+
+    auto children_schema = R"({
+        "name": "children",
+        "fields": [
+            {"name": "product_id", "type": "int32", "reference": "products.product_id",
+             "async_reference": true, "cascade_delete": false}
+        ]
+    })"_json;
+
+    create_op = collectionManager.create_collection(children_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto children = create_op.get();
+    ASSERT_TRUE(children->add(R"({"id": "c1", "product_id": 100})").ok());
+    ASSERT_EQ(0, children->get("c1").get()["product_id_sequence_id"]);
+
+    auto array_children_schema = R"({
+        "name": "array_children",
+        "fields": [
+            {"name": "product_ids", "type": "int32[]", "reference": "products.product_id",
+             "async_reference": true, "cascade_delete": false}
+        ]
+    })"_json;
+
+    create_op = collectionManager.create_collection(array_children_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto array_children = create_op.get();
+    ASSERT_TRUE(array_children->add(R"({"id": "ac1", "product_ids": [100, 200]})").ok());
+    auto array_child_doc = array_children->get("ac1").get();
+    ASSERT_EQ(2, array_child_doc["product_ids_sequence_id"].size());
+    ASSERT_EQ(0, array_child_doc["product_ids_sequence_id"][0]);
+    ASSERT_EQ(1, array_child_doc["product_ids_sequence_id"][1]);
+
+    auto drop_op = collectionManager.drop_collection("products");
+    ASSERT_TRUE(drop_op.ok());
+    products_schema = R"({
+        "name": "products",
+        "fields": [
+            {"name": "product_id", "type": "int32"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(products_schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    ASSERT_EQ(Join::reference_helper_sentinel_value,
+              children->get("c1").get()["product_id_sequence_id"]);
+    array_child_doc = array_children->get("ac1").get();
+    ASSERT_EQ(2, array_child_doc["product_ids_sequence_id"].size());
+    ASSERT_EQ(Join::reference_helper_sentinel_value,
+              array_child_doc["product_ids_sequence_id"][0]);
+    ASSERT_EQ(Join::reference_helper_sentinel_value,
+              array_child_doc["product_ids_sequence_id"][1]);
+    // Do not query the empty collection first: that can repair the missing reference.
+    ASSERT_TRUE(create_op.get()->add(R"({"id": "p999", "product_id": 999})").ok());
+
+    auto assert_no_wrong_join = [&](const std::string& collection_name, const std::string& stage) {
+        std::map<std::string, std::string> req_params = {
+                {"collection", collection_name},
+                {"q", "*"},
+                {"filter_by", "$products(product_id:=999)"},
+                {"include_fields", "$products(*)"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok()) << stage << ": " << search_op.error();
+
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(0, res_obj["found"].get<size_t>()) << stage << ": " << json_res;
+        ASSERT_TRUE(res_obj["hits"].empty()) << stage << ": " << json_res;
+    };
+
+    assert_no_wrong_join("children", "singular reference before restart");
+    assert_no_wrong_join("array_children", "array reference before restart");
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+    ASSERT_TRUE(load_op.ok()) << load_op.error();
+
+    assert_no_wrong_join("children", "singular reference after restart");
+    assert_no_wrong_join("array_children", "array reference after restart");
+}
+
 TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
     auto schema_json =
             R"({
