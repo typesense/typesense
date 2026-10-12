@@ -6978,7 +6978,7 @@ std::string Collection::get_default_sorting_field() {
 }
 
 void Collection::update_metadata(const nlohmann::json& meta) {
-    std::shared_lock lock(mutex);
+    std::unique_lock lock(mutex);
     metadata = meta;
 }
 
