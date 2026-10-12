@@ -24,6 +24,13 @@
 #include "synonym_index.h"
 #include "vq_model_manager.h"
 #include "join.h"
+#ifdef TEST_BUILD
+#include <functional>
+
+// Called by `Collection::batch_index()` after the batch has been written to the store and before it is
+// made searchable in the in-memory index.
+extern std::function<void()> collection_batch_index_before_memory_index;
+#endif
 
 struct doc_seq_id_t {
     uint32_t seq_id;

@@ -40,6 +40,10 @@ const std::string curation_t::MATCH_CONTAINS = "contains";
 
 const int ALTER_STATUS_MSG_COUNT = 5; // we keep track of last 5 status of alter op
 
+#ifdef TEST_BUILD
+std::function<void()> collection_batch_index_before_memory_index = nullptr;
+#endif
+
 namespace {
 bool is_dynamic_alter_type(const field& f) {
     return f.is_dynamic() || f.is_auto() || f.is_string_star();
@@ -1412,6 +1416,12 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             }
         }
     }
+
+#ifdef TEST_BUILD
+    if(collection_batch_index_before_memory_index != nullptr) {
+        collection_batch_index_before_memory_index();
+    }
+#endif
 
     // Phase 3: now that every document that will be indexed is already durable in the store, make the
     // corresponding seq_ids visible/searchable in the in-memory index. Records whose store write failed
