@@ -2815,6 +2815,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(transcribe_res.code(), transcribe_res.error());
         }
         query = transcribe_res.get();
+        StringUtils::truncate_utf8(query, Config::get_instance().get_max_query_len());
         transcribed_query = query;
     }
 
