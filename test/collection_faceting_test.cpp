@@ -4231,3 +4231,41 @@ TEST_F(CollectionFacetingTest, FacetMinOccurrenceRatioValidation) {
 
     collectionManager.drop_collection("dynamic_facet_ratio_validation_coll");
 }
+
+TEST_F(CollectionFacetingTest, FacetValueTruncatedAtUtf8Boundary) {
+    nlohmann::json schema = R"({
+        "name": "utf8_facet_coll",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "tags", "type": "string[]", "facet": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    const std::string ascii_prefix(facet_index_t::MAX_FACET_VAL_LEN - 1, 'a');
+    const std::string long_value = ascii_prefix + "é" + "bbb";
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = long_value;
+    doc["tags"] = nlohmann::json::array({long_value});
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    auto search_op = coll->search("*", {}, "", {"title", "tags"}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok());
+    auto results = search_op.get();
+
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    for(const auto& facet_count: results["facet_counts"]) {
+        ASSERT_EQ(1, facet_count["counts"].size());
+        ASSERT_EQ(ascii_prefix, facet_count["counts"][0]["value"].get<std::string>());
+    }
+
+    ASSERT_NO_THROW(results.dump());
+
+    collectionManager.drop_collection("utf8_facet_coll");
+}

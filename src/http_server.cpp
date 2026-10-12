@@ -856,9 +856,25 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     thread_pool->enqueue([rpath, message_dispatcher, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
-        (rpath->handler)(request, response);
+        bool handler_failed = false;
 
-        if(!rpath->async_res) {
+        try {
+            (rpath->handler)(request, response);
+        } catch(const std::exception& e) {
+            handler_failed = true;
+            LOG(ERROR) << "Uncaught exception while handling " << rpath->http_method << " "
+                       << request->path_without_query << ": " << e.what();
+            response->set_500(std::string("Uncaught exception: ") + e.what());
+            response->final = true;
+        } catch(...) {
+            handler_failed = true;
+            LOG(ERROR) << "Uncaught exception while handling " << rpath->http_method << " "
+                       << request->path_without_query;
+            response->set_500("Uncaught exception.");
+            response->final = true;
+        }
+
+        if(!rpath->async_res || handler_failed) {
             // lifecycle of non async res will be owned by stream responder
             auto req_res = new async_req_res_t(request, response, true);
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);

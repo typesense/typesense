@@ -564,3 +564,17 @@ TEST(StringUtilsTest, ShouldURLEncode) {
     ASSERT_STREQ("Hello%20World%21%20%E2%82%AC%20test%40example.com", 
                  StringUtils::url_encode("Hello World! € test@example.com").c_str());
 }
+
+TEST(StringUtilsTest, TruncateUtf8) {
+    ASSERT_EQ("", StringUtils::truncate_utf8("", 5));
+    ASSERT_EQ("hello", StringUtils::truncate_utf8("hello", 5));
+    ASSERT_EQ("hello", StringUtils::truncate_utf8("hello", 10));
+    ASSERT_EQ("hel", StringUtils::truncate_utf8("hello", 3));
+
+    ASSERT_EQ("a", StringUtils::truncate_utf8("aé", 2));
+    ASSERT_EQ("aé", StringUtils::truncate_utf8("aé", 3));
+    ASSERT_EQ("", StringUtils::truncate_utf8("日本語", 2));
+    ASSERT_EQ("日", StringUtils::truncate_utf8("日本語", 3));
+    ASSERT_EQ("日", StringUtils::truncate_utf8("日本語", 5));
+    ASSERT_EQ("日本", StringUtils::truncate_utf8("日本語", 6));
+}

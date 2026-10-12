@@ -115,7 +115,7 @@ void facet_index_t::get_stringified_value(const nlohmann::json& value, const fie
         values.push_back(std::to_string(raw_val));
     }
     else if(afield.is_string()) {
-        const std::string& raw_val = value.get<std::string>().substr(0, MAX_FACET_VAL_LEN);
+        const std::string& raw_val = StringUtils::truncate_utf8(value.get<std::string>(), MAX_FACET_VAL_LEN);
         values.push_back(raw_val);
     }
     else if(afield.is_float()) {
