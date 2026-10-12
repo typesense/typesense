@@ -7,6 +7,7 @@
 #include <future>
 #include <chrono>
 #include <iomanip>
+#include <unicode/utf8.h>
 #include "json.hpp"
 #include "string_utils.h"
 #include "logger.h"
@@ -458,6 +459,22 @@ struct http_req {
     }
 
     std::string to_json() const {
+        bool encode_body = is_binary_body;
+        if (!encode_body && !body.empty()) {
+            encode_body = U8_IS_TRAIL(body.front());
+            if (!encode_body && !U8_IS_SINGLE(body.back())) {
+                // Detect an incomplete final character without scanning the body.
+                size_t character_start = body.size() - 1;
+                const size_t suffix_start = body.size() > U8_MAX_LENGTH ? body.size() - U8_MAX_LENGTH : 0;
+                while (character_start > suffix_start && U8_IS_TRAIL(body[character_start])) {
+                    --character_start;
+                }
+                const unsigned char lead = body[character_start];
+                const size_t character_size = 1 + U8_COUNT_TRAIL_BYTES(lead);
+                encode_body = U8_IS_LEAD(lead) && body.size() - character_start < character_size;
+            }
+        }
+
         nlohmann::json j;
         j["route_hash"] = route_hash;
         j["params"] = params;
@@ -467,14 +484,14 @@ struct http_req {
         j["metadata"] = metadata;
         j["start_ts"] = start_ts;
         j["log_index"] = log_index;
-        j["is_binary_body"] = is_binary_body;
-        if (is_binary_body) {
+        j["is_binary_body"] = encode_body;
+        if (encode_body) {
             j["body"] = StringUtils::base64_encode(body);
         }
         try {
             return j.dump(-1, ' ', false, nlohmann::detail::error_handler_t::strict);
         } catch (const nlohmann::json::type_error&) {
-            if (!is_binary_body) {
+            if (!encode_body) {
                 // A streamed text chunk can end inside a UTF-8 character. Preserve
                 // its bytes in the write log; replay joins chunks before parsing.
                 j["is_binary_body"] = true;

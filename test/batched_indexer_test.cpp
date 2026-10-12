@@ -89,6 +89,60 @@ TEST(BatchedIndexerTest, KeepsValidUtf8BodyAsText) {
     EXPECT_EQ(body, serialized["body"].get<std::string>());
 }
 
+TEST(BatchedIndexerTest, PreservesEveryUtf8CharacterSplit) {
+    for (const std::string character : {"к", "€", "😀"}) {
+        for (size_t split = 1; split < character.size(); ++split) {
+            SCOPED_TRACE(character + " split " + std::to_string(split));
+            // Include fragments smaller than a code point and fragments in JSONL.
+            for (bool tiny : {false, true}) {
+                SCOPED_TRACE(tiny);
+                http_req first;
+                first.body = (tiny ? "" : "{\"title\":\"before-") + character.substr(0, split);
+                http_req second;
+                second.body = character.substr(split) + (tiny ? "" : "-after\"}\n");
+                http_req replayed;
+                replayed.load_from_json(first.to_json());
+                replayed.load_from_json(second.to_json());
+                EXPECT_EQ(first.body + second.body, replayed.body);
+                EXPECT_TRUE(nlohmann::json::parse(first.to_json())["is_binary_body"].get<bool>());
+                EXPECT_TRUE(nlohmann::json::parse(second.to_json())["is_binary_body"].get<bool>());
+            }
+        }
+    }
+}
+
+TEST(BatchedIndexerTest, KeepsCompleteUtf8BoundariesAsText) {
+    for (const std::string body : {"", "a", "к", "€", "😀", "кabc€", "😀😀"}) {
+        SCOPED_TRACE(body);
+        http_req req;
+        req.body = body;
+        const auto serialized = nlohmann::json::parse(req.to_json());
+        EXPECT_FALSE(serialized["is_binary_body"].get<bool>());
+        EXPECT_EQ(body, serialized["body"].get<std::string>());
+    }
+}
+
+TEST(BatchedIndexerTest, PreservesInteriorMalformedUtf8) {
+    http_req req;
+    req.body = std::string("before-") + char(0xff) + "-after";
+    const auto serialized = req.to_json();
+    EXPECT_TRUE(nlohmann::json::parse(serialized)["is_binary_body"].get<bool>());
+    http_req replayed;
+    replayed.load_from_json(serialized);
+    EXPECT_EQ(req.body, replayed.body);
+}
+
+TEST(BatchedIndexerTest, PreservesBinaryRequestBody) {
+    http_req req;
+    req.is_binary_body = true;
+    req.body = std::string("\0\xff\xd0", 3);
+    const auto serialized = req.to_json();
+    EXPECT_TRUE(nlohmann::json::parse(serialized)["is_binary_body"].get<bool>());
+    http_req replayed;
+    replayed.load_from_json(serialized);
+    EXPECT_EQ(req.body, replayed.body);
+}
+
 class BatchedIndexerAliasTest : public ::testing::Test {
 protected:
     std::atomic<bool> quit{false};
