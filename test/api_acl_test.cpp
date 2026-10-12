@@ -47,6 +47,16 @@ TEST_F(APIAclTest, AllowsWhenAllowedSourceIpsEmpty) {
     EXPECT_TRUE(acl.is_allowed("192.168.1.10", "https://example.com", allowed_src_ips));
 }
 
+TEST_F(APIAclTest, DeniesWhenAllowedSourceIpsEmptyAndMatchRequired) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("127.0.0.0/8");
+
+    const std::vector<std::string> allowed_src_ips;
+    EXPECT_FALSE(acl.is_allowed("192.168.1.10", "https://example.com", allowed_src_ips, true));
+    EXPECT_TRUE(acl.is_allowed("192.168.1.10", "https://example.com", {"192.168.1.10"}, true));
+}
+
 TEST_F(APIAclTest, DisallowsWhenDisallowedCidrsEmptyWhenSrcNotAllowed) {
     auto& acl = APIAcl::instance();
     acl.set_rate_limit_10s(0);
