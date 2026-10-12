@@ -325,7 +325,7 @@ TEST_F(AuthManagerTest, HandleAuthenticationWithNonStringNestedMultiSearchPreset
     EXPECT_TRUE(authenticated);
 }
 
-TEST_F(AuthManagerTest, RejectsUnterminatedBacktickBeforeAppendingEmbeddedFilter) {
+TEST_F(AuthManagerTest, RejectsUnterminatedFilterBeforeAppendingEmbeddedFilter) {
     std::map<std::string, std::string> params = {
         {"filter_by", "status:=open) || tenant:=B || name:=`zz"},
     };
@@ -333,6 +333,10 @@ TEST_F(AuthManagerTest, RejectsUnterminatedBacktickBeforeAppendingEmbeddedFilter
 
     ASSERT_FALSE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
     ASSERT_EQ("status:=open) || tenant:=B || name:=`zz", params["filter_by"]);
+
+    params["filter_by"] = "$C(x:=(1";
+    ASSERT_FALSE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("$C(x:=(1", params["filter_by"]);
 
     params["filter_by"] = "status:=open && name:=`zz`";
     ASSERT_TRUE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));

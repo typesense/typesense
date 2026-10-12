@@ -12320,6 +12320,25 @@ TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {
     ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
     ASSERT_EQ("customer_b", res_obj["hits"][1]["document"]["Customers"]["customer_id"]);
     ASSERT_EQ(75, res_obj["hits"][1]["document"]["Customers"]["product_price"]);
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$Customers(customer_id:customer_b || product_price:>0)"},
+    };
+    embedded_params = {
+            {"filter_by", "$Customers(customer_id:customer_a && product_price:<100)"},
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"]);
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"]["Customers"]["customer_id"]);
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"]["Customers"]["product_price"]);
 }
 
 TEST_F(CollectionJoinTest, QueryByReference) {
