@@ -434,6 +434,93 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     ASSERT_EQ("body match", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
 }
 
+TEST_F(CoreAPIUtilsTest, ScopedJoinFilterCannotBeBypassedWithOr) {
+    nlohmann::json orders_schema = R"({
+        "name": "orders",
+        "fields": [
+          {"name": "amt", "type": "int32"}
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(orders_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* orders = op.get();
+    ASSERT_TRUE(orders->add(R"({"id":"o1","amt":10})", CREATE).ok());
+    ASSERT_TRUE(orders->add(R"({"id":"o2","amt":20})", CREATE).ok());
+
+    nlohmann::json iso_schema = R"({
+        "name": "iso",
+        "fields": [
+          {"name": "tenant", "type": "string"},
+          {"name": "status", "type": "string"},
+          {"name": "order_id", "type": "string", "reference": "orders.id"}
+        ]
+    })"_json;
+    op = collectionManager.create_collection(iso_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* iso = op.get();
+    ASSERT_TRUE(iso->add(R"({"id":"i1","tenant":"A","status":"closed","order_id":"o1"})", CREATE).ok());
+    ASSERT_TRUE(iso->add(R"({"id":"i2","tenant":"B","status":"open","order_id":"o2"})", CREATE).ok());
+
+    api_key_t parent_key("ScopedJoinBypassParentKey", "scoped join parent", {"documents:search"}, {"orders"},
+                         api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const std::string custom_params = "{\"filter_by\":\"$iso(tenant:=A)\"}";
+    const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                           parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+    const std::string scoped_key = StringUtils::base64_encode(scoped_key_payload);
+    const std::vector<std::string> bypass_filters = {
+            "$iso(status:=closed || tenant:=B)",
+            "$iso(id:=zzz) || amt:>0",
+    };
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+    for(const auto& bypass_filter : bypass_filters) {
+        auto req = std::make_shared<http_req>();
+        auto res = std::make_shared<http_res>(nullptr);
+        req->params = {
+                {"collection", "orders"},
+                {"q", "*"},
+                {"filter_by", bypass_filter},
+        };
+
+        ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_search, scoped_key));
+        ASSERT_TRUE(get_search(req, res));
+
+        auto response = nlohmann::json::parse(res->body);
+        ASSERT_EQ(1, response["found"].get<size_t>());
+        ASSERT_EQ(1, response["hits"].size());
+        ASSERT_EQ("o1", response["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    for(const auto& bypass_filter : bypass_filters) {
+        body["searches"].push_back({
+                {"collection", "orders"},
+                {"q", "*"},
+                {"filter_by", bypass_filter},
+        });
+    }
+    req->body = body.dump();
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_TRUE(post_multi_search(req, res));
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, response["results"].size());
+    for(const auto& result : response["results"]) {
+        ASSERT_EQ(1, result["found"].get<size_t>());
+        ASSERT_EQ(1, result["hits"].size());
+        ASSERT_EQ("o1", result["hits"][0]["document"]["id"].get<std::string>());
+    }
+}
+
 TEST_F(CoreAPIUtilsTest, SearchCacheShouldRespectScopedEmbeddedFilters) {
     const std::string coll_name = "scoped_cache_" + StringUtils::randstring(8);
     const std::string query = "cache-" + StringUtils::randstring(6);

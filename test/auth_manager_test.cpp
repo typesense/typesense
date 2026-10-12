@@ -325,6 +325,38 @@ TEST_F(AuthManagerTest, HandleAuthenticationWithNonStringNestedMultiSearchPreset
     EXPECT_TRUE(authenticated);
 }
 
+TEST_F(AuthManagerTest, RejectsUnterminatedFilterBeforeAppendingEmbeddedFilter) {
+    std::map<std::string, std::string> params = {
+        {"filter_by", "status:=open) || tenant:=B || name:=`zz"},
+    };
+    nlohmann::json embedded_params = {{"filter_by", "tenant:=A"}};
+
+    ASSERT_FALSE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("status:=open) || tenant:=B || name:=`zz", params["filter_by"]);
+
+    params["filter_by"] = "$C(x:=(1";
+    ASSERT_FALSE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("$C(x:=(1", params["filter_by"]);
+
+    params["filter_by"] = "status:=open && name:=`zz`";
+    ASSERT_TRUE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("(status:=open && name:=`zz`) && (tenant:=A)", params["filter_by"]);
+}
+
+TEST_F(AuthManagerTest, AppendsEmbeddedJoinFilterWithoutMerging) {
+    std::map<std::string, std::string> params = {
+        {"filter_by", "$iso(status:=closed || tenant:=B)"},
+    };
+    nlohmann::json embedded_params = {{"filter_by", "$iso(tenant:=A)"}};
+
+    ASSERT_TRUE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("($iso(status:=closed || tenant:=B)) && ($iso(tenant:=A))", params["filter_by"]);
+
+    params["filter_by"] = "$iso(id:=zzz) || amt:>0";
+    ASSERT_TRUE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
+    ASSERT_EQ("($iso(id:=zzz) || amt:>0) && ($iso(tenant:=A))", params["filter_by"]);
+}
+
 TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::map<std::string, std::string> params;
     params["filter_by"] = "country:USA";
