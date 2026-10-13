@@ -72,6 +72,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::track_missing_values) == 0) {
         json[fields::track_missing_values] = false;
     }
+    if (json.count(fields::description) == 0) {
+        json[fields::description] = "";
+    }
     if (json.count(fields::store) == 0) {
         json[fields::store] = true;
     }
@@ -161,6 +164,17 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     if(!field_json.at(fields::truncate_len).is_number_unsigned()) {
         return Option<bool>(400, std::string("The `truncate_len` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a non-negative integer."));
+    }
+
+    if(!field_json.at(fields::description).is_string()) {
+        return Option<bool>(400, std::string("The `description` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a string."));
+    }
+
+    if(field_json[fields::description].get<std::string>().size() > 2048) {
+        return Option<bool>(400, std::string("The `description` property of the field `") +
+                                 field_json[fields::name].get<std::string>() +
+                                 std::string("` must not exceed 2048 characters."));
     }
 
 
@@ -271,6 +285,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                              field_json["optional"], field_json[fields::index], field_json[fields::locale],
                              field_json[fields::sort], field_json[fields::infix]);
         fallback_field.track_missing_values = field_json[fields::track_missing_values];
+        fallback_field.description = field_json[fields::description];
 
         if(fallback_field.has_valid_type()) {
             fallback_field_type = fallback_field.type;
@@ -504,6 +519,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::symbols_to_index], field_json[fields::cascade_delete], field_json[fields::truncate_len],
                   field_json[fields::track_missing_values])
     );
+    the_fields.back().description = field_json[fields::description];
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
         // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
@@ -934,6 +950,10 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     field_val[fields::truncate_len] = field.truncate_len;
     field_val[fields::stem] = field.stem;
     field_val[fields::range_index] = field.range_index;
+
+    if(!field.description.empty()) {
+        field_val[fields::description] = field.description;
+    }
     field_val[fields::track_missing_values] = field.track_missing_values;
     field_val[fields::stem_dictionary] = field.stem_dictionary;
 
