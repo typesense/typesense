@@ -1,4 +1,5 @@
 #include "string_utils.h"
+#include <unicode/utf8.h>
 #include <iostream>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -339,6 +340,25 @@ char* StringUtils::get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen)
     }
 
     return s;
+}
+
+void StringUtils::truncate_utf8(std::string& text, uint64_t max_chars) {
+    if(max_chars == 0 || text.size() <= max_chars) {
+        return;
+    }
+
+    size_t offset = 0;
+    for(uint64_t count = 0; count < max_chars && offset < text.size(); ++count) {
+        // ICU uses int32_t offsets. A single UTF-8 sequence needs at most four bytes.
+        const auto* bytes = reinterpret_cast<const uint8_t*>(text.data() + offset);
+        const int32_t length = static_cast<int32_t>(std::min<size_t>(4, text.size() - offset));
+        int32_t next = 0;
+        U8_FWD_1(bytes, next, length);
+        offset += next;
+    }
+    if(offset < text.size()) {
+        text.resize(offset);
+    }
 }
 
 size_t StringUtils::get_num_chars(const std::string& s) {

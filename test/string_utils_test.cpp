@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "string_utils.h"
 #include <iconv.h>
+#include <limits>
+#include <tuple>
 #include <unicode/translit.h>
 #include <json.hpp>
 #include <join.h>
@@ -563,4 +565,44 @@ TEST(StringUtilsTest, ShouldURLEncode) {
     // Test mixed content
     ASSERT_STREQ("Hello%20World%21%20%E2%82%AC%20test%40example.com", 
                  StringUtils::url_encode("Hello World! € test@example.com").c_str());
+}
+
+TEST(StringUtilsTest, TruncateUtf8KeepsCodePointPrefix) {
+    const std::vector<std::tuple<std::string, uint64_t, std::string>> cases = {
+        {"", 1, ""}, {"abcdef", 0, "abcdef"}, {"abc", 3, "abc"}, {"ab", 3, "ab"},
+        {"abcdef", 3, "abc"}, {"é🙂x", 1, "é"}, {"é🙂x", 2, "é🙂"},
+        {"é🙂", 2, "é🙂"}, {"é🙂", 3, "é🙂"}, {"中é🙂x", 3, "中é🙂"},
+        {"e\u0301x", 1, "e"}, {"e\u0301x", 2, "e\u0301"},
+        {std::string("a\0bc", 4), 2, std::string("a\0", 2)},
+        {"abc", std::numeric_limits<uint64_t>::max(), "abc"},
+        {"é🙂" + std::string(1000000, 'x'), 2, "é🙂"}
+    };
+    for(const auto& [input, limit, expected] : cases) {
+        auto text = input;
+        StringUtils::truncate_utf8(text, limit);
+        EXPECT_EQ(expected, text) << "limit=" << limit;
+    }
+}
+
+TEST(StringUtilsTest, TruncateUtf8SafelyTraversesMalformedBytes) {
+    const std::vector<std::string> inputs = {
+        std::string("\x80" "ab", 3), std::string("\xFF" "ab", 3),
+        std::string("\xC3" "xy", 3), std::string("\xE2\x82", 2),
+        std::string("\xF0\x9F\x99", 3)
+    };
+    for(const auto& input : inputs) {
+        auto disabled = input;
+        StringUtils::truncate_utf8(disabled, 0);
+        EXPECT_EQ(input, disabled);
+        for(uint64_t limit = 1; limit <= input.size(); ++limit) {
+            auto text = input;
+            StringUtils::truncate_utf8(text, limit);
+            EXPECT_FALSE(text.empty());
+            EXPECT_LE(text.size(), input.size());
+            EXPECT_EQ(input.substr(0, text.size()), text);
+        }
+    }
+    std::string invalid_lead = "\xFF" "ab";
+    StringUtils::truncate_utf8(invalid_lead, 1);
+    EXPECT_EQ(std::string(1, static_cast<char>(0xFF)), invalid_lead);
 }

@@ -2,6 +2,8 @@
 #include "json.hpp"
 #include "tsconfig.h"
 #include "file_utils.h"
+#include <charconv>
+#include <cstdlib>
 #include <fstream>
 #include <thread>
 #include <mutex>
@@ -142,7 +144,20 @@ Option<std::string> Config::fetch_nodes_config(const std::string& path_to_nodes)
     return Option<std::string>(nodes_config);
 }
 
+void Config::set_max_query_len(const std::string& value) {
+    uint64_t parsed = 0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    max_query_len_valid = result.ec == std::errc() && result.ptr == value.data() + value.size();
+    if(max_query_len_valid) {
+        max_query_len = parsed;
+    }
+}
+
 void Config::load_config_env() {
+    if(const char* value = std::getenv("TYPESENSE_MAX_QUERY_LEN")) {
+        set_max_query_len(value);
+    }
+
     this->data_dir = get_env("TYPESENSE_DATA_DIR");
     this->log_dir = get_env("TYPESENSE_LOG_DIR");
     this->api_key = get_env("TYPESENSE_API_KEY");
@@ -548,6 +563,10 @@ void Config::load_config_file(cmdline::parser& options) {
         this->reset_peers_on_error = (reset_peers_on_error_str == "true");
     }
 
+    if(reader.Exists("server", "max-query-len")) {
+        set_max_query_len(reader.Get("server", "max-query-len", ""));
+    }
+
     if(reader.Exists("server", "max-per-page")) {
         this->max_per_page = reader.GetInteger("server", "max-per-page", 250);
     }
@@ -783,6 +802,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("enable-search-logging")) {
         this->enable_search_logging = options.get<bool>("enable-search-logging");
+    }
+
+    if(options.exist("max-query-len")) {
+        set_max_query_len(options.get<std::string>("max-query-len"));
     }
 
     if(options.exist("max-per-page")) {

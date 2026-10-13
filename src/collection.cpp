@@ -2625,6 +2625,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                                 nlohmann::json& curation_metadata,
                                                 const bool& is_union_search,
                                                 const uint32_t& union_search_index) const {
+    StringUtils::truncate_utf8(coll_args.raw_query, Config::get_instance().get_max_query_len());
     const std::string raw_query = coll_args.raw_query;
     const std::vector<std::string>& raw_search_fields = coll_args.search_fields;
     std::string& filter_query = coll_args.filter_query;
@@ -2814,6 +2815,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             return Option<bool>(transcribe_res.code(), transcribe_res.error());
         }
         query = transcribe_res.get();
+        StringUtils::truncate_utf8(query, Config::get_instance().get_max_query_len());
         transcribed_query = query;
     }
 

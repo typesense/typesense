@@ -8,6 +8,7 @@
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
+#include "tsconfig.h"
 #include "embedder_manager.h"
 #include "http_client.h"
 
@@ -5631,4 +5632,180 @@ TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     
     collectionManager.drop_collection("users_1");
     collectionManager.drop_collection("users_2");
+}
+namespace {
+struct RestoreCollectionQueryLimit {
+    const uint64_t previous = Config::get_instance().get_max_query_len();
+    ~RestoreCollectionQueryLimit() {
+        Config::get_instance().set_max_query_len(std::to_string(previous));
+    }
+};
+}
+
+TEST_F(CollectionTest, MaxQueryLengthTruncatesBeforeSearch) {
+    RestoreCollectionQueryLimit restore;
+    auto& config = Config::get_instance();
+    ASSERT_TRUE(collection->add(R"({"id":"query-limit","title":"café","points":500})").ok());
+    const auto search = [&](const std::string& query) {
+        std::map<std::string, std::string> params = {
+            {"q", query}, {"query_by", "title"}, {"num_typos", "0"},
+            {"prefix", "false"}, {"drop_tokens_threshold", "0"}
+        };
+        collection_search_args_t args;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto init_op = collection_search_args_t::init(params, collection->get_num_documents(), "", now, args);
+        if(!init_op.ok()) {
+            return Option<nlohmann::json>(init_op.code(), init_op.error());
+        }
+        return collection->search(args);
+    };
+
+    config.set_max_query_len("0");
+    const auto baseline = search("café");
+    ASSERT_TRUE(baseline.ok()) << baseline.error();
+    ASSERT_EQ(1, baseline.get()["found"]);
+    const auto unbounded = search("cafézzzzzz");
+    ASSERT_TRUE(unbounded.ok()) << unbounded.error();
+    EXPECT_EQ(0, unbounded.get()["found"]);
+    EXPECT_EQ("cafézzzzzz", unbounded.get()["request_params"]["q"]);
+
+    config.set_max_query_len("4");
+    const auto truncated = search("cafézzzzzz");
+    ASSERT_TRUE(truncated.ok()) << truncated.error();
+    EXPECT_EQ(baseline.get()["hits"], truncated.get()["hits"]);
+    EXPECT_EQ(baseline.get()["found"], truncated.get()["found"]);
+    EXPECT_EQ("café", truncated.get()["request_params"]["q"]);
+    const auto boundary = search("café");
+    ASSERT_TRUE(boundary.ok());
+    EXPECT_EQ(baseline.get()["hits"], boundary.get()["hits"]);
+    const auto wildcard = search("*");
+    ASSERT_TRUE(wildcard.ok());
+    EXPECT_EQ(collection->get_num_documents(), wildcard.get()["found"]);
+}
+
+TEST_F(CollectionTest, MaxQueryLengthCannotBeOverriddenBySearchParameters) {
+    RestoreCollectionQueryLimit restore;
+    Config::get_instance().set_max_query_len("4");
+    ASSERT_TRUE(collection->add(R"({"id":"query-limit","title":"café","points":500})").ok());
+    ASSERT_TRUE(collectionManager.upsert_preset("query-limit-preset", {
+        {"q", "cafézzzzzz"}, {"query_by", "title"}, {"max_query_len", 100}
+    }).ok());
+    const auto run = [&](std::map<std::string, std::string> params, nlohmann::json embedded) {
+        params["collection"] = "collection";
+        params["num_typos"] = "0";
+        params["prefix"] = "false";
+        params["drop_tokens_threshold"] = "0";
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, response, now);
+        if(!op.ok()) {
+            return Option<nlohmann::json>(op.code(), op.error());
+        }
+        return Option<nlohmann::json>(nlohmann::json::parse(response));
+    };
+    for(const std::string limit : {"0", "100"}) {
+        auto request = run({{"q", "cafézzzzzz"}, {"query_by", "title"}, {"max_query_len", limit}},
+                           nlohmann::json::object());
+        ASSERT_TRUE(request.ok()) << request.error();
+        EXPECT_EQ(1, request.get()["found"]);
+        EXPECT_EQ("café", request.get()["request_params"]["q"]);
+        auto scoped = run({{"q", "ignored"}, {"query_by", "title"}},
+                          {{"q", "cafézzzzzz"}, {"max_query_len", limit}});
+        ASSERT_TRUE(scoped.ok()) << scoped.error();
+        EXPECT_EQ(1, scoped.get()["found"]);
+        EXPECT_EQ("café", scoped.get()["request_params"]["q"]);
+    }
+    auto preset = run({{"preset", "query-limit-preset"}}, nlohmann::json::object());
+    ASSERT_TRUE(preset.ok()) << preset.error();
+    EXPECT_EQ(1, preset.get()["found"]);
+    EXPECT_EQ("café", preset.get()["request_params"]["q"]);
+}
+
+namespace {
+class FixedTranscriptVQModel : public VQModel {
+public:
+    explicit FixedTranscriptVQModel(const std::string& transcript, bool fail = false)
+        : VQModel("test/fixed-transcript"), transcript(transcript), fail(fail) {}
+
+    Option<std::string> transcribe(const std::string&) override {
+        if(fail) {
+            return Option<std::string>(422, "transcription failed");
+        }
+        return Option<std::string>(transcript);
+    }
+
+private:
+    std::string transcript;
+    bool fail;
+};
+}
+
+TEST_F(CollectionTest, MaxQueryLengthTruncatesVoiceTranscriptBeforeSearch) {
+    RestoreCollectionQueryLimit restore;
+    auto& config = Config::get_instance();
+    const std::string collection_name = "voice-query-limit-test";
+    auto model = std::make_shared<FixedTranscriptVQModel>("cafézzzz");
+    const std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto collection_op = Collection::new_collection(collection_name, 9001, std::time(nullptr), 0, store, fields,
+                                                    "", 1.0, "", {}, {}, false, model,
+                                                    {}, nlohmann::json::object(), {}, {}, {}, true);
+    ASSERT_TRUE(collection_op.ok()) << collection_op.error();
+    std::unique_ptr<Collection> voice_collection(collection_op.get());
+    ASSERT_TRUE(voice_collection->add(R"({"id":"caf","title":"caf"})").ok());
+    ASSERT_TRUE(voice_collection->add(R"({"id":"cafe","title":"café"})").ok());
+    ASSERT_TRUE(voice_collection->add(R"({"id":"cafez","title":"caféz"})").ok());
+    ASSERT_TRUE(voice_collection->add(R"({"id":"cafezzz","title":"cafézzz"})").ok());
+    ASSERT_TRUE(voice_collection->add(R"({"id":"cafezzzz","title":"cafézzzz"})").ok());
+
+    const auto search = [&](const std::string& voice_query, const std::string& query) {
+        std::map<std::string, std::string> params = {
+            {"q", query}, {"query_by", "title"}, {"voice_query", voice_query},
+            {"num_typos", "0"}, {"prefix", "false"}, {"drop_tokens_threshold", "0"}
+        };
+        collection_search_args_t args;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto init_op = collection_search_args_t::init(params, voice_collection->get_num_documents(), "", now, args);
+        if(!init_op.ok()) {
+            return Option<nlohmann::json>(init_op.code(), init_op.error());
+        }
+        return voice_collection->search(args);
+    };
+
+    for(const auto& test_case : std::vector<std::pair<std::string, std::string>>{
+            {"0", "cafézzzz"}, {"3", "caf"}, {"4", "café"}, {"5", "caféz"},
+            {"7", "cafézzz"}, {"8", "cafézzzz"}, {"9", "cafézzzz"}}) {
+        config.set_max_query_len(test_case.first);
+        const auto voice_result = search("audio", "");
+        ASSERT_TRUE(voice_result.ok()) << voice_result.error();
+        EXPECT_EQ(test_case.second, voice_result.get()["request_params"]["voice_query"]["transcribed_query"]);
+        const auto direct_result = search("", test_case.second);
+        ASSERT_TRUE(direct_result.ok()) << direct_result.error();
+        ASSERT_EQ(1, voice_result.get()["found"]);
+        ASSERT_EQ(1, direct_result.get()["found"]);
+        ASSERT_EQ(1, voice_result.get()["hits"].size());
+        ASSERT_EQ(1, direct_result.get()["hits"].size());
+        EXPECT_EQ(direct_result.get()["hits"][0]["document"]["id"],
+                  voice_result.get()["hits"][0]["document"]["id"]);
+        EXPECT_EQ(direct_result.get()["hits"][0]["text_match"],
+                  voice_result.get()["hits"][0]["text_match"]);
+    }
+
+    auto failing_model = std::make_shared<FixedTranscriptVQModel>("unused", true);
+    auto failing_collection_op = Collection::new_collection(collection_name + "-error", 9002, std::time(nullptr), 0,
+                                                            store, fields, "", 1.0, "", {}, {}, false,
+                                                            failing_model, {}, nlohmann::json::object(), {}, {}, {}, true);
+    ASSERT_TRUE(failing_collection_op.ok()) << failing_collection_op.error();
+    std::unique_ptr<Collection> failing_collection(failing_collection_op.get());
+    collection_search_args_t error_args;
+    std::map<std::string, std::string> error_params = {{"q", ""}, {"query_by", "title"}, {"voice_query", "audio"}};
+    const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    ASSERT_TRUE(collection_search_args_t::init(error_params, 0, "", now, error_args).ok());
+    const auto error_result = failing_collection->search(error_args);
+    ASSERT_FALSE(error_result.ok());
+    EXPECT_EQ(422, error_result.code());
+    EXPECT_EQ("transcription failed", error_result.error());
 }
