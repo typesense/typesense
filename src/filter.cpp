@@ -1101,6 +1101,10 @@ Option<bool> filter::parse_filter_string(const std::string& filter_query, std::s
                               (c != '(' && c != ')' && !(c == '&' && filter_query[index + 1] == '&') &&
                                !(c == '|' && filter_query[index + 1] == '|'))));
 
+    if (inBacktick) {
+        return Option<bool>(400, "Could not parse the filter query: unbalanced backticks.");
+    }
+
     token += filter_query.substr(token_start_index, index - token_start_index);
     return Option<bool>(true);
 }

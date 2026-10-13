@@ -545,8 +545,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
     // We won't surround value in backticks if it already has a backtick in it.
-    ASSERT_EQ("Reference document having `string_field:= Tomaten g`estückelt ` not found in the collection `coll1`.",
-              add_doc_op.error());
+    ASSERT_EQ("Could not parse the filter query: unbalanced backticks.", add_doc_op.error());
 
     doc_json = R"({
                     "ref_string_field": "Tomaten (gestückelt) "
