@@ -83,7 +83,13 @@ public:
 
     bool insert(const std::string& key, const std::string& value);
 
+    // Writes through RocksDB's WAL and waits for it to be synced before returning.
+    bool durable_insert(const std::string& key, const std::string& value);
+
     bool batch_write(rocksdb::WriteBatch& batch);
+
+    // Applies the batch through RocksDB's WAL and waits for it to be synced.
+    bool durable_batch_write(rocksdb::WriteBatch& batch);
 
     bool contains(const std::string& key) const;
 
