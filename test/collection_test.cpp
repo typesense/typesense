@@ -1999,6 +1999,171 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection_for_del");
 }
 
+TEST_F(CollectionTest, PhantomDocStoreSplitBrainRepairedOnReload) {
+    std::string state_dir_path = "/tmp/typesense_test/coll_phantom_split";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    Collection* coll = collectionManager.create_collection("coll_phantom", 1, fields, "").get();
+    ASSERT_NE(nullptr, coll);
+
+    for(size_t i = 1; i <= 5; i++) {
+        nlohmann::json doc;
+        doc["id"] = "d" + std::to_string(i);
+        doc["title"] = "title " + std::to_string(i);
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+    ASSERT_EQ(5, coll->get_num_documents());
+
+    auto seq_id_op = coll->doc_id_to_seq_id("d3");
+    ASSERT_TRUE(seq_id_op.ok());
+    const std::string victim_seq_id_str = std::to_string(seq_id_op.get());
+
+    // drop only d3's doc_id key, leaving its seq_id key orphaned on disk. 
+    // The  durable state a non-atomic remove interrupted by a crash leaves behind.
+    // get_doc_id_key()/get_seq_id_key() are private, so find the keys by scanning:
+    // the "$DI" key whose value is d3's seq_id and the "$SI" key whose doc id is d3.
+    std::string victim_doc_id_key;
+    bool orphan_seq_key_present = false;
+    rocksdb::Iterator* sit = store->get_iterator();
+    for(sit->SeekToFirst(); sit->Valid(); sit->Next()) {
+        const std::string key = sit->key().ToString();
+        if(key.find("$DI") != std::string::npos && sit->value().ToString() == victim_seq_id_str) {
+            victim_doc_id_key = key;
+        }
+        if(key.find("$SI") != std::string::npos) {
+            try {
+                auto stored = nlohmann::json::parse(sit->value().ToString());
+                if(stored.contains("id") && stored["id"] == "d3") {
+                    orphan_seq_key_present = true;
+                }
+            } catch(...) {}
+        }
+    }
+    delete sit;
+    ASSERT_FALSE(victim_doc_id_key.empty());
+    ASSERT_TRUE(orphan_seq_key_present);
+    store->remove(victim_doc_id_key);
+
+    // d3 is now unreachable by id (GET resolves the missing doc_id key first)
+    ASSERT_EQ(404, coll->get("d3").code());
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+    coll = collectionManager.get_collection("coll_phantom").get();
+    ASSERT_NE(nullptr, coll);
+
+    // after reload the two key families must be consistent: either d3's doc_id key
+    // is repaired (count 5) or its orphan seq_id key is dropped (count 4).
+    size_t reachable = 0;
+    for(size_t i = 1; i <= 5; i++) {
+        if(coll->get("d" + std::to_string(i)).ok()) {
+            reachable++;
+        }
+    }
+    ASSERT_EQ(reachable, coll->get_num_documents());
+
+    // every surviving seq_id key must resolve back through a doc_id key
+    const std::string seq_id_prefix = coll->get_seq_id_collection_prefix();
+    std::string upper_bound_key = seq_id_prefix + "`";
+    rocksdb::Slice upper_bound(upper_bound_key);
+    rocksdb::Iterator* it = store->scan(seq_id_prefix, &upper_bound);
+    for(; it->Valid() && it->key().starts_with(seq_id_prefix); it->Next()) {
+        const uint32_t sid = Collection::get_seq_id_from_key(it->key().ToString());
+        nlohmann::json stored = nlohmann::json::parse(it->value().ToString());
+        const std::string id = stored["id"].get<std::string>();
+        auto resolved = coll->doc_id_to_seq_id(id);
+        ASSERT_TRUE(resolved.ok()) << "orphan seq_id key for id '" << id << "' has no doc_id mapping after reload";
+        ASSERT_EQ(sid, resolved.get()) << "doc_id key for id '" << id << "' points to the wrong seq_id after reload";
+    }
+    delete it;
+
+    collectionManager.drop_collection("coll_phantom");
+}
+
+TEST_F(CollectionTest, PhantomDocDuplicateOrphanDroppedOnReload) {
+    std::string state_dir_path = "/tmp/typesense_test/coll_phantom_dup";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    Collection* coll = collectionManager.create_collection("coll_phantom_dup", 1, fields, "").get();
+    ASSERT_NE(nullptr, coll);
+
+    for(size_t i = 1; i <= 5; i++) {
+        nlohmann::json doc;
+        doc["id"] = "d" + std::to_string(i);
+        doc["title"] = "title " + std::to_string(i);
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+    ASSERT_EQ(5, coll->get_num_documents());
+
+    auto seq_id_op = coll->doc_id_to_seq_id("d3");
+    ASSERT_TRUE(seq_id_op.ok());
+    const uint32_t canonical_seq_id = seq_id_op.get();
+
+    // inject a second seq_id key for d3 at a seq_id no doc_id key references, the
+    // residue a crash / seq_id reuse can leave. get_seq_id_key() is private, so
+    // reconstruct it from the public prefix + serializer.
+    const uint32_t orphan_seq_id = 100000;
+    ASSERT_NE(canonical_seq_id, orphan_seq_id);
+    const std::string orphan_seq_key =
+            coll->get_seq_id_collection_prefix() + "_" + StringUtils::serialize_uint32_t(orphan_seq_id);
+    nlohmann::json orphan_doc;
+    orphan_doc["id"] = "d3";
+    orphan_doc["title"] = "orphan";
+    ASSERT_TRUE(store->insert(orphan_seq_key, orphan_doc.dump()));
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+    coll = collectionManager.get_collection("coll_phantom_dup").get();
+    ASSERT_NE(nullptr, coll);
+
+    // the orphan must not be counted, and the store must hold exactly one seq_id
+    // key per id so a full export cannot stream d3 twice
+    ASSERT_EQ(5, coll->get_num_documents());
+
+    const std::string seq_id_prefix = coll->get_seq_id_collection_prefix();
+    std::string upper_bound_key = seq_id_prefix + "`";
+    rocksdb::Slice upper_bound(upper_bound_key);
+    rocksdb::Iterator* it = store->scan(seq_id_prefix, &upper_bound);
+    size_t total_seq_keys = 0;
+    size_t d3_seq_keys = 0;
+    for(; it->Valid() && it->key().starts_with(seq_id_prefix); it->Next()) {
+        total_seq_keys++;
+        nlohmann::json stored = nlohmann::json::parse(it->value().ToString());
+        if(stored.contains("id") && stored["id"] == "d3") {
+            d3_seq_keys++;
+        }
+    }
+    delete it;
+    ASSERT_EQ(1, d3_seq_keys) << "stale orphan seq_id key for d3 still present in the store after reload";
+    ASSERT_EQ(5, total_seq_keys) << "store holds more seq_id keys than unique documents after reload";
+
+    auto d3 = coll->get("d3");
+    ASSERT_TRUE(d3.ok());
+    ASSERT_EQ("title 3", d3.get()["title"].get<std::string>());
+
+    collectionManager.drop_collection("coll_phantom_dup");
+}
+
 TEST_F(CollectionTest, DeletionOfDocumentSingularFields) {
     Collection *coll1;
 
