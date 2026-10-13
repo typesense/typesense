@@ -693,6 +693,43 @@ TEST_F(CollectionNestedFieldsTest, IncludeFieldsSearch) {
     ASSERT_EQ(1, results["hits"][0]["document"]["name"].size());
 }
 
+TEST_F(CollectionNestedFieldsTest, ObjectRootRangeIndexArrayCorrelationAcrossLazyModes) {
+    auto schema = R"({
+        "name": "nested_range_compat",
+        "fields": [
+            {"name": "priority", "type": "int32", "range_index": true},
+            {"name": "offers", "type": "object[]"},
+            {"name": "offers.enabled", "type": "bool[]"},
+            {"name": "offers.price", "type": "int32[]", "range_index": true}
+        ],
+        "enable_nested_fields": true
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto* coll = op.get();
+    for (const auto& doc : {
+            R"({"id":"same","priority":10,"offers":[{"enabled":[true],"price":[20]}]})"_json,
+            R"({"id":"split","priority":10,"offers":[{"enabled":[true],"price":[5]},{"enabled":[false],"price":[20]}]})"_json,
+            R"({"id":"low","priority":5,"offers":[{"enabled":[true],"price":[20]}]})"_json}) {
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+    for (const auto& mode : {std::string(), std::string("false"), std::string("true")}) {
+        std::map<std::string, std::string> params = {
+                {"collection", "nested_range_compat"}, {"q", "*"},
+                {"filter_by", "priority:>=10 && offers.{enabled:true && price:>10}"},
+                {"include_fields", "id,offers"}, {"sort_by", "_seq_id:asc"}};
+        if (!mode.empty()) params["enable_lazy_filter"] = mode;
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto search = collectionManager.do_search(params, embedded_params, json_res, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, result["found"]);
+        ASSERT_EQ("same", result["hits"][0]["document"]["id"]);
+        ASSERT_EQ(1, result["hits"][0]["document"]["offers"].size());
+    }
+}
+
 TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
 
