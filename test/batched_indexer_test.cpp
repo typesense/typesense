@@ -39,6 +39,110 @@ std::shared_ptr<http_res> make_res() {
 
 }  // namespace
 
+TEST(BatchedIndexerTest, PreservesUtf8AcrossSerializedRequestChunks) {
+    const std::string document = R"({"id":"1","title":"before-к-after"})" "\n";
+    const std::string target_character = "к";
+    const size_t character_start = document.find(target_character);
+    ASSERT_NE(std::string::npos, character_start);
+    ASSERT_EQ(2, target_character.size());
+    const size_t split_at = character_start + 1;
+
+    auto first_chunk = std::make_shared<http_req>();
+    first_chunk->start_ts = 1;
+    first_chunk->body = document.substr(0, split_at);
+
+    auto second_chunk = std::make_shared<http_req>();
+    second_chunk->start_ts = 1;
+    second_chunk->body = document.substr(split_at);
+
+    http_req replayed_req;
+    replayed_req.start_ts = 1;
+    replayed_req.load_from_json(first_chunk->to_json());
+    replayed_req.load_from_json(second_chunk->to_json());
+
+    EXPECT_EQ(document, replayed_req.body);
+}
+
+TEST(BatchedIndexerTest, LoadsLegacyUnmarkedRequestBody) {
+    const std::string body = R"({"id":"1","title":"клима"})";
+    const nlohmann::json legacy_entry = {
+        {"route_hash", 0},
+        {"params", nlohmann::json::object()},
+        {"body", body},
+        {"start_ts", 1}
+    };
+
+    http_req replayed_req;
+    replayed_req.start_ts = 1;
+    replayed_req.load_from_json(legacy_entry.dump());
+
+    EXPECT_EQ(body, replayed_req.body);
+}
+
+TEST(BatchedIndexerTest, KeepsValidUtf8BodyAsText) {
+    const std::string body = R"({"id":"1","title":"клима"})";
+    http_req req;
+    req.body = body;
+
+    const auto serialized = nlohmann::json::parse(req.to_json());
+    EXPECT_FALSE(serialized["is_binary_body"].get<bool>());
+    EXPECT_EQ(body, serialized["body"].get<std::string>());
+}
+
+TEST(BatchedIndexerTest, PreservesEveryUtf8CharacterSplit) {
+    for (const std::string character : {"к", "€", "😀"}) {
+        for (size_t split = 1; split < character.size(); ++split) {
+            SCOPED_TRACE(character + " split " + std::to_string(split));
+            // Include fragments smaller than a code point and fragments in JSONL.
+            for (bool tiny : {false, true}) {
+                SCOPED_TRACE(tiny);
+                http_req first;
+                first.body = (tiny ? "" : "{\"title\":\"before-") + character.substr(0, split);
+                http_req second;
+                second.body = character.substr(split) + (tiny ? "" : "-after\"}\n");
+                http_req replayed;
+                replayed.load_from_json(first.to_json());
+                replayed.load_from_json(second.to_json());
+                EXPECT_EQ(first.body + second.body, replayed.body);
+                EXPECT_TRUE(nlohmann::json::parse(first.to_json())["is_binary_body"].get<bool>());
+                EXPECT_TRUE(nlohmann::json::parse(second.to_json())["is_binary_body"].get<bool>());
+            }
+        }
+    }
+}
+
+TEST(BatchedIndexerTest, KeepsCompleteUtf8BoundariesAsText) {
+    for (const std::string body : {"", "a", "к", "€", "😀", "кabc€", "😀😀"}) {
+        SCOPED_TRACE(body);
+        http_req req;
+        req.body = body;
+        const auto serialized = nlohmann::json::parse(req.to_json());
+        EXPECT_FALSE(serialized["is_binary_body"].get<bool>());
+        EXPECT_EQ(body, serialized["body"].get<std::string>());
+    }
+}
+
+TEST(BatchedIndexerTest, PreservesInteriorMalformedUtf8) {
+    http_req req;
+    req.body = std::string("before-") + char(0xff) + "-after";
+    const auto serialized = req.to_json();
+    EXPECT_TRUE(nlohmann::json::parse(serialized)["is_binary_body"].get<bool>());
+    http_req replayed;
+    replayed.load_from_json(serialized);
+    EXPECT_EQ(req.body, replayed.body);
+}
+
+TEST(BatchedIndexerTest, PreservesBinaryRequestBody) {
+    http_req req;
+    req.is_binary_body = true;
+    req.body = std::string("\0\xff\xd0", 3);
+    const auto serialized = req.to_json();
+    EXPECT_TRUE(nlohmann::json::parse(serialized)["is_binary_body"].get<bool>());
+    http_req replayed;
+    replayed.load_from_json(serialized);
+    EXPECT_EQ(req.body, replayed.body);
+}
+
 class BatchedIndexerAliasTest : public ::testing::Test {
 protected:
     std::atomic<bool> quit{false};
