@@ -46,9 +46,51 @@ jobs:
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
+          disk-cache: false
           repository-cache: true
           external-cache: true
+          bazelrc: build --disk_cache=${{ runner.temp }}/bazel-disk
+
+      # prs restore their own newest entry first, then the base and default branch ones.
+      # only default-branch pushes write entries other prs can read
+      - name: Compute disk cache keys
+        id: disk-cache
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SHA: ${{ github.sha }}
+        run: |
+          prefix="bazel-disk-1"
+          if [ "$EVENT" = "pull_request" ]; then
+            own="$prefix-pr-$PR_NUMBER-"
+            fallbacks=("$prefix-$BASE_BRANCH-" "$prefix-$DEFAULT_BRANCH-")
+            save=true
+          else
+            own="$prefix-$BRANCH-"
+            fallbacks=("$prefix-$DEFAULT_BRANCH-")
+            save=$([ "$BRANCH" = "$DEFAULT_BRANCH" ] && echo true || echo false)
+          fi
+
+          {
+            echo "key=$own$SHA"
+            echo "save=$save"
+            echo "restore-keys<<EOF"
+            printf '%s\n' "$own" "${fallbacks[@]}" | awk '!seen[$0]++'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore disk cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/bazel-disk
+          key: ${{ steps.disk-cache.outputs.key }}
+          restore-keys: ${{ steps.disk-cache.outputs.restore-keys }}
+
+      - name: Mark disk cache state
+        run: touch "$RUNNER_TEMP/disk-cache-marker"
 
       - name: Build protobuf deps
         run: |
@@ -65,6 +107,22 @@ jobs:
 
       - name: Run tests
         run: bazel test --cache_test_results=no --test_output=all //:typesense-test --test_timeout=900
+
+      # skip saving when every action was a cache hit
+      - name: Check for new disk cache entries
+        id: disk-cache-changed
+        if: ${{ !cancelled() && steps.disk-cache.outputs.save == 'true' }}
+        run: |
+          if find "$RUNNER_TEMP/bazel-disk" -newer "$RUNNER_TEMP/disk-cache-marker" -type f -print -quit 2>/dev/null | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save disk cache
+        if: ${{ !cancelled() && steps.disk-cache-changed.outputs.changed == 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/bazel-disk
+          key: ${{ steps.disk-cache.outputs.key }}
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - name: Set BAZEL_BIN_FULL_PATH
@@ -86,6 +144,25 @@ jobs:
           name: test-logs
           path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
         if: failure()
+
+  # keep the two newest default-branch disk caches so per-commit entries don't fill the quota
+  prune-disk-cache:
+    needs: test
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete older default-branch disk caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh cache list --ref "refs/heads/$BRANCH" --key "bazel-disk-1-$BRANCH-" \
+            --sort created_at --order desc --limit 100 --json id --jq '.[2:][].id' \
+            | xargs -r -n1 gh cache delete
 
   api-tests:
     needs: test
