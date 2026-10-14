@@ -53,6 +53,8 @@ private:
 
     bool do_transliterate = true;  //should pass false for stopwords
 
+    size_t append_unicode(const std::string& input, size_t offset, std::string& output);
+
     inline size_t get_stream_mode(char c) {
         return (std::isalnum(c) || index_symbols[uint8_t(c)] == 1) ? INDEX : (
             (c == ' ' || c == '\n' || separator_symbols[uint8_t(c)] == 1) ? SEPARATE : SKIP
@@ -99,6 +101,9 @@ public:
     bool should_skip_char(char c);
 
     static std::string normalize_ascii_no_spaces(const std::string& text);
+
+    // Normalize dictionary spellings without splitting tokens or changing ASCII punctuation.
+    std::string normalize_stemming_dictionary_word(const std::string& word);
 
     static bool has_word_tokenizer(const std::string& locale);
 };

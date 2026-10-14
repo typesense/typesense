@@ -3541,6 +3541,221 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     ASSERT_EQ(0, results["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryAccentedKeysAndRoots) {
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("accented", {
+        R"({"word":"mjólkina","root":"mjólk"})",
+        R"({"word":"peysum","root":"peysa"})"
+    }).ok());
+
+    for (const std::string locale : {"", "en", "de_en", "is"}) {
+        auto schema = R"({"name":"accented","fields":[{"name":"title","type":"string","stem_dictionary":"accented"},{"name":"tags","type":"string[]","stem_dictionary":"accented"}]})"_json;
+        schema["name"] = "accented_" + locale;
+        for (auto& field : schema["fields"]) field["locale"] = locale;
+        auto op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        auto coll = op.get();
+        ASSERT_TRUE(coll->add(R"({"id":"root","title":"mjólk","tags":["mjólk"]})").ok());
+        ASSERT_TRUE(coll->add(R"({"id":"form","title":"mjólkina","tags":["mjólkina"]})").ok());
+        ASSERT_TRUE(coll->add(R"({"id":"ascii","title":"peysa","tags":["peysa"]})").ok());
+        for (const std::string query : {"mjólkina", "mjólk", "mjolkina", "mjolk"}) {
+            auto result = coll->search(query, {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+            ASSERT_TRUE(result.ok());
+            const bool unaccented = query == "mjolkina" || query == "mjolk";
+            ASSERT_EQ(locale == "is" && unaccented ? 0 : 2, result.get()["found"]) << locale << " " << query;
+        }
+        ASSERT_EQ(1, coll->search("peysum", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get()["found"]);
+        ASSERT_EQ(2, coll->search("mjólkina", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get()["found"]);
+        auto highlighted = coll->search("mjólkina", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+        ASSERT_EQ("<mark>mjólkina</mark>", find_doc_by_id(highlighted, "form")["highlights"][0]["snippet"]);
+        ASSERT_TRUE(coll->remove("form").ok());
+        ASSERT_EQ(1, coll->search("mjólkina", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get()["found"]);
+        ASSERT_TRUE(coll->add(R"({"id":"root","title":"peysa","tags":["peysa"]})", UPDATE).ok());
+        ASSERT_EQ(0, coll->search("mjólkina", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get()["found"]);
+        ASSERT_EQ(0, coll->search("mjólkina", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get()["found"]);
+    }
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionarySynonymsAndTokenDropping) {
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("search_paths", {
+        R"({"word":"mjólkina","root":"mjólk"})"
+    }).ok());
+    auto& synonyms = SynonymIndexManager::get_instance();
+    synonyms.init_store(store);
+    for (const std::string locale : {"", "en", "de_en", "is"}) {
+        SCOPED_TRACE(locale);
+        const std::string name = "search_paths_" + locale;
+        ASSERT_TRUE(synonyms.add_synonym_index(name).ok());
+        auto synonym = R"({"id":"drink","root":"drink","synonyms":["mjólkina"]})"_json;
+        synonym["locale"] = locale;
+        ASSERT_TRUE(synonyms.upsert_synonym_item(name, synonym).ok());
+        auto schema = R"({"name":"search_paths","fields":[{"name":"title","type":"string","stem_dictionary":"search_paths"}]})"_json;
+        schema["name"] = name;
+        schema["fields"][0]["locale"] = locale;
+        schema["synonym_sets"] = {name};
+        auto op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        ASSERT_TRUE(op.get()->add(R"({"id":"form","title":"mjólkina"})").ok());
+        for (const std::string query : {"mjólkina", "drink", "mjólkina absent", "absent mjólkina"}) {
+            SCOPED_TRACE(query);
+            auto result = op.get()->search(query, {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                                          {false}, query.find("absent") != std::string::npos ? 1 : 0);
+            ASSERT_TRUE(result.ok());
+            EXPECT_EQ(1, result.get()["found"]);
+        }
+    }
+    synonyms.dispose();
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryLiveImportsUpdateExistingStemmer) {
+    Stemmer stemmer("english", "live_imports");
+    EXPECT_EQ("cafe", stemmer.stem("cafe", true));
+    EXPECT_EQ("café", stemmer.stem("café"));
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"café","root":"milk"})"
+    }).ok());
+    EXPECT_EQ("milk", stemmer.stem("cafe", true));
+    EXPECT_EQ("milk", stemmer.stem("café"));
+    EXPECT_EQ("cafe", stemmer.stem("cafe"));
+    Stemmer collision_stemmer("english", "live_imports");
+    EXPECT_EQ("milk", collision_stemmer.stem("cafe", true));
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"cafè","root":"bread"})"
+    }).ok());
+    EXPECT_EQ("cafe", stemmer.stem("cafe", true));
+    EXPECT_EQ("cafe", collision_stemmer.stem("cafe", true));
+    EXPECT_EQ("milk", stemmer.stem("café"));
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"cafe","root":"tea"})"
+    }).ok());
+    EXPECT_EQ("tea", stemmer.stem("cafe", true));
+    EXPECT_EQ("tea", collision_stemmer.stem("cafe", true));
+    EXPECT_EQ("tea", stemmer.stem("cafe"));
+    ASSERT_TRUE(stemmerManager.del_stemming_dictionary("live_imports").ok());
+    EXPECT_EQ("cafe", stemmer.stem("cafe", true));
+    EXPECT_EQ("café", stemmer.stem("café"));
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"café","root":"coffee"})"
+    }).ok());
+    EXPECT_EQ("coffee", stemmer.stem("cafe", true));
+    EXPECT_EQ("coffee", stemmer.stem("café"));
+
+    // The ASCII fast path preserves exact-spelling precedence in either import order.
+    for (bool reverse : {false, true}) {
+        const std::string id = reverse ? "identity_reverse" : "identity_forward";
+        std::vector<std::string> entries = {
+            R"({"word":"café","root":"milk"})",
+            R"({"word":"cafè","root":"bread"})",
+            R"({"word":"cafe","root":"tea"})"
+        };
+        if (reverse) std::reverse(entries.begin(), entries.end());
+        ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary(id, entries).ok());
+        EXPECT_EQ("tea", stemmerManager.get_normalized_word(id, "cafe", true));
+        EXPECT_EQ("milk", stemmerManager.get_normalized_word(id, "café"));
+    }
+
+    // Existing import behavior retains valid entries before a later malformed line.
+    auto partial_import = stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"cafè","root":"bread"})", "invalid json"
+    });
+    ASSERT_FALSE(partial_import.ok());
+    EXPECT_EQ("cafe", stemmer.stem("cafe", true));
+    EXPECT_EQ("coffee", stemmer.stem("café"));
+    stemmerManager.delete_all_stemming_dictionaries();
+    EXPECT_EQ("café", stemmer.stem("café"));
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("live_imports", {
+        R"({"word":"cafe","root":"tea"})"
+    }).ok());
+    EXPECT_EQ("tea", stemmer.stem("cafe", true));
+    stemmerManager.dispose();
+    EXPECT_EQ("cafe", stemmer.stem("cafe", true));
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryFoldedCollisionsAndReload) {
+    const std::vector<std::string> entries = {
+        R"({"word":"café","root":"milk"})",
+        R"({"word":"cafè","root":"bread"})",
+        R"({"word":"cafe","root":"té"})",
+        R"({"word":"résumé","root":"résult"})",
+        R"({"word":"resumé","root":"result"})",
+        R"({"word":"pâté","root":"food"})",
+        R"({"word":"paté","root":"paste"})"
+    };
+    for (bool reverse : {false, true}) {
+        auto ordered = entries;
+        if (reverse) std::reverse(ordered.begin(), ordered.end());
+        const std::string id = reverse ? "folded_reverse" : "folded_forward";
+        // Import each entry separately to exercise incremental collision bookkeeping.
+        for (const auto& entry : ordered) {
+            ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary(id, {entry}).ok());
+        }
+        ASSERT_EQ("te", stemmerManager.get_normalized_word(id, "cafe", true));
+        ASSERT_EQ("result", stemmerManager.get_normalized_word(id, "resume", true));
+        ASSERT_EQ("", stemmerManager.get_normalized_word(id, "pate", true));
+        ASSERT_EQ("milk", stemmerManager.get_normalized_word(id, "café"));
+        ASSERT_EQ("bread", stemmerManager.get_normalized_word(id, "cafè"));
+        ASSERT_EQ("té", stemmerManager.get_normalized_word(id, "cafe"));
+        Stemmer stemmer("english", id);
+        ASSERT_EQ("pate", stemmer.stem("pate", true));
+        ASSERT_EQ("te", stemmer.stem("cafe", true));
+        ASSERT_EQ("té", stemmer.stem("cafe"));
+    }
+
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/collection_specific_more");
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    for (const std::string id : {"folded_forward", "folded_reverse"}) {
+        ASSERT_EQ("te", stemmerManager.get_normalized_word(id, "cafe", true));
+        ASSERT_EQ("result", stemmerManager.get_normalized_word(id, "resume", true));
+        ASSERT_EQ("", stemmerManager.get_normalized_word(id, "pate", true));
+        nlohmann::json dictionary;
+        ASSERT_TRUE(stemmerManager.get_stemming_dictionary(id, dictionary));
+        std::map<std::string, std::string> original;
+        for (const auto& entry : dictionary["words"]) {
+            original.emplace(entry["word"].get<std::string>(), entry["root"].get<std::string>());
+        }
+        ASSERT_EQ(entries.size(), original.size());
+        ASSERT_EQ("milk", original["café"]);
+        ASSERT_EQ("té", original["cafe"]);
+        ASSERT_EQ("résult", original["résumé"]);
+        ASSERT_TRUE(stemmerManager.del_stemming_dictionary(id).ok());
+        ASSERT_EQ("", stemmerManager.get_normalized_word(id, "resume", true));
+        ASSERT_EQ("", stemmerManager.get_normalized_word(id, "résumé"));
+    }
+}
+
+TEST_F(CollectionSpecificMoreTest, StemmingDictionaryRestartReindexesExistingDocuments) {
+    auto schema = R"({"name":"upgrade","fields":[{"name":"title","type":"string","stem_dictionary":"upgrade"}]})"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    // Without an entry, indexing emits mjolkina, as the old accented-key miss path did.
+    ASSERT_TRUE(op.get()->add(R"({"id":"form","title":"mjólkina"})").ok());
+    ASSERT_TRUE(op.get()->add(R"({"id":"root","title":"mjólk"})").ok());
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("upgrade", {
+        R"({"word":"mjólkina","root":"mjólk"})"
+    }).ok());
+
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/collection_specific_more");
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    auto coll = collectionManager.get_collection("upgrade");
+    ASSERT_NE(nullptr, coll.get());
+    for (const std::string query : {"mjólkina", "mjolkina", "mjólk", "mjolk"}) {
+        auto result = coll->search(query, {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+        ASSERT_TRUE(result.ok());
+        ASSERT_EQ(2, result.get()["found"]) << query;
+    }
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     stemmerManager.delete_all_stemming_dictionaries();
 
