@@ -1,5 +1,6 @@
 #include "system_metrics.h"
 
+#include <cstdio>
 #include <sys/resource.h>
 #include <sys/statvfs.h>
 #if __linux__
@@ -25,6 +26,60 @@
 #endif
 #endif
 
+#ifndef ASAN_BUILD
+namespace {
+// Called after refreshing epoch. Failed reads are omitted, not reported as zero.
+void get_jemalloc_diagnostics(nlohmann::json& result, int epoch_error) {
+    const std::string prefix = "typesense_jemalloc_";
+    unsigned errors = 0;
+    if(epoch_error != 0) {
+        result[prefix + "stats_read_errors"] = "1";
+        return;
+    }
+    auto read = [&](const std::string& name, auto& value) {
+        size_t size = sizeof(value);
+        const int error = impl_mallctl(name.c_str(), &value, &size, nullptr, 0);
+        if(error != 0) {
+            ++errors;
+        }
+        return error == 0;
+    };
+    auto emit = [&](const std::string& name, const std::string& key, auto value) {
+        if(read(name, value)) {
+            result[prefix + key] = std::to_string(value);
+        }
+    };
+    emit("background_thread", "background_thread_enabled", false);
+    emit("stats.background_thread.num_threads", "background_thread_num_threads", size_t{0});
+    emit("stats.background_thread.num_runs", "background_thread_num_runs", uint64_t{0});
+    emit("arenas.page", "page_size", size_t{0});
+    const auto merged = "stats.arenas." + std::to_string(MALLCTL_ARENAS_ALL) + ".";
+    emit(merged + "pdirty", "dirty_pages", size_t{0});
+    emit(merged + "pmuzzy", "muzzy_pages", size_t{0});
+    emit(merged + "dirty_purged", "dirty_purged_pages", uint64_t{0});
+    emit(merged + "muzzy_purged", "muzzy_purged_pages", uint64_t{0});
+
+    unsigned narenas = 0;
+    if(read("arenas.narenas", narenas)) {
+        for(unsigned i = 0; i < narenas; ++i) {
+            const auto arena = "arena." + std::to_string(i) + ".";
+            bool initialized = false;
+            if(!read(arena + "initialized", initialized) || !initialized) {
+                continue;
+            }
+            const auto key = "arena_" + std::to_string(i) + "_";
+            emit(arena + "dirty_decay_ms", key + "dirty_decay_ms", ssize_t{0});
+            emit(arena + "muzzy_decay_ms", key + "muzzy_decay_ms", ssize_t{0});
+            const auto stats = "stats.arenas." + std::to_string(i) + ".";
+            emit(stats + "pdirty", key + "dirty_pages", size_t{0});
+            emit(stats + "pmuzzy", key + "muzzy_pages", size_t{0});
+        }
+    }
+    result[prefix + "stats_read_errors"] = std::to_string(errors);
+}
+}
+#endif
+
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
@@ -36,7 +91,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     // MEMORY METRICS
 
-    size_t sz, active = 1, allocated = 1, resident, metadata, mapped, retained;
+    size_t sz, active = 1, allocated = 1, resident = 0, metadata = 0, mapped = 0, retained = 0;
     sz = sizeof(size_t);
     uint64_t epoch = 1;
 
@@ -44,7 +99,8 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     // See: http://jemalloc.net/jemalloc.3.html#stats.active
 
     impl_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
-    impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    size_t epoch_size = sizeof(epoch);
+    const int epoch_error = impl_mallctl("epoch", &epoch, &epoch_size, &epoch, sizeof(epoch));
 
     impl_mallctl("stats.active", &active, &sz, nullptr, 0);
     impl_mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
@@ -52,11 +108,12 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     impl_mallctl("stats.metadata", &metadata, &sz, nullptr, 0);
     impl_mallctl("stats.mapped", &mapped, &sz, nullptr, 0);
     impl_mallctl("stats.retained", &retained, &sz, nullptr, 0);
+    get_jemalloc_diagnostics(result, epoch_error);
 #endif
 
     result["typesense_memory_active_bytes"] = std::to_string(active);
     result["typesense_memory_allocated_bytes"] = std::to_string(allocated);
-    result["typesense_memory_resident_bytes"] = std::to_string(active);
+    result["typesense_memory_resident_bytes"] = std::to_string(resident);
     result["typesense_memory_metadata_bytes"] = std::to_string(metadata);
     result["typesense_memory_mapped_bytes"] = std::to_string(mapped);
     result["typesense_memory_retained_bytes"] = std::to_string(retained);
@@ -92,6 +149,80 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 #endif
 }
 
+bool SystemMetrics::get_cgroup_memory(uint64_t& limit_bytes, uint64_t& usage_bytes,
+                                      const std::string& proc_self_cgroup,
+                                      const std::string& cgroup_root) {
+#ifdef __linux__
+    std::ifstream cg_file(proc_self_cgroup);
+    if (!cg_file.is_open()) {
+        return false;
+    }
+
+    std::string v2_rel_path, v1_rel_path;
+    std::string line;
+    while (std::getline(cg_file, line)) {
+        if (line.rfind("0::", 0) == 0) {
+            // cgroups v2 unified hierarchy: "0::<path>"
+            v2_rel_path = line.substr(3);
+        } else {
+            // cgroups v1: "<id>:<controllers>:<path>"
+            auto first = line.find(':');
+            if (first != std::string::npos) {
+                auto second = line.find(':', first + 1);
+                if (second != std::string::npos) {
+                    std::string controllers = line.substr(first + 1, second - first - 1);
+                    if (controllers.find("memory") != std::string::npos) {
+                        v1_rel_path = line.substr(second + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    // cgroups v2: memory.max + memory.current
+    if (!v2_rel_path.empty()) {
+        std::string base = cgroup_root + v2_rel_path;
+        std::ifstream max_file(base + "/memory.max");
+        if (max_file.is_open()) {
+            std::string val;
+            if ((max_file >> val) && val != "max") {
+                std::ifstream curr_file(base + "/memory.current");
+                if (curr_file.is_open()) {
+                    uint64_t current = 0;
+                    if (curr_file >> current) {
+                        limit_bytes = std::stoull(val);
+                        usage_bytes = current;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // cgroups v1: memory.limit_in_bytes + memory.usage_in_bytes
+    // The unlimited sentinel is 0x7FFFFFFFFFFFF000 (~9.2EB); treat anything above 1EB as unlimited.
+    if (!v1_rel_path.empty()) {
+        std::string base = cgroup_root + "/memory" + v1_rel_path;
+        std::ifstream lf(base + "/memory.limit_in_bytes");
+        if (lf.is_open()) {
+            uint64_t limit = 0;
+            if ((lf >> limit) && limit < (1ULL << 60)) {
+                std::ifstream uf(base + "/memory.usage_in_bytes");
+                if (uf.is_open()) {
+                    uint64_t usage = 0;
+                    if (uf >> usage) {
+                        limit_bytes = limit;
+                        usage_bytes = usage;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+#endif
+    return false;
+}
+
 uint64_t SystemMetrics::get_memory_total_bytes() {
     uint64_t memory_total_bytes = 0;
 
@@ -100,6 +231,10 @@ uint64_t SystemMetrics::get_memory_total_bytes() {
     uint64_t page_size = sysconf(_SC_PAGE_SIZE);
     memory_total_bytes = (pages * page_size);
 #elif __linux__
+    uint64_t cgroup_limit = 0, cgroup_usage = 0;
+    if (SystemMetrics::get_cgroup_memory(cgroup_limit, cgroup_usage)) {
+        return cgroup_limit;
+    }
     struct sysinfo sys_info;
     sysinfo(&sys_info);
     memory_total_bytes = sys_info.totalram;
@@ -129,29 +264,39 @@ uint64_t SystemMetrics::get_memory_used_bytes() {
         memory_used_bytes = ((int64_t)(vm_stats.active_count + vm_stats.wire_count) * (int64_t)mach_page_size);
     }
 #elif __linux__
-    // (Used_System_Memory + Used_Swap_Memory) - Unused_memory  < Total System_Memory
-    /* (Used_System_Memory + Used_Swap_Memory)  is the total memory usage as per system metrics. However, some part
-     * of this memory is actually memory that jemalloc has reserved but not using. So for actual memory usage we have
-     * to subtract that unused memory. This will then give the accurate memory usage.
-     */
+    // Prefer cgroup-scoped usage so the memory guard works correctly in containers.
+    // Without this, sysinfo()/proc/meminfo report node-level memory and the guard
+    // never fires because the node always has plenty of free RAM even when the
+    // container itself is near its limit.
+    uint64_t cgroup_limit = 0, cgroup_usage = 0;
+    if (SystemMetrics::get_cgroup_memory(cgroup_limit, cgroup_usage)) {
+        return cgroup_usage;
+    }
 
     uint64_t memory_total_bytes = 0;
     uint64_t memory_available_bytes = 0;
-
     uint64_t swap_total_bytes = 0;
     uint64_t swap_free_bytes = 0;
 
     SystemMetrics::get_instance().get_proc_meminfo(memory_total_bytes, memory_available_bytes, swap_total_bytes, swap_free_bytes);
 
-    // Calculate sum of RAM + SWAP used as all_memory_used
     memory_used_bytes = (memory_total_bytes - memory_available_bytes) + (swap_total_bytes - swap_free_bytes);
-
-    // add back memory that jemalloc has reserved, is unused and has not been returned to OS
-    //memory_used_bytes -= SystemMetrics::get_instance().get_cached_jemalloc_unused_memory();
 
 #endif
 
     return memory_used_bytes;
+}
+
+bool SystemMetrics::purge_jemalloc_unused_memory() {
+#if defined(__linux__) && !defined(ASAN_BUILD)
+    char purge_command[32];
+    const int length = std::snprintf(purge_command, sizeof(purge_command),
+                                     "arena.%u.purge", MALLCTL_ARENAS_ALL);
+    return length > 0 && static_cast<size_t>(length) < sizeof(purge_command) &&
+           impl_mallctl(purge_command, nullptr, nullptr, nullptr, 0) == 0;
+#else
+    return false;
+#endif
 }
 
 mallctl_stats_t SystemMetrics::get_cached_mallctl_stats() {

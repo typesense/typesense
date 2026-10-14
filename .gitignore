@@ -20,3 +20,4 @@ typesense-data
 /dist
 /tmp
 *.tar.gz
+.codex

@@ -1,6 +1,9 @@
 #include "http_client.h"
 #include "file_utils.h"
 #include "logger.h"
+#include <condition_variable>
+#include <mutex>
+#include <strings.h>
 #include <vector>
 #include <json.hpp>
 #include "http_data.h"
@@ -17,6 +20,193 @@ struct client_state_t: public req_state_t {
 };
 
 namespace {
+    // Pool state and handle admission are protected by curl_pool_mutex(). Once closed,
+    // existing handles may finish, but no new handles can be acquired.
+    bool& curl_pool_alive() {
+        static bool alive = true;
+        return alive;
+    }
+
+    // handles are leased exclusively and come back reset with their connections, dns entries
+    // and tls sessions intact. lifo reuse keeps the warmest connections in rotation. libcurl
+    // cannot share a connection cache across threads, only dns and tls sessions ride the share
+    // object below. the streaming and sse paths keep their own short lived handles
+    constexpr size_t CURL_POOL_MAX_IDLE = 32;
+
+    // heap allocated and never destroyed, late exiting threads still release through these
+    std::mutex& curl_pool_mutex() {
+        static std::mutex* mutex = new std::mutex();
+        return *mutex;
+    }
+
+    std::condition_variable& curl_pool_drained() {
+        static std::condition_variable* drained = new std::condition_variable();
+        return *drained;
+    }
+
+    std::vector<CURL*>& curl_idle_handles() {
+        static std::vector<CURL*>* handles = new std::vector<CURL*>();
+        return *handles;
+    }
+
+    // handles currently in use by some thread, pooled or not. parked idle handles are not
+    // counted here, shutdown drains those directly
+    size_t& curl_live_handles() {
+        static size_t* live = new size_t(0);
+        return *live;
+    }
+
+    void finish_curl_handle() {
+        std::lock_guard<std::mutex> lock(curl_pool_mutex());
+        if(--curl_live_handles() == 0) {
+            curl_pool_drained().notify_all();
+        }
+    }
+
+    thread_local http_transfer_metrics_t last_transfer_metrics;
+    thread_local uint64_t transfer_count = 0;
+
+    std::mutex& curl_share_mutex_for(curl_lock_data data) {
+        // heap allocated and never destroyed, late exiting threads still unlock through these
+        static std::mutex* locks = new std::mutex[CURL_LOCK_DATA_LAST];
+        return locks[data < CURL_LOCK_DATA_LAST ? data : CURL_LOCK_DATA_NONE];
+    }
+
+    void curl_share_lock(CURL* handle, curl_lock_data data, curl_lock_access access, void* userptr) {
+        curl_share_mutex_for(data).lock();
+    }
+
+    void curl_share_unlock(CURL* handle, curl_lock_data data, void* userptr) {
+        curl_share_mutex_for(data).unlock();
+    }
+
+    CURLSH* create_curl_share() {
+        CURLSH* share = curl_share_init();
+        if(share == nullptr) {
+            return nullptr;
+        }
+
+        curl_share_setopt(share, CURLSHOPT_LOCKFUNC, curl_share_lock);
+        curl_share_setopt(share, CURLSHOPT_UNLOCKFUNC, curl_share_unlock);
+        // only dns and tls sessions are safe to share across threads,
+        // CURL_LOCK_DATA_CONNECT is deliberately absent
+        curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+        curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+        return share;
+    }
+
+    CURLSH* get_curl_share() {
+        static CURLSH* share = create_curl_share();
+        return share;
+    }
+
+    // every curl_easy_init in this file goes through here, the count rises before the handle
+    // exists so shutdown's drain can never observe a handle it has not counted
+    CURL* curl_easy_init_tracked() {
+        {
+            std::lock_guard<std::mutex> lock(curl_pool_mutex());
+            if(!curl_pool_alive()) {
+                return nullptr;
+            }
+            curl_live_handles()++;
+        }
+
+        CURL* curl = curl_easy_init();
+        if(curl == nullptr) {
+            finish_curl_handle();
+        }
+
+        return curl;
+    }
+
+    void curl_easy_cleanup_tracked(CURL* curl, curl_slist* headers = nullptr) {
+        if(curl == nullptr) {
+            return;
+        }
+
+        // Shutdown waits for this count, including cleanup and its socket callbacks.
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+        finish_curl_handle();
+    }
+
+    CURL* lease_pooled_curl() {
+        {
+            std::lock_guard<std::mutex> lock(curl_pool_mutex());
+            if(!curl_pool_alive()) {
+                return nullptr;
+            }
+            auto& idle = curl_idle_handles();
+            if(!idle.empty()) {
+                CURL* curl = idle.back();
+                idle.pop_back();
+                curl_live_handles()++;
+                return curl;
+            }
+        }
+
+        CURL* curl = curl_easy_init_tracked();
+        if(curl != nullptr) {
+            CURLSH* share = get_curl_share();
+            if(share != nullptr) {
+                // attached once for the handle's lifetime, curl_easy_reset keeps the share binding
+                curl_easy_setopt(curl, CURLOPT_SHARE, share);
+            }
+        }
+
+        return curl;
+    }
+
+    void release_pooled_curl(CURL* curl) {
+        if(curl == nullptr) {
+            return;
+        }
+
+        // clears every option but keeps live connections, the dns cache, tls sessions and the share
+        curl_easy_reset(curl);
+
+        bool pooled = false;
+        {
+            std::lock_guard<std::mutex> lock(curl_pool_mutex());
+            if(curl_pool_alive() && curl_idle_handles().size() < CURL_POOL_MAX_IDLE) {
+                curl_idle_handles().push_back(curl);
+                pooled = true;
+            }
+        }
+
+        if(!pooled) {
+            curl_easy_cleanup(curl);
+        }
+
+        finish_curl_handle();
+    }
+
+    void capture_transfer_metrics(CURL* curl) {
+        http_transfer_metrics_t metrics;
+        curl_off_t usec = 0;
+        if(curl_easy_getinfo(curl, CURLINFO_NAMELOOKUP_TIME_T, &usec) == CURLE_OK) {
+            metrics.namelookup_ms = usec / 1000.0;
+        }
+        if(curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME_T, &usec) == CURLE_OK) {
+            metrics.connect_ms = usec / 1000.0;
+        }
+        if(curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME_T, &usec) == CURLE_OK) {
+            metrics.appconnect_ms = usec / 1000.0;
+        }
+        if(curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME_T, &usec) == CURLE_OK) {
+            metrics.starttransfer_ms = usec / 1000.0;
+        }
+        if(curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME_T, &usec) == CURLE_OK) {
+            metrics.total_ms = usec / 1000.0;
+        }
+        long num_connects = 0;
+        if(curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &num_connects) == CURLE_OK) {
+            metrics.num_connects = num_connects;
+        }
+        last_transfer_metrics = metrics;
+        transfer_count++;
+    }
+
     long get_curl_failure_status_code(CURLcode res_code) {
         return res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
     }
@@ -82,6 +272,47 @@ namespace {
     }
 }
 
+void HttpClient::shutdown_curl_pool() {
+    std::unique_lock<std::mutex> lock(curl_pool_mutex());
+    curl_pool_alive() = false;
+
+    // A deadline cannot make curl_global_cleanup safe: every admitted handle must
+    // finish using libcurl first. Waiting releases the mutex so transfers can return.
+    curl_pool_drained().wait(lock, [] { return curl_live_handles() == 0; });
+
+    // Keep concurrent shutdown callers from returning before idle cleanup finishes.
+    for(CURL* curl : curl_idle_handles()) {
+        curl_easy_cleanup(curl);
+    }
+    curl_idle_handles().clear();
+}
+
+http_transfer_metrics_t HttpClient::get_last_transfer_metrics() {
+    return last_transfer_metrics;
+}
+
+uint64_t HttpClient::get_transfer_count() {
+    return transfer_count;
+}
+
+size_t HttpClient::get_idle_handle_count() {
+    std::lock_guard<std::mutex> lock(curl_pool_mutex());
+    return curl_idle_handles().size();
+}
+
+size_t HttpClient::get_live_handle_count() {
+    std::lock_guard<std::mutex> lock(curl_pool_mutex());
+    return curl_live_handles();
+}
+
+CURL* HttpClient::lease_handle_for_test() {
+    return lease_pooled_curl();
+}
+
+void HttpClient::release_handle_for_test(CURL* curl) {
+    release_pooled_curl(curl);
+}
+
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
                                std::map<std::string, std::string>& res_headers,
                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
@@ -118,6 +349,10 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
 
     CURL *curl = init_curl_stream(url, response, timeout_ms, ssl_verify_mode);
     if(curl == nullptr) {
+        // the proxy waits on this flag before reading chunks, bailing without it hangs the caller
+        std::unique_lock<std::mutex> lock(response.mutex);
+        response.ready = true;
+        response.cv.notify_one();
         return 500;
     }
 
@@ -142,8 +377,7 @@ long HttpClient::post_response_stream(const std::string &url, const std::string 
             status_code = res_code == CURLE_OPERATION_TIMEDOUT ? 408 : 500;
         }
     }
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return status_code;
 }
@@ -188,8 +422,7 @@ long HttpClient::post_response_sse(const std::string &url, const std::string &bo
             fail_sse_response(req_res, status_code, get_curl_failure_response_body(status_code));
         }
     }
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return status_code;
 }
@@ -216,9 +449,7 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
 
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-
-    curl_slist_free_all(chunk);
+    curl_easy_cleanup_tracked(curl, chunk);
 
     return 0;
 }
@@ -327,42 +558,23 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
     CURLcode res = curl_easy_perform(curl);
+    capture_transfer_metrics(curl);
 
-    if (res != CURLE_OK) {
-        char* url = nullptr;
-        char *method = nullptr;
-
-        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
-        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, &method);
-
-        long status_code = 0;
-
-        if(res == CURLE_OPERATION_TIMEDOUT) {
-            double total_time;
-            curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
-            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", method: " << method << ", url: " << url;
-            status_code = 408;
-        } else {
-            LOG(ERROR) << "CURL failed. Code: " << res << ", strerror: " << curl_easy_strerror(res)
-                       << ", method: " << method << ", url: " << url;
-            status_code = 500;
-        }
-
-        curl_easy_cleanup(curl);
-        curl_slist_free_all(chunk);
-
-        return status_code;
+    long status_code;
+    if(res != CURLE_OK) {
+        log_curl_failure(curl, res);
+        status_code = get_curl_failure_status_code(res);
+    } else {
+        long http_code = 500;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        extract_response_headers(curl, res_headers);
+        status_code = http_code == 0 ? 500 : http_code;
     }
 
-    long http_code = 500;
-    curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-    extract_response_headers(curl, res_headers);
-
-    curl_easy_cleanup(curl);
     curl_slist_free_all(chunk);
+    release_pooled_curl(curl);
 
-    return http_code == 0 ? 500 : http_code;
+    return status_code;
 }
 
 void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers) {
@@ -553,7 +765,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
 }
 
 void HttpClient::configure_ssl(CURL* curl, const std::string& url, SSLVerifyMode ssl_verify_mode) {
-    if(curl == nullptr || url.compare(0, 8, "https://") != 0) {
+    if(curl == nullptr || url.size() < 8 || strncasecmp(url.c_str(), "https://", 8) != 0) {
         return;
     }
 
@@ -573,16 +785,29 @@ void HttpClient::configure_ssl(CURL* curl, const std::string& url, SSLVerifyMode
     }
 }
 
+static void set_http_version(CURL* curl, const std::string& url) {
+    // curl 8.10 changed prior knowledge over tls to offer only h2 in alpn, breaking
+    // http/1.1-only endpoints. negotiate with fallback on https, keep h2c on plain http
+    if(url.size() >= 8 && strncasecmp(url.c_str(), "https://", 8) == 0) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    }
+}
+
 CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms,
                                    SSLVerifyMode ssl_verify_mode) {
-    CURL* curl = curl_easy_init();
+    CURL* curl = curl_easy_init_tracked();
+    if(curl == nullptr) {
+        return nullptr;
+    }
 
     configure_ssl(curl, url, ssl_verify_mode);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    set_http_version(curl, url);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
@@ -601,7 +826,7 @@ CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response
 CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
                                 deferred_req_res_t* req_res,
                                 SSLVerifyMode ssl_verify_mode) {
-    CURL* curl = curl_easy_init();
+    CURL* curl = curl_easy_init_tracked();
     if(curl == nullptr) {
         return nullptr;
     }
@@ -614,7 +839,7 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    set_http_version(curl, url);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
@@ -628,7 +853,7 @@ CURL *HttpClient::init_curl_sse(const std::string& url, long timeout_ms,
 
 CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
                                   bool send_ts_api_header, SSLVerifyMode ssl_verify_mode) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = curl_easy_init_tracked();
 
     if(curl == nullptr) {
         return nullptr;
@@ -678,7 +903,8 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
 
 CURL *HttpClient::init_curl(const std::string& url, std::string& response, const size_t timeout_ms,
                             SSLVerifyMode ssl_verify_mode) {
-    CURL *curl = curl_easy_init();
+    // perform_curl returns the lease, every successful init_curl needs exactly one perform_curl
+    CURL *curl = lease_pooled_curl();
 
     if(curl == nullptr) {
         nlohmann::json res;
@@ -692,7 +918,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    set_http_version(curl, url);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 
@@ -714,7 +940,7 @@ size_t HttpClient::curl_write_download(void *ptr, size_t size, size_t nmemb, FIL
 
 long HttpClient::download_file(const std::string& url, const std::string& file_path,
                                SSLVerifyMode ssl_verify_mode) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = curl_easy_init_tracked();
     
 
     if(curl == nullptr) {
@@ -725,7 +951,7 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(fp == nullptr) {
         LOG(ERROR) << "Unable to open file for writing: " << file_path;
-        curl_easy_cleanup(curl);
+        curl_easy_cleanup_tracked(curl);
         return -1;
     }
 
@@ -744,14 +970,14 @@ long HttpClient::download_file(const std::string& url, const std::string& file_p
 
     if(res_code != CURLE_OK) {
         LOG(ERROR) << "Unable to download file: " << url << " to " << file_path << " - " << curl_easy_strerror(res_code);
-        curl_easy_cleanup(curl);
+        curl_easy_cleanup_tracked(curl);
         fclose(fp);
         return -1;
     }
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-    curl_easy_cleanup(curl);
+    curl_easy_cleanup_tracked(curl);
     fclose(fp);
 
     return http_code;

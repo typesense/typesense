@@ -1151,6 +1151,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;
+            res->final = true;
+            stream_response(req, res);
             return false;
         }
     } else {
@@ -3223,7 +3225,9 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    // peer IPs are not known until all nodes resolve, so the allowlist can be empty then
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         return false;
     }
@@ -3555,7 +3559,9 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    // peer IPs are not known until all nodes resolve, so the allowlist can be empty then
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         res->final = true;
         stream_response(req, res);
@@ -3930,7 +3936,7 @@ bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     const std::string & set_name = req->params["name"];
     nlohmann::json res_json;
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());
@@ -3945,7 +3951,7 @@ bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr
     SynonymIndexManager& manager = SynonymIndexManager::get_instance();
     const std::string & set_name = req->params["name"];
 
-    Option<SynonymIndex*> get_index_op = manager.get_synonym_index(set_name);
+    auto get_index_op = manager.get_synonym_index(set_name);
 
     if(!get_index_op.ok()) {
         res->set(get_index_op.code(), get_index_op.error());

@@ -8,8 +8,11 @@
 #include <chrono>
 #include <thread>
 #include <sstream>
+#include <auth_manager.h>
 #include <collection_manager.h>
+#include <string_utils.h>
 #include "curation_index_manager.h"
+#include "tsconfig.h"
 
 class UnionTest : public ::testing::Test {
 protected:
@@ -366,6 +369,63 @@ protected:
         for (auto i = 0; i < 500; i++) {
             nlohmann::json json = {
                     {"title", "title_" + std::to_string(i)}
+            };
+            auto add_op = products->add(json.dump());
+            if (!add_op.ok()) {
+                LOG(INFO) << add_op.error();
+            }
+            ASSERT_TRUE(add_op.ok());
+        }
+    }
+
+    static constexpr size_t INFIX_DOCS_PER_COLLECTION = 200;
+
+    void setupFilteredInfixCollections() {
+        for(const auto& name: {"infix_0", "infix_1"}) {
+            nlohmann::json schema_json = {
+                    {"name", name},
+                    {"fields", {{{"name", "title"}, {"type", "string"}, {"infix", true}},
+                                {{"name", "category"}, {"type", "string"}}}}
+            };
+            auto collection_create_op = collectionManager.create_collection(schema_json);
+            ASSERT_TRUE(collection_create_op.ok()) << collection_create_op.error();
+
+            auto collection = collection_create_op.get();
+            for(size_t i = 0; i < INFIX_DOCS_PER_COLLECTION; i++) {
+                nlohmann::json document = {
+                        {"title", "restocked" + std::to_string(i)},
+                        {"category", i % 2 == 0 ? "kitchen" : "garden"}
+                };
+                ASSERT_TRUE(collection->add(document.dump()).ok());
+            }
+        }
+    }
+
+    static std::string makeScopedSearchKey(const std::string& parent_key, const std::string& custom_params) {
+        const std::string scoped_key_payload = StringUtils::hmac(parent_key, custom_params) +
+                                               parent_key.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+        return StringUtils::base64_encode(scoped_key_payload);
+    }
+
+    void setupScopedUnionProductsCollection() {
+        auto schema_json =
+                R"({
+                "name": "ScopedUnionProducts",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "price", "type": "float"}
+                ]
+            })"_json;
+
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+
+        auto products = collection_create_op.get();
+        for (auto i = 0; i < 50; i++) {
+            nlohmann::json json = {
+                    {"id", std::to_string(i)},
+                    {"title", "product " + std::to_string(i)},
+                    {"price", static_cast<float>(i)}
             };
             auto add_op = products->add(json.dump());
             if (!add_op.ok()) {
@@ -925,6 +985,92 @@ TEST_F(UnionTest, Pagination) {
     ASSERT_EQ(500, json_res["out_of"]);
     ASSERT_EQ(4, json_res["page"]);
     ASSERT_EQ(100, json_res["hits"].size());
+    json_res.clear();
+    req_params.clear();
+}
+
+TEST_F(UnionTest, EmbeddedLimitHitsCapsUnionSearchContribution) {
+    setupFiveHundredCollection();
+
+    req_params = {
+            {"page", "1"},
+            {"per_page", "100"}
+    };
+    embedded_params = std::vector<nlohmann::json>(1, R"({"limit_hits": 5})"_json);
+    searches = R"([
+                    {
+                        "collection": "FiveHundred",
+                        "q": "*"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(5, json_res["hits"].size());
+    json_res.clear();
+    req_params.clear();
+}
+
+TEST_F(UnionTest, ScopedKeyLimitHitsAndFilterByAreEnforcedInUnionSearch) {
+    setupScopedUnionProductsCollection();
+
+    api_key_t parent_key("UnionScopedSearchParentKey", "scoped search parent", {"documents:search"},
+                         {"ScopedUnionProducts"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const auto scoped_limit_key = makeScopedSearchKey(parent_key.value, R"({"limit_hits":5,"pinned_hits":"0:1"})");
+    embedded_params = std::vector<nlohmann::json>(1, nlohmann::json::object());
+    std::map<std::string, std::string> auth_params;
+    ASSERT_TRUE(collectionManager.getAuthManager().authenticate(
+            "documents:search", {collection_key_t("ScopedUnionProducts", scoped_limit_key)}, auth_params, embedded_params));
+
+    req_params = {
+            {"page", "1"},
+            {"per_page", "100"}
+    };
+    searches = R"([
+                    {
+                        "collection": "ScopedUnionProducts",
+                        "q": "*",
+                        "query_by": "title"
+                    }
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(5, json_res["hits"].size());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"]);
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+    json_res.clear();
+
+    const auto scoped_filter_key = makeScopedSearchKey(parent_key.value, R"({"filter_by":"price:<10"})");
+    embedded_params = std::vector<nlohmann::json>(1, nlohmann::json::object());
+    auth_params.clear();
+    ASSERT_TRUE(collectionManager.getAuthManager().authenticate(
+            "documents:search", {collection_key_t("ScopedUnionProducts", scoped_filter_key)}, auth_params, embedded_params));
+
+    req_params = {
+            {"page", "1"},
+            {"per_page", "100"}
+    };
+    searches = R"([
+                    {
+                        "collection": "ScopedUnionProducts",
+                        "q": "*",
+                        "query_by": "title",
+                        "pinned_hits": "49:1",
+                        "filter_by": "price:>=0"
+                    }
+                ])"_json;
+
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(10, json_res["hits"].size());
+    ASSERT_EQ(10, json_res["found"]);
+    for(const auto& hit : json_res["hits"]) {
+        ASSERT_NE("49", hit["document"]["id"]);
+    }
     json_res.clear();
     req_params.clear();
 }
@@ -2926,4 +3072,239 @@ TEST_F(UnionTest, DynamicFacetMinOccurrenceRatioShouldApplyAfterUnionMerge) {
     ASSERT_EQ(1, json_res["facet_counts"][0]["counts"].size());
     ASSERT_EQ("shared", json_res["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(6, json_res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+}
+
+TEST_F(UnionTest, ReturnsEveryHitAcrossCollections) {
+    // Documents of different collections share sequence ids and must not be merged as duplicates.
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    for(const auto& name: {"coll_a", "coll_b"}) {
+        auto coll = collectionManager.create_collection(name, 1, fields).get();
+        for(size_t i = 0; i < 100; i++) {
+            ASSERT_TRUE(coll->add(R"({"title": "doc"})").ok());
+        }
+    }
+
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    req_params["per_page"] = "250";
+    searches = R"([
+                    {"collection": "coll_a", "q": "*"},
+                    {"collection": "coll_b", "q": "*"}
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(200, json_res["found"].get<size_t>());
+    ASSERT_EQ(200, json_res["hits"].size());
+}
+
+TEST_F(UnionTest, CuratedHitShouldNotSuppressUnrelatedRawHit) {
+    // The curated dedup keys must identify documents the same way the union topster does: a
+    // curated document of one collection must only ever suppress its own raw duplicate, not an
+    // unrelated document of another collection.
+    auto schema_json =
+            R"({
+                "name": "coll_curated_a",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_a = collection_create_op.get();
+
+    auto schema_json_b =
+            R"({
+                "name": "coll_curated_b",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json_b);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll_b = collection_create_op.get();
+
+    for(size_t i = 0; i < 100; i++) {
+        ASSERT_TRUE(coll_a->add(R"({"id": ")" + std::to_string(i) + R"(", "title": "doc"})").ok());
+        ASSERT_TRUE(coll_b->add(R"({"id": ")" + std::to_string(i) + R"(", "title": "doc"})").ok());
+    }
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    curation_manager.init_store(store);
+    auto upsert_set = nlohmann::json::array({
+        nlohmann::json{
+            {"id", "pin-99"},
+            {"rule", {{"query", "doc"}, {"match", curation_t::MATCH_EXACT}}},
+            {"includes", nlohmann::json::array({
+                nlohmann::json{{"id", "99"}, {"position", 1}}
+            })}
+        }
+    });
+    ASSERT_TRUE(curation_manager.upsert_curation_set("union_curations", upsert_set).ok());
+    ASSERT_TRUE(coll_a->set_curation_sets({"union_curations"}).ok());
+
+    req_params = {{"remove_duplicates", "true"}, {"per_page", "250"}};
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    searches = R"([
+                    {"collection": "coll_curated_a", "q": "doc", "query_by": "title"},
+                    {"collection": "coll_curated_b", "q": "doc", "query_by": "title"}
+                ])"_json;
+
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(200, json_res["found"].get<size_t>());
+    ASSERT_EQ(200, json_res["hits"].size());
+    ASSERT_EQ("99", json_res["hits"][0]["document"]["id"]);
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
+
+TEST_F(UnionTest, SearchCutoffKeepsInfixMatchesFiltered) {
+    setupFilteredInfixCollections();
+
+    searches = R"([
+                    {
+                        "collection": "infix_0",
+                        "q": "stock",
+                        "query_by": "title",
+                        "infix": "always",
+                        "filter_by": "category:=kitchen",
+                        "pinned_hits": "0:1"
+                    },
+                    {
+                        "collection": "infix_1",
+                        "q": "stock",
+                        "query_by": "title",
+                        "infix": "always",
+                        "filter_by": "category:=kitchen",
+                        "pinned_hits": "0:1"
+                    }
+                ])"_json;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+
+    auto assert_only_kitchen = [&]() {
+        for(const auto& hit: json_res["hits"]) {
+            ASSERT_EQ("kitchen", hit["document"]["category"].get<std::string>());
+        }
+    };
+
+    const auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Verify that the query is served by the infix index and normally returns every filtered match.
+    req_params = {{"per_page", "20"}};
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, current_time);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_FALSE(json_res["search_cutoff"].get<bool>());
+    ASSERT_EQ(INFIX_DOCS_PER_COLLECTION, json_res["found"].get<size_t>());
+    assert_only_kitchen();
+
+    json_res.clear();
+    req_params = {{"per_page", "20"}, {"search_cutoff_ms", "1"}};
+    auto expired_start = current_time - std::chrono::duration_cast<std::chrono::microseconds>(
+                                                std::chrono::seconds(1)).count();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, expired_start);
+
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_TRUE(json_res["search_cutoff"].get<bool>());
+    ASSERT_LT(json_res["found"].get<size_t>(), INFIX_DOCS_PER_COLLECTION);
+    ASSERT_FALSE(json_res["hits"].empty());
+    assert_only_kitchen();
+}
+
+// Each sub-search resets the thread-local search_cutoff, so the union has to
+// carry an earlier sub-search's cutoff past the ones that run after it.
+TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
+    const size_t docs_per_collection = 20;
+    for (const auto& name: {"cutoff_0", "cutoff_1"}) {
+        nlohmann::json schema_json = {
+                {"name",   name},
+                {"fields", {{{"name", "title"},    {"type", "string"}},
+                            {{"name", "category"}, {"type", "string"}}}}
+        };
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (size_t i = 0; i < docs_per_collection; i++) {
+            nlohmann::json document = {{"title", "widget " + std::to_string(i)}, {"category", "kitchen"}};
+            ASSERT_TRUE(collection_create_op.get()->add(document.dump()).ok());
+        }
+    }
+
+    // Only the first sub-search has its budget spent. The second runs with the
+    // default budget, so any cutoff the union reports is the first one's.
+    searches = R"([
+                    {
+                        "collection": "cutoff_0",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=kitchen",
+                        "search_cutoff_ms": 0
+                    },
+                    {
+                        "collection": "cutoff_1",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=office"
+                    }
+                ])"_json;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    req_params.clear();
+
+    // The first sub-search is cut off before it finds anything and the second
+    // matches nothing, so the union has nothing to return and answers 408.
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(408, search_op.code());
+    ASSERT_EQ("Request Timeout", search_op.error());
+
+    // With a pinned hit in the first sub-search and real hits from the second,
+    // the union succeeds but still has to report the cutoff.
+    searches[0]["pinned_hits"] = "0:1";
+    searches[1]["filter_by"] = "category:=kitchen";
+    // do_union leaves the last sub-search's merged params behind in req_params.
+    req_params.clear();
+    json_res.clear();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_TRUE(json_res["search_cutoff"].get<bool>());
+    ASSERT_EQ(1 + docs_per_collection, json_res["found"].get<size_t>());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
+
+TEST_F(UnionTest, MaxQueryLengthTruncatesEachMember) {
+    struct RestoreLimit {
+        const uint64_t previous = Config::get_instance().get_max_query_len();
+        ~RestoreLimit() { Config::get_instance().set_max_query_len(std::to_string(previous)); }
+    } restore;
+    auto created = collectionManager.create_collection("query_limit_union", 1,
+        {field("title", field_types::STRING, false)}, "");
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto* collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"id":"1","title":"café"})").ok());
+    ASSERT_TRUE(collection->add(R"({"id":"2","title":"soap"})").ok());
+
+    const auto run = [&](const std::string& first, const std::string& second) {
+        std::map<std::string, std::string> params = {{"max_query_len", "0"}};
+        std::vector<nlohmann::json> embedded = {nlohmann::json::object(), {{"max_query_len", 100}}};
+        nlohmann::json members = nlohmann::json::array();
+        for(const auto& q : {first, second}) {
+            members.push_back({{"collection", "query_limit_union"}, {"q", q}, {"query_by", "title"},
+                               {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}});
+        }
+        nlohmann::json response;
+        auto op = collectionManager.do_union(params, embedded, members, response, now_ts);
+        EXPECT_TRUE(op.ok()) << op.error();
+        EXPECT_FALSE(response.contains("error")) << response.dump();
+        return response;
+    };
+    auto& config = Config::get_instance();
+    config.set_max_query_len("0");
+    const auto expected = run("café", "soap");
+    ASSERT_EQ(2, expected["found"]);
+    const auto unbounded = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(0, unbounded["found"]);
+    config.set_max_query_len("4");
+    const auto truncated = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(expected["found"], truncated["found"]);
+    EXPECT_EQ(expected["hits"], truncated["hits"]);
+    EXPECT_EQ(expected["union_request_params"], truncated["union_request_params"]);
 }

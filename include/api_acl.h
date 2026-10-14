@@ -47,9 +47,11 @@ public:
   // Returns true if:
   //  - src_ip is in allowed_ips AND
   //  - dest_url host does NOT resolve into any disallowed CIDR
+  // An empty allowed_src_ips allows all source IPs, unless `require_src_ip_match` is set.
   bool is_allowed(const std::string& src_ip,
                   const std::string& dest_url,
-                  const std::vector<std::string>& allowed_src_ips) {
+                  const std::vector<std::string>& allowed_src_ips,
+                  const bool require_src_ip_match = false) {
     // 1) Throttle (class-level)
     if (!throttle_ok_()) return false;
 
@@ -61,6 +63,10 @@ public:
     }
 
     // 3) src_ip must be in allowed_ips
+    if (require_src_ip_match && allowed_src_ips.empty()) {
+      return false;
+    }
+
     uint32_t src = 0;
     if (!parse_ipv4(src_ip, src)) {
       return false;

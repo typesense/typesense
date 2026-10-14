@@ -27,6 +27,11 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
     return resource_status;
 }
 
+void cached_resource_stat_t::invalidate_cache() {
+    std::lock_guard lk(m);
+    last_checked_ts = 0;
+}
+
 cached_resource_stat_t::resource_check_t
 cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, const int disk_used_max_percentage,
                                             const int memory_used_max_percentage) {
@@ -58,6 +63,7 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
     }
 
     if(memory_used_bytes >= memory_total_bytes) {
+        HouseKeeper::get_instance().request_memory_purge();
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 
@@ -71,7 +77,7 @@ cached_resource_stat_t::get_resource_status(const std::string& data_dir_path, co
         LOG(INFO) << "memory_total: " << memory_total_bytes << ", memory_available: " << memory_available_bytes
                   << ", all_memory_used: " << memory_used_bytes << ", free_mem: " << free_mem
                   << ", memory_free_min: " << memory_free_min_bytes;
-        HouseKeeper::get_instance().log_running_queries();
+        HouseKeeper::get_instance().request_memory_purge();
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 

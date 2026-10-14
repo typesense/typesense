@@ -3330,6 +3330,161 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
     ASSERT_EQ("Steve Reiley", res_obj["hits"][3]["document"]["names"][0]);
 }
 
+TEST_F(CollectionFilteringTest, InfixFilterOnTextFields) {
+    // Create collection with infix: true on string fields
+    auto schema_json =
+            R"({
+                "name": "InfixFilterColl",
+                "fields": [
+                    {"name": "title", "type": "string", "infix": true},
+                    {"name": "cast", "type": "string[]", "infix": true},
+                    {"name": "name_no_infix", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ],
+                "default_sorting_field": "points"
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll = collection_create_op.get();
+
+    std::vector<nlohmann::json> documents = {
+        R"({"title": "Captain America", "cast": ["Chris Evans", "Scarlett Johansson"], "name_no_infix": "foo", "points": 78})"_json,
+        R"({"title": "Anchorman", "cast": ["Chris Parnell", "Josh Lawson"], "name_no_infix": "bar", "points": 63})"_json,
+        R"({"title": "There Will Be Blood", "cast": ["Martin Stringer", "Jacob Stringer"], "name_no_infix": "baz", "points": 81})"_json,
+        R"({"title": "Good Will Hunting", "cast": ["Matt Damon", "Ben Affleck"], "name_no_infix": "qux", "points": 83})"_json,
+        R"({"title": "Percy Jackson", "cast": ["Logan Lerman", "Alexandra Daddario"], "name_no_infix": "quux", "points": 59})"_json,
+        R"({"title": "Quantum Quest", "cast": ["Chris Pine"], "name_no_infix": "corge", "points": 52})"_json,
+    };
+
+    for (auto const& json : documents) {
+        auto add_op = coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Test 1: Basic single-token infix on array field - *ris* should match "Chris" (Evans, Parnell, Pine)
+    auto results = coll->search("*", {}, "cast: *ris*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+    std::set<std::string> result_ids;
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 2: Infix on string field - *pta* should match "Captain America"
+    results = coll->search("*", {}, "title: *pta*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Captain America", results["hits"][0]["document"]["title"]);
+
+    // Test 3: Infix with no matches
+    results = coll->search("*", {}, "cast: *zzz*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // Test 4: OR of infix values - [*ris*, *art*] matches Chris* and Martin
+    results = coll->search("*", {}, "cast: [*ris*, *art*]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 5: Error when field lacks infix: true
+    auto res_op = coll->search("*", {}, "name_no_infix: *foo*", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ("Error with filter field `name_no_infix`: Infix filtering requires the field to have "
+              "`infix: true` in the schema.", res_op.error());
+
+    // Test 6: Mixed infix + exact in OR - [*ris*, Martin]
+    results = coll->search("*", {}, "cast: [*ris*, Martin]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 7: Mixed infix + prefix in OR - [*ris*, Ma*]
+    results = coll->search("*", {}, "cast: [*ris*, Ma*]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+    ASSERT_TRUE(result_ids.count("2"));
+    ASSERT_TRUE(result_ids.count("3"));
+    ASSERT_TRUE(result_ids.count("5"));
+
+    // Test 8: Infix combined with AND on another field
+    results = coll->search("*", {}, "cast: *ris* && points: >60", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    result_ids.clear();
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        result_ids.insert(results["hits"][i]["document"]["id"].get<std::string>());
+    }
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_TRUE(result_ids.count("0"));
+    ASSERT_TRUE(result_ids.count("1"));
+
+    // Test 9: Infix on title (non-array string field) - *unt* matches "Good Will Hunting"
+    results = coll->search("*", {}, "title: *unt*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Good Will Hunting", results["hits"][0]["document"]["title"]);
+
+    // Test 10: enable_lazy_filter=true + OR of infix values, cast:[*an*,*in*] with q:"will".
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 11: enable_lazy_filter=true + negated OR of infix values, cast:![*an*,*in*] with q:"will".
+    // NOT({0,2,4,5}) = {1,3}. "will" in title: {2,3}. Result = {3}.
+    {
+        std::map<std::string, std::string> req_params = {
+            {"collection", "InfixFilterColl"},
+            {"q", "will"},
+            {"query_by", "title"},
+            {"filter_by", "cast: ! [*an*, *in*]"},
+            {"enable_lazy_filter", "true"}
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto res_obj = nlohmann::json::parse(json_res);
+        ASSERT_EQ(1, res_obj["found"].get<size_t>());
+        ASSERT_EQ("3", res_obj["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    // Test 12: Exact-match operator (:=) with infix-style value — cast:= *in*.
+    // No exact matches to "in" in our cast so should return 0
+    results = coll->search("*", {}, "cast:= *in*", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+}
+
 TEST_F(CollectionFilteringTest, ExactFilterOnLongField) {
     nlohmann::json schema = R"({
          "name": "companies",
@@ -5288,4 +5443,65 @@ TEST_F(CollectionFilteringTest, MissingFilterLazyEvaluationSearchHits) {
     ASSERT_EQ(expected_ids, actual_ids);
 
     collectionManager.drop_collection("products");
+}
+
+TEST_F(CollectionFilteringTest, SelectiveAndDoesNotMaterializeWideSide) {
+    nlohmann::json schema =
+            R"({
+                "name": "and_probe",
+                "fields": [
+                    {"name": "nid", "type": "string"},
+                    {"name": "state", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto coll = collectionManager.create_collection(schema).get();
+
+    // 25 documents match `nid:=sel`, 900 match `state:=active`, and 23 match both: the ids that are a multiple of
+    // 40 and below 900. The wide side is 36x the narrow one, which clears AND_PROBE_RATIO.
+    for (int32_t i = 0; i < 1000; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["nid"] = i % 40 == 0 ? "sel" : "other";
+        doc["state"] = i < 900 ? "active" : "inactive";
+        doc["points"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "ASC") };
+
+    auto results = coll->search("*", {}, "nid:=sel", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(25, results["found"].get<size_t>());
+
+    results = coll->search("*", {}, "state:=active", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(900, results["found"].get<size_t>());
+
+    std::vector<std::string> expected_ids;
+    for (int32_t i = 0; i < 900; i += 40) {
+        expected_ids.push_back(std::to_string(i));
+    }
+    ASSERT_EQ(23, expected_ids.size());
+
+    // Either operand order returns the same documents, in the same order, and reports no cutoff.
+    for (const auto& filter_by: {"nid:=sel && state:=active", "state:=active && nid:=sel"}) {
+        results = coll->search("*", {}, filter_by, {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+
+        ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>());
+        ASSERT_EQ(expected_ids.size(), results["hits"].size());
+        ASSERT_FALSE(results["search_cutoff"].get<bool>());
+
+        for (size_t i = 0; i < expected_ids.size(); i++) {
+            ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+        }
+    }
+
+    // The same shape with a query term rather than a wildcard.
+    results = coll->search("sel", {"nid"}, "state:=active", {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>());
+    for (size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    collectionManager.drop_collection("and_probe");
 }

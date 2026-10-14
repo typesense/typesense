@@ -139,6 +139,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
     options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
+    options.add<std::string>("max-query-len", '\0', "Maximum query length in Unicode code points; longer queries are truncated. 0 disables the limit.", false, "0");
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<uint32_t>("max-group-limit", '\0', "Max number of results to be returned per group", false, 99);
     options.add<uint32_t>("max-indexing-concurrency", '\0', "maximum concurrency for batch indexing docs.", false);
@@ -450,7 +451,7 @@ int start_raft_server(ReplicationState& replication_state, Store& store,
                 const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                     refreshed_nodes_op.get());
                 if(nodes_config.empty()) {
-                    LOG(WARNING) << "No nodes resolved from peer configuration.";
+                    LOG(WARNING) << "Unable to resolve all nodes in peer configuration.";
                 } else {
                     if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
                         Config::get_instance().update_proxy_src_ips(nodes_config);
@@ -499,11 +500,15 @@ int run_server(const Config & config, const std::string & version, void (*master
         // to help with releasing memory back to the OS and improve tail latency.
         // See: https://github.com/jemalloc/jemalloc/issues/1398
         bool background_thread = true;
+        int background_thread_error = 0;
 #ifdef __APPLE__
-        je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+        background_thread_error = je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
 #elif __linux__
-        mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+        background_thread_error = mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
 #endif
+        if(background_thread_error != 0) {
+            LOG(WARNING) << "Failed to enable jemalloc background threads: " << background_thread_error;
+        }
     } else {
         LOG(WARNING) << "Typesense is NOT using jemalloc.";
     }
@@ -753,13 +758,16 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     delete batch_indexer;
 
-    LOG(INFO) << "CURL clean up";
-
-    curl_global_cleanup();
-
+    // ~HttpServer shuts down meta_thread_pool, the last pool outside the join chain above,
+    // so it has to land before curl goes away
     LOG(INFO) << "Deleting server";
 
     delete server;
+
+    LOG(INFO) << "CURL clean up";
+
+    HttpClient::shutdown_curl_pool();
+    curl_global_cleanup();
 
     LOG(INFO) << "CollectionManager dispose, this might take some time...";
 

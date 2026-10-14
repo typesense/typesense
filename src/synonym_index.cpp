@@ -1,5 +1,51 @@
 #include "synonym_index.h"
 #include "posting.h"
+#include <algorithm>
+
+namespace {
+
+// ART only retains MAX_PREFIX_LEN bytes in compressed nodes. Recheck long
+// candidates against their complete keys before accepting them as synonyms.
+bool within_synonym_distance(const std::string& token, const std::string& candidate,
+                             uint32_t max_distance, bool synonym_prefix) {
+    std::vector<uint32_t> previous_previous(token.size() + 1);
+    std::vector<uint32_t> previous(token.size() + 1);
+    std::vector<uint32_t> current(token.size() + 1);
+
+    for (size_t token_index = 0; token_index <= token.size(); ++token_index) {
+        previous[token_index] = token_index;
+    }
+
+    for (size_t candidate_index = 1; candidate_index <= candidate.size(); ++candidate_index) {
+        current[0] = candidate_index;
+        for (size_t token_index = 1; token_index <= token.size(); ++token_index) {
+            current[token_index] = std::min({
+                previous[token_index] + 1,
+                current[token_index - 1] + 1,
+                previous[token_index - 1] +
+                    (candidate[candidate_index - 1] != token[token_index - 1])
+            });
+
+            if (candidate_index > 1 && token_index > 1 &&
+                candidate[candidate_index - 1] == token[token_index - 2] &&
+                candidate[candidate_index - 2] == token[token_index - 1]) {
+                current[token_index] = std::min(current[token_index],
+                                                previous_previous[token_index - 2] + 1);
+            }
+        }
+
+        if (synonym_prefix && current[token.size()] <= max_distance) {
+            return true;
+        }
+
+        previous_previous.swap(previous);
+        previous.swap(current);
+    }
+
+    return !synonym_prefix && previous[token.size()] <= max_distance;
+}
+
+}
 
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
@@ -99,32 +145,19 @@ Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym,
 
     synonym_definitions[synonym_index] = synonym;
     synonym_ids_index_map[synonym.id] = synonym_index;
-
-    std::vector<std::string> keys;
-
-    if(!synonym.root.empty()) {
-        auto root_tokens_str = StringUtils::join(synonym.root, " ");
-        keys.push_back(root_tokens_str);
-    } else {
-        for(const auto & syn_tokens : synonym.synonyms) {
-            auto synonyms_str = StringUtils::join(syn_tokens, " ");
-            keys.push_back(synonyms_str);
-        }
-    }
-
-
     ++synonym_index;
+
+    synonym_trie_root.add(synonym);
 
     write_lock.unlock();
 
+    // Persistence is intentionally done outside the lock
     if(write_to_store) {
         bool inserted = store->insert(get_synonym_key(name, synonym.id), synonym.to_view_json().dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the synonym on disk.");
         }
     }
-
-    synonym_trie_root.add(synonym);
 
     return Option<bool>(true);
 }
@@ -174,15 +207,15 @@ Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
     return Option<bool>(404, "Could not find that `id`.");
 }
 
-Option<std::map<uint32_t, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit, uint32_t offset) {
+Option<std::map<uint32_t, synonym_t>> SynonymIndex::get_synonyms(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
-    std::map<uint32_t, synonym_t*> synonyms_map;
+    std::map<uint32_t, synonym_t> synonyms_map;
 
     auto synonym_it = synonym_definitions.begin();
 
     if(offset > 0) {
         if(offset >= synonym_definitions.size()) {
-            return Option<std::map<uint32_t, synonym_t*>>(400, "Invalid offset param.");
+            return Option<std::map<uint32_t, synonym_t>>(400, "Invalid offset param.");
         }
 
         std::advance(synonym_it, offset);
@@ -196,11 +229,11 @@ Option<std::map<uint32_t, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit
     }
 
     while (synonym_it != synonym_end) {
-        synonyms_map[synonym_it->first] = &synonym_it->second;
+        synonyms_map[synonym_it->first] = synonym_it->second;
         synonym_it++;
     }
 
-    return Option<std::map<uint32_t, synonym_t*>>(synonyms_map);
+    return Option<std::map<uint32_t, synonym_t>>(synonyms_map);
 }
 
 std::string SynonymIndex::get_synonym_key(const std::string & index_name, const std::string & synonym_id) {
@@ -335,6 +368,7 @@ Option<bool> synonym_node_t::add(const synonym_t& syn) {
                 child_node = new synonym_node_t();
                 child_node->token = token;
                 current_node->children[token] = child_node;
+                current_node->has_long_child = current_node->has_long_child || token.size() > MAX_PREFIX_LEN;
                 art_document document(current_node->children_tree_index, current_node->children_tree_index, {0});
                 art_insert(current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
                 current_node->children_tree_index++;
@@ -360,6 +394,7 @@ Option<bool> synonym_node_t::add(const synonym_t& syn) {
                 child_node = new synonym_node_t();
                 child_node->token = token;
                 current_node->children[token] = child_node;
+                current_node->has_long_child = current_node->has_long_child || token.size() > MAX_PREFIX_LEN;
                 art_document document(current_node->children_tree_index, current_node->children_tree_index, {0});
                 art_insert(current_node->children_tree, (unsigned char *) token.c_str(), token.size() + 1, &document);
                 current_node->children_tree_index++;
@@ -463,23 +498,51 @@ std::vector<synonym_node_t*> synonym_node_t::get_matching_children(const std::st
         return {it->second};
     }
 
-
-    // do fuzzy search if the token is not found
-    std::vector<art_leaf*> leaves;
-    std::set<std::string> exclude_leaves;
-    auto term_len = synonym_prefix ? token.size() : token.size() + 1;
-    art_fuzzy_search((art_tree*) children_tree, (unsigned char*)token.c_str(), term_len, 0, num_typos,
-                     10, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
-    
-    std::vector<synonym_node_t*> matching_children;
-    for (const auto &leaf: leaves) {
-        auto child_node = children.find((char*)leaf->key);
-        if (child_node != children.end()) {
-            matching_children.push_back(child_node->second);
-        }
+    if (num_typos == 0 && !synonym_prefix) {
+        return {};
     }
 
-    return matching_children;
+    // do fuzzy search if the token is not found
+    auto term_len = synonym_prefix ? token.size() : token.size() + 1;
+    constexpr size_t max_matching_children = 10;
+    const bool validate_full_keys = token.size() > MAX_PREFIX_LEN || has_long_child;
+    size_t candidate_limit = validate_full_keys ? std::min(children.size(), max_matching_children)
+                                                : max_matching_children;
+
+    while(true) {
+        std::vector<art_leaf*> leaves;
+        std::set<std::string> exclude_leaves;
+        art_fuzzy_search((art_tree*) children_tree, (unsigned char*)token.c_str(), term_len, 0, num_typos,
+                         candidate_limit, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
+
+        std::vector<synonym_node_t*> matching_children;
+        for (const auto &leaf: leaves) {
+            const std::string candidate(reinterpret_cast<const char*>(leaf->key), leaf->key_len - 1);
+            if (num_typos == 0 && synonym_prefix &&
+                (candidate.size() < token.size() || candidate.compare(0, token.size(), token) != 0)) {
+                continue;
+            }
+
+            if (num_typos > 0 && (token.size() > MAX_PREFIX_LEN || candidate.size() > MAX_PREFIX_LEN) &&
+                !within_synonym_distance(token, candidate, num_typos, synonym_prefix)) {
+                continue;
+            }
+
+            auto child_node = children.find((char*)leaf->key);
+            if (child_node != children.end()) {
+                matching_children.push_back(child_node->second);
+                if (matching_children.size() == max_matching_children) {
+                    return matching_children;
+                }
+            }
+        }
+
+        if (!validate_full_keys || leaves.size() < candidate_limit || candidate_limit >= children.size()) {
+            return matching_children;
+        }
+
+        candidate_limit = std::min(children.size(), candidate_limit * 2);
+    }
 }
 
 void synonym_node_t::cleanup() {
@@ -516,6 +579,7 @@ bool synonym_node_t::cleanup(synonym_node_t* node, synonym_node_t* parent) {
 }
 
 nlohmann::json SynonymIndex::to_view_json() const {
+    std::shared_lock lock(mutex);
     nlohmann::json obj;
     obj["items"] = nlohmann::json::array();
     for (const auto& [index, synonym] : synonym_definitions) {

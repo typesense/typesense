@@ -3,6 +3,8 @@
 #include <string>
 #include <shared_mutex>
 #include <mutex>
+#include <map>
+#include <vector>
 #include <unordered_map>
 #include <json.hpp>
 #include <option.h>
@@ -10,6 +12,32 @@
 #include "sole.hpp"
 #include "lru/lru.hpp"
 #include <chrono>
+
+// per-request knobs for the schema prompt sent to the LLM: which facet fields are enumerated and how many
+// values each one contributes. defaults mirror what used to be hardcoded in generate_schema_prompt().
+struct schema_prompt_params_t {
+    static inline const size_t DEFAULT_MAX_FACET_VALUES = 20;
+    static inline const size_t DEFAULT_SCHEMA_SAMPLE_VALUES = 10;
+    static inline const size_t DEFAULT_FACET_SAMPLE_PERCENT = 20;
+    static inline const size_t DEFAULT_FACET_SAMPLE_THRESHOLD = 1000;
+
+    // sanity ceiling for both value caps, guards against a typo blowing up the prompt
+    static inline const size_t MAX_FACET_VALUES_LIMIT = 10000;
+
+    // number of values fetched per facet field
+    size_t max_facet_values = DEFAULT_MAX_FACET_VALUES;
+    // number of fetched values listed in the prompt
+    size_t schema_sample_values = DEFAULT_SCHEMA_SAMPLE_VALUES;
+    // facet counts are estimated from this % of docs once the result set exceeds the threshold
+    size_t facet_sample_percent = DEFAULT_FACET_SAMPLE_PERCENT;
+    size_t facet_sample_threshold = DEFAULT_FACET_SAMPLE_THRESHOLD;
+    // empty means every string facet field
+    std::vector<std::string> facet_fields;
+
+    static Option<schema_prompt_params_t> parse(const std::map<std::string, std::string>& req_params);
+
+    std::string cache_key(const std::string& collection_name) const;
+};
 
 class NaturalLanguageSearchModelManager {
 public:
@@ -27,18 +55,20 @@ public:
     static bool migrate_model(nlohmann::json& model);
 
     static void init_schema_prompts_cache(uint32_t capacity);
-    static Option<std::string> get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
+    static Option<std::string> get_schema_prompt(const std::string& collection_name, uint64_t ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC,
+                                                 const schema_prompt_params_t& prompt_params = schema_prompt_params_t());
     static void clear_schema_prompt(const std::string& collection_name);
     static void clear_all_schema_prompts();
     static bool has_cached_schema_prompt(const std::string& collection_name);
-    
+
     static Option<uint64_t> process_nl_query_and_augment_params(std::map<std::string, std::string>& req_params, uint64_t schema_prompt_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
     static void add_nl_query_data_to_results(nlohmann::json& results_json, const std::map<std::string, std::string>* req_params, uint64_t nl_processing_time_ms, bool error = false);
     static Option<nlohmann::json> process_natural_language_query(
-        const std::string& nl_query, 
-        const std::string& collection_name, 
+        const std::string& nl_query,
+        const std::string& collection_name,
         const std::string& nl_model_id = "default",
-        uint64_t prompt_cache_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC);
+        uint64_t prompt_cache_ttl_seconds = DEFAULT_SCHEMA_PROMPT_TTL_SEC,
+        const schema_prompt_params_t& prompt_params = schema_prompt_params_t());
 
     static void dispose();
 
@@ -46,14 +76,18 @@ public:
 
     struct SchemaPromptEntry {
         std::string prompt;
+        // the cache is keyed by collection + prompt params, so the collection is tracked for bulk invalidation
+        std::string collection_name;
         std::chrono::time_point<std::chrono::system_clock> created_at;
 
-        SchemaPromptEntry(const std::string& prompt) : 
-            prompt(prompt), 
+        SchemaPromptEntry(const std::string& prompt, const std::string& collection_name = "") :
+            prompt(prompt),
+            collection_name(collection_name),
             created_at(NaturalLanguageSearchModelManager::now()) {}
 
         bool operator==(const SchemaPromptEntry& other) const {
-            return prompt == other.prompt && created_at == other.created_at;
+            return prompt == other.prompt && collection_name == other.collection_name &&
+                   created_at == other.created_at;
         }
 
         bool operator!=(const SchemaPromptEntry& other) const {
@@ -81,7 +115,8 @@ private:
 
     static const std::string get_model_key(const std::string& model_id);
     static Option<nlohmann::json> delete_model_unsafe(const std::string& model_id);
-    static Option<std::string> generate_schema_prompt(const std::string& collection_name);
+    static Option<std::string> generate_schema_prompt(const std::string& collection_name,
+                                                      const schema_prompt_params_t& prompt_params);
     static nlohmann::json build_augmented_params(const std::map<std::string, std::string>* req_params);
     static nlohmann::json build_generated_params(const std::map<std::string, std::string>* req_params);
 

@@ -5,6 +5,7 @@
 #include "store.h"
 #include "thread_local_vars.h"
 #include <algorithm>
+#include <braft/log.h>
 #include <butil/files/file_enumerator.h>
 #include <collection_manager.h>
 #include <conversation_model_manager.h>
@@ -13,6 +14,7 @@
 #include <http_client.h>
 #include <string_utils.h>
 #include <thread>
+#include <filesystem>
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -43,42 +45,51 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     braft::NodeOptions node_options;
 
-    size_t max_tries = 3;
+    std::string nodes_config = nodes;
 
     while(true) {
-        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
+        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes_config);
 
-        if(actual_nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
-            continue;
-        }
-
-        if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
-            if(--max_tries == 0) {
-                LOG(ERROR) << "Giving up parsing nodes configuration: `" << nodes << "`";
+        if(!actual_nodes_config.empty()) {
+            if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+                LOG(ERROR) << "Failed to parse nodes configuration: `" << actual_nodes_config << "`";
                 return -1;
             }
 
-            LOG(ERROR) << "Failed to parse nodes configuration: `" << nodes << "` -- " << " will retry shortly...";
-
-            size_t i = 0;
-            while(i++ < 30) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                if(quit_abruptly) {
-                    // enables quitting of server during retries
-                    return -1;
-                }
+            if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+                Config::get_instance().update_proxy_src_ips(actual_nodes_config);
             }
 
-            continue;
+            LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
+            break;
         }
 
-        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
-            Config::get_instance().update_proxy_src_ips(actual_nodes_config);
+        // Braft uses `initial_conf` only when the node has no log or snapshot: otherwise it recovers the membership
+        // from them. So an existing node can start without resolving its peers, and the periodic peer refresh
+        // will apply the nodes configuration once all hosts resolve.
+        if(has_persisted_raft_state(raft_dir)) {
+            LOG(WARNING) << "Unable to resolve all hosts in nodes configuration: `" << nodes_config << "`, "
+                         << "starting with persisted cluster membership.";
+            break;
         }
 
-        LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
-        break;
+        // A fresh node must never bootstrap with a partial peer list, so we wait for all hosts to resolve.
+        LOG(WARNING) << "Unable to resolve all hosts in nodes configuration: `" << nodes_config << "`, "
+                     << "will retry shortly...";
+
+        for(size_t i = 0; i < 10; i++) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if(quit_abruptly) {
+                // enables quitting of server during retries
+                return -1;
+            }
+        }
+
+        // pick up any changes made to the nodes file while waiting
+        const Option<std::string>& refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
+        if(refreshed_nodes_op.ok()) {
+            nodes_config = refreshed_nodes_op.get();
+        }
     }
 
     this->read_caught_up = false;
@@ -115,7 +126,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::Node* node = new braft::Node("default_group", braft::PeerId(peering_endpoint, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
-    bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
+    bool snapshot_exists = has_completed_snapshot(snapshot_dir);
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
@@ -150,7 +161,29 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     return 0;
 }
 
-// can return empty string if DNS resolution fails on all nodes
+bool ReplicationState::has_completed_snapshot(const std::string& snapshot_dir) {
+    std::error_code ec;
+    for(const auto& entry: std::filesystem::directory_iterator(snapshot_dir, ec)) {
+        // ignore the `temp` directory of an unfinished snapshot, which braft deletes on init
+        if(entry.path().filename().string().rfind("snapshot_", 0) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool ReplicationState::has_persisted_raft_state(const std::string& raft_dir) {
+    if(has_completed_snapshot(raft_dir + "/" + snapshot_dir_name)) {
+        return true;
+    }
+
+    braft::ConfigurationManager configuration_manager;
+    braft::SegmentLogStorage log_storage(raft_dir + "/" + log_dir_name);
+    return log_storage.init(&configuration_manager) == 0 && log_storage.last_log_index() > 0;
+}
+
+// returns empty string if DNS resolution fails for any of the nodes
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
     if(nodes_config.empty()) {
@@ -180,7 +213,7 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
     int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
     if (status != 0) {
         LOG(ERROR) << "Unable to resolve host: " << hostname << ", error: " << gai_strerror(status);
-        return hostname; // Return original hostname on error
+        return "";
     }
 
     char ip_str[INET6_ADDRSTRLEN];
@@ -200,10 +233,6 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
     }
 
     freeaddrinfo(result);
-
-    if(resolved_ip.empty()) {
-        return hostname; // Return original hostname if resolution didn't produce a valid IP
-    }
 
     return resolved_ip;
 }
@@ -231,15 +260,12 @@ std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
 
         std::string resolved_ip = hostname2ipstr(node_parts[0]);
         if(resolved_ip.empty()) {
+            // a partial peer list must never be applied, since that would remove valid peers from the cluster
             LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
-            continue;
+            return "";
         }
 
         final_nodes_vec.push_back(resolved_ip + ":" + node_parts[1] + ":" + node_parts[2]);
-    }
-
-    if(final_nodes_vec.empty()) {
-        return "";
     }
 
     std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");
@@ -661,7 +687,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
 
-int ReplicationState::init_db() {
+int ReplicationState::init_db(const bool batched_indexer_workers_paused) {
     LOG(INFO) << "Loading collections from disk...";
 
     Option<bool> init_op = CollectionManager::get_instance().load(
@@ -687,9 +713,10 @@ int ReplicationState::init_db() {
         LOG(INFO) << "Initializing batched indexer from snapshot state...";
         std::string batched_indexer_state_str;
         StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-        if(s == FOUND) {
-            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-            batched_indexer->load_state(batch_indexer_state);
+        const int restore_status =
+            restore_batched_indexer_state(s, batched_indexer_state_str, batched_indexer_workers_paused);
+        if(restore_status != 0) {
+            return restore_status;
         }
     }
 
@@ -703,6 +730,73 @@ int ReplicationState::init_db() {
     return 0;
 }
 
+int ReplicationState::restore_batched_indexer_state(const StoreStatus status, const std::string& state,
+                                                    const bool batched_indexer_workers_paused) {
+    if(batched_indexer == nullptr) {
+        return 0;
+    }
+
+    const auto restore = [&]() {
+        if(status == StoreStatus::ERROR) {
+            LOG(ERROR) << "Failed to read batched indexer state from the incoming store.";
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+
+        if(status == StoreStatus::NOT_FOUND) {
+            // The incoming store is authoritative. A snapshot from an older version might not contain batched
+            // indexer state at all, in which case no state from the replaced store may survive.
+            batched_indexer->clear_state_unlocked();
+            return 0;
+        }
+
+        try {
+            auto batch_indexer_state = nlohmann::json::parse(state, nullptr, false);
+            if(batch_indexer_state.is_discarded() || !batch_indexer_state.is_object() ||
+               !batch_indexer_state.contains("req_res_map")) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            // Empty request maps were serialized as JSON null before they were explicitly initialized as objects.
+            // Treat that legacy representation as an empty map so existing snapshots remain restorable.
+            if(batch_indexer_state["req_res_map"].is_null()) {
+                batch_indexer_state["req_res_map"] = nlohmann::json::object();
+            } else if(!batch_indexer_state["req_res_map"].is_object()) {
+                LOG(ERROR) << "Invalid batched indexer state in the incoming store.";
+                batched_indexer->clear_state_unlocked();
+                return 1;
+            }
+
+            batched_indexer->load_state_unlocked(batch_indexer_state);
+            return 0;
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "Failed to restore batched indexer state: " << e.what();
+            // A nested type error can be detected after restoration has begun. Do not expose that partial state.
+            batched_indexer->clear_state_unlocked();
+            return 1;
+        }
+    };
+
+    if(batched_indexer_workers_paused) {
+        return restore();
+    }
+
+    std::unique_lock lifecycle_lock(batched_indexer->lifecycle_mutex);
+    return restore();
+}
+
+int ReplicationState::fail_snapshot_load_unlocked(const int status) {
+    snapshot_load_blocks_readiness = true;
+    read_caught_up = false;
+    write_caught_up = false;
+    if(batched_indexer != nullptr) {
+        batched_indexer->clear_state_unlocked();
+    }
+    return status == 0 ? 1 : status;
+}
+
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     std::shared_lock lock(node_mutex);
     CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
@@ -710,9 +804,23 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     LOG(INFO) << "on_snapshot_load";
 
+    // `refresh_catchup_status` runs independently of braft snapshot callbacks. Serialize it with installation so it
+    // cannot republish readiness from a stale raft status while the Store and in-memory state are being replaced.
+    // A failed installation deliberately leaves the gate closed until a later snapshot succeeds.
+    std::unique_lock snapshot_load_lock(snapshot_load_mutex);
+    snapshot_load_blocks_readiness = true;
+
     // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
     read_caught_up = false;
     write_caught_up = false;
+
+    // Batch workers can retain request-map references and RocksDB iterators after dequeueing. Stop enqueue, worker,
+    // and GC activity before replacing the store, and keep it stopped until the in-memory indexer state has also
+    // been replaced.
+    std::unique_lock<std::shared_mutex> batched_indexer_lifecycle_lock;
+    if(batched_indexer != nullptr) {
+        batched_indexer_lifecycle_lock = std::unique_lock<std::shared_mutex>(batched_indexer->lifecycle_mutex);
+    }
 
     // Load snapshot from leader, replacing the running StateMachine
     std::string analytics_snapshot_path = reader->get_path();
@@ -724,7 +832,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
                                                    Config::get_instance().get_analytics_db_ttl());
         if (reload_store != 0) {
             LOG(ERROR) << "Failed to reload analytics db snapshot.";
-            return reload_store;
+            return fail_snapshot_load_unlocked(reload_store);
         }
     }
 
@@ -733,12 +841,18 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     int reload_store = store->reload(true, db_snapshot_path);
     if(reload_store != 0) {
-        return reload_store;
+        return fail_snapshot_load_unlocked(reload_store);
     }
 
-    bool init_db_status = init_db();
+    const int init_db_status = init_db(true);
+    if(init_db_status != 0) {
+        return fail_snapshot_load_unlocked(init_db_status);
+    }
 
-    return init_db_status;
+    read_caught_up = false;
+    write_caught_up = false;
+    snapshot_load_blocks_readiness = false;
+    return 0;
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
@@ -751,7 +865,10 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
     }
 
     braft::Configuration new_conf;
-    new_conf.parse_from(nodes);
+    if(new_conf.parse_from(nodes) != 0 || new_conf.empty()) {
+        LOG(WARNING) << "Unable to parse nodes configuration: `" << nodes << "`, skipping refresh.";
+        return ;
+    }
 
     braft::NodeStatus nodeStatus;
     node->get_status(&nodeStatus);
@@ -793,6 +910,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
 }
 
 void ReplicationState::refresh_catchup_status(bool log_msg) {
+    std::shared_lock snapshot_load_lock(snapshot_load_mutex);
+    if(snapshot_load_blocks_readiness) {
+        read_caught_up = write_caught_up = false;
+        return;
+    }
+
     std::shared_lock lock(node_mutex);
     if(node == nullptr ) {
         read_caught_up = write_caught_up = false;
@@ -908,6 +1031,7 @@ ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_i
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         read_caught_up(false), write_caught_up(false),
+        snapshot_load_blocks_readiness(false),
         ready(false), shutting_down(false), pending_writes(0), snapshot_in_progress(false),
         last_snapshot_ts(std::time(nullptr)), snapshot_interval_s(config->get_snapshot_interval_seconds()) {
 
@@ -1015,16 +1139,19 @@ bool ReplicationState::reset_peers() {
                                                                             refreshed_nodes_op.get());
 
         if(nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
+            LOG(WARNING) << "Unable to resolve all nodes in peer configuration.";
+            return false;
+        }
+
+        braft::Configuration peer_config;
+        if(peer_config.parse_from(nodes_config) != 0) {
+            LOG(WARNING) << "Unable to parse nodes configuration: `" << nodes_config << "`";
             return false;
         }
 
         if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
             Config::get_instance().update_proxy_src_ips(nodes_config);
         }
-
-        braft::Configuration peer_config;
-        peer_config.parse_from(nodes_config);
 
         std::vector<braft::PeerId> peers;
         peer_config.list_peers(&peers);

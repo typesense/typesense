@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <stdlib.h>
 #include <iostream>
+#include <limits>
 #include <cmdline.h>
 #include "typesense_server_utils.h"
 #include "tsconfig.h"
@@ -97,6 +98,7 @@ TEST(ConfigTest, LoadConfigFile) {
     ASSERT_EQ(9090, config.get_api_port());
     ASSERT_EQ(true, config.get_enable_cors());
     ASSERT_EQ("/tmp/ca.pem", config.get_http_client_ca_certificate());
+    ASSERT_EQ(100, config.get_max_query_len());
 }
 
 TEST(ConfigTest, LoadIncompleteConfigFile) {
@@ -215,4 +217,103 @@ TEST(ConfigTest, CorsDefaults) {
 
     ASSERT_EQ(true, config3.get_enable_cors());
     ASSERT_EQ(1, config3.get_cors_domains().size());
+}
+
+namespace {
+struct RestoreMaxQueryLengthEnv {
+    const bool present = std::getenv("TYPESENSE_MAX_QUERY_LEN") != nullptr;
+    const std::string value = present ? std::getenv("TYPESENSE_MAX_QUERY_LEN") : "";
+    ~RestoreMaxQueryLengthEnv() {
+        if(present) {
+            setenv("TYPESENSE_MAX_QUERY_LEN", value.c_str(), 1);
+        } else {
+            unsetenv("TYPESENSE_MAX_QUERY_LEN");
+        }
+    }
+};
+}
+
+TEST(ConfigTest, MaxQueryLengthDefaultsAndPrecedence) {
+    RestoreMaxQueryLengthEnv restore;
+    unsetenv("TYPESENSE_MAX_QUERY_LEN");
+    ConfigImpl config;
+    config.load_config_env();
+    EXPECT_EQ(0, config.get_max_query_len());
+    setenv("TYPESENSE_MAX_QUERY_LEN", "200", 1);
+    config.load_config_env();
+    EXPECT_EQ(200, config.get_max_query_len());
+
+    std::vector<std::string> args = {
+        "./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0", "--max-query-len=0",
+        std::string("--config=") + ROOT_DIR + "test/valid_config.ini"
+    };
+    auto argv = get_argv(args);
+    cmdline::parser options;
+    init_cmdline_options(options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(options.parse(argv.size() - 1, argv.data())) << options.error_full();
+    config.load_config_file(options);
+    EXPECT_EQ(100, config.get_max_query_len());
+    config.load_config_cmd_args(options);
+    EXPECT_EQ(0, config.get_max_query_len());
+    EXPECT_TRUE(config.is_valid().ok());
+
+    // An absent higher-priority value must not replace the environment setting.
+    args = {"./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0", std::string("--config=") + ROOT_DIR + "test/valid_sparse_config.ini"};
+    argv = get_argv(args);
+    cmdline::parser sparse_options;
+    init_cmdline_options(sparse_options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(sparse_options.parse(argv.size() - 1, argv.data())) << sparse_options.error_full();
+    config.load_config_env();
+    config.load_config_file(sparse_options);
+    config.load_config_cmd_args(sparse_options);
+    EXPECT_EQ(200, config.get_max_query_len());
+}
+
+TEST(ConfigTest, MaxQueryLengthRejectsMalformedEnvironmentAndCliValues) {
+    RestoreMaxQueryLengthEnv restore;
+    for(const std::string value : {"", "-1", "+1", " 1", "1 ", "1.5", "1x", "18446744073709551616"}) {
+        SCOPED_TRACE(value);
+        setenv("TYPESENSE_MAX_QUERY_LEN", value.c_str(), 1);
+        ConfigImpl config;
+        config.load_config_env();
+        auto validation = config.is_valid();
+        ASSERT_FALSE(validation.ok());
+        EXPECT_EQ("Invalid value for `max-query-len`; expected a non-negative integer.", validation.error());
+
+        std::vector<std::string> args = {"./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0", "--max-query-len=" + value};
+        auto argv = get_argv(args);
+        cmdline::parser options;
+        init_cmdline_options(options, argv.size() - 1, argv.data());
+        ASSERT_TRUE(options.parse(argv.size() - 1, argv.data())) << options.error_full();
+        ConfigImpl cli_config;
+        cli_config.load_config_cmd_args(options);
+        validation = cli_config.is_valid();
+        ASSERT_FALSE(validation.ok());
+        EXPECT_EQ("Invalid value for `max-query-len`; expected a non-negative integer.", validation.error());
+    }
+}
+
+TEST(ConfigTest, MaxQueryLengthValidOverrideAndUint64Boundary) {
+    RestoreMaxQueryLengthEnv restore;
+    setenv("TYPESENSE_MAX_QUERY_LEN", "invalid", 1);
+    ConfigImpl config;
+    config.load_config_env();
+    EXPECT_FALSE(config.is_valid().ok());
+    std::vector<std::string> args = {
+        "./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0", "--max-query-len=18446744073709551615",
+        std::string("--config=") + ROOT_DIR + "test/valid_config.ini"
+    };
+    auto argv = get_argv(args);
+    cmdline::parser options;
+    init_cmdline_options(options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(options.parse(argv.size() - 1, argv.data())) << options.error_full();
+    config.load_config_file(options);
+    ASSERT_TRUE(config.is_valid().ok());
+    EXPECT_EQ(100, config.get_max_query_len());
+    config.load_config_cmd_args(options);
+    ASSERT_TRUE(config.is_valid().ok());
+    EXPECT_EQ(std::numeric_limits<uint64_t>::max(), config.get_max_query_len());
+    // Unknown runtime settings are ignored by the existing update endpoint.
+    EXPECT_TRUE(config.update_config(nlohmann::json{{"max-query-len", 1}}).ok());
+    EXPECT_EQ(std::numeric_limits<uint64_t>::max(), config.get_max_query_len());
 }

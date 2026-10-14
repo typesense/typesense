@@ -2,6 +2,9 @@
 
 #include <iostream>
 #include <string>
+#ifdef TEST_BUILD
+#include <functional>
+#endif
 #include <sparsepp.h>
 #include "store.h"
 #include "field.h"
@@ -11,6 +14,12 @@
 #include "batched_indexer.h"
 
 const std::string ERROR_could_not_locate_document_in_store = "Could not locate the JSON document for sequence ID: ";
+
+#ifdef TEST_BUILD
+extern std::function<Option<bool>()> collection_manager_before_async_reference_backfill_apply;
+extern std::function<void()> collection_manager_after_cascade_first_lock;
+extern std::function<void()> collection_manager_after_cascade_retry_release;
+#endif
 
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
@@ -63,6 +72,18 @@ private:
     static Option<bool> validate_facet_params(const std::vector<collection_search_args_t>& coll_searches,
                                               const std::vector<std::shared_ptr<Collection>>& collections);
 
+    void persist_referenced_ins();
+
+    Option<bool> validate_deferred_references_for_symlink(const std::string& symlink_name,
+                                                          const std::string& collection_name) const;
+
+    Option<bool> resolve_deferred_references_for_symlink(const std::string& symlink_name,
+                                                         const std::string& collection_name);
+
+    Option<bool> rebind_references_for_symlink_target_swap(const std::string& symlink_name,
+                                                           const std::string& old_collection_name,
+                                                           const std::string& new_collection_name);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
@@ -96,7 +117,7 @@ public:
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json,
                                          const bool copy_documents = false);
 
-    void add_to_collections(Collection* collection);
+    std::shared_ptr<Collection> add_to_collections(Collection* collection);
 
     Option<std::vector<std::shared_ptr<Collection>>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
                                                      const std::vector<std::string>& api_key_collections = {}) const;
@@ -190,8 +211,13 @@ public:
 
     Option<bool> delete_preset(const std::string & preset_name);
 
+    Option<bool> add_referenced_ins_with_lock(std::string& referenced_collection_name, reference_info_t&& ref_info,
+                                              std::set<update_reference_info_t>& update_ref_infos,
+                                              bool is_live_request = true);
+
     Option<bool> add_referenced_ins(std::string& referenced_collection_name, reference_info_t&& ref_info,
-                                    std::set<update_reference_info_t>& update_ref_infos);
+                                    std::set<update_reference_info_t>& update_ref_infos,
+                                    bool is_live_request = true);
 
     void remove_referenced_ins_with_lock(const std::string& referencing_coll_name, const reference_info_t& ref_info);
 

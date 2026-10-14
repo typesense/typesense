@@ -94,6 +94,46 @@ type BenchmarkConfig = z.infer<typeof BenchmarkConfigSchema>;
 
 export const defaultConfig: BenchmarkConfig = {
   failureThresholds: {
+    filter_and_numeric_wide: {
+      "100vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+    },
+    filter_and_numeric_wide_lazy: {
+      "100vu": {
+        milliseconds: 6000,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 6000,
+        percentage: 50,
+      },
+    },
+    filter_and_ratio_17x: {
+      "100vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+    },
+    filter_and_ratio_32x: {
+      "100vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 1500,
+        percentage: 50,
+      },
+    },
     filter_complex: {
       "100vu": {
         milliseconds: 1500,
@@ -101,6 +141,16 @@ export const defaultConfig: BenchmarkConfig = {
       },
       "50vu": {
         milliseconds: 1500,
+        percentage: 50,
+      },
+    },
+    filter_selective_and: {
+      "100vu": {
+        milliseconds: 200,
+        percentage: 50,
+      },
+      "50vu": {
+        milliseconds: 200,
         percentage: 50,
       },
     },

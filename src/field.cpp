@@ -460,7 +460,13 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
         }
 
-        if (tokens[0] == collection_name) {
+        auto& ref_coll_name = tokens[0];
+        auto symlink_op = CollectionManager::get_instance().resolve_symlink(ref_coll_name);
+        if (symlink_op.ok()) {
+            ref_coll_name = symlink_op.get();
+        }
+
+        if (ref_coll_name == collection_name) {
             return Option<bool>(400, "Referencing a field of the same collection is not allowed: `" +
                                      field_json[fields::name].get<std::string>() + "` field references `" +
                                      collection_name + "` collection.");
