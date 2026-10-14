@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <libstemmer.h>
 #include "lru/lru.hpp"
 #include "sparsepp.h"
@@ -16,12 +17,14 @@ class Stemmer {
     private:
         sb_stemmer * stemmer = nullptr;
         LRU::Cache<std::string, std::string> cache;
+        LRU::Cache<std::string, std::string> normalized_cache;
+        uint64_t dictionary_generation = 0;
         std::mutex mutex;
         std::string dictionary_name;
     public:
         Stemmer(const char * language, const std::string& dictionary_name="");
         ~Stemmer();
-        std::string stem(const std::string & word);
+        std::string stem(const std::string & word, bool normalize_dictionary = false);
 };
 
 
@@ -31,6 +34,13 @@ class StemmerManager {
         StemmerManager() {}
         std::mutex mutex;
         spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::string>> stem_dictionaries;
+        struct normalized_entry_t {
+            std::string root;
+            bool exact = false;
+            bool ambiguous = false;
+        };
+        spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, normalized_entry_t>> normalized_dictionaries;
+        std::atomic<uint64_t> dictionary_generation{0};
         Store* store;
 
         std::string get_stemming_dictionary_key(const std::string& dictionary_name);
@@ -70,7 +80,12 @@ class StemmerManager {
 
         bool load_stemming_dictioary(const nlohmann::json& dictionary);
 
-        std::string get_normalized_word(const std::string& dictionary_name, const std::string& word);
+        std::string get_normalized_word(const std::string& dictionary_name, const std::string& word,
+                                        bool normalize_dictionary = false);
+
+        uint64_t get_dictionary_generation() const {
+            return dictionary_generation.load(std::memory_order_acquire);
+        }
 
         void get_stemming_dictionaries(nlohmann::json& dictionaries);
 
