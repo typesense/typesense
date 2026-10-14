@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
 #include <collection_manager.h>
 #include "collection.h"
 #include "embedder_manager.h"
@@ -1986,6 +1987,231 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
     ASSERT_EQ('&', fields[1].token_separators[0]);
     ASSERT_EQ(1, fields[1].symbols_to_index.size());
     ASSERT_EQ('$', fields[1].symbols_to_index[0]);
+}
+
+TEST_F(CollectionAllFieldsTest, DynamicFieldsFollowDeclarationOrder) {
+    for(bool broad_first: {false, true}) {
+        for(size_t extra_count: {0, 5, 10, 11, 15, 20, 30}) {
+            SCOPED_TRACE("broad_first=" + std::to_string(broad_first) +
+                         ", extra_count=" + std::to_string(extra_count));
+            auto schema = R"({"name": "dynamic_order", "fields": [
+                {"name": ".*", "type": "auto"},
+                {"name": "title", "type": "string"},
+                {"name": "av-explicit-sort", "type": "string", "sort": true}
+            ]})"_json;
+            auto broad = R"({"name": "av-.*", "type": "auto"})"_json;
+            auto companions = R"([
+                {"name": "av-.*-sort", "type": "string", "sort": true},
+                {"name": "av-.*-facet", "type": "string", "facet": true},
+                {"name": "av-.*-number", "type": "int32"}
+            ])"_json;
+            if(broad_first) {
+                schema["fields"].push_back(broad);
+            }
+            for(const auto& companion: companions) {
+                schema["fields"].push_back(companion);
+            }
+            if(!broad_first) {
+                schema["fields"].push_back(broad);
+            }
+            for(size_t i = 0; i < extra_count; i++) {
+                schema["fields"].push_back({{"name", "other" + std::to_string(i) + "-.*"},
+                                            {"type", "string"}});
+            }
+            auto create_op = collectionManager.create_collection(schema);
+            ASSERT_TRUE(create_op.ok()) << create_op.error();
+            auto collection = create_op.get();
+            for(const auto& id: {"0", "1"}) {
+                auto doc = R"({"title": "Acme", "av-company-facet": "Acme",
+                               "av-company-number": 42, "unmatched": 7})"_json;
+                doc["id"] = id;
+                doc["av-company-sort"] = std::string(id) == "0" ? "bravo" : "alpha";
+                doc["av-explicit-sort"] = "explicit";
+                auto add_op = collection->add(doc.dump());
+                ASSERT_TRUE(add_op.ok()) << add_op.error();
+            }
+            auto inferred = collection->get_schema();
+            EXPECT_EQ(!broad_first, inferred.at("av-company-sort").sort);
+            EXPECT_EQ(!broad_first, inferred.at("av-company-facet").facet);
+            EXPECT_EQ(broad_first ? field_types::INT64 : field_types::INT32,
+                      inferred.at("av-company-number").type);
+            EXPECT_TRUE(inferred.at("av-explicit-sort").sort);
+            EXPECT_EQ(field_types::INT64, inferred.at("unmatched").type);
+
+            auto sort_op = collection->search("*", {}, "", {},
+                                              {sort_by("av-company-sort", "ASC")},
+                                              {0}, 10, 1, FREQUENCY, {false});
+            EXPECT_EQ(!broad_first, sort_op.ok());
+            if(!broad_first && sort_op.ok()) {
+                EXPECT_EQ("1", sort_op.get()["hits"][0]["document"]["id"]);
+                EXPECT_EQ("0", sort_op.get()["hits"][1]["document"]["id"]);
+            }
+            auto facet_op = collection->search("*", {}, "", {"av-company-facet"},
+                                               {}, {0}, 10, 1, FREQUENCY, {false});
+            EXPECT_EQ(!broad_first, facet_op.ok());
+            if(!broad_first && facet_op.ok()) {
+                EXPECT_EQ("Acme", facet_op.get()["facet_counts"][0]["counts"][0]["value"]);
+                EXPECT_EQ(2, facet_op.get()["facet_counts"][0]["counts"][0]["count"]);
+            }
+            collectionManager.drop_collection("dynamic_order");
+        }
+    }
+}
+
+TEST_F(CollectionAllFieldsTest, DynamicFieldOrderSurvivesReload) {
+    for(bool broad_first: {false, true}) {
+        auto schema = R"({"fields": []})"_json;
+        schema["name"] = "dynamic_reload_" + std::to_string(broad_first);
+        auto broad = R"({"name": "av-.*", "type": "auto"})"_json;
+        auto specific = R"({"name": "av-.*-sort", "type": "string", "sort": true})"_json;
+        schema["fields"] = broad_first ? nlohmann::json::array({broad, specific})
+                                        : nlohmann::json::array({specific, broad});
+        auto create_op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(create_op.ok()) << create_op.error();
+        ASSERT_TRUE(create_op.get()->add(R"({"av-old-sort": "old"})").ok());
+    }
+
+    collectionManager.dispose();
+    delete store;
+    store = new Store("/tmp/typesense_test/collection_all_fields");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+
+    for(bool broad_first: {false, true}) {
+        auto collection = collectionManager.get_collection("dynamic_reload_" + std::to_string(broad_first));
+        ASSERT_NE(nullptr, collection);
+        ASSERT_TRUE(collection->add(R"({"av-new-sort": "new"})").ok());
+        EXPECT_EQ(!broad_first, collection->get_schema().at("av-new-sort").sort);
+        EXPECT_EQ(!broad_first, collection->get_schema().at("av-old-sort").sort);
+    }
+}
+
+TEST_F(CollectionAllFieldsTest, NestedDynamicFieldsFollowDeclarationOrder) {
+    for(bool broad_first: {false, true}) {
+        auto schema = R"({"name": "nested_dynamic_order", "enable_nested_fields": true,
+                           "fields": [
+                               {"name": "store", "type": "object"},
+                               {"name": "store.*", "type": "auto"},
+                               {"name": "store.*-s.*", "type": "string*"}
+                           ]})"_json;
+        // auto and string* rules remain ineligible for typed nested matching.
+        auto broad = R"({"name": "store..*", "type": "string"})"_json;
+        auto specific = R"({"name": "store.*-sort", "type": "string", "sort": true})"_json;
+        auto facet = R"({"name": "store.*-facet", "type": "string", "facet": true})"_json;
+        if(broad_first) {
+            schema["fields"].push_back(broad);
+        }
+        schema["fields"].push_back(specific);
+        schema["fields"].push_back(facet);
+        if(!broad_first) {
+            schema["fields"].push_back(broad);
+        }
+        auto create_op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(create_op.ok()) << create_op.error();
+        auto collection = create_op.get();
+        for(const auto& value: {"bravo", "alpha"}) {
+            nlohmann::json doc = {{"store", {{"company-sort", value}, {"company-facet", "Acme"}}}};
+            auto add_op = collection->add(doc.dump());
+            ASSERT_TRUE(add_op.ok()) << add_op.error();
+        }
+        EXPECT_EQ(!broad_first, collection->get_schema().at("store.company-sort").sort);
+        EXPECT_EQ(!broad_first, collection->get_schema().at("store.company-facet").facet);
+        auto sort_op = collection->search("*", {}, "", {}, {sort_by("store.company-sort", "ASC")},
+                                          {0}, 10, 1, FREQUENCY, {false});
+        EXPECT_EQ(!broad_first, sort_op.ok());
+        if(!broad_first && sort_op.ok()) {
+            EXPECT_EQ("alpha", sort_op.get()["hits"][0]["document"]["store"]["company-sort"]);
+        }
+        auto facet_op = collection->search("*", {}, "", {"store.company-facet"}, {},
+                                           {0}, 10, 1, FREQUENCY, {false});
+        EXPECT_EQ(!broad_first, facet_op.ok());
+        if(!broad_first && facet_op.ok()) {
+            EXPECT_EQ(2, facet_op.get()["facet_counts"][0]["counts"][0]["count"]);
+        }
+        collectionManager.drop_collection("nested_dynamic_order");
+    }
+}
+
+TEST_F(CollectionAllFieldsTest, NestedDynamicFieldTypesFollowDeclarationOrder) {
+    for(bool integer_first: {false, true}) {
+        field nested_field("store.number", field_types::FLOAT, false, true, true, "", -1, -1, true);
+        tsl::htrie_map<char, field> nested_fields;
+        nested_fields.emplace(nested_field.name, nested_field);
+        // Both skipped rules also match store.number.
+        std::vector<field> dynamic_fields = {
+            field("store.*number", field_types::AUTO, false, true),
+            field("store.n.*", "string*", false, true)
+        };
+        field integer_rule("store.*", field_types::INT32, false, true);
+        field float_rule("store..*", field_types::FLOAT, false, true);
+        dynamic_fields.push_back(integer_first ? integer_rule : float_rule);
+        dynamic_fields.push_back(integer_first ? float_rule : integer_rule);
+        auto doc = R"({"store": {"number": 1.5}})"_json;
+        std::vector<field> flattened;
+        auto flatten_op = field::flatten_doc(doc, nested_fields, dynamic_fields, false, flattened);
+        EXPECT_EQ(!integer_first, flatten_op.ok());
+        if(!integer_first && flatten_op.ok()) {
+            ASSERT_EQ(1, flattened.size());
+            EXPECT_EQ(field_types::FLOAT, flattened[0].type);
+            EXPECT_EQ(1.5, doc["store.number"].get<double>());
+        } else if(integer_first) {
+            EXPECT_EQ(400, flatten_op.code());
+        }
+    }
+}
+
+// Run explicitly for before/after ingestion measurements; no timing threshold in CI.
+TEST_F(CollectionAllFieldsTest, DISABLED_DynamicFieldIngestionBenchmark) {
+    for(size_t pass = 0; pass < 3; pass++) {
+        for(size_t offset = 0; offset < 3; offset++) {
+            const size_t mode = (offset + pass) % 3;
+            for(bool new_names: {false, true}) {
+                const size_t count = new_names ? 256 : 1000;
+                std::vector<field> fields = {field("title", field_types::STRING, false)};
+                if(mode == 0) {
+                    for(size_t i = 0; i < (new_names ? count : 4); i++) {
+                        fields.emplace_back("av-company" + std::to_string(i) + "-sort",
+                                            field_types::STRING, false, true);
+                    }
+                } else {
+                    fields.emplace_back("av-.*", field_types::STRING, false, true);
+                    if(mode == 2) {
+                        fields.emplace_back("av-.*-sort", field_types::STRING, false, true);
+                    }
+                    for(size_t i = 0; i < 30; i++) {
+                        fields.emplace_back("other" + std::to_string(i) + "-.*",
+                                            field_types::STRING, false, true);
+                    }
+                }
+                auto create_op = collectionManager.create_collection("dynamic_benchmark", 1, fields, "");
+                ASSERT_TRUE(create_op.ok()) << create_op.error();
+                auto collection = create_op.get();
+                if(!new_names) {
+                    auto warmup = R"({"id": "warmup", "title": "warmup"})"_json;
+                    for(size_t i = 0; i < 4; i++) {
+                        warmup["av-company" + std::to_string(i) + "-sort"] = "value";
+                    }
+                    ASSERT_TRUE(collection->add(warmup.dump()).ok());
+                }
+                std::vector<std::string> docs;
+                for(size_t i = 0; i < count; i++) {
+                    auto doc = R"({"title": "Acme"})"_json;
+                    doc["id"] = std::to_string(i);
+                    doc["av-company" + std::to_string(new_names ? i : i % 4) + "-sort"] = "value";
+                    docs.push_back(doc.dump());
+                }
+                nlohmann::json document;
+                auto begin = std::chrono::steady_clock::now();
+                auto result = collection->add_many(docs, document, CREATE);
+                auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - begin).count();
+                ASSERT_EQ(count, result["num_imported"].get<size_t>()) << result.dump();
+                LOG(INFO) << "Dynamic ingestion benchmark: pass=" << pass << " mode=" << mode
+                          << " new_names=" << new_names << " docs=" << count << " us=" << elapsed_us;
+                collectionManager.drop_collection("dynamic_benchmark");
+            }
+        }
+    }
 }
 
 TEST_F(CollectionAllFieldsTest, FieldNameEmpty) {
