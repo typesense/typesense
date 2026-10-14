@@ -3635,6 +3635,91 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
     ASSERT_TRUE(get_op.get()["reviewQueue"].empty());
 }
 
+TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayPreservesUnchangedChildIndexes) {
+    auto schema = R"({
+        "name": "review_tasks_siblings",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "reviewQueue", "type": "object[]", "optional": true},
+          {"name": "reviewQueue.reviewerId", "type": "int64[]", "facet": true, "optional": true},
+          {"name": "reviewQueue.taskIds", "type": "int64[]", "facet": true, "optional": true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    for(auto operation: {UPDATE, UPSERT}) {
+        SCOPED_TRACE(operation);
+        auto doc = R"({"id":"0","reviewQueue":[{"reviewerId":9001,"taskIds":[11]}]})"_json;
+        doc["id"] = std::to_string(operation);
+        ASSERT_TRUE(coll->add(doc.dump(), UPSERT).ok());
+        auto patch = R"({"id":"0","reviewQueue":[{"reviewerId":9001,"taskIds":[44]}]})"_json;
+        patch["id"] = doc["id"];
+        ASSERT_TRUE(coll->add(patch.dump(), operation).ok());
+
+        for(const auto& filter: {"reviewQueue.reviewerId:=9001", "reviewQueue.taskIds:=44"}) {
+            auto result = coll->search("*", {}, filter, {}, {}, {0}, 10, 1, FREQUENCY, {false});
+            ASSERT_TRUE(result.ok());
+            EXPECT_EQ(1, result.get()["found"].get<size_t>()) << filter;
+        }
+        auto result = coll->search("*", {}, "reviewQueue.taskIds:=11", {}, {}, {0},
+                                   10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(result.ok());
+        EXPECT_EQ(0, result.get()["found"].get<size_t>());
+        auto stored = coll->get(doc["id"].get<std::string>());
+        ASSERT_TRUE(stored.ok());
+        EXPECT_EQ(patch["reviewQueue"], stored.get()["reviewQueue"]);
+        ASSERT_TRUE(coll->remove(doc["id"].get<std::string>()).ok());
+    }
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateDeepNestedObjectArrayRemovesChildIndexes) {
+    auto schema = R"({
+        "name": "review_tasks_nested",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "wrapper", "type": "object", "optional": true},
+          {"name": "wrapper.reviewQueue", "type": "object[]", "optional": true},
+          {"name": "wrapper.reviewQueue.reviewerId", "type": "int64[]", "facet": true, "optional": true},
+          {"name": "wrapper.label", "type": "string", "optional": true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    for(const auto& replacement: {nlohmann::json::array(), nlohmann::json(nullptr)}) {
+        SCOPED_TRACE(replacement.dump());
+        auto doc = R"({"id":"0","wrapper":{"reviewQueue":[{"reviewerId":9001}],"label":"retained"}})"_json;
+        ASSERT_TRUE(coll->add(doc.dump(), UPSERT).ok());
+        auto before = coll->search("*", {}, "wrapper.reviewQueue.reviewerId:=9001", {}, {}, {0},
+                                   10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(before.ok());
+        ASSERT_EQ(1, before.get()["found"].get<size_t>());
+
+        auto patch = R"({"id":"0","wrapper":{}})"_json;
+        patch["wrapper"]["reviewQueue"] = replacement;
+        ASSERT_TRUE(coll->add(patch.dump(), UPDATE).ok());
+        auto after = coll->search("*", {}, "wrapper.reviewQueue.reviewerId:=9001", {}, {}, {0},
+                                  10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(after.ok());
+        EXPECT_EQ(0, after.get()["found"].get<size_t>());
+        auto retained = coll->search("retained", {"wrapper.label"}, "", {}, {}, {0},
+                                     10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(retained.ok());
+        EXPECT_EQ(1, retained.get()["found"].get<size_t>());
+        auto stored = coll->get("0");
+        ASSERT_TRUE(stored.ok());
+        EXPECT_EQ("retained", stored.get()["wrapper"]["label"]);
+        if(replacement.is_null()) {
+            EXPECT_FALSE(stored.get()["wrapper"].contains("reviewQueue"));
+        } else {
+            EXPECT_EQ(replacement, stored.get()["wrapper"]["reviewQueue"]);
+        }
+    }
+}
+
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
     nlohmann::json schema = R"({
         "name": "coll1",
