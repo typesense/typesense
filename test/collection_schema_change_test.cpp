@@ -2084,6 +2084,162 @@ TEST_F(CollectionSchemaChangeTest, AlterUnsortableFieldWithSortEnabled) {
     ASSERT_EQ("string", fields[0].type);
 }
 
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterPreservesSurvivingRuleDuringReadd) {
+    auto schema = R"({"name":"dynamic_surviving_readd","fields":[
+        {"name":"av-.*","type":"auto"},
+        {"name":"av-.*-sort","type":"string","sort":false}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"av-old-sort":"old"})").ok());
+    auto changes = R"({"fields":[
+        {"name":"av-.*-sort","drop":true},
+        {"name":"av-.*-sort","type":"string","sort":true}
+    ]})"_json;
+    auto altered = collection->alter(changes);
+    ASSERT_TRUE(altered.ok()) << altered.error();
+    ASSERT_TRUE(collection->add(R"({"av-new-sort":"new"})").ok());
+    EXPECT_FALSE(collection->get_schema().at("av-old-sort").sort);
+    EXPECT_FALSE(collection->get_schema().at("av-new-sort").sort);
+}
+
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterDoesNotRediscoverUnrelatedDeletedField) {
+    auto schema = R"({"name":"dynamic_delete_scope","fields":[
+        {"name":"av-.*","type":"auto"},
+        {"name":"av-explicit","type":"string","sort":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"av-explicit":"old","av-retained":"value"})").ok());
+    auto changes = R"({"fields":[
+        {"name":"av-explicit","drop":true},
+        {"name":"other.*","type":"string"}
+    ]})"_json;
+    auto altered = collection->alter(changes);
+    ASSERT_TRUE(altered.ok()) << altered.error();
+    EXPECT_EQ(0, collection->get_schema().count("av-explicit"));
+    EXPECT_EQ(1, collection->get_schema().count("av-retained"));
+}
+
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterPreservesAdditionOrder) {
+    auto schema = R"({"name": "dynamic_alter", "fields": [
+        {"name": "title", "type": "string"},
+        {"name": "obsolete", "type": "string", "optional": true}
+    ]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto collection = create_op.get();
+    ASSERT_TRUE(collection->add(R"({"title": "old", "av-old-sort": "bravo",
+                                   "av-old-facet": "Acme", "av-old-number": 42})").ok());
+
+    auto changes = R"({"fields": [
+        {"name": "av-.*-sort", "type": "string", "sort": true},
+        {"name": "av-.*-facet", "type": "string", "facet": true},
+        {"name": "av-.*-number", "type": "int32"},
+        {"name": "av-.*", "type": "auto"}
+    ]})"_json;
+    std::vector<std::string> expected_patterns = {"av-.*-sort", "av-.*-facet", "av-.*-number", "av-.*"};
+    for(size_t i = 0; i < 30; i++) {
+        auto name = "other" + std::to_string(i) + "-.*";
+        changes["fields"].push_back({{"name", name}, {"type", "string"}});
+        expected_patterns.push_back(name);
+    }
+    // Moving this deletion first must not reorder the large block of additions.
+    changes["fields"].push_back({{"name", "obsolete"}, {"drop", true}});
+    auto alter_op = collection->alter(changes);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+    ASSERT_TRUE(collection->add(R"({"title": "new", "av-new-sort": "alpha",
+                                   "av-new-facet": "Acme", "av-new-number": 43})").ok());
+    for(const auto& prefix: {"av-old", "av-new"}) {
+        auto inferred = collection->get_schema();
+        EXPECT_TRUE(inferred.at(std::string(prefix) + "-sort").sort);
+        EXPECT_TRUE(inferred.at(std::string(prefix) + "-facet").facet);
+        EXPECT_EQ(field_types::INT32, inferred.at(std::string(prefix) + "-number").type);
+    }
+    std::vector<std::string> patterns;
+    for(const auto& f: collection->get_fields()) {
+        if(f.is_dynamic()) {
+            patterns.push_back(f.name);
+        }
+    }
+    EXPECT_EQ(expected_patterns, patterns);
+    auto sort_op = collection->search("*", {}, "", {}, {sort_by("av-new-sort", "ASC")},
+                                      {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(sort_op.ok()) << sort_op.error();
+    EXPECT_EQ("new", sort_op.get()["hits"][0]["document"]["title"]);
+    auto facet_op = collection->search("*", {}, "", {"av-old-facet"}, {},
+                                       {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(facet_op.ok()) << facet_op.error();
+    EXPECT_EQ("Acme", facet_op.get()["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterOrdersAdditionsAndReaddedRulesTogether) {
+    for(bool broad_first: {false, true}) {
+        auto schema = R"({"name": "dynamic_readd", "fields": [
+            {"name": "av-.*-sort", "type": "string", "sort": false}
+        ]})"_json;
+        auto create_op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(create_op.ok()) << create_op.error();
+        auto collection = create_op.get();
+        ASSERT_TRUE(collection->add(R"({"av-old-sort": "old"})").ok());
+
+        auto specific = R"({"name": "av-.*-sort", "type": "string", "sort": true})"_json;
+        auto broad = R"({"name": "av-.*", "type": "auto"})"_json;
+        auto changes = R"({"fields": []})"_json;
+        changes["fields"] = broad_first ? nlohmann::json::array({broad, specific})
+                                         : nlohmann::json::array({specific, broad});
+        changes["fields"].push_back({{"name", "av-.*-sort"}, {"drop", true}});
+        auto alter_op = collection->alter(changes);
+        ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+        ASSERT_TRUE(collection->add(R"({"av-new-sort": "new"})").ok());
+        EXPECT_EQ(!broad_first, collection->get_schema().at("av-old-sort").sort);
+        EXPECT_EQ(!broad_first, collection->get_schema().at("av-new-sort").sort);
+        std::vector<std::string> patterns;
+        for(const auto& f: collection->get_fields()) {
+            if(f.is_dynamic()) {
+                patterns.push_back(f.name);
+            }
+        }
+        std::vector<std::string> expected = broad_first
+            ? std::vector<std::string>{"av-.*", "av-.*-sort"}
+            : std::vector<std::string>{"av-.*-sort", "av-.*"};
+        EXPECT_EQ(expected, patterns);
+
+        collectionManager.dispose();
+        delete store;
+        store = new Store("/tmp/typesense_test/collection_schema_change");
+        collectionManager.init(store, 1.0, "auth_key", quit);
+        ASSERT_TRUE(collectionManager.load(8, 1000).ok());
+        collection = collectionManager.get_collection("dynamic_readd").get();
+        ASSERT_NE(nullptr, collection);
+        ASSERT_TRUE(collection->add(R"({"av-reloaded-sort": "reloaded"})").ok());
+        EXPECT_EQ(!broad_first, collection->get_schema().at("av-reloaded-sort").sort);
+        collectionManager.drop_collection("dynamic_readd");
+    }
+}
+
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterPreservesSurvivingRuleAndMaterializedFields) {
+    auto schema = R"({"name": "dynamic_survivor", "fields": [
+        {"name": "av-.*", "type": "auto"}
+    ]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto collection = create_op.get();
+    ASSERT_TRUE(collection->add(R"({"av-old-sort": "old"})").ok());
+    EXPECT_FALSE(collection->get_schema().at("av-old-sort").sort);
+    auto changes = R"({"fields": [
+        {"name": "av-.*-sort", "type": "string", "sort": true},
+        {"name": "other.*", "type": "string"}
+    ]})"_json;
+    auto alter_op = collection->alter(changes);
+    ASSERT_TRUE(alter_op.ok()) << alter_op.error();
+    ASSERT_TRUE(collection->add(R"({"av-old-sort": "updated", "av-new-sort": "new"})").ok());
+    EXPECT_FALSE(collection->get_schema().at("av-old-sort").sort);
+    EXPECT_FALSE(collection->get_schema().at("av-new-sort").sort);
+}
+
 TEST_F(CollectionSchemaChangeTest, DropObjectFieldWithSimilarPrefix) {
     // dropping an object field like "attributes" only removes nested children
     // (like "attributes.filter") and NOT top-level fields with similar prefix (like "attributes_filter")
