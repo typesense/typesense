@@ -2243,3 +2243,70 @@ TEST_F(CollectionGroupingTest, CompositeGroupKeysDoNotMerge) {
 
     ASSERT_EQ(num_groups, group_keys.size());
 }
+
+TEST_F(CollectionGroupingTest, ArrayGroupKeysDoNotMerge) {
+    // The array branch of Index::get_distinct_id folds every value of the array into the group id. The facet id of a
+    // string value is a per-collection counter, so the ids inside one array are small, nearby numbers, the same
+    // shape as a composite key. Different arrays must not fold to the same id, or their documents land in one group
+    // and the other group key is never returned.
+    auto schema_json =
+            R"({
+                "name": "array_group_keys",
+                "fields": [
+                    {"name": "tags", "type": "string[]", "facet": true}
+                ]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto collection = collection_create_op.get();
+
+    // The 600 (month, entity) pairs of CompositeGroupKeysDoNotMerge, each as a two-value array and the only
+    // document of its array. Added one at a time, so the facet id counter follows the insertion order.
+    const std::vector<std::string> months = {"202601", "202602", "202603"};
+    const size_t num_entities = 200;
+    const size_t num_groups = months.size() * num_entities;
+
+    for (size_t entity = 0; entity < num_entities; entity++) {
+        for (const auto& month: months) {
+            nlohmann::json document;
+            document["tags"] = nlohmann::json::array({"month_" + month, "entity_" + std::to_string(entity)});
+            ASSERT_TRUE(collection->add(document.dump()).ok());
+        }
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "array_group_keys"},
+            {"q", "*"},
+            {"group_by", "tags"},
+            {"group_limit", "1"},
+            {"group_max_candidates", "1000"}, // Upper limit of the group count, for an exact `found`.
+            {"per_page", "250"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::set<std::string> group_keys;
+    for (size_t page = 1; page <= 3; page++) {
+        req_params["page"] = std::to_string(page);
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        ASSERT_TRUE(search_op.ok());
+        auto result = nlohmann::json::parse(json_res);
+
+        ASSERT_EQ(num_groups, result["found"].get<size_t>());
+        ASSERT_EQ(num_groups, result["found_docs"].get<size_t>());
+
+        for (const auto& group: result["grouped_hits"]) {
+            ASSERT_EQ(1, group["found"].get<size_t>());
+            ASSERT_EQ(1, group["hits"].size());
+            // The key of an array field is the whole array.
+            ASSERT_EQ(1, group["group_key"].size());
+            ASSERT_EQ(2, group["group_key"][0].size());
+            group_keys.insert(group["group_key"].dump());
+        }
+    }
+
+    ASSERT_EQ(num_groups, group_keys.size());
+}
