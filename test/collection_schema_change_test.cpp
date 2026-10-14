@@ -2084,6 +2084,45 @@ TEST_F(CollectionSchemaChangeTest, AlterUnsortableFieldWithSortEnabled) {
     ASSERT_EQ("string", fields[0].type);
 }
 
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterPreservesSurvivingRuleDuringReadd) {
+    auto schema = R"({"name":"dynamic_surviving_readd","fields":[
+        {"name":"av-.*","type":"auto"},
+        {"name":"av-.*-sort","type":"string","sort":false}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"av-old-sort":"old"})").ok());
+    auto changes = R"({"fields":[
+        {"name":"av-.*-sort","drop":true},
+        {"name":"av-.*-sort","type":"string","sort":true}
+    ]})"_json;
+    auto altered = collection->alter(changes);
+    ASSERT_TRUE(altered.ok()) << altered.error();
+    ASSERT_TRUE(collection->add(R"({"av-new-sort":"new"})").ok());
+    EXPECT_FALSE(collection->get_schema().at("av-old-sort").sort);
+    EXPECT_FALSE(collection->get_schema().at("av-new-sort").sort);
+}
+
+TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterDoesNotRediscoverUnrelatedDeletedField) {
+    auto schema = R"({"name":"dynamic_delete_scope","fields":[
+        {"name":"av-.*","type":"auto"},
+        {"name":"av-explicit","type":"string","sort":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"av-explicit":"old","av-retained":"value"})").ok());
+    auto changes = R"({"fields":[
+        {"name":"av-explicit","drop":true},
+        {"name":"other.*","type":"string"}
+    ]})"_json;
+    auto altered = collection->alter(changes);
+    ASSERT_TRUE(altered.ok()) << altered.error();
+    EXPECT_EQ(0, collection->get_schema().count("av-explicit"));
+    EXPECT_EQ(1, collection->get_schema().count("av-retained"));
+}
+
 TEST_F(CollectionSchemaChangeTest, DynamicFieldAlterPreservesAdditionOrder) {
     auto schema = R"({"name": "dynamic_alter", "fields": [
         {"name": "title", "type": "string"},

@@ -8077,6 +8077,33 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         return Option<bool>(400, "There can be only one field named `.*`.");
     }
 
+    // Rediscovered fields must use the same precedence as subsequent ingestion.
+    // Only include surviving rules when this request introduces dynamic rules.
+    std::vector<field> validation_dynamic_fields;
+    if(!new_dynamic_fields.empty()) {
+        for(const auto& f: ordered_dynamic_fields) {
+            if(delete_field_names.count(f.name) == 0) {
+                validation_dynamic_fields.push_back(f);
+            }
+        }
+    }
+    validation_dynamic_fields.insert(validation_dynamic_fields.end(),
+                                     new_dynamic_fields.begin(), new_dynamic_fields.end());
+
+    // Surviving rules must not rediscover fields deliberately dropped outside
+    // the new rules' scope. Keep them known only to detection, not validation.
+    auto detection_schema = updated_search_schema;
+    if(validation_dynamic_fields.size() > new_dynamic_fields.size()) {
+        for(const auto& f: del_fields) {
+            if(!f.is_dynamic() && f.name != ".*" && updated_search_schema.count(f.name) == 0 &&
+               std::none_of(new_dynamic_fields.begin(), new_dynamic_fields.end(), [&f](const field& rule) {
+                   return std::regex_match(f.name, std::regex(rule.name));
+               })) {
+                detection_schema.emplace(f.name, f);
+            }
+        }
+    }
+
     // data validations: here we ensure that already stored data is compatible with requested schema changes
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
     std::string upper_bound_key = get_seq_id_collection_prefix() + "`";  // cannot inline this
@@ -8104,7 +8131,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             !updated_reference_fields.empty()) {
             std::vector<field> new_fields;
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
-                                                           updated_search_schema, new_dynamic_fields,
+                                                           detection_schema, validation_dynamic_fields,
                                                            updated_nested_fields,
                                                            fallback_field_type, false,
                                                            new_fields,
@@ -8135,6 +8162,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
+                    detection_schema[new_field.name] = new_field;
                 }
             }
         }
