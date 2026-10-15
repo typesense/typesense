@@ -485,12 +485,8 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
 
     if(key_obj.count("joins") != 0) {
         const auto& joins = key_obj["joins"];
-        if(!joins.is_null() && !joins.is_object()) {
+        if(!joins.is_object()) {
             return Option<uint32_t>(400, "Wrong format for `joins`. It should be an object.");
-        }
-
-        if(joins.is_null()) {
-            return Option<uint32_t>(200);
         }
 
         for(const auto& join_item: joins.items()) {

@@ -517,10 +517,13 @@ TEST_F(AuthManagerTest, ValidatesJoinPolicyShape) {
     ASSERT_TRUE(api_key_t::validate(key_json).ok());
 
     key_json["joins"] = nullptr;
-    ASSERT_TRUE(api_key_t::validate(key_json).ok());
+    auto validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("Wrong format for `joins`. It should be an object.", validate_op.error());
 
     key_json["joins"] = nlohmann::json::array();
-    auto validate_op = api_key_t::validate(key_json);
+    validate_op = api_key_t::validate(key_json);
     ASSERT_FALSE(validate_op.ok());
     ASSERT_EQ(400, validate_op.code());
     ASSERT_EQ("Wrong format for `joins`. It should be an object.", validate_op.error());

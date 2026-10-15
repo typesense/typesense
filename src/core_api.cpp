@@ -2449,8 +2449,18 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     const api_key_t& existing_key = get_key_op.get();
 
+    // `joins: null` is PATCH-only deletion syntax. Remove it before applying
+    // standard API key validation, where a present `joins` value must be an object.
+    const bool remove_joins = req_json.contains("joins") && req_json["joins"].is_null();
+    if(remove_joins) {
+        req_json.erase("joins");
+    }
+
     // Merge: start from existing key's JSON representation, then overlay request fields
     nlohmann::json merged_json = existing_key.to_json();
+    if(remove_joins) {
+        merged_json.erase("joins");
+    }
     for(auto it = req_json.begin(); it != req_json.end(); ++it) {
         merged_json[it.key()] = it.value();
     }
