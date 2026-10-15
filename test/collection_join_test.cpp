@@ -12528,6 +12528,143 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
 }
 
+TEST_F(CollectionJoinTest, ScopedAPIKeyJoinPolicyIntegrationTest) {
+    auto authors_schema = R"({
+        "name": "scoped_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "salary", "type": "int32"},
+            {"name": "private_notes", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"author-1","name":"Alice","salary":100,"private_notes":"secret-a"})").ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"author-2","name":"Bob","salary":50,"private_notes":"secret-b"})").ok());
+
+    auto books_schema = R"({
+        "name": "scoped_policy_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "internal_score", "type": "int32"},
+            {"name": "author_id", "type": "string", "reference": "scoped_policy_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"book-1","title":"One","internal_score":10,"author_id":"author-1"})").ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"book-2","title":"Two","internal_score":90,"author_id":"author-2"})").ok());
+
+    const auto policy = R"({
+        "scoped_policy_authors": {
+            "allowed_fields": ["name"],
+            "denied_fields": ["salary", "private_notes"]
+        },
+        "scoped_policy_books": {
+            "allowed_fields": ["title"],
+            "denied_fields": ["internal_score"]
+        }
+    })"_json;
+    api_key_t parent_key("ScopedJoinPolicyEndToEndKey", "scoped join policy", {"documents:search"},
+                         {"scoped_policy_authors", "scoped_policy_books"}, api_key_t::FAR_FUTURE_TIMESTAMP,
+                         false, policy);
+    auto& auth_manager = collectionManager.getAuthManager();
+    ASSERT_TRUE(auth_manager.create_key(parent_key).ok());
+
+    auto make_scoped_key = [&](const nlohmann::json& scoped_params) {
+        const auto payload = scoped_params.dump();
+        return StringUtils::base64_encode(StringUtils::hmac(parent_key.value, payload) +
+                                          parent_key.value.substr(0, api_key_t::PREFIX_LEN) + payload);
+    };
+    const auto forged_policy = R"({
+        "scoped_policy_authors": {},
+        "scoped_policy_books": {}
+    })"_json;
+
+    nlohmann::json direct_scoped_params = {
+            {"include_fields", "title,$scoped_policy_authors(name)"},
+            {AuthManager::AUTH_JOIN_POLICY_PARAM, forged_policy}
+    };
+    const auto direct_scoped_key = make_scoped_key(direct_scoped_params);
+    std::map<std::string, std::string> auth_params;
+    std::vector<nlohmann::json> direct_embedded_params(1, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search",
+                                          {collection_key_t("scoped_policy_books", direct_scoped_key)},
+                                          auth_params, direct_embedded_params));
+    ASSERT_EQ(direct_scoped_params["include_fields"], direct_embedded_params[0]["include_fields"]);
+    ASSERT_EQ(policy, direct_embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::map<std::string, std::string> req_params = {
+            {"collection", "scoped_policy_books"},
+            {"q", "*"},
+            {"filter_by", "$scoped_policy_authors(name:=Alice)"}
+    };
+    std::string json_res;
+    auto search_op = collectionManager.do_search(req_params, direct_embedded_params[0], json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("Alice", result["hits"][0]["document"]["scoped_policy_authors"]["name"]);
+    ASSERT_EQ(0, result["hits"][0]["document"]["scoped_policy_authors"].count("salary"));
+
+    // Without policy enforcement these thresholds reveal counts of 2, 1, and 0.
+    for(const auto threshold: {0, 75, 150}) {
+        req_params = {
+                {"collection", "scoped_policy_books"},
+                {"q", "*"},
+                {"filter_by", "$scoped_policy_authors(salary:>" + std::to_string(threshold) + ")"}
+        };
+        search_op = collectionManager.do_search(req_params, direct_embedded_params[0], json_res, now_ts);
+        ASSERT_FALSE(search_op.ok());
+        ASSERT_EQ(403, search_op.code());
+        ASSERT_EQ("Field `salary` of joined collection `scoped_policy_authors` is not allowed by this API key.",
+                  search_op.error());
+    }
+
+    nlohmann::json reverse_scoped_params = {
+            {"include_fields", "name,$scoped_policy_books(title)"},
+            {AuthManager::AUTH_JOIN_POLICY_PARAM, forged_policy}
+    };
+    const auto reverse_scoped_key = make_scoped_key(reverse_scoped_params);
+    std::vector<nlohmann::json> reverse_embedded_params(1, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search",
+                                          {collection_key_t("scoped_policy_authors", reverse_scoped_key)},
+                                          auth_params, reverse_embedded_params));
+    ASSERT_EQ(policy, reverse_embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+
+    req_params = {
+            {"collection", "scoped_policy_authors"},
+            {"q", "*"},
+            {"filter_by", "$scoped_policy_books(title:=One)"}
+    };
+    search_op = collectionManager.do_search(req_params, reverse_embedded_params[0], json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("One", result["hits"][0]["document"]["scoped_policy_books"]["title"]);
+    ASSERT_EQ(0, result["hits"][0]["document"]["scoped_policy_books"].count("internal_score"));
+
+    // Reverse joins must enforce the referenced child collection's policy too.
+    for(const auto threshold: {0, 50, 100}) {
+        req_params = {
+                {"collection", "scoped_policy_authors"},
+                {"q", "*"},
+                {"filter_by", "$scoped_policy_books(internal_score:>" + std::to_string(threshold) + ")"}
+        };
+        search_op = collectionManager.do_search(req_params, reverse_embedded_params[0], json_res, now_ts);
+        ASSERT_FALSE(search_op.ok());
+        ASSERT_EQ(403, search_op.code());
+        ASSERT_EQ("Field `internal_score` of joined collection `scoped_policy_books` is not allowed by this API key.",
+                  search_op.error());
+    }
+}
+
 TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicyAppliesAfterCurations) {
     auto authors_schema = R"({
         "name": "curation_policy_authors",
