@@ -2249,6 +2249,7 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
 }
 
 struct resolved_join_policy_t {
+    bool allow_all_fields = true;
     std::vector<std::string> allowed_fields;
     std::vector<std::string> denied_fields;
 };
@@ -2298,7 +2299,7 @@ bool join_field_pattern_matches(const std::string& pattern, const std::string& f
 }
 
 bool join_field_allowed(const resolved_join_policy_t& policy, const std::string& field_name) {
-    bool allowed = policy.allowed_fields.empty();
+    bool allowed = policy.allow_all_fields;
     for(const auto& pattern: policy.allowed_fields) {
         if(join_field_pattern_matches(pattern, field_name)) {
             allowed = true;
@@ -2389,12 +2390,42 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
 
     const auto& policy_json = canonical_it.value();
     resolved_join_policy_t policy;
+    spp::sparse_hash_set<std::string> allowed_field_patterns;
+    spp::sparse_hash_set<std::string> denied_field_patterns;
     if(policy_json.contains("allowed_fields")) {
-        policy.allowed_fields = policy_json.at("allowed_fields").get<std::vector<std::string>>();
+        const auto& allowed_fields = policy_json.at("allowed_fields");
+        policy.allow_all_fields = allowed_fields.empty();
+        for(const auto& field_name: allowed_fields) {
+            auto pattern = field_name.get<std::string>();
+            if(!pattern.empty()) {
+                allowed_field_patterns.emplace(std::move(pattern));
+            }
+        }
     }
     if(policy_json.contains("denied_fields")) {
-        policy.denied_fields = policy_json.at("denied_fields").get<std::vector<std::string>>();
+        for(const auto& field_name: policy_json.at("denied_fields")) {
+            auto pattern = field_name.get<std::string>();
+            if(!pattern.empty()) {
+                denied_field_patterns.emplace(std::move(pattern));
+            }
+        }
     }
+
+    tsl::htrie_set<char> allowed_fields_full;
+    tsl::htrie_set<char> denied_fields_full;
+    auto fields_op = collection->populate_include_exclude_fields_lk(allowed_field_patterns, denied_field_patterns,
+                                                                    allowed_fields_full, denied_fields_full);
+    if(!fields_op.ok()) {
+        return Option<resolved_join_policy_t>(fields_op.code(), fields_op.error());
+    }
+    for(auto it = allowed_fields_full.begin(); it != allowed_fields_full.end(); ++it) {
+        policy.allowed_fields.emplace_back(it.key());
+    }
+    for(auto it = denied_fields_full.begin(); it != denied_fields_full.end(); ++it) {
+        policy.denied_fields.emplace_back(it.key());
+    }
+    std::sort(policy.allowed_fields.begin(), policy.allowed_fields.end());
+    std::sort(policy.denied_fields.begin(), policy.denied_fields.end());
     return Option<resolved_join_policy_t>(std::move(policy));
 }
 
@@ -2644,7 +2675,11 @@ Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields
         const auto& policy = policy_op.get();
 
         auto requested_includes = split_join_fields(reference.include_fields);
-        if(!policy.allowed_fields.empty()) {
+        if(!policy.allow_all_fields) {
+            if(policy.allowed_fields.empty()) {
+                return Option<bool>(403, "No fields of joined collection `" + ref_collection->get_name() +
+                                          "` are allowed by this API key.");
+            }
             if(requested_includes.empty()) {
                 reference.include_fields = StringUtils::join(policy.allowed_fields, ",");
             } else {

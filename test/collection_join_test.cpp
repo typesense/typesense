@@ -12206,6 +12206,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
             {"name": "secret_embedding", "type": "float[]", "num_dim": 2},
             {"name": "foo_internal", "type": "string"},
             {"name": "foobar_visible", "type": "string"},
+            {"name": "public_name", "type": "string"},
             {"name": "secret_tag", "type": "string"},
             {"name": "secret_payload", "type": "string", "index": false},
             {"name": "city_id", "type": "string", "reference": "policy_cities.id"}
@@ -12213,7 +12214,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     })"_json;
     create_op = collectionManager.create_collection(authors_schema);
     ASSERT_TRUE(create_op.ok());
-    ASSERT_TRUE(create_op.get()->add(R"({"id":"author-1","name":"Alice","country":"US","private_notes":"secret","salary":100000,"_salary":100000,"secret_embedding":[0.1,0.2],"foo_internal":"not requested","foobar_visible":"requested","secret_tag":"classified","secret_payload":"stored only","city_id":"city-1"})").ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id":"author-1","name":"Alice","country":"US","private_notes":"secret","salary":100000,"_salary":100000,"secret_embedding":[0.1,0.2],"foo_internal":"not requested","foobar_visible":"requested","public_name":"public","public_secret":"undeclared stored only","secret_tag":"classified","secret_payload":"stored only","city_id":"city-1"})").ok());
     ASSERT_TRUE(collectionManager.upsert_symlink("policy_authors_alias_a", "policy_authors").ok());
     ASSERT_TRUE(collectionManager.upsert_symlink("policy_authors_alias_b", "policy_authors").ok());
 
@@ -12254,6 +12255,8 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     auto result = nlohmann::json::parse(json_res);
     ASSERT_EQ("stored only", result["hits"][0]["document"]["policy_authors"]["secret_payload"]);
+    ASSERT_EQ("undeclared stored only",
+              result["hits"][0]["document"]["policy_authors"]["public_secret"]);
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
@@ -12420,6 +12423,19 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     const auto& restricted_parent = result["facet_counts"][0]["counts"][0]["parent"];
     ASSERT_EQ(1, restricted_parent.size());
     ASSERT_EQ("Alice", restricted_parent["name"]);
+
+    auto wildcard_parent_policy = policy;
+    wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public*"};
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = wildcard_parent_policy;
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& wildcard_restricted_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ("Alice", wildcard_restricted_parent["name"]);
+    ASSERT_EQ("public", wildcard_restricted_parent["public_name"]);
+    ASSERT_EQ(0, wildcard_restricted_parent.count("public_secret"));
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
 
     auto parent_searches = R"json([{
         "collection": "policy_books",
