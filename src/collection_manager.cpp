@@ -2487,7 +2487,7 @@ Option<bool> validate_join_filter_tree(const filter_node_t* node, const std::sha
         return validate_join_filter(filter_exp.field_name, ref_collection, joins, true);
     }
 
-    if(joined_context && !filter_exp.is_ignored_filter) {
+    if(joined_context) {
         std::shared_ptr<Collection> ignored;
         auto policy_op = resolve_join_policy(joins, collection->get_name(), ignored);
         if(!policy_op.ok()) {

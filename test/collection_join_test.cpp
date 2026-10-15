@@ -12321,6 +12321,15 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
               search_op.error());
 
+    req_params["filter_by"] = "$policy_authors(unauthorized_unknown_field:x)";
+    req_params["validate_field_names"] = "false";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `unauthorized_unknown_field` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+    req_params.erase("validate_field_names");
+
     req_params["filter_by"] = "$policy_authors(name:=Alice)";
     req_params["include_fields"] = "$policy_authors(private_notes)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
