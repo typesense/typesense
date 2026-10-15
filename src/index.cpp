@@ -7998,11 +7998,34 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
     del_doc = nlohmann::json::object();   // For fields to remove from index
     nlohmann::json final_update_doc = nlohmann::json::object(); // Temporary for changed fields
 
+    // Supplied flattened children are diffed separately, including unchanged values.
+    // Only missing children of a replaced/deleted parent need additional removals.
+    const bool has_flat_fields = old_doc.contains(".flat") && !old_doc[".flat"].empty();
+    const auto add_nested_child_deletions = [&](const std::string& key, const std::string& parent_path,
+                                                const nlohmann::json& old) {
+        if(!has_flat_fields) {
+            return;
+        }
+
+        const auto& old_value = old[key];
+        if(!(old_value.is_object() || (old_value.is_array() && !old_value.empty() && old_value[0].is_object()))) {
+            return;
+        }
+
+        const std::string prefix = parent_path.empty() ? key + "." : parent_path + "." + key + ".";
+        for(const auto& flat_key_json: old_doc[".flat"]) {
+            const auto& flat_key = flat_key_json.get_ref<const std::string&>();
+            if(flat_key.rfind(prefix, 0) == 0 && old_doc.contains(flat_key) && !update_doc.contains(flat_key)) {
+                del_doc[flat_key] = old_doc[flat_key];
+            }
+        }
+    };
+
     // Recursive function to apply merge patch and track changes
     std::function<void(nlohmann::json&, nlohmann::json&, const nlohmann::json&,
-                       nlohmann::json&, nlohmann::json&)> apply_merge_patch =
+                       nlohmann::json&, nlohmann::json&, const std::string&)> apply_merge_patch =
             [&](nlohmann::json& target, nlohmann::json& patch, const nlohmann::json& old,
-                nlohmann::json& del, nlohmann::json& upd) {
+                nlohmann::json& del, nlohmann::json& upd, const std::string& parent_path) {
                 // If patch is not an object, treat it as a full replacement
                 if (!patch.is_object()) {
                     if (patch != old) {
@@ -8037,6 +8060,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                             }
 
                             del[key] = old[key];
+                            add_nested_child_deletions(key, parent_path, old);
                         }
                         target.erase(key);
                         // Do not add to upd (ensures no nulls in final_update_doc)
@@ -8045,7 +8069,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Recursive merge for nested objects
                         nlohmann::json sub_del = nlohmann::json::object();
                         nlohmann::json sub_upd = nlohmann::json::object();
-                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd);
+                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd,
+                                          parent_path.empty() ? key : parent_path + "." + key);
                         if (!sub_del.empty()) del[key] = std::move(sub_del);
                         if (!sub_upd.empty()) upd[key] = std::move(sub_upd);
                         // sub_upd is empty if no changes, ensuring no unchanged values
@@ -8053,7 +8078,10 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Replacement or new field
                         nlohmann::json processed_value = process_value(value);
                         if (!old.contains(key) || processed_value != old[key]) {
-                            if (old.contains(key)) del[key] = old[key];
+                            if (old.contains(key)) {
+                                del[key] = old[key];
+                                add_nested_child_deletions(key, parent_path, old);
+                            }
                             upd[key] = processed_value;
                             target[key] = processed_value;
                         }
@@ -8064,7 +8092,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
             };
 
     // Apply the merge patch and compute changes
-    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc);
+    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc, "");
 
     if(op != UPSERT) {
         if(old_doc.contains(".flat")) {
