@@ -8,6 +8,7 @@
 #include <thread>
 #include <collection_manager.h>
 #include "collection.h"
+#include "curation_index_manager.h"
 #include <join.h>
 
 class CollectionJoinTest : public ::testing::Test {
@@ -12180,6 +12181,389 @@ TEST_F(CollectionJoinTest, AsyncRefFieldAliasReferenceWithoutPersistedReferenced
     }
 
     run_join_query(collectionManager, "after restart without $REFERENCED_INS key in store");
+}
+
+TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
+    auto cities_schema = R"({
+        "name": "policy_cities",
+        "fields": [
+            {"name": "label", "type": "string", "sort": true},
+            {"name": "secret_code", "type": "string", "sort": true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(cities_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id":"city-1","label":"New York","secret_code":"hidden"})").ok());
+
+    auto authors_schema = R"({
+        "name": "policy_authors",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true, "sort": true},
+            {"name": "country", "type": "string", "facet": true},
+            {"name": "private_notes", "type": "string", "facet": true, "sort": true},
+            {"name": "salary", "type": "int32", "facet": true, "sort": true},
+            {"name": "_salary", "type": "int32", "sort": true},
+            {"name": "secret_embedding", "type": "float[]", "num_dim": 2},
+            {"name": "foo_internal", "type": "string"},
+            {"name": "foobar_visible", "type": "string"},
+            {"name": "secret_tag", "type": "string"},
+            {"name": "secret_payload", "type": "string", "index": false},
+            {"name": "city_id", "type": "string", "reference": "policy_cities.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id":"author-1","name":"Alice","country":"US","private_notes":"secret","salary":100000,"_salary":100000,"secret_embedding":[0.1,0.2],"foo_internal":"not requested","foobar_visible":"requested","secret_tag":"classified","secret_payload":"stored only","city_id":"city-1"})").ok());
+
+    auto books_schema = R"({
+        "name": "policy_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "policy_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({"id":"book-1","title":"One","author_id":"author-1"})").ok());
+
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto policy = R"({
+        "policy_authors": {
+            "allowed_fields": ["name", "country"],
+            "denied_fields": ["country", "private_notes"]
+        },
+        "policy_cities": {
+            "allowed_fields": ["label"],
+            "denied_fields": ["secret_code"]
+        }
+    })"_json;
+    nlohmann::json embedded_params = {{AuthManager::AUTH_JOIN_POLICY_PARAM, policy}};
+    std::string json_res;
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "policy_books"},
+            {"q", "*"},
+            {"filter_by", "$policy_authors(name:=Alice)"}
+    };
+
+    nlohmann::json unrestricted_embedded_params;
+    auto search_op = collectionManager.do_search(req_params, unrestricted_embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(json_res);
+    ASSERT_EQ("stored only", result["hits"][0]["document"]["policy_authors"]["secret_payload"]);
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
+    ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
+
+    auto broader_wildcard_policy = policy;
+    broader_wildcard_policy["policy_authors"]["allowed_fields"] = {"name", "foo*"};
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = broader_wildcard_policy;
+    req_params["include_fields"] = "$policy_authors(foobar*)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
+    ASSERT_EQ("requested", result["hits"][0]["document"]["policy_authors"]["foobar_visible"]);
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("foo_internal"));
+
+    auto narrower_wildcard_policy = policy;
+    narrower_wildcard_policy["policy_authors"]["allowed_fields"] = {"name", "foobar*"};
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = narrower_wildcard_policy;
+    req_params["include_fields"] = "$policy_authors(foo*)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
+    ASSERT_EQ("requested", result["hits"][0]["document"]["policy_authors"]["foobar_visible"]);
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("foo_internal"));
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params.erase("include_fields");
+
+    req_params["filter_by"] = "$policy_authors(private_notes:=secret)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params["filter_by"] = "$policy_authors(name:=Alice)";
+    req_params["include_fields"] = "$policy_authors(private_notes)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params.erase("include_fields");
+    req_params["exclude_fields"] = "$policy_authors(private_notes)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params.erase("exclude_fields");
+    req_params["sort_by"] = "$policy_authors(private_notes:asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params["sort_by"] = "$policy_authors(_salary:asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `_salary` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params["sort_by"] = "$policy_authors(_vector_query(secret_embedding:([0.1,0.2])):asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `secret_embedding` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    auto underscore_sort_allowed_policy = policy;
+    underscore_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("_salary");
+    underscore_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("secret_embedding");
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = underscore_sort_allowed_policy;
+    req_params["sort_by"] = "$policy_authors(_salary:asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    req_params["sort_by"] = "$policy_authors(_vector_query(secret_embedding:([0.1,0.2])):asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params["sort_by"] = "$policy_authors(_rand(1):asc)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    req_params["sort_by"] = "$policy_authors($policy_cities(secret_code:asc))";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `secret_code` of joined collection `policy_cities` is not allowed by this API key.",
+              search_op.error());
+
+    req_params["filter_by"] = "title:=One";
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_cities", {{"allowed_fields", {"label"}}}}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
+
+    req_params["filter_by"] = "$policy_authors(name:=Alice)";
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params.erase("sort_by");
+    req_params["facet_by"] = "$policy_authors(private_notes)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params["facet_by"] = "$policy_authors(name(sort_by:salary:desc))";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `salary` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    auto facet_sort_allowed_policy = policy;
+    facet_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("salary");
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = facet_sort_allowed_policy;
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params["facet_by"] = "$policy_authors(name)";
+    req_params["facet_return_parent"] = "*";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& restricted_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(1, restricted_parent.size());
+    ASSERT_EQ("Alice", restricted_parent["name"]);
+
+    auto parent_searches = R"json([{
+        "collection": "policy_books",
+        "q": "*",
+        "filter_by": "$policy_authors(name:=Alice)",
+        "facet_by": "$policy_authors(name)",
+        "facet_return_parent": "*"
+    }])json"_json;
+    std::vector<nlohmann::json> parent_union_embedded_params = {embedded_params};
+    std::map<std::string, std::string> parent_union_req_params;
+    nlohmann::json parent_union_response;
+    auto union_op = collectionManager.do_union(parent_union_req_params, parent_union_embedded_params,
+                                                parent_searches, parent_union_response, now_ts);
+    ASSERT_TRUE(union_op.ok()) << union_op.error();
+    const auto& restricted_union_parent = parent_union_response["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(1, restricted_union_parent.size());
+    ASSERT_EQ("Alice", restricted_union_parent["name"]);
+
+    auto unrestricted_parent_policy = policy;
+    unrestricted_parent_policy["policy_authors"] = nlohmann::json::object();
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = unrestricted_parent_policy;
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ("secret", result["facet_counts"][0]["counts"][0]["parent"]["private_notes"]);
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params.erase("facet_return_parent");
+    req_params["facet_by"] = "$policy_authors(*)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("$policy_authors(name)", result["facet_counts"][0]["field_name"]);
+
+    req_params.erase("facet_by");
+    req_params["include_fields"] = "$policy_authors(private_notes)";
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors", {{"denied_fields", {"private_notes", "secret*"}}}}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    req_params.erase("include_fields");
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("private_notes"));
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("secret_tag"));
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("secret_payload"));
+    ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = nlohmann::json::object();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
+}
+
+TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicyAppliesAfterCurations) {
+    auto authors_schema = R"({
+        "name": "curation_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string", "sort": true},
+            {"name": "private_notes", "type": "string", "sort": true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"author-1","name":"Alice","private_notes":"secret"})").ok());
+
+    auto books_schema = R"({
+        "name": "curation_policy_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "curation_policy_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    auto* books = create_op.get();
+    ASSERT_TRUE(books->add(R"({"id":"book-1","title":"filter me","author_id":"author-1"})").ok());
+    ASSERT_TRUE(books->add(R"({"id":"book-2","title":"sort me","author_id":"author-1"})").ok());
+    ASSERT_TRUE(books->add(R"({"id":"book-3","title":"plain","author_id":"author-1"})").ok());
+
+    auto& curation_manager = CurationIndexManager::get_instance();
+    auto curation_index_op = curation_manager.add_curation_index("join_policy_curations");
+    ASSERT_TRUE(curation_index_op.ok()) << curation_index_op.error();
+    ASSERT_TRUE(books->set_curation_sets({"join_policy_curations"}).ok());
+
+    auto filter_curation = R"json({
+        "id": "forbidden-filter",
+        "rule": {"query": "filter me", "match": "exact"},
+        "filter_by": "$curation_policy_authors(private_notes:=secret)"
+    })json"_json;
+    ASSERT_TRUE(curation_manager.upsert_curation_item("join_policy_curations", filter_curation).ok());
+
+    auto sort_curation = R"json({
+        "id": "forbidden-sort",
+        "rule": {"query": "sort me", "match": "exact"},
+        "sort_by": "$curation_policy_authors(private_notes:asc)"
+    })json"_json;
+    ASSERT_TRUE(curation_manager.upsert_curation_item("join_policy_curations", sort_curation).ok());
+
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto policy = R"({
+        "curation_policy_authors": {
+            "allowed_fields": ["name"],
+            "denied_fields": ["private_notes"]
+        }
+    })"_json;
+    nlohmann::json embedded_params = {{AuthManager::AUTH_JOIN_POLICY_PARAM, policy}};
+    nlohmann::json unrestricted_params;
+    std::string json_res;
+    std::map<std::string, std::string> req_params = {
+            {"collection", "curation_policy_books"},
+            {"q", "filter me"},
+            {"query_by", "title"}
+    };
+
+    // The curation is valid for an unrestricted key, proving it matched and was applied.
+    auto search_op = collectionManager.do_search(req_params, unrestricted_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `curation_policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = nlohmann::json::object();
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Joining collection `curation_policy_authors` is not allowed by this API key.", search_op.error());
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params["q"] = "sort me";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `private_notes` of joined collection `curation_policy_authors` is not allowed by this API key.",
+              search_op.error());
+
+    // A forbidden clause on a non-matching curation must not reject the request.
+    req_params["q"] = "plain";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_EQ(1, nlohmann::json::parse(json_res)["found"]);
+
+    // Union searches use the same post-curation policy boundary.
+    auto searches = R"([{
+        "collection": "curation_policy_books",
+        "q": "filter me",
+        "query_by": "title"
+    }])"_json;
+    std::vector<nlohmann::json> union_embedded_params = {embedded_params};
+    std::map<std::string, std::string> union_req_params;
+    nlohmann::json union_response;
+    auto union_op = collectionManager.do_union(union_req_params, union_embedded_params, searches,
+                                                union_response, now_ts);
+    ASSERT_TRUE(union_op.ok()) << union_op.error();
+    ASSERT_EQ(403, union_response["code"]);
+    ASSERT_EQ("Field `private_notes` of joined collection `curation_policy_authors` is not allowed by this API key.",
+              union_response["error"]);
 }
 
 TEST_F(CollectionJoinTest, EmbeddedParamsJoin) {

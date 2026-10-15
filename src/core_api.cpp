@@ -2410,7 +2410,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
         req_json["expires_at"].get<uint64_t>(),
-        req_json["autodelete"].get<bool>()
+        req_json["autodelete"].get<bool>(),
+        req_json.count("joins") != 0 ? req_json["joins"] : nlohmann::json(nullptr)
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);
@@ -2474,7 +2475,8 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
         merged_json["actions"].get<std::vector<std::string>>(),
         merged_json["collections"].get<std::vector<std::string>>(),
         merged_json["expires_at"].get<uint64_t>(),
-        merged_json["autodelete"].get<bool>()
+        merged_json["autodelete"].get<bool>(),
+        merged_json.count("joins") != 0 ? merged_json["joins"] : nlohmann::json(nullptr)
     );
     api_key.id = existing_key.id; // ensure the id remains the same
 

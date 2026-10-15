@@ -2229,7 +2229,8 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
-        if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
+        if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM ||
+           item.key() == AuthManager::AUTH_JOIN_POLICY_PARAM) {
             continue;
         }
 
@@ -2244,6 +2245,622 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
         req_params["collection"] = auth_collection_it->get<std::string>();
     }
 
+    return Option<bool>(true);
+}
+
+struct resolved_join_policy_t {
+    std::vector<std::string> allowed_fields;
+    std::vector<std::string> denied_fields;
+};
+
+bool join_field_pattern_matches(const std::string& pattern, const std::string& field_name) {
+    if(pattern == "*") {
+        return true;
+    }
+    if(!pattern.empty() && pattern.back() == '*') {
+        return field_name.rfind(pattern.substr(0, pattern.size() - 1), 0) == 0;
+    }
+    return field_name == pattern || field_name.rfind(pattern + ".", 0) == 0;
+}
+
+bool join_field_allowed(const resolved_join_policy_t& policy, const std::string& field_name) {
+    bool allowed = policy.allowed_fields.empty();
+    for(const auto& pattern: policy.allowed_fields) {
+        if(join_field_pattern_matches(pattern, field_name)) {
+            allowed = true;
+            break;
+        }
+    }
+    if(!allowed) {
+        return false;
+    }
+    for(const auto& pattern: policy.denied_fields) {
+        if(join_field_pattern_matches(pattern, field_name)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void prune_join_parent_fields(nlohmann::json& object, const resolved_join_policy_t& policy,
+                              const std::string& parent_name = "") {
+    if(!object.is_object()) {
+        return;
+    }
+
+    auto it = object.begin();
+    while(it != object.end()) {
+        const auto field_name = parent_name.empty() ? it.key() : parent_name + "." + it.key();
+
+        if(it.value().is_object()) {
+            prune_join_parent_fields(it.value(), policy, field_name);
+            if(it.value().empty() && !join_field_allowed(policy, field_name)) {
+                it = object.erase(it);
+                continue;
+            }
+            it++;
+            continue;
+        }
+
+        if(it.value().is_array()) {
+            const bool contains_only_objects = !it.value().empty() &&
+                    std::all_of(it.value().begin(), it.value().end(), [](const auto& element) {
+                        return element.is_object();
+                    });
+            if(!contains_only_objects) {
+                if(!join_field_allowed(policy, field_name)) {
+                    it = object.erase(it);
+                    continue;
+                }
+                it++;
+                continue;
+            }
+
+            bool has_allowed_values = false;
+            for(auto& element: it.value()) {
+                prune_join_parent_fields(element, policy, field_name);
+                has_allowed_values = has_allowed_values || !element.empty();
+            }
+            if(!has_allowed_values && !join_field_allowed(policy, field_name)) {
+                it = object.erase(it);
+                continue;
+            }
+            it++;
+            continue;
+        }
+
+        if(!join_field_allowed(policy, field_name)) {
+            it = object.erase(it);
+            continue;
+        }
+        it++;
+    }
+}
+
+Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
+                                                   const std::string& requested_collection_name,
+                                                   std::shared_ptr<Collection>& collection) {
+    auto& cm = CollectionManager::get_instance();
+    collection = cm.get_collection(requested_collection_name);
+    if(collection == nullptr) {
+        return Option<resolved_join_policy_t>(400, "Referenced collection `" + requested_collection_name + "` not found.");
+    }
+
+    const auto canonical_name = collection->get_name();
+    const nlohmann::json* policy_json = nullptr;
+    auto canonical_it = joins.find(canonical_name);
+    if(canonical_it != joins.end()) {
+        policy_json = &canonical_it.value();
+    } else {
+        auto requested_it = joins.find(requested_collection_name);
+        if(requested_it != joins.end()) {
+            policy_json = &requested_it.value();
+        } else {
+            // Policies may themselves name a collection alias. Resolve those aliases before
+            // deciding that a collection is absent from the allow-list.
+            for(const auto& item: joins.items()) {
+                auto configured_collection = cm.get_collection(item.key());
+                if(configured_collection != nullptr && configured_collection->get_name() == canonical_name) {
+                    policy_json = &item.value();
+                    break;
+                }
+            }
+        }
+    }
+
+    if(policy_json == nullptr) {
+        return Option<resolved_join_policy_t>(403, "Joining collection `" + requested_collection_name +
+                                                    "` is not allowed by this API key.");
+    }
+
+    resolved_join_policy_t policy;
+    if(policy_json->contains("allowed_fields")) {
+        policy.allowed_fields = policy_json->at("allowed_fields").get<std::vector<std::string>>();
+    }
+    if(policy_json->contains("denied_fields")) {
+        policy.denied_fields = policy_json->at("denied_fields").get<std::vector<std::string>>();
+    }
+    return Option<resolved_join_policy_t>(std::move(policy));
+}
+
+Option<bool> check_join_field(const resolved_join_policy_t& policy, const std::string& collection_name,
+                              const std::string& field_name) {
+    if(join_field_allowed(policy, field_name)) {
+        return Option<bool>(true);
+    }
+    return Option<bool>(403, "Field `" + field_name + "` of joined collection `" + collection_name +
+                              "` is not allowed by this API key.");
+}
+
+Option<bool> validate_join_filter_tree(const filter_node_t* node, const std::shared_ptr<Collection>& collection,
+                                       const nlohmann::json& joins, bool joined_context);
+
+Option<bool> validate_join_filter(const std::string& filter_query, const std::shared_ptr<Collection>& collection,
+                                  const nlohmann::json& joins, bool joined_context) {
+    if(filter_query.empty()) {
+        return Option<bool>(true);
+    }
+
+    filter_node_t* root = nullptr;
+    const auto schema = collection->get_schema();
+    const auto doc_id_prefix = std::to_string(collection->get_collection_id()) + "_$DI_";
+    auto parse_op = filter::parse_filter_query(filter_query, schema,
+                                               CollectionManager::get_instance().get_store(), doc_id_prefix,
+                                               root, false);
+    std::unique_ptr<filter_node_t> guard(root);
+    if(!parse_op.ok()) {
+        return parse_op;
+    }
+    return validate_join_filter_tree(root, collection, joins, joined_context);
+}
+
+Option<bool> validate_join_filter_tree(const filter_node_t* node, const std::shared_ptr<Collection>& collection,
+                                       const nlohmann::json& joins, bool joined_context) {
+    if(node == nullptr) {
+        return Option<bool>(true);
+    }
+    if(node->isOperator) {
+        auto left_op = validate_join_filter_tree(node->left, collection, joins, joined_context);
+        return left_op.ok() ? validate_join_filter_tree(node->right, collection, joins, joined_context) : left_op;
+    }
+
+    const auto& filter_exp = node->filter_exp;
+    if(!filter_exp.referenced_collection_name.empty()) {
+        std::shared_ptr<Collection> ref_collection;
+        auto policy_op = resolve_join_policy(joins, filter_exp.referenced_collection_name, ref_collection);
+        if(!policy_op.ok()) {
+            return Option<bool>(policy_op.code(), policy_op.error());
+        }
+        return validate_join_filter(filter_exp.field_name, ref_collection, joins, true);
+    }
+
+    if(joined_context && !filter_exp.is_ignored_filter) {
+        std::shared_ptr<Collection> ignored;
+        auto policy_op = resolve_join_policy(joins, collection->get_name(), ignored);
+        if(!policy_op.ok()) {
+            return Option<bool>(policy_op.code(), policy_op.error());
+        }
+        return check_join_field(policy_op.get(), collection->get_name(), filter_exp.field_name);
+    }
+    return Option<bool>(true);
+}
+
+std::string sort_field_name(const std::string& expression) {
+    auto name = expression;
+    auto paren = name.find('(');
+    if(paren != std::string::npos) {
+        name = name.substr(0, paren);
+    }
+    StringUtils::trim(name);
+    return name;
+}
+
+bool is_internal_sort_field(const std::string& field_name) {
+    return field_name == sort_field_const::text_match ||
+           field_name == sort_field_const::seq_id ||
+           field_name == sort_field_const::group_found ||
+           field_name == sort_field_const::vector_distance ||
+           field_name == sort_field_const::random_order ||
+           field_name == sort_field_const::union_search_index;
+}
+
+Option<std::string> vector_query_sort_field_name(const std::string& expression) {
+    auto open_paren = expression.find('(');
+    if(open_paren == std::string::npos || expression.back() != ')') {
+        return Option<std::string>(400, "The vector query in sort_by is malformed.");
+    }
+
+    auto vector_query = expression.substr(open_paren + 1, expression.size() - open_paren - 2);
+    auto colon = vector_query.find(':');
+    if(colon == std::string::npos) {
+        return Option<std::string>(400, "The vector query in sort_by is malformed.");
+    }
+
+    auto field_name = vector_query.substr(0, colon);
+    StringUtils::trim(field_name);
+    if(field_name.empty()) {
+        return Option<std::string>(400, "The vector query in sort_by is malformed.");
+    }
+    return Option<std::string>(field_name);
+}
+
+Option<bool> validate_join_sorts(const std::vector<sort_by>& sort_fields,
+                                 const std::shared_ptr<Collection>& collection,
+                                 const nlohmann::json& joins, bool joined_context) {
+    for(const auto& sort_field: sort_fields) {
+        if(sort_field.name.empty()) {
+            continue;
+        }
+        // Nested reference sorts are flattened by parse_sort_by_str(), with the
+        // traversed collection path retained separately. Authorize every hop,
+        // including intermediate collections that do not name a sort field.
+        for(const auto& nested_collection_name: sort_field.nested_join_collection_names) {
+            std::shared_ptr<Collection> nested_collection;
+            auto nested_policy_op = resolve_join_policy(joins, nested_collection_name, nested_collection);
+            if(!nested_policy_op.ok()) {
+                return Option<bool>(nested_policy_op.code(), nested_policy_op.error());
+            }
+        }
+        if(sort_field.name[0] == '$') {
+            auto open_paren = sort_field.name.find('(');
+            if(open_paren == std::string::npos) {
+                return Option<bool>(400, "Reference `sort_by` is malformed.");
+            }
+            auto ref_name = sort_field.name.substr(1, open_paren - 1);
+            std::shared_ptr<Collection> ref_collection;
+            auto policy_op = resolve_join_policy(joins, ref_name, ref_collection);
+            if(!policy_op.ok()) {
+                return Option<bool>(policy_op.code(), policy_op.error());
+            }
+            auto inner = sort_field.name.substr(open_paren + 1, sort_field.name.size() - open_paren - 2);
+            std::vector<sort_by> inner_fields;
+            if(!CollectionManager::parse_sort_by_str(inner, inner_fields)) {
+                return Option<bool>(400, "Reference `sort_by` is malformed.");
+            }
+            auto op = validate_join_sorts(inner_fields, ref_collection, joins, true);
+            if(!op.ok()) {
+                return op;
+            }
+            continue;
+        }
+        if(sort_field.name == sort_field_const::eval) {
+            for(const auto& expression: sort_field.eval_expressions) {
+                auto op = validate_join_filter(expression, collection, joins, joined_context);
+                if(!op.ok()) {
+                    return op;
+                }
+            }
+            continue;
+        }
+        if(joined_context) {
+            std::shared_ptr<Collection> ignored;
+            auto policy_op = resolve_join_policy(joins, collection->get_name(), ignored);
+            if(!policy_op.ok()) {
+                return Option<bool>(policy_op.code(), policy_op.error());
+            }
+
+            const auto field_name = sort_field_name(sort_field.name);
+            if(field_name == sort_field_const::vector_query) {
+                auto vector_field_op = vector_query_sort_field_name(sort_field.name);
+                if(!vector_field_op.ok()) {
+                    return Option<bool>(vector_field_op.code(), vector_field_op.error());
+                }
+                auto op = check_join_field(policy_op.get(), collection->get_name(), vector_field_op.get());
+                if(!op.ok()) {
+                    return op;
+                }
+                continue;
+            }
+            if(is_internal_sort_field(field_name)) {
+                continue;
+            }
+
+            auto op = check_join_field(policy_op.get(), collection->get_name(), field_name);
+            if(!op.ok()) {
+                return op;
+            }
+        }
+    }
+    return Option<bool>(true);
+}
+
+std::vector<std::string> split_join_fields(const std::string& fields) {
+    std::vector<std::string> result;
+    StringUtils::split(fields, result, ",");
+    for(auto& field_name: result) {
+        StringUtils::trim(field_name);
+    }
+    result.erase(std::remove_if(result.begin(), result.end(), [](const std::string& value) {
+        return value.empty();
+    }), result.end());
+    return result;
+}
+
+void append_join_fields(std::string& target, const std::vector<std::string>& fields) {
+    for(const auto& field_name: fields) {
+        if(field_name.empty()) {
+            continue;
+        }
+        if(!target.empty()) {
+            target += ",";
+        }
+        target += field_name;
+    }
+}
+
+std::optional<std::string> intersect_join_field_patterns(const std::string& requested,
+                                                         const std::string& allowed) {
+    // `requested` is a non-global wildcard selector. Preserve the narrower
+    // prefix so applying the policy can never expand the caller's projection.
+    const auto requested_prefix = requested.substr(0, requested.size() - 1);
+    if(allowed == "*") {
+        return requested;
+    }
+    if(!allowed.empty() && allowed.back() == '*') {
+        const auto allowed_prefix = allowed.substr(0, allowed.size() - 1);
+        if(requested_prefix.rfind(allowed_prefix, 0) == 0) {
+            return requested;
+        }
+        if(allowed_prefix.rfind(requested_prefix, 0) == 0) {
+            return allowed;
+        }
+        return std::nullopt;
+    }
+
+    // An exact policy field also authorizes its nested children. If the
+    // wildcard selects only those children, retain the requested selector.
+    if(requested_prefix.rfind(allowed + ".", 0) == 0) {
+        return requested;
+    }
+    if(allowed.rfind(requested_prefix, 0) == 0) {
+        return allowed;
+    }
+    return std::nullopt;
+}
+
+Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields>& references,
+                                          const nlohmann::json& joins) {
+    for(auto& reference: references) {
+        std::shared_ptr<Collection> ref_collection;
+        auto policy_op = resolve_join_policy(joins, reference.collection_name, ref_collection);
+        if(!policy_op.ok()) {
+            return Option<bool>(policy_op.code(), policy_op.error());
+        }
+        const auto& policy = policy_op.get();
+
+        auto requested_includes = split_join_fields(reference.include_fields);
+        if(!policy.allowed_fields.empty()) {
+            if(requested_includes.empty()) {
+                reference.include_fields = StringUtils::join(policy.allowed_fields, ",");
+            } else {
+                std::vector<std::string> effective_includes;
+                for(const auto& requested: requested_includes) {
+                    if(requested == "*" || (!requested.empty() && requested.back() == '*')) {
+                        if(requested == "*") {
+                            effective_includes.insert(effective_includes.end(), policy.allowed_fields.begin(),
+                                                      policy.allowed_fields.end());
+                        } else {
+                            for(const auto& allowed: policy.allowed_fields) {
+                                auto intersection = intersect_join_field_patterns(requested, allowed);
+                                if(intersection.has_value()) {
+                                    effective_includes.emplace_back(std::move(intersection.value()));
+                                }
+                            }
+                        }
+                    } else {
+                        auto field_op = check_join_field(policy, ref_collection->get_name(), requested);
+                        if(!field_op.ok()) {
+                            return field_op;
+                        }
+                        effective_includes.emplace_back(requested);
+                    }
+                }
+                if(effective_includes.empty()) {
+                    return Option<bool>(403, "No requested fields of joined collection `" + ref_collection->get_name() +
+                                              "` are allowed by this API key.");
+                }
+                reference.include_fields = StringUtils::join(effective_includes, ",");
+            }
+        } else {
+            // An empty allow-list means all fields are candidates, but an explicitly
+            // requested field must still be checked against the deny-list. Wildcards
+            // are clamped below by adding the denied fields to exclude_fields.
+            for(const auto& requested: requested_includes) {
+                if(requested != "*" && (requested.empty() || requested.back() != '*')) {
+                    auto field_op = check_join_field(policy, ref_collection->get_name(), requested);
+                    if(!field_op.ok()) {
+                        return field_op;
+                    }
+                }
+            }
+        }
+
+        for(const auto& requested: split_join_fields(reference.exclude_fields)) {
+            if(requested != "*") {
+                auto field_op = check_join_field(policy, ref_collection->get_name(), requested);
+                if(!field_op.ok()) {
+                    return field_op;
+                }
+            }
+        }
+        append_join_fields(reference.exclude_fields, policy.denied_fields);
+
+        if(!reference.sort_by_str.empty()) {
+            std::vector<sort_by> ref_sorts;
+            if(!CollectionManager::parse_sort_by_str(reference.sort_by_str, ref_sorts)) {
+                return Option<bool>(400, "Reference `include_fields` sort is malformed.");
+            }
+            auto sort_op = validate_join_sorts(ref_sorts, ref_collection, joins, true);
+            if(!sort_op.ok()) {
+                return sort_op;
+            }
+        }
+
+        auto nested_op = apply_join_projection_policy(reference.nested_join_includes, joins);
+        if(!nested_op.ok()) {
+            return nested_op;
+        }
+    }
+    return Option<bool>(true);
+}
+
+Option<std::string> apply_join_facet_policy(const std::string& expression,
+                                            const nlohmann::json& joins,
+                                            const std::shared_ptr<Collection>& current_collection,
+                                            bool joined_context) {
+    auto facet_expression = expression;
+    StringUtils::trim(facet_expression);
+    if(facet_expression.empty()) {
+        return Option<std::string>(facet_expression);
+    }
+
+    if(facet_expression[0] == '$') {
+        auto open_paren = facet_expression.find('(');
+        if(open_paren == std::string::npos || facet_expression.back() != ')') {
+            return Option<std::string>(400, "Reference `facet_by` is malformed.");
+        }
+        auto ref_name = facet_expression.substr(1, open_paren - 1);
+        std::shared_ptr<Collection> ref_collection;
+        auto policy_op = resolve_join_policy(joins, ref_name, ref_collection);
+        if(!policy_op.ok()) {
+            return Option<std::string>(policy_op.code(), policy_op.error());
+        }
+
+        auto inner = facet_expression.substr(open_paren + 1, facet_expression.size() - open_paren - 2);
+        std::vector<std::string> inner_facets;
+        StringUtils::split_facet(inner, inner_facets);
+        std::vector<std::string> effective_facets;
+        for(const auto& inner_facet: inner_facets) {
+            auto applied_op = apply_join_facet_policy(inner_facet, joins, ref_collection, true);
+            if(!applied_op.ok()) {
+                return applied_op;
+            }
+            if(!applied_op.get().empty()) {
+                effective_facets.emplace_back(applied_op.get());
+            }
+        }
+        if(effective_facets.empty()) {
+            return Option<std::string>(403, "No facets of joined collection `" + ref_collection->get_name() +
+                                            "` are allowed by this API key.");
+        }
+        return Option<std::string>("$" + ref_name + "(" + StringUtils::join(effective_facets, ",") + ")");
+    }
+
+    if(!joined_context) {
+        return Option<std::string>(facet_expression);
+    }
+
+    std::shared_ptr<Collection> ignored;
+    auto policy_op = resolve_join_policy(joins, current_collection->get_name(), ignored);
+    if(!policy_op.ok()) {
+        return Option<std::string>(policy_op.code(), policy_op.error());
+    }
+    const auto& policy = policy_op.get();
+
+    auto paren = facet_expression.find('(');
+    auto field_name = facet_expression.substr(0, paren);
+    StringUtils::trim(field_name);
+    if(field_name == "*" || (!field_name.empty() && field_name.back() == '*')) {
+        const auto prefix = field_name == "*" ? "" : field_name.substr(0, field_name.size() - 1);
+        std::vector<std::string> allowed_facets;
+        for(const auto& facet_name: current_collection->get_facet_fields()) {
+            if(facet_name.rfind(prefix, 0) == 0 && join_field_allowed(policy, facet_name)) {
+                allowed_facets.emplace_back(facet_name);
+            }
+        }
+        if(allowed_facets.empty()) {
+            return Option<std::string>(403, "No facets of joined collection `" + current_collection->get_name() +
+                                            "` are allowed by this API key.");
+        }
+        return Option<std::string>(StringUtils::join(allowed_facets, ","));
+    }
+
+    auto field_op = check_join_field(policy, current_collection->get_name(), field_name);
+    if(!field_op.ok()) {
+        return Option<std::string>(field_op.code(), field_op.error());
+    }
+
+    // A reference facet can order its buckets using a second facet field, for
+    // example `name(sort_by:salary:desc)`. Authorize that field as well. Let
+    // the normal search path report malformed facet expressions so this policy
+    // layer does not alter existing validation errors.
+    std::vector<facet> parsed_facets;
+    auto parse_op = current_collection->parse_facet_with_lock(facet_expression, parsed_facets);
+    if(parse_op.ok()) {
+        for(const auto& parsed_facet: parsed_facets) {
+            if(parsed_facet.sort_field.empty()) {
+                continue;
+            }
+            auto sort_field_op = check_join_field(policy, current_collection->get_name(),
+                                                  parsed_facet.sort_field);
+            if(!sort_field_op.ok()) {
+                return Option<std::string>(sort_field_op.code(), sort_field_op.error());
+            }
+        }
+    }
+    return Option<std::string>(facet_expression);
+}
+
+Option<bool> collection_search_args_t::validate_post_curation_filter_sort(
+        const filter_node_t* filter_root, const std::vector<sort_by>& effective_sort_fields) const {
+    if(join_policy_collection == nullptr || join_policy.is_null()) {
+        return Option<bool>(true);
+    }
+
+    auto filter_op = validate_join_filter_tree(filter_root, join_policy_collection, join_policy, false);
+    if(!filter_op.ok()) {
+        return filter_op;
+    }
+    return validate_join_sorts(effective_sort_fields, join_policy_collection, join_policy, false);
+}
+
+void collection_search_args_t::prune_reference_facet_parent(const std::string& collection_name,
+                                                             nlohmann::json& parent) const {
+    if(join_policy.is_null()) {
+        return;
+    }
+
+    std::shared_ptr<Collection> ref_collection;
+    auto policy_op = resolve_join_policy(join_policy, collection_name, ref_collection);
+    if(!policy_op.ok()) {
+        parent.clear();
+        return;
+    }
+    prune_join_parent_fields(parent, policy_op.get());
+}
+
+Option<bool> enforce_join_policy(const nlohmann::json& embedded_params,
+                                 const std::shared_ptr<Collection>& collection,
+                                 collection_search_args_t& args) {
+    auto policy_it = embedded_params.find(AuthManager::AUTH_JOIN_POLICY_PARAM);
+    if(policy_it == embedded_params.end()) {
+        return Option<bool>(true);
+    }
+    const auto& joins = policy_it.value();
+
+    args.join_policy = joins;
+    args.join_policy_collection = collection;
+
+    auto filter_op = validate_join_filter(args.filter_query, collection, joins, false);
+    if(!filter_op.ok()) {
+        return filter_op;
+    }
+    auto sort_op = validate_join_sorts(args.sort_fields, collection, joins, false);
+    if(!sort_op.ok()) {
+        return sort_op;
+    }
+    auto projection_op = apply_join_projection_policy(args.ref_include_exclude_fields_vec, joins);
+    if(!projection_op.ok()) {
+        return projection_op;
+    }
+
+    for(auto& facet_expression: args.facet_fields) {
+        auto facet_op = apply_join_facet_policy(facet_expression, joins, collection, false);
+        if(!facet_op.ok()) {
+            return Option<bool>(facet_op.code(), facet_op.error());
+        }
+        facet_expression = facet_op.get();
+    }
     return Option<bool>(true);
 }
 
@@ -2339,6 +2956,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                   args);
     if (!init_op.ok()) {
         return init_op;
+    }
+
+    auto join_policy_op = enforce_join_policy(embedded_params, collection, args);
+    if(!join_policy_op.ok()) {
+        return join_policy_op;
     }
 
     Option<nlohmann::json> result_op = collection->search(args);
@@ -2598,6 +3220,12 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
                                                       start_ts, args);
         if (!init_op.ok()) {
             result_op = std::move(init_op);
+            break;
+        }
+
+        auto join_policy_op = enforce_join_policy(embedded_params, collection, args);
+        if(!join_policy_op.ok()) {
+            result_op = std::move(join_policy_op);
             break;
         }
 

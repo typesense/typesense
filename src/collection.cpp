@@ -3316,32 +3316,31 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     bool is_wildcard_query = (query == "*");
 
-    if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
-                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
-                                                                       raw_query, is_group_by_query,
-                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names, false, is_union_search,
-                                                                       union_search_index);
-        if(!sort_validation_op.ok()) {
-            return sort_validation_op;
-        }
-    } else {
-        std::vector<sort_by> curated_sort_fields;
+    std::vector<sort_by> curated_sort_fields;
+    const std::vector<sort_by>* effective_sort_fields = &sort_fields;
+    if(!curated_sort_by.empty()) {
         bool parsed_sort_by = CollectionManager::parse_sort_by_str(curated_sort_by, curated_sort_fields);
         if(!parsed_sort_by) {
             return Option<bool>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields,
-                                                                       sort_fields_std, is_wildcard_query, is_vector_query,
-                                                                       raw_query, is_group_by_query,
-                                                                       remote_embedding_timeout_ms, remote_embedding_num_tries,
-                                                                       validate_field_names, false, is_union_search,
-                                                                       union_search_index);
-        if(!sort_validation_op.ok()) {
-            return sort_validation_op;
-        }
+        effective_sort_fields = &curated_sort_fields;
+    }
+
+    auto policy_op = coll_args.validate_post_curation_filter_sort(filter_tree_root_guard.get(),
+                                                                  *effective_sort_fields);
+    if(!policy_op.ok()) {
+        return policy_op;
+    }
+
+    auto sort_validation_op = validate_and_standardize_sort_fields(*effective_sort_fields,
+                                                                   sort_fields_std, is_wildcard_query, is_vector_query,
+                                                                   raw_query, is_group_by_query,
+                                                                   remote_embedding_timeout_ms, remote_embedding_num_tries,
+                                                                   validate_field_names, false, is_union_search,
+                                                                   union_search_index);
+    if(!sort_validation_op.ok()) {
+        return sort_validation_op;
     }
 
     for(const auto& synonym_set : all_synonym_sets) {
@@ -3959,7 +3958,7 @@ Option<nlohmann::json> Collection::search(collection_search_args_t& coll_args) {
                     search_params->facet_query, coll_args.highlight_affix_num_tokens,
                     coll_args.snippet_threshold,
                     coll_args.highlight_start_tag, coll_args.highlight_end_tag, raw_query,
-                    result["facet_counts"]);
+                    result["facet_counts"], false, &coll_args);
     filter_dynamic_facets_by_occurrence(result["facet_counts"], total, coll_args.facet_min_occurrence_ratio);
 
     result["search_cutoff"] = search_cutoff;
@@ -4724,7 +4723,7 @@ Option<bool> Collection::do_union(const std::vector<uint32_t>& collection_ids,
                                   search_params->facet_query, coll_args.highlight_affix_num_tokens,
                                   coll_args.snippet_threshold,
                                   coll_args.highlight_start_tag, coll_args.highlight_end_tag, coll_args.raw_query,
-                                  result["facet_counts"], true);
+                                  result["facet_counts"], true, &coll_args);
         }
     }
 
@@ -7629,7 +7628,22 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
             continue ;
         }
 
-        if(exclude_names.count(nested_name) != 0) {
+        bool excluded = exclude_names.count(nested_name) != 0;
+        if(!excluded && !exclude_names.empty()) {
+            excluded = exclude_names.count("*") != 0;
+            std::string wildcard_pattern;
+            wildcard_pattern.reserve(nested_name.size() + 1);
+            for(const auto c: nested_name) {
+                wildcard_pattern.push_back(c);
+                wildcard_pattern.push_back('*');
+                excluded = exclude_names.count(wildcard_pattern) != 0;
+                wildcard_pattern.pop_back();
+                if(excluded) {
+                    break;
+                }
+            }
+        }
+        if(excluded) {
             it = doc.erase(it);
             continue ;
         }
@@ -8909,6 +8923,13 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
             }
             return Option<bool>(field_op.code(), field_op.error());
         }
+
+        // Keep the pattern in addition to its schema expansion. A document can
+        // contain stored-only fields that are absent from search_schema, and the
+        // pattern must still be applied to those fields while pruning the result.
+        if(!f_name.empty() && f_name.back() == '*') {
+            exclude_fields_vec.push_back(f_name);
+        }
     }
 
     for(auto& f_name: include_fields_vec) {
@@ -10053,7 +10074,8 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                                          const facet_query_t& facet_query,size_t highlight_affix_num_tokens,
                                          size_t snippet_threshold, const std::string& highlight_start_tag,
                                          const std::string& highlight_end_tag, const std::string& raw_query,
-                                         nlohmann::json& results, bool is_union) const {
+                                         nlohmann::json& results, bool is_union,
+                                         const collection_search_args_t* search_args) const {
     const auto read_state = get_read_state_snapshot();
     const auto& search_schema_snapshot = read_state ? read_state->search_schema : search_schema;
     const auto& symbols_to_index_snapshot = read_state ? read_state->symbols_to_index : symbols_to_index;
@@ -10279,6 +10301,13 @@ Option<bool> Collection::populate_facets(std::vector<facet> facets, size_t max_f
                     if (!document_op.ok()) {
                         LOG(ERROR) << "Facet fetch error. " << document_op.error();
                         continue;
+                    }
+                    if(is_reference_facet && search_args != nullptr) {
+                        search_args->prune_reference_facet_parent(
+                                a_facet.reference_collection_alias_name.empty() ?
+                                a_facet.reference_collection_name :
+                                a_facet.reference_collection_alias_name,
+                                document);
                     }
                     parent = parent_collection->get_facet_parent(the_field.name, document, value, the_field.is_array());
                 }
