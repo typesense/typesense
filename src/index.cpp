@@ -8000,10 +8000,15 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     // Supplied flattened children are diffed separately, including unchanged values.
     // Only missing children of a replaced/deleted parent need additional removals.
+    const bool has_flat_fields = old_doc.contains(".flat") && !old_doc[".flat"].empty();
     const auto add_nested_child_deletions = [&](const std::string& key, const std::string& parent_path,
-                                                const nlohmann::json& old_value) {
-        if(!old_doc.contains(".flat") ||
-           !(old_value.is_object() || (old_value.is_array() && !old_value.empty() && old_value[0].is_object()))) {
+                                                const nlohmann::json& old) {
+        if(!has_flat_fields) {
+            return;
+        }
+
+        const auto& old_value = old[key];
+        if(!(old_value.is_object() || (old_value.is_array() && !old_value.empty() && old_value[0].is_object()))) {
             return;
         }
 
@@ -8055,7 +8060,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                             }
 
                             del[key] = old[key];
-                            add_nested_child_deletions(key, parent_path, old[key]);
+                            add_nested_child_deletions(key, parent_path, old);
                         }
                         target.erase(key);
                         // Do not add to upd (ensures no nulls in final_update_doc)
@@ -8075,7 +8080,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         if (!old.contains(key) || processed_value != old[key]) {
                             if (old.contains(key)) {
                                 del[key] = old[key];
-                                add_nested_child_deletions(key, parent_path, old[key]);
+                                add_nested_child_deletions(key, parent_path, old);
                             }
                             upd[key] = processed_value;
                             target[key] = processed_value;
