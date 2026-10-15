@@ -12214,6 +12214,8 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     create_op = collectionManager.create_collection(authors_schema);
     ASSERT_TRUE(create_op.ok());
     ASSERT_TRUE(create_op.get()->add(R"({"id":"author-1","name":"Alice","country":"US","private_notes":"secret","salary":100000,"_salary":100000,"secret_embedding":[0.1,0.2],"foo_internal":"not requested","foobar_visible":"requested","secret_tag":"classified","secret_payload":"stored only","city_id":"city-1"})").ok());
+    ASSERT_TRUE(collectionManager.upsert_symlink("policy_authors_alias_a", "policy_authors").ok());
+    ASSERT_TRUE(collectionManager.upsert_symlink("policy_authors_alias_b", "policy_authors").ok());
 
     auto books_schema = R"({
         "name": "policy_books",
@@ -12259,6 +12261,30 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(1, result["found"]);
     ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
     ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors_alias_a", {{"allowed_fields", {"name"}}}},
+            {"policy_authors_alias_b", {{"allowed_fields", {"private_notes"}}}}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Conflicting join policies are configured for collection `policy_authors`.", search_op.error());
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors_alias_a", {{"allowed_fields", {"country", "name", "name"}}}},
+            {"policy_authors_alias_b", {{"allowed_fields", {"name", "country"}},
+                                         {"denied_fields", nlohmann::json::array()}}}
+    };
+    req_params["filter_by"] = "$policy_authors_alias_a(name:=Alice)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    req_params["filter_by"] = "$policy_authors_alias_b(name:=Alice)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    req_params["filter_by"] = "$policy_authors(name:=Alice)";
 
     auto broader_wildcard_policy = policy;
     broader_wildcard_policy["policy_authors"]["allowed_fields"] = {"name", "foo*"};

@@ -2253,6 +2253,40 @@ struct resolved_join_policy_t {
     std::vector<std::string> denied_fields;
 };
 
+nlohmann::json canonicalize_join_field_policy(const nlohmann::json& policy_json) {
+    std::vector<std::string> allowed_fields;
+    std::vector<std::string> denied_fields;
+    if(policy_json.contains("allowed_fields")) {
+        allowed_fields = policy_json.at("allowed_fields").get<std::vector<std::string>>();
+    }
+    if(policy_json.contains("denied_fields")) {
+        denied_fields = policy_json.at("denied_fields").get<std::vector<std::string>>();
+    }
+    std::sort(allowed_fields.begin(), allowed_fields.end());
+    allowed_fields.erase(std::unique(allowed_fields.begin(), allowed_fields.end()), allowed_fields.end());
+    std::sort(denied_fields.begin(), denied_fields.end());
+    denied_fields.erase(std::unique(denied_fields.begin(), denied_fields.end()), denied_fields.end());
+    return {{"allowed_fields", allowed_fields}, {"denied_fields", denied_fields}};
+}
+
+Option<nlohmann::json> normalize_join_policy(const nlohmann::json& joins) {
+    auto& cm = CollectionManager::get_instance();
+    auto normalized = nlohmann::json::object();
+    for(const auto& item: joins.items()) {
+        auto configured_collection = cm.get_collection(item.key());
+        const auto canonical_name = configured_collection == nullptr ? item.key() :
+                                    configured_collection->get_name();
+        auto canonical_policy = canonicalize_join_field_policy(item.value());
+        auto existing = normalized.find(canonical_name);
+        if(existing != normalized.end() && existing.value() != canonical_policy) {
+            return Option<nlohmann::json>(403, "Conflicting join policies are configured for collection `" +
+                                                   canonical_name + "`.");
+        }
+        normalized[canonical_name] = std::move(canonical_policy);
+    }
+    return Option<nlohmann::json>(std::move(normalized));
+}
+
 bool join_field_pattern_matches(const std::string& pattern, const std::string& field_name) {
     if(pattern == "*") {
         return true;
@@ -2347,38 +2381,19 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
     }
 
     const auto canonical_name = collection->get_name();
-    const nlohmann::json* policy_json = nullptr;
     auto canonical_it = joins.find(canonical_name);
-    if(canonical_it != joins.end()) {
-        policy_json = &canonical_it.value();
-    } else {
-        auto requested_it = joins.find(requested_collection_name);
-        if(requested_it != joins.end()) {
-            policy_json = &requested_it.value();
-        } else {
-            // Policies may themselves name a collection alias. Resolve those aliases before
-            // deciding that a collection is absent from the allow-list.
-            for(const auto& item: joins.items()) {
-                auto configured_collection = cm.get_collection(item.key());
-                if(configured_collection != nullptr && configured_collection->get_name() == canonical_name) {
-                    policy_json = &item.value();
-                    break;
-                }
-            }
-        }
-    }
-
-    if(policy_json == nullptr) {
+    if(canonical_it == joins.end()) {
         return Option<resolved_join_policy_t>(403, "Joining collection `" + requested_collection_name +
                                                     "` is not allowed by this API key.");
     }
 
+    const auto& policy_json = canonical_it.value();
     resolved_join_policy_t policy;
-    if(policy_json->contains("allowed_fields")) {
-        policy.allowed_fields = policy_json->at("allowed_fields").get<std::vector<std::string>>();
+    if(policy_json.contains("allowed_fields")) {
+        policy.allowed_fields = policy_json.at("allowed_fields").get<std::vector<std::string>>();
     }
-    if(policy_json->contains("denied_fields")) {
-        policy.denied_fields = policy_json->at("denied_fields").get<std::vector<std::string>>();
+    if(policy_json.contains("denied_fields")) {
+        policy.denied_fields = policy_json.at("denied_fields").get<std::vector<std::string>>();
     }
     return Option<resolved_join_policy_t>(std::move(policy));
 }
@@ -2836,7 +2851,11 @@ Option<bool> enforce_join_policy(const nlohmann::json& embedded_params,
     if(policy_it == embedded_params.end()) {
         return Option<bool>(true);
     }
-    const auto& joins = policy_it.value();
+    auto normalized_policy_op = normalize_join_policy(policy_it.value());
+    if(!normalized_policy_op.ok()) {
+        return Option<bool>(normalized_policy_op.code(), normalized_policy_op.error());
+    }
+    auto joins = std::move(normalized_policy_op.get());
 
     args.join_policy = joins;
     args.join_policy_collection = collection;
