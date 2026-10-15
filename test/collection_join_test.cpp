@@ -12435,6 +12435,27 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("public", wildcard_restricted_parent["public_name"]);
     ASSERT_EQ(0, wildcard_restricted_parent.count("public_secret"));
 
+    auto unmatched_wildcard_parent_policy = policy;
+    unmatched_wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public_secret*"};
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = unmatched_wildcard_parent_policy;
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& unmatched_wildcard_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(1, unmatched_wildcard_parent.size());
+    ASSERT_EQ("Alice", unmatched_wildcard_parent["name"]);
+    ASSERT_EQ(0, unmatched_wildcard_parent.count("public_secret"));
+
+    auto exact_stored_parent_policy = policy;
+    exact_stored_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public_secret"};
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = exact_stored_parent_policy;
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& exact_stored_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ("Alice", exact_stored_parent["name"]);
+    ASSERT_EQ("undeclared stored only", exact_stored_parent["public_secret"]);
+
     embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
 
     auto parent_searches = R"json([{

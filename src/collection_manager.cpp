@@ -2419,7 +2419,14 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
         return Option<resolved_join_policy_t>(fields_op.code(), fields_op.error());
     }
     for(auto it = allowed_fields_full.begin(); it != allowed_fields_full.end(); ++it) {
-        policy.allowed_fields.emplace_back(it.key());
+        auto field_name = it.key();
+        // Projection keeps an unmatched include pattern so it can select stored-only
+        // fields. Authorization wildcards must only grant schema-expanded fields.
+        if(!field_name.empty() && field_name.back() == '*' &&
+           allowed_field_patterns.count(field_name) != 0) {
+            continue;
+        }
+        policy.allowed_fields.emplace_back(std::move(field_name));
     }
     for(auto it = denied_fields_full.begin(); it != denied_fields_full.end(); ++it) {
         policy.denied_fields.emplace_back(it.key());
