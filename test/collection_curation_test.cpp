@@ -6831,3 +6831,70 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
     const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
     ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
 }
+
+TEST_F(CollectionCurationTest, DynamicFilterRuleBeforeStaticRuleKeepsIndexInSync) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dynamic_then_static",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "brand", "type": "string"},
+              {"name": "category", "type": "string"},
+              {"name": "price", "type": "float"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"shoes","brand":"nike","category":"footwear","price":10})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"sneakers","brand":"nike","category":"footwear","price":10})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"shoes","brand":"nike","category":"bags","price":10})").ok());
+
+    nlohmann::json dynamic_curation_json = R"OVR(
+        {
+          "id": "a-dyn",
+          "rule": {
+              "filter_by": "brand:={brand}"
+          },
+          "sort_by": "price:desc",
+          "stop_processing": false
+        }
+    )OVR"_json;
+
+    curation_t dynamic_ov;
+    auto parse_op = curation_t::parse(dynamic_curation_json, "a-dyn", dynamic_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", dynamic_curation_json);
+
+    nlohmann::json static_curation_json = R"OVR(
+        {
+          "id": "b-static",
+          "rule": {
+              "query": "shoes",
+              "match": "exact"
+          },
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t static_ov;
+    parse_op = curation_t::parse(static_curation_json, "b-static", static_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", static_curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "brand:=nike && price:>0", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
