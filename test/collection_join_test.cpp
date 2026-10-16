@@ -12358,10 +12358,10 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     req_params.erase("include_fields");
     req_params["exclude_fields"] = "$policy_authors(private_notes)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(403, search_op.code());
-    ASSERT_EQ("Field `private_notes` of joined collection `policy_authors` is not allowed by this API key.",
-              search_op.error());
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
+    ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
 
     req_params.erase("exclude_fields");
     req_params["sort_by"] = "$policy_authors(private_notes:asc)";

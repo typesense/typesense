@@ -2765,14 +2765,8 @@ Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields
             }
         }
 
-        for(const auto& requested: split_join_fields(reference.exclude_fields)) {
-            if(requested != "*") {
-                auto field_op = check_join_field(policy, ref_collection->get_name(), requested);
-                if(!field_op.ok()) {
-                    return field_op;
-                }
-            }
-        }
+        // Exclusions are purely subtractive and cannot expose a field. Allow callers
+        // to exclude fields outside their allow-list, including policy-denied fields.
         append_join_fields(reference.exclude_fields, policy.denied_fields);
         reference.policy_exclude_field_patterns = policy.denied_wildcard_patterns;
 
