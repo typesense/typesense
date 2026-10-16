@@ -9,17 +9,24 @@ const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const NUM_DIM = 1536;
 const ADA = "text-embedding-ada-002";
 const V3_SMALL = "text-embedding-3-small";
+const FIXED_SIZE = "fixed-size-embedder";
 const ADA_COLLECTION = "openai_ada_002_dims";
 const V3_SMALL_COLLECTION = "openai_3_small_dims";
+const FIXED_SIZE_COLLECTION = "openai_fixed_size_dims";
+const AZURE_COLLECTION = "azure_ada_002_dims";
+const AZURE_PATH = "/openai/deployments/ada-002/embeddings";
+const AZURE_URL = `${MOCK_URL}${AZURE_PATH}?api-version=2024-06-01`;
 
 type EmbeddingRequest = {
-  model: string;
+  model?: string;
   input: string | string[];
   dimensions?: number;
 };
 
+type RecordedRequest = EmbeddingRequest & { path: string };
+
 let mockServer: Server | undefined;
-let requests: EmbeddingRequest[] = [];
+let requests: RecordedRequest[] = [];
 
 // deterministic vector seeded from an fnv-1a hash of the text
 function embed(text: string): number[] {
@@ -38,8 +45,13 @@ function embed(text: string): number[] {
   return vector;
 }
 
-function respond(body: EmbeddingRequest) {
-  if (body.model === ADA && "dimensions" in body) {
+// azure requests carry no model, the deployment is in the path
+function rejectsDimensions(path: string, body: EmbeddingRequest) {
+  return path === AZURE_PATH || body.model === ADA || body.model === FIXED_SIZE;
+}
+
+function respond(path: string, body: EmbeddingRequest) {
+  if (rejectsDimensions(path, body) && "dimensions" in body) {
     return {
       status: 400,
       json: {
@@ -70,10 +82,11 @@ async function startMock() {
       raw += chunk;
     }
 
+    const path = new URL(req.url!, MOCK_URL).pathname;
     const body = JSON.parse(raw) as EmbeddingRequest;
-    requests.push(body);
+    requests.push({ ...body, path });
 
-    const { status, json } = respond(body);
+    const { status, json } = respond(path, body);
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(json));
   });
@@ -99,24 +112,29 @@ function requestsFor(model: string) {
   return requests.filter((r) => r.model === model);
 }
 
-async function createEmbeddingCollection(name: string, model: string) {
+function requestsTo(path: string) {
+  return requests.filter((r) => r.path === path);
+}
+
+async function createCollection(name: string, modelConfig: Record<string, string>) {
   return fetchSingleNode("/collections", {
     method: "POST",
     body: JSON.stringify({
       name,
       fields: [
         { name: "title", type: "string" },
-        {
-          name: "embedding",
-          type: "float[]",
-          embed: {
-            from: ["title"],
-            model_config: { model_name: `openai/${model}`, api_key: "test-key", url: MOCK_URL },
-          },
-        },
+        { name: "embedding", type: "float[]", embed: { from: ["title"], model_config: modelConfig } },
       ],
     }),
   });
+}
+
+async function createEmbeddingCollection(name: string, model: string) {
+  return createCollection(name, { model_name: `openai/${model}`, api_key: "test-key", url: MOCK_URL });
+}
+
+async function createAzureCollection(name: string) {
+  return createCollection(name, { model_name: "azure/ada-002-deployment", api_key: "test-key", url: AZURE_URL });
 }
 
 async function importDocs(collection: string, docs: { id: string; title: string }[]) {
@@ -175,6 +193,36 @@ describe(Phases.SINGLE_RESTARTED, () => {
     expect({ status: search.status, message: search.message }).toEqual({ status: 200, message: undefined });
     expect(search.hits.length).toBe(SEED_DOCS.length);
   });
+
+  it("creates and searches a fixed-size openai model that rejects dimensions", async () => {
+    const res = await createEmbeddingCollection(FIXED_SIZE_COLLECTION, FIXED_SIZE);
+    expect(res.status).toBe(201);
+    const body: any = await res.json();
+    const field = body.fields.find((f: any) => f.name === "embedding");
+    expect(field.num_dim).toBe(NUM_DIM);
+
+    const results = await importDocs(FIXED_SIZE_COLLECTION, SEED_DOCS);
+    expect(results.filter((r) => !r.success)).toEqual([]);
+
+    const search = await semanticSearch(FIXED_SIZE_COLLECTION, "space travel");
+    expect({ status: search.status, message: search.message }).toEqual({ status: 200, message: undefined });
+    expect(search.hits.length).toBe(SEED_DOCS.length);
+  });
+
+  it("creates and searches an azure ada-002 deployment", async () => {
+    const res = await createAzureCollection(AZURE_COLLECTION);
+    expect(res.status).toBe(201);
+    const body: any = await res.json();
+    const field = body.fields.find((f: any) => f.name === "embedding");
+    expect(field.num_dim).toBe(NUM_DIM);
+
+    const results = await importDocs(AZURE_COLLECTION, SEED_DOCS);
+    expect(results.filter((r) => !r.success)).toEqual([]);
+
+    const search = await semanticSearch(AZURE_COLLECTION, "space travel on azure");
+    expect({ status: search.status, message: search.message }).toEqual({ status: 200, message: undefined });
+    expect(search.hits.length).toBe(SEED_DOCS.length);
+  });
 });
 
 // the snapshot boot is the cold load where the persisted num_dim marks the embedder as custom dims
@@ -213,5 +261,50 @@ describe(Phases.SINGLE_SNAPSHOT, () => {
     for (const r of v3Requests) {
       expect(r.dimensions).toBe(NUM_DIM);
     }
+  });
+
+  // query strings stay unique in the file, the azure query cache key is the bare text
+  it("semantic search on a fixed-size openai model still works", async () => {
+    const search = await semanticSearch(FIXED_SIZE_COLLECTION, "fixed size vectors after a restart");
+    expect({ status: search.status, message: search.message }).toEqual({ status: 200, message: undefined });
+    expect(search.hits.length).toBeGreaterThan(0);
+  });
+
+  it("importing into a fixed-size openai model still embeds the document", async () => {
+    const results = await importDocs(FIXED_SIZE_COLLECTION, [{ id: "4", title: "deep sea diving" }]);
+    expect(results).toEqual([{ success: true }]);
+
+    const res = await fetchSingleNode(`/collections/${FIXED_SIZE_COLLECTION}/documents/4`);
+    expect(res.status).toBe(200);
+    const doc: any = await res.json();
+    expect(doc.embedding).toHaveLength(NUM_DIM);
+  });
+
+  it("stops sending dimensions to a fixed-size openai model after the first rejection", () => {
+    const fixedSizeRequests = requestsFor(FIXED_SIZE);
+    expect(fixedSizeRequests.length).toBeGreaterThan(1);
+    expect(fixedSizeRequests.slice(1).filter((r) => "dimensions" in r)).toEqual([]);
+  });
+
+  it("semantic search on an azure ada-002 deployment still works", async () => {
+    const search = await semanticSearch(AZURE_COLLECTION, "azure deployments after a restart");
+    expect({ status: search.status, message: search.message }).toEqual({ status: 200, message: undefined });
+    expect(search.hits.length).toBeGreaterThan(0);
+  });
+
+  it("importing into an azure ada-002 deployment still embeds the document", async () => {
+    const results = await importDocs(AZURE_COLLECTION, [{ id: "4", title: "deep sea diving" }]);
+    expect(results).toEqual([{ success: true }]);
+
+    const res = await fetchSingleNode(`/collections/${AZURE_COLLECTION}/documents/4`);
+    expect(res.status).toBe(200);
+    const doc: any = await res.json();
+    expect(doc.embedding).toHaveLength(NUM_DIM);
+  });
+
+  it("stops sending dimensions to an azure ada-002 deployment after the first rejection", () => {
+    const azureRequests = requestsTo(AZURE_PATH);
+    expect(azureRequests.length).toBeGreaterThan(1);
+    expect(azureRequests.slice(1).filter((r) => "dimensions" in r)).toEqual([]);
   });
 });

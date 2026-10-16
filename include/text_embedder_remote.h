@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <vector>
 #include <string>
 #include <mutex>
@@ -73,7 +74,7 @@ class RemoteEmbedder {
 class AzureEmbedder : public RemoteEmbedder {
     private:
         std::string azure_url, api_key;
-        bool has_custom_dims;
+        std::atomic<bool> has_custom_dims;
         size_t num_dims;
 
     public:
@@ -98,7 +99,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         std::string openai_model_path;
         std::string openai_create_embedding_suffix;
         static constexpr char* OPENAI_CREATE_EMBEDDING = "v1/embeddings";
-        bool has_custom_dims;
+        std::atomic<bool> has_custom_dims;
         size_t num_dims;
         std::string openai_url = "https://api.openai.com";
 
@@ -132,12 +133,17 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static std::vector<embedding_res_t> embed_documents(const std::string url, const std::vector<std::string>& inputs, const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& model_name, const OpenAIEmbedderType embedder_type);
         static embedding_res_t embed_query(const std::string url, const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& model_name, const OpenAIEmbedderType embedder_type);
         static nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body, const std::string& url);
+        // a different size means the user asked for custom dims the model cannot produce
+        static bool has_num_dims(const embedding_res_t& res, const size_t num_dims);
+        static bool has_num_dims(const std::vector<embedding_res_t>& outputs, const size_t num_dims);
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const nlohmann::json& model_config);
         // model_name without the `openai/` namespace, ada-002 has a fixed size and rejects `dimensions`
         static bool should_send_dimensions(const bool has_custom_dims, const std::string& model_name) {
             return has_custom_dims && model_name != "text-embedding-ada-002";
         }
+        // fixed-size models reject `dimensions` with a 400, even at their native size
+        static bool is_dimensions_unsupported(const embedding_res_t& res);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
         embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 5000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
