@@ -8,6 +8,7 @@
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "stopwords_manager.h"
 
 class CollectionCurationTest : public ::testing::Test {
 protected:
@@ -6830,4 +6831,1052 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
     const auto first_id = results["hits"][0]["document"]["id"].get<std::string>();
     const auto second_id = results["hits"][1]["document"]["id"].get<std::string>();
     ASSERT_TRUE((first_id == "1" && second_id == "3") || (first_id == "3" && second_id == "1"));
+}
+
+TEST_F(CollectionCurationTest, DynamicFilterRuleBeforeStaticRuleKeepsIndexInSync) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dynamic_then_static",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "brand", "type": "string"},
+              {"name": "category", "type": "string"},
+              {"name": "price", "type": "float"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"shoes","brand":"nike","category":"footwear","price":10})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"sneakers","brand":"nike","category":"footwear","price":10})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"shoes","brand":"nike","category":"bags","price":10})").ok());
+
+    nlohmann::json dynamic_curation_json = R"OVR(
+        {
+          "id": "a-dyn",
+          "rule": {
+              "filter_by": "brand:={brand}"
+          },
+          "sort_by": "price:desc",
+          "stop_processing": false
+        }
+    )OVR"_json;
+
+    curation_t dynamic_ov;
+    auto parse_op = curation_t::parse(dynamic_curation_json, "a-dyn", dynamic_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", dynamic_curation_json);
+
+    nlohmann::json static_curation_json = R"OVR(
+        {
+          "id": "b-static",
+          "rule": {
+              "query": "shoes",
+              "match": "exact"
+          },
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t static_ov;
+    parse_op = curation_t::parse(static_curation_json, "b-static", static_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", static_curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "brand:=nike && price:>0", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
+
+TEST_F(CollectionCurationTest, CollectionLevelSymbolsGateFilterBy) {
+    Collection *coll1;
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll_sym").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll_sym", 1, fields, "points",
+                                                    static_cast<uint64_t>(std::time(nullptr)), "", {"-"}).get();
+        coll1->set_curation_sets({"index"});
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0"; doc1["name"] = "nonstick pan";   doc1["price"] = 399.99; doc1["points"] = 30;
+    nlohmann::json doc2;
+    doc2["id"] = "1"; doc2["name"] = "nonstick spray"; doc2["price"] = 20.00;  doc2["points"] = 5;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json curation_json = R"({
+       "id": "sym-rule",
+       "rule": { "query": "non-stick", "match": "exact" },
+       "remove_matched_tokens": false,
+       "filter_by": "price:>55"
+    })"_json;
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto results = coll1->search("nonstick", {"name"}, "",
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                 {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                 0, "exhaustive", 30000, 2, "", {}, {}, "right_to_left",
+                                 true, true, false, "", "", "").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    ov_manager.delete_curation_item("index", "sym-rule");
+    collectionManager.drop_collection("coll_sym");
+}
+
+TEST_F(CollectionCurationTest, FieldLevelSymbolsGateFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_field_symbols_filter",
+          "fields": [
+              {"name": "title", "type": "string", "symbols_to_index": ["+"]},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"c tutorial","category":"c"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"c++ tutorial","category":"cpp"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "exact-cpp",
+          "rule": {
+              "query": "c++",
+              "match": "exact"
+          },
+          "remove_matched_tokens": false,
+          "filter_by": "category:=cpp"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "exact-cpp", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("c", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ExclusionOperatorDoesNotApplyFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_exclusion_filter",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "brand", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"running shoes","brand":"nike"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"running shoes","brand":"adidas"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"nike running shoes","brand":"nike"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-nike",
+          "rule": {
+              "query": "nike",
+              "match": "contains"
+          },
+          "filter_by": "brand:=nike"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-nike", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("running shoes -nike", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ChainedFilterRulesConsumeTokensInOrder) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_chained_filter_rules",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"},
+              {"name": "brand", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"nike shoes","category":"shoes","brand":"adidas"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"running","category":"shoes","brand":"nike"})").ok());
+
+    nlohmann::json shoes_curation_json = R"OVR(
+        {
+          "id": "a-shoes",
+          "rule": {
+              "query": "shoes",
+              "match": "contains"
+          },
+          "filter_by": "category:=shoes",
+          "stop_processing": false
+        }
+    )OVR"_json;
+
+    curation_t shoes_ov;
+    auto parse_op = curation_t::parse(shoes_curation_json, "a-shoes", shoes_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", shoes_curation_json);
+
+    nlohmann::json nike_curation_json = R"OVR(
+        {
+          "id": "b-nike",
+          "rule": {
+              "query": "nike shoes",
+              "match": "exact"
+          },
+          "filter_by": "brand:=nike"
+        }
+    )OVR"_json;
+
+    curation_t nike_ov;
+    parse_op = curation_t::parse(nike_curation_json, "b-nike", nike_ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", nike_curation_json);
+
+    auto res_op = coll1->search("nike shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, FilterByAppliedWhenTriggerQueryHasStopword) {
+    Collection *coll1;
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto& stopwordsManager = StopwordsManager::get_instance();
+    stopwordsManager.init(store);
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_curation_sets({"index"});
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0"; doc1["name"] = "Comfortable Shoes for men"; doc1["price"] = 399.99; doc1["points"] = 30;
+    nlohmann::json doc2;
+    doc2["id"] = "1"; doc2["name"] = "Cheap Shoes for men";       doc2["price"] = 20.00;  doc2["points"] = 5;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto sw = R"({"stopwords": ["for"], "locale": "en"})"_json;
+    ASSERT_TRUE(stopwordsManager.upsert_stopword("sw_set", sw).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json curation_json = R"({
+       "id": "rule-1",
+       "rule": { "query": "shoes for men", "match": "exact" },
+       "remove_matched_tokens": false,
+       "filter_by": "price:>55"
+    })"_json;
+
+    curation_t curation_rule;
+    ASSERT_TRUE(curation_t::parse(curation_json, "rule-1", curation_rule).ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto results = coll1->search("shoes for men", {"name"}, "",
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                 {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                 0, "exhaustive", 30000, 2, "sw_set", {}, {}, "right_to_left",
+                                 true, true, false, "", "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("cheap", {"name"}, "",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                            {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                            0, "exhaustive", 30000, 2, "sw_set", {}, {}, "right_to_left",
+                            true, true, false, "", "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    stopwordsManager.delete_stopword("sw_set");
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionCurationTest, StopwordOnlyRuleDoesNotApplyFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto& stopwordsManager = StopwordsManager::get_instance();
+    stopwordsManager.init(store);
+
+    nlohmann::json schema = R"({
+          "name": "products_stopword_only_rule",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "brand", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Shoes for men","brand":"nike"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Shoes for men","brand":"adidas"})").ok());
+
+    auto sw = R"({"stopwords": ["for"], "locale": "en"})"_json;
+    ASSERT_TRUE(stopwordsManager.upsert_stopword("sw_rule_set", sw).ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-for",
+          "rule": {
+              "query": "for",
+              "match": "contains"
+          },
+          "filter_by": "brand:=nike"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-for", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes for men", {"title"}, "",
+                                {}, {}, {0}, 10, 1, FREQUENCY,
+                                {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                0, "exhaustive", 30000, 2, "sw_rule_set", {}, {}, "right_to_left",
+                                true, true, false, "", "", "");
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+
+    stopwordsManager.delete_stopword("sw_rule_set");
+}
+
+TEST_F(CollectionCurationTest, ContainsRuleStemmedMatchAppliesFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_stem_filter",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"},
+              {"name": "target_demographic", "type": "string"},
+              {"name": "gender", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Pink Summer Top","category_l2":"tops","target_demographic":"Adult","gender":"female"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Pink Casual Top","category_l2":"tops","target_demographic":"Adult","gender":"female"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Pink Kids Top","category_l2":"girls clothing","target_demographic":"Teen","gender":"female"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Pink Blouse","category_l2":"tops","target_demographic":"Adult","gender":"female"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-tops",
+          "rule": {
+              "query": "tops",
+              "match": "contains",
+              "stem": true
+          },
+          "filter_curated_hits": true,
+          "stop_processing": true,
+          "filter_by": "category_l2:=`tops` && target_demographic:=`Adult` && gender:=`female`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-tops", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("pink tops", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+
+    results.clear();
+    res_op = coll1->search("pink top", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    ids.clear();
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ContainsRuleDictionaryStemmedMatchAppliesFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dict_stem_filter",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"},
+              {"name": "target_demographic", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"people\", \"root\":\"person\"}");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("people_set", json_lines).ok());
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"People Person Tee","category_l2":"tops","target_demographic":"Adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Person People Hoodie","category_l2":"tops","target_demographic":"Adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"People Person Onesie","category_l2":"girls clothing","target_demographic":"Teen"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Linen Shirt","category_l2":"tops","target_demographic":"Adult"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-people",
+          "rule": {
+              "query": "people",
+              "match": "contains",
+              "stem": true,
+              "stemming_dictionary": "people_set"
+          },
+          "filter_curated_hits": true,
+          "stop_processing": true,
+          "filter_by": "category_l2:=`tops` && target_demographic:=`Adult`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-people", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("people", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+
+    results.clear();
+    res_op = coll1->search("person", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    ids.clear();
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ExactStemRuleRemovesMatchedTokenInBothForms) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_stem_remove",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Pink Blouse","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Summer Top","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Kids Top","category_l2":"girls clothing"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "exact-tops",
+          "rule": {
+              "query": "tops",
+              "match": "exact",
+              "stem": true
+          },
+          "filter_by": "category_l2:=`tops`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "exact-tops", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("tops", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+
+    results.clear();
+    res_op = coll1->search("top", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ids.clear();
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
+
+TEST_F(CollectionCurationTest, DictionaryStemRuleOnStemmingFieldMatchesRootForm) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dict_stem_field_root",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "category_l2", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"people\", \"root\":\"person\"}");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("people_set", json_lines).ok());
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"People Person Tee","category_l2":"adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Person People Hoodie","category_l2":"adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"People Person Onesie","category_l2":"kids"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "exact-people",
+          "rule": {
+              "query": "people",
+              "match": "exact",
+              "stem": true,
+              "stemming_dictionary": "people_set"
+          },
+          "remove_matched_tokens": false,
+          "filter_by": "category_l2:=`adult`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "exact-people", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("person", {"title"}, "", {}, {}, {0});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    for (const auto& hit : results["hits"]) {
+        ASSERT_NE("3", hit["document"]["id"].get<std::string>());
+    }
+}
+
+TEST_F(CollectionCurationTest, DictionaryStemRuleOnStemmingFieldRemovesMatchedToken) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_dict_stem_field_remove",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "category_l2", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back("{\"word\": \"people\", \"root\":\"person\"}");
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("people_set", json_lines).ok());
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"People Person Tee","category_l2":"adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Hoodie","category_l2":"adult"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Person Onesie","category_l2":"kids"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "exact-people",
+          "rule": {
+              "query": "people",
+              "match": "exact",
+              "stem": true,
+              "stemming_dictionary": "people_set"
+          },
+          "filter_by": "category_l2:=`adult`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "exact-people", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("person", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
+
+TEST_F(CollectionCurationTest, MultiWordStemRuleRemovesAllMatchedTokens) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_multi_word_stem",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Pink Summer Top","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Pink Casual Top","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Pink Kids Top","category_l2":"girls clothing"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Linen Blouse","category_l2":"tops"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-pink-tops",
+          "rule": {
+              "query": "pink tops",
+              "match": "contains",
+              "stem": true
+          },
+          "filter_by": "category_l2:=`tops`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-pink-tops", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("pink top", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+}
+
+TEST_F(CollectionCurationTest, NonStemRuleKeepsLiteralRemoval) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_non_stem_rule",
+          "fields": [
+              {"name": "title", "type": "string", "stem": false},
+              {"name": "category_l2", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Pink Summer Top","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Pink Casual Top","category_l2":"tops"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Pink Kids Top","category_l2":"girls clothing"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Pink Blouse","category_l2":"tops"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-tops-literal",
+          "rule": {
+              "query": "tops",
+              "match": "contains"
+          },
+          "filter_by": "category_l2:=`tops`"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-tops-literal", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("pink top", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "3"}), ids);
+
+    results.clear();
+    res_op = coll1->search("pink tops", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    ids.clear();
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2", "4"}), ids);
+
+    results.clear();
+    res_op = coll1->search("pink tops top", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ids.clear();
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}
+
+TEST_F(CollectionCurationTest, StemRuleRemovesOnlyMatchedTokenNotStemCollisions) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_stem_collision",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"lab experiment","category":"tours"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"lab","category":"tours"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-experience",
+          "rule": {
+              "query": "experience",
+              "match": "contains",
+              "stem": true
+          },
+          "filter_by": "category:=tours"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-experience", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("lab experiment experience", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ReplaceQueryKeepsFilterByAndReplacement) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_replace_query_filter",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Running Shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Trail Running Socks","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Running Shoes Kids","category":"kids"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Running Shorts","category":"apparel"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "replace-shoes",
+          "rule": {
+              "query": "shoes",
+              "match": "exact"
+          },
+          "replace_query": "running shoes",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "replace-shoes", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionCurationTest, ContainsRuleReplaceQueryKeepsReplacementVerbatim) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_contains_replace_query",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Running Shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Trail Running Socks","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Running Shoes Kids","category":"kids"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-replace-shoes",
+          "rule": {
+              "query": "shoes",
+              "match": "contains"
+          },
+          "replace_query": "running shoes",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-replace-shoes", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ReplaceQueryRuleMatchedOnlyInFilterPassRemovesTrigger) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_replace_filter_pass_only",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"red shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"red sandals","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"boots","category":"footwear"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-shoe",
+          "rule": {
+              "query": "shoe",
+              "match": "contains"
+          },
+          "replace_query": "boots",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-shoe", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("red shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
 }
