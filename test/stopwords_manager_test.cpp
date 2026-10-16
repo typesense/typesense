@@ -21,6 +21,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
         stopwordsManager.init(store);
+        stopwordsManager.dispose();
     }
 
     virtual void TearDown() {

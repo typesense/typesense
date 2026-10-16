@@ -8,6 +8,7 @@
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "stopwords_manager.h"
 
 class CollectionCurationTest : public ::testing::Test {
 protected:
@@ -7109,4 +7110,136 @@ TEST_F(CollectionCurationTest, ChainedFilterRulesConsumeTokensInOrder) {
     }
     std::sort(ids.begin(), ids.end());
     ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, FilterByAppliedWhenTriggerQueryHasStopword) {
+    Collection *coll1;
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto& stopwordsManager = StopwordsManager::get_instance();
+    stopwordsManager.init(store);
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1->set_curation_sets({"index"});
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0"; doc1["name"] = "Comfortable Shoes for men"; doc1["price"] = 399.99; doc1["points"] = 30;
+    nlohmann::json doc2;
+    doc2["id"] = "1"; doc2["name"] = "Cheap Shoes for men";       doc2["price"] = 20.00;  doc2["points"] = 5;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto sw = R"({"stopwords": ["for"], "locale": "en"})"_json;
+    ASSERT_TRUE(stopwordsManager.upsert_stopword("sw_set", sw).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json curation_json = R"({
+       "id": "rule-1",
+       "rule": { "query": "shoes for men", "match": "exact" },
+       "remove_matched_tokens": false,
+       "filter_by": "price:>55"
+    })"_json;
+
+    curation_t curation_rule;
+    ASSERT_TRUE(curation_t::parse(curation_json, "rule-1", curation_rule).ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto results = coll1->search("shoes for men", {"name"}, "",
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                 {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                 0, "exhaustive", 30000, 2, "sw_set", {}, {}, "right_to_left",
+                                 true, true, false, "", "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("cheap", {"name"}, "",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                            {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                            0, "exhaustive", 30000, 2, "sw_set", {}, {}, "right_to_left",
+                            true, true, false, "", "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    stopwordsManager.delete_stopword("sw_set");
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionCurationTest, StopwordOnlyRuleDoesNotApplyFilterBy) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+    auto& stopwordsManager = StopwordsManager::get_instance();
+    stopwordsManager.init(store);
+
+    nlohmann::json schema = R"({
+          "name": "products_stopword_only_rule",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "brand", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Shoes for men","brand":"nike"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Shoes for men","brand":"adidas"})").ok());
+
+    auto sw = R"({"stopwords": ["for"], "locale": "en"})"_json;
+    ASSERT_TRUE(stopwordsManager.upsert_stopword("sw_rule_set", sw).ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-for",
+          "rule": {
+              "query": "for",
+              "match": "contains"
+          },
+          "filter_by": "brand:=nike"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-for", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes for men", {"title"}, "",
+                                {}, {}, {0}, 10, 1, FREQUENCY,
+                                {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0, 0,
+                                0, "exhaustive", 30000, 2, "sw_rule_set", {}, {}, "right_to_left",
+                                true, true, false, "", "", "");
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+
+    stopwordsManager.delete_stopword("sw_rule_set");
 }
