@@ -2362,7 +2362,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
                 analytics_query,
-                "",
+                analytics_query,
                 req_params["x-typesense-user-id"],
                 args.filter_query,
                 args.analytics_tag
