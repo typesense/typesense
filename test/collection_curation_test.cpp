@@ -7729,3 +7729,154 @@ TEST_F(CollectionCurationTest, StemRuleRemovesOnlyMatchedTokenNotStemCollisions)
     std::sort(ids.begin(), ids.end());
     ASSERT_EQ(std::vector<std::string>({"1"}), ids);
 }
+
+TEST_F(CollectionCurationTest, ReplaceQueryKeepsFilterByAndReplacement) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_replace_query_filter",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Running Shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Trail Running Socks","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Running Shoes Kids","category":"kids"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"4","title":"Running Shorts","category":"apparel"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "replace-shoes",
+          "rule": {
+              "query": "shoes",
+              "match": "exact"
+          },
+          "replace_query": "running shoes",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "replace-shoes", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionCurationTest, ContainsRuleReplaceQueryKeepsReplacementVerbatim) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_contains_replace_query",
+          "fields": [
+              {"name": "title", "type": "string"},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"Running Shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"Trail Running Socks","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"Running Shoes Kids","category":"kids"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-replace-shoes",
+          "rule": {
+              "query": "shoes",
+              "match": "contains"
+          },
+          "replace_query": "running shoes",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-replace-shoes", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1"}), ids);
+}
+
+TEST_F(CollectionCurationTest, ReplaceQueryRuleMatchedOnlyInFilterPassRemovesTrigger) {
+    auto& ov_manager = CurationIndexManager::get_instance();
+
+    nlohmann::json schema = R"({
+          "name": "products_replace_filter_pass_only",
+          "fields": [
+              {"name": "title", "type": "string", "stem": true},
+              {"name": "category", "type": "string"}
+          ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+    coll1->set_curation_sets({"index"});
+
+    ASSERT_TRUE(coll1->add(R"({"id":"1","title":"red shoes","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"2","title":"red sandals","category":"footwear"})").ok());
+    ASSERT_TRUE(coll1->add(R"({"id":"3","title":"boots","category":"footwear"})").ok());
+
+    nlohmann::json curation_json = R"OVR(
+        {
+          "id": "contains-shoe",
+          "rule": {
+              "query": "shoe",
+              "match": "contains"
+          },
+          "replace_query": "boots",
+          "filter_by": "category:=footwear"
+        }
+    )OVR"_json;
+
+    curation_t ov;
+    auto parse_op = curation_t::parse(curation_json, "contains-shoe", ov);
+    ASSERT_TRUE(parse_op.ok());
+    ov_manager.upsert_curation_item("index", curation_json);
+
+    auto res_op = coll1->search("red shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for(const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    std::sort(ids.begin(), ids.end());
+    ASSERT_EQ(std::vector<std::string>({"1", "2"}), ids);
+}

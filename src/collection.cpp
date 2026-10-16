@@ -5268,7 +5268,8 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       curation_normalized_queries.push_back(query_normalized);
       curation_rule_token_sets.emplace_back(rule_tokens.begin(), rule_tokens.end());
     }
-    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, curation_rule_token_sets,
+    index->process_filter_sort_curations(filter_sort_curations, matched_filter_curations, curation_normalized_queries,
+                                    curation_rule_token_sets,
                                     q_include_tokens, token_order, filter_tree_root, matched_dynamic_curations,
                                     curation_metadata, sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens, validate_field_names);
