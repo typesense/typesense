@@ -344,7 +344,7 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchC
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
     ASSERT_EQ("scoped_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -425,7 +425,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, "auth_key"));
     ASSERT_EQ("body_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -642,14 +642,14 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     hash_req_base->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 111},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "alpha"}
+        {"__typesense_authorized_collection", "alpha"}
     });
 
     auto hash_req_variant = make_req("a", "bc");
     hash_req_variant->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 999999},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "beta"}
+        {"__typesense_authorized_collection", "beta"}
     });
 
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
@@ -3501,6 +3501,140 @@ TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeReferenceFields) {
     ASSERT_TRUE(resp.contains("id"));
     ASSERT_TRUE(resp.contains("authors"));
     ASSERT_TRUE(resp["authors"].contains("id"));
+}
+
+TEST_F(CoreAPIUtilsTest, JoinPolicyAppliesToExportAndDocumentGet) {
+    auto authors_schema = R"({
+        "name": "endpoint_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "private_notes", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"author-1","name":"Alice","private_notes":"secret"})").ok());
+
+    auto books_schema = R"({
+        "name": "endpoint_policy_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "endpoint_policy_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"book-1","title":"One","author_id":"author-1"})").ok());
+
+    auto& auth_manager = collectionManager.getAuthManager();
+    api_key_t no_joins_key("NoEndpointJoinsKey", "no endpoint joins",
+                           {"documents:get", "documents:export"}, {"endpoint_policy_books"},
+                           api_key_t::FAR_FUTURE_TIMESTAMP, false, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.create_key(no_joins_key).ok());
+
+    const auto attach_auth_context = [&](const std::shared_ptr<http_req>& req, const std::string& action,
+                                         const std::string& key) {
+        std::map<std::string, std::string> auth_params = req->params;
+        std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
+        const bool authenticated = auth_manager.authenticate(
+                action, {collection_key_t("endpoint_policy_books", key)}, auth_params, embedded_params);
+        if(authenticated) {
+            req->embedded_params_vec = std::move(embedded_params);
+        }
+        return authenticated;
+    };
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", no_joins_key.value));
+    ASSERT_FALSE(get_fetch_document(req, res));
+    ASSERT_EQ(403, res->status_code);
+    ASSERT_EQ("Joining collection `endpoint_policy_authors` is not allowed by this API key.",
+              nlohmann::json::parse(res->body)["message"]);
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(name:=Alice)"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", no_joins_key.value));
+    ASSERT_FALSE(get_export_documents(req, res));
+    ASSERT_EQ(403, res->status_code);
+    ASSERT_EQ("Joining collection `endpoint_policy_authors` is not allowed by this API key.",
+              nlohmann::json::parse(res->body)["message"]);
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+
+    const auto policy = R"({
+        "endpoint_policy_authors": {
+            "allowed_fields": ["name"],
+            "denied_fields": ["private_notes"]
+        }
+    })"_json;
+    api_key_t restricted_key("RestrictedEndpointJoinsKey", "restricted endpoint joins",
+                             {"documents:get", "documents:export"}, {"endpoint_policy_books"},
+                             api_key_t::FAR_FUTURE_TIMESTAMP, false, policy);
+    ASSERT_TRUE(auth_manager.create_key(restricted_key).ok());
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", restricted_key.value));
+    ASSERT_TRUE(get_fetch_document(req, res));
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Alice", response["endpoint_policy_authors"]["name"]);
+    ASSERT_EQ(0, response["endpoint_policy_authors"].count("private_notes"));
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "$endpoint_policy_authors(private_notes)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", restricted_key.value));
+    ASSERT_FALSE(get_fetch_document(req, res));
+    ASSERT_EQ(403, res->status_code);
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(name:=Alice)"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", restricted_key.value));
+    ASSERT_TRUE(get_export_documents(req, res));
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Alice", response["endpoint_policy_authors"]["name"]);
+    ASSERT_EQ(0, response["endpoint_policy_authors"].count("private_notes"));
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(private_notes:=secret)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", restricted_key.value));
+    ASSERT_FALSE(get_export_documents(req, res));
+    ASSERT_EQ(403, res->status_code);
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
 }
 
 TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {

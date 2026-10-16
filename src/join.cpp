@@ -1,7 +1,53 @@
 #include "join.h"
 
+#include <algorithm>
 #include <collection_manager.h>
 #include <timsort.hpp>
+
+bool matches_policy_field_pattern(const std::string& pattern, const std::string& field_name) {
+    if(pattern == "*") {
+        return true;
+    }
+    if(!pattern.empty() && pattern.back() == '*') {
+        const auto prefix_size = pattern.size() - 1;
+        return field_name.size() >= prefix_size &&
+               pattern.compare(0, prefix_size, field_name, 0, prefix_size) == 0;
+    }
+    return field_name == pattern ||
+           (field_name.size() > pattern.size() && field_name[pattern.size()] == '.' &&
+            field_name.compare(0, pattern.size(), pattern) == 0);
+}
+
+void prune_policy_excluded_fields(nlohmann::json& doc, const std::vector<std::string>& patterns,
+                                  const std::string& parent_name = "") {
+    auto it = doc.begin();
+    while(it != doc.end()) {
+        const auto field_name = parent_name.empty() ? it.key() : parent_name + "." + it.key();
+        const bool excluded = std::any_of(patterns.begin(), patterns.end(), [&](const auto& pattern) {
+            return matches_policy_field_pattern(pattern, field_name);
+        });
+        if(excluded) {
+            it = doc.erase(it);
+            continue;
+        }
+
+        if(it.value().is_object()) {
+            const bool was_empty = it.value().empty();
+            prune_policy_excluded_fields(it.value(), patterns, field_name);
+            if(!was_empty && it.value().empty()) {
+                it = doc.erase(it);
+                continue;
+            }
+        } else if(it.value().is_array()) {
+            for(auto& value: it.value()) {
+                if(value.is_object()) {
+                    prune_policy_excluded_fields(value, patterns, field_name);
+                }
+            }
+        }
+        ++it;
+    }
+}
 
 Option<bool> Join::single_value_filter_query(nlohmann::json& document, const std::string& field_name,
                                              const std::string& ref_field_type, std::string& filter_value,
@@ -433,6 +479,9 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         if (!prune_op.ok()) {
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
+        if(!ref_include_exclude.policy_exclude_field_patterns.empty()) {
+            prune_policy_excluded_fields(ref_doc, ref_include_exclude.policy_exclude_field_patterns);
+        }
 
         auto const key = alias.empty() ? ref_collection_name : alias;
         auto const& nest_ref_doc = (strategy == ref_include::nest);
@@ -513,6 +562,9 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
         auto prune_op = Collection::prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
         if (!prune_op.ok()) {
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
+        }
+        if(!ref_include_exclude.policy_exclude_field_patterns.empty()) {
+            prune_policy_excluded_fields(ref_doc, ref_include_exclude.policy_exclude_field_patterns);
         }
 
         if (!ref_doc.empty()) {
