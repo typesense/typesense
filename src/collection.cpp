@@ -7628,9 +7628,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
             continue ;
         }
 
-        bool excluded = exclude_names.count(nested_name) != 0;
+        bool excluded = exclude_names.count(nested_name) != 0 || exclude_names.count("*") != 0;
         if(!excluded && !exclude_names.empty()) {
-            excluded = exclude_names.count("*") != 0;
             std::string wildcard_pattern;
             wildcard_pattern.reserve(nested_name.size() + 1);
             for(const auto c: nested_name) {

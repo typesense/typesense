@@ -12521,6 +12521,17 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("secret_payload"));
     ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
 
+    req_params["filter_by"] = "title:=One";
+    req_params["include_fields"] = "$policy_authors(*)";
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors", {{"denied_fields", {"*"}}}}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("public_secret"));
+    ASSERT_TRUE(result["hits"][0]["document"]["policy_authors"].empty());
+
     embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = nlohmann::json::object();
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());

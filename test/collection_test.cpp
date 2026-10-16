@@ -2234,6 +2234,11 @@ TEST_F(CollectionTest, PruneFieldsFromDocument) {
     Collection::prune_doc(document, tsl::htrie_set<char>(), {"notfound"}, "");
     ASSERT_EQ(4, document.size());
 
+    // a global exclusion must take precedence over every document field
+    document = get_prune_doc();
+    Collection::prune_doc(document, tsl::htrie_set<char>(), {"*"}, "");
+    ASSERT_TRUE(document.empty());
+
     // included set is prefix of allowed fields
     document = get_prune_doc();
     Collection::prune_doc(document, {"ones"}, tsl::htrie_set<char>(), "");
