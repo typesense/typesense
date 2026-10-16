@@ -12417,6 +12417,21 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(403, search_op.code());
     ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
 
+    req_params.erase("sort_by");
+    req_params["filter_by"] = "$policy_missing_authors(name:=Alice)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Joining collection `policy_missing_authors` is not allowed by this API key.", search_op.error());
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_missing_authors", nlohmann::json::object()}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Referenced collection `policy_missing_authors` not found.", search_op.error());
+
     req_params["filter_by"] = "$policy_authors(name:=Alice)";
     embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
     req_params.erase("sort_by");

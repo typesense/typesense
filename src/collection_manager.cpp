@@ -2390,6 +2390,12 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
     auto& cm = CollectionManager::get_instance();
     collection = cm.get_collection(requested_collection_name);
     if(collection == nullptr) {
+        // Do not reveal whether arbitrary collection names exist. A missing
+        // collection is only distinguishable when the key explicitly grants it.
+        if(joins.find(requested_collection_name) == joins.end()) {
+            return Option<resolved_join_policy_t>(403, "Joining collection `" + requested_collection_name +
+                                                        "` is not allowed by this API key.");
+        }
         return Option<resolved_join_policy_t>(400, "Referenced collection `" + requested_collection_name + "` not found.");
     }
 
@@ -2930,6 +2936,12 @@ Option<bool> enforce_search_join_policy(const nlohmann::json& embedded_params,
     args.join_policy = joins;
     args.join_policy_collection = collection;
 
+    // Authorize raw reference names before filter parsing resolves them. This
+    // keeps unknown and existing-but-disallowed collections indistinguishable.
+    auto projection_op = apply_join_projection_policy(args.ref_include_exclude_fields_vec, joins);
+    if(!projection_op.ok()) {
+        return projection_op;
+    }
     auto filter_op = validate_join_filter(args.filter_query, collection, joins, false);
     if(!filter_op.ok()) {
         return filter_op;
@@ -2938,11 +2950,6 @@ Option<bool> enforce_search_join_policy(const nlohmann::json& embedded_params,
     if(!sort_op.ok()) {
         return sort_op;
     }
-    auto projection_op = apply_join_projection_policy(args.ref_include_exclude_fields_vec, joins);
-    if(!projection_op.ok()) {
-        return projection_op;
-    }
-
     for(auto& facet_expression: args.facet_fields) {
         auto facet_op = apply_join_facet_policy(facet_expression, joins, collection, false);
         if(!facet_op.ok()) {
@@ -2969,11 +2976,15 @@ Option<bool> CollectionManager::enforce_join_policy(
     }
     auto joins = std::move(normalized_policy_op.get());
 
+    auto projection_op = apply_join_projection_policy(ref_include_exclude_fields_vec, joins);
+    if(!projection_op.ok()) {
+        return projection_op;
+    }
     auto filter_op = validate_join_filter(filter_query, collection, joins, false);
     if(!filter_op.ok()) {
         return filter_op;
     }
-    return apply_join_projection_policy(ref_include_exclude_fields_vec, joins);
+    return Option<bool>(true);
 }
 
 void enforce_scoped_filter_for_curated_hits(const nlohmann::json& embedded_params,
