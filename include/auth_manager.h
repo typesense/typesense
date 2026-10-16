@@ -126,6 +126,8 @@ private:
     uint32_t get_next_api_key_id();
 
     static constexpr const char* DOCUMENTS_SEARCH_ACTION = "documents:search";
+    static constexpr const char* DOCUMENTS_GET_ACTION = "documents:get";
+    static constexpr const char* DOCUMENTS_EXPORT_ACTION = "documents:export";
 
     static std::string fmt_error(std::string&& error, const std::string& key);
 

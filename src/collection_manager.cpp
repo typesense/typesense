@@ -2886,9 +2886,9 @@ void collection_search_args_t::prune_reference_facet_parent(const std::string& c
     prune_join_parent_fields(parent, policy_op.get());
 }
 
-Option<bool> enforce_join_policy(const nlohmann::json& embedded_params,
-                                 const std::shared_ptr<Collection>& collection,
-                                 collection_search_args_t& args) {
+Option<bool> enforce_search_join_policy(const nlohmann::json& embedded_params,
+                                        const std::shared_ptr<Collection>& collection,
+                                        collection_search_args_t& args) {
     auto policy_it = embedded_params.find(AuthManager::AUTH_JOIN_POLICY_PARAM);
     if(policy_it == embedded_params.end()) {
         return Option<bool>(true);
@@ -2923,6 +2923,29 @@ Option<bool> enforce_join_policy(const nlohmann::json& embedded_params,
         facet_expression = facet_op.get();
     }
     return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::enforce_join_policy(
+        const nlohmann::json& embedded_params,
+        const std::shared_ptr<Collection>& collection,
+        const std::string& filter_query,
+        std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    auto policy_it = embedded_params.find(AuthManager::AUTH_JOIN_POLICY_PARAM);
+    if(policy_it == embedded_params.end()) {
+        return Option<bool>(true);
+    }
+
+    auto normalized_policy_op = normalize_join_policy(policy_it.value());
+    if(!normalized_policy_op.ok()) {
+        return Option<bool>(normalized_policy_op.code(), normalized_policy_op.error());
+    }
+    auto joins = std::move(normalized_policy_op.get());
+
+    auto filter_op = validate_join_filter(filter_query, collection, joins, false);
+    if(!filter_op.ok()) {
+        return filter_op;
+    }
+    return apply_join_projection_policy(ref_include_exclude_fields_vec, joins);
 }
 
 void enforce_scoped_filter_for_curated_hits(const nlohmann::json& embedded_params,
@@ -3019,7 +3042,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return init_op;
     }
 
-    auto join_policy_op = enforce_join_policy(embedded_params, collection, args);
+    auto join_policy_op = enforce_search_join_policy(embedded_params, collection, args);
     if(!join_policy_op.ok()) {
         return join_policy_op;
     }
@@ -3284,7 +3307,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
             break;
         }
 
-        auto join_policy_op = enforce_join_policy(embedded_params, collection, args);
+        auto join_policy_op = enforce_search_join_policy(embedded_params, collection, args);
         if(!join_policy_op.ok()) {
             result_op = std::move(join_policy_op);
             break;

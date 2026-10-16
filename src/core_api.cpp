@@ -1455,6 +1455,14 @@ Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std:
         return initialize_op;
     }
 
+    if(!req->embedded_params_vec.empty()) {
+        auto policy_op = CollectionManager::enforce_join_policy(req->embedded_params_vec[0], collection, filter_query,
+                                                                 ref_include_exclude_fields_vec);
+        if(!policy_op.ok()) {
+            return policy_op;
+        }
+    }
+
     spp::sparse_hash_set<std::string> includes;
     spp::sparse_hash_set<std::string> excludes;
     includes.insert(include_fields_vec.begin(), include_fields_vec.end());

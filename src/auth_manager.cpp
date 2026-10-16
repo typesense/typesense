@@ -198,7 +198,8 @@ bool AuthManager::authenticate(const std::string& action,
             if(!auth_against_key(coll_key.collection, action, api_key, false)) {
                 return false;
             }
-            if(action == DOCUMENTS_SEARCH_ACTION && !api_key.joins.is_null()) {
+            if((action == DOCUMENTS_SEARCH_ACTION || action == DOCUMENTS_GET_ACTION ||
+                action == DOCUMENTS_EXPORT_ACTION) && !api_key.joins.is_null()) {
                 embedded_params[AUTH_JOIN_POLICY_PARAM] = api_key.joins;
             }
         } else {
