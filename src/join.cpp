@@ -4,17 +4,18 @@
 #include <collection_manager.h>
 #include <timsort.hpp>
 
-bool matches_prefix_pattern(const std::string& pattern, const std::string& field_name) {
+bool matches_policy_field_pattern(const std::string& pattern, const std::string& field_name) {
     if(pattern == "*") {
         return true;
     }
-    if(pattern.empty() || pattern.back() != '*') {
-        return false;
+    if(!pattern.empty() && pattern.back() == '*') {
+        const auto prefix_size = pattern.size() - 1;
+        return field_name.size() >= prefix_size &&
+               pattern.compare(0, prefix_size, field_name, 0, prefix_size) == 0;
     }
-
-    const auto prefix_size = pattern.size() - 1;
-    return field_name.size() >= prefix_size &&
-           pattern.compare(0, prefix_size, field_name, 0, prefix_size) == 0;
+    return field_name == pattern ||
+           (field_name.size() > pattern.size() && field_name[pattern.size()] == '.' &&
+            field_name.compare(0, pattern.size(), pattern) == 0);
 }
 
 void prune_policy_excluded_fields(nlohmann::json& doc, const std::vector<std::string>& patterns,
@@ -23,7 +24,7 @@ void prune_policy_excluded_fields(nlohmann::json& doc, const std::vector<std::st
     while(it != doc.end()) {
         const auto field_name = parent_name.empty() ? it.key() : parent_name + "." + it.key();
         const bool excluded = std::any_of(patterns.begin(), patterns.end(), [&](const auto& pattern) {
-            return matches_prefix_pattern(pattern, field_name);
+            return matches_policy_field_pattern(pattern, field_name);
         });
         if(excluded) {
             it = doc.erase(it);

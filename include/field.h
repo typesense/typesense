@@ -562,8 +562,8 @@ struct ref_include_exclude_fields {
     size_t limit = 0;
     // In case we have nested join.
     std::vector<ref_include_exclude_fields> nested_join_includes = {};
-    // Raw wildcard exclusions injected by an API key join policy. These are
-    // applied to stored-only fields after normal schema-based projection.
+    // Raw exclusions injected by an API key join policy. These are applied to
+    // stored-only fields after normal schema-based projection.
     std::vector<std::string> policy_exclude_field_patterns = {};
 };
 

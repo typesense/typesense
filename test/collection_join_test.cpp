@@ -12604,6 +12604,71 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
 }
 
+TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesRawDenyPaths) {
+    auto authors_schema = R"({
+        "name": "raw_deny_authors",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "profile.name", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(R"({
+        "id": "author-1",
+        "name": "Alice",
+        "profile": {"name": "public", "secret": "stored only"},
+        "conversation_history": {"secret": "stored only"}
+    })").ok());
+
+    auto books_schema = R"({
+        "name": "raw_deny_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "raw_deny_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"book-1","title":"One","author_id":"author-1"})").ok());
+
+    nlohmann::json embedded_params = {
+            {"__typesense_join_policy", {
+                    {"raw_deny_authors", {{"denied_fields", {"profile", "conversation_history"}}}}
+            }}
+    };
+    std::map<std::string, std::string> req_params = {
+            {"collection", "raw_deny_books"},
+            {"q", "*"},
+            {"filter_by", "$raw_deny_authors(name:=Alice)"},
+            {"include_fields", "$raw_deny_authors(*)"}
+    };
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string json_res;
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    const auto result = nlohmann::json::parse(json_res);
+    const auto& author = result["hits"][0]["document"]["raw_deny_authors"];
+    ASSERT_EQ("Alice", author["name"]);
+    ASSERT_EQ(0, author.count("profile"));
+    ASSERT_EQ(0, author.count("conversation_history"));
+
+    req_params = {
+            {"collection", "raw_deny_books"},
+            {"q", "*"},
+            {"filter_by", "$raw_deny_authors(name:=Alice)"},
+            {"include_fields", "$raw_deny_authors(profile.secret)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `profile.secret` of joined collection `raw_deny_authors` is not allowed by this API key.",
+              search_op.error());
+}
+
 TEST_F(CollectionJoinTest, ScopedAPIKeyJoinPolicyIntegrationTest) {
     auto authors_schema = R"({
         "name": "scoped_policy_authors",

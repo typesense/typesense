@@ -2252,7 +2252,7 @@ struct resolved_join_policy_t {
     bool allow_all_fields = false;
     std::vector<std::string> allowed_fields;
     std::vector<std::string> denied_fields;
-    std::vector<std::string> denied_wildcard_patterns;
+    std::vector<std::string> denied_field_patterns;
 };
 
 nlohmann::json canonicalize_join_field_policy(const nlohmann::json& policy_json) {
@@ -2321,7 +2321,7 @@ bool join_field_allowed(const resolved_join_policy_t& policy, const std::string&
             return false;
         }
     }
-    for(const auto& pattern: policy.denied_wildcard_patterns) {
+    for(const auto& pattern: policy.denied_field_patterns) {
         if(join_field_pattern_matches(pattern, field_name)) {
             return false;
         }
@@ -2464,14 +2464,15 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
         }
         policy.denied_fields.emplace_back(std::move(field_name));
     }
+    // Schema expansion can replace a parent path with known children and omit
+    // special fields such as conversation_history. Preserve every original
+    // deny pattern for authorization and post-fetch pruning of stored fields.
     for(const auto& pattern: denied_field_patterns) {
-        if(!pattern.empty() && pattern.back() == '*') {
-            policy.denied_wildcard_patterns.emplace_back(pattern);
-        }
+        policy.denied_field_patterns.emplace_back(pattern);
     }
     std::sort(policy.allowed_fields.begin(), policy.allowed_fields.end());
     std::sort(policy.denied_fields.begin(), policy.denied_fields.end());
-    std::sort(policy.denied_wildcard_patterns.begin(), policy.denied_wildcard_patterns.end());
+    std::sort(policy.denied_field_patterns.begin(), policy.denied_field_patterns.end());
     return Option<resolved_join_policy_t>(std::move(policy));
 }
 
@@ -2792,7 +2793,7 @@ Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields
         // Exclusions are purely subtractive and cannot expose a field. Allow callers
         // to exclude fields outside their allow-list, including policy-denied fields.
         append_join_fields(reference.exclude_fields, policy.denied_fields);
-        reference.policy_exclude_field_patterns = policy.denied_wildcard_patterns;
+        reference.policy_exclude_field_patterns = policy.denied_field_patterns;
 
         if(!reference.sort_by_str.empty()) {
             std::vector<sort_by> ref_sorts;
