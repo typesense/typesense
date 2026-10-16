@@ -65,14 +65,15 @@ public:
 
     // used to manage lifecycle of async actions
     const bool destroy_after_use;
+    const bool abort_response;
 
     async_req_res_t(const std::shared_ptr<http_req>& h_req, const std::shared_ptr<http_res>& h_res,
-                    const bool destroy_after_use) :
-            req(h_req), res(h_res), destroy_after_use(destroy_after_use) {
+                    const bool destroy_after_use, const bool abort_response = false) :
+            req(h_req), res(h_res), destroy_after_use(destroy_after_use), abort_response(abort_response) {
 
         std::shared_lock lk(res->mres);
 
-        if(!res->is_alive || req->_req == nullptr || res->generator == nullptr) {
+        if(abort_response || res->response_stalled || !res->is_alive || req->_req == nullptr || res->generator == nullptr) {
             return;
         }
 
@@ -88,6 +89,19 @@ public:
 
     bool is_alive() {
         return res->is_alive;
+    }
+
+    bool is_response_abort() const {
+        return abort_response;
+    }
+
+    bool is_response_stalled() const {
+        return res->response_stalled;
+    }
+
+    // Only read on the event loop after checking is_alive(), which disposal clears.
+    h2o_req_t* get_abort_req() const {
+        return req->_req;
     }
 
     void req_notify() {
