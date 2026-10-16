@@ -12465,6 +12465,22 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(1, restricted_parent.size());
     ASSERT_EQ("Alice", restricted_parent["name"]);
 
+    auto embedded_facet_params = embedded_params;
+    embedded_facet_params["facet_by"] = "$policy_authors(name)";
+    std::map<std::string, std::string> caller_parent_params = {
+            {"collection", "policy_books"},
+            {"q", "*"},
+            {"filter_by", "$policy_authors(name:=Alice)"},
+            {"facet_return_parent", "*"}
+    };
+    search_op = collectionManager.do_search(caller_parent_params, embedded_facet_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& embedded_facet_caller_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(1, embedded_facet_caller_parent.size());
+    ASSERT_EQ("Alice", embedded_facet_caller_parent["name"]);
+    ASSERT_EQ(0, embedded_facet_caller_parent.count("private_notes"));
+
     auto wildcard_parent_policy = policy;
     wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public*"};
     embedded_params["__typesense_join_policy"] = wildcard_parent_policy;

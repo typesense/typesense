@@ -3081,7 +3081,7 @@ Option<bool> prepare_execution_join_policy(const nlohmann::json& embedded_params
     auto joins = std::move(normalized_policy_op.get());
     args.join_policy = joins;
     args.join_policy_collection = collection;
-    args.apply_join_policy_to_facet_parent = embedded_params.count("facet_by") == 0;
+    args.apply_join_policy_to_facet_parent = embedded_params.count("facet_return_parent") == 0;
 
     std::map<std::string, std::string> trusted_params;
     auto trusted_embedded_params = embedded_params;
