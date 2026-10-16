@@ -8502,6 +8502,11 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         std::vector<facet> ref_facets;
         for (const auto& ref_facet: ref_facet_strings) {
+            // Nested references cannot be represented by facet's single
+            // reference_collection_name and would be attributed to the outer collection.
+            if(!ref_facet.empty() && ref_facet[0] == '$') {
+                return Option<bool>(400, "Nested reference facets are not supported.");
+            }
             auto parse_op = ref_collection->parse_facet_with_lock(ref_facet, ref_facets);
             if (!parse_op.ok()) {
                 return Option<bool>(parse_op.code(), error_message + parse_op.error());

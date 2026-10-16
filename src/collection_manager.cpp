@@ -2825,6 +2825,11 @@ Option<std::string> apply_join_facet_policy(const std::string& expression,
     }
 
     if(facet_expression[0] == '$') {
+        // Execution supports only one reference collection per facet. Do not
+        // authorize an inner field that would execute against the outer one.
+        if(joined_context) {
+            return Option<std::string>(400, "Nested reference facets are not supported.");
+        }
         auto open_paren = facet_expression.find('(');
         if(open_paren == std::string::npos || facet_expression.back() != ')') {
             return Option<std::string>(400, "Reference `facet_by` is malformed.");

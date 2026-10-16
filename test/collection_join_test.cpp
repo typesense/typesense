@@ -12629,6 +12629,75 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
 }
 
+TEST_F(CollectionJoinTest, APIKeyJoinPolicyRejectsNestedFacets) {
+    auto cities_schema = R"({
+        "name": "nested_facet_cities",
+        "fields": [{"name":"secret","type":"string","facet":true}]
+    })"_json;
+    auto cities = collectionManager.create_collection(cities_schema);
+    ASSERT_TRUE(cities.ok());
+    ASSERT_TRUE(cities.get()->add(R"({"id":"city","secret":"public city value"})").ok());
+    auto authors_schema = R"({
+        "name": "nested_facet_authors",
+        "fields": [
+            {"name":"name","type":"string","facet":true},
+            {"name":"secret","type":"string","facet":true},
+            {"name":"city_id","type":"string","reference":"nested_facet_cities.id"}
+        ]
+    })"_json;
+    auto authors = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(authors.ok());
+    ASSERT_TRUE(authors.get()->add(R"({"id":"author","name":"Alice","secret":"restricted author value","city_id":"city"})").ok());
+    auto books_schema = R"({
+        "name": "nested_facet_books",
+        "fields": [{"name":"author_id","type":"string","reference":"nested_facet_authors.id"}]
+    })"_json;
+    auto books = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(books.ok());
+    ASSERT_TRUE(books.get()->add(R"({"id":"book","author_id":"author"})").ok());
+
+    nlohmann::json embedded_params = {{"__typesense_join_policy", {
+        {"nested_facet_authors", {{"allowed_fields", {"name"}}}},
+        {"nested_facet_cities", {{"allowed_fields", {"secret"}}}}
+    }}};
+    std::map<std::string, std::string> params = {
+        {"collection", "nested_facet_books"}, {"q", "*"},
+        {"facet_by", "$nested_facet_authors(secret)"}
+    };
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string response;
+    auto search_op = collectionManager.do_search(params, embedded_params, response, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+
+    for(const auto& expression: {"$nested_facet_authors($nested_facet_cities(secret))",
+                                "$nested_facet_authors(name, $nested_facet_cities(secret))",
+                                "$nested_facet_authors($nested_facet_cities(*))"}) {
+        SCOPED_TRACE(expression);
+        params["facet_by"] = expression;
+        search_op = collectionManager.do_search(params, embedded_params, response, now_ts);
+        ASSERT_FALSE(search_op.ok()) << response;
+        ASSERT_EQ(400, search_op.code());
+        ASSERT_EQ("Nested reference facets are not supported.", search_op.error());
+
+        std::vector<nlohmann::json> union_embedded_params = {embedded_params};
+        std::map<std::string, std::string> union_params;
+        nlohmann::json union_response;
+        auto union_op = collectionManager.do_union(union_params, union_embedded_params,
+                                                   nlohmann::json::array({params}), union_response, now_ts);
+        ASSERT_TRUE(union_op.ok()) << union_op.error();
+        ASSERT_EQ(400, union_response["code"]);
+        ASSERT_EQ("Nested reference facets are not supported.", union_response["error"]);
+
+        // The normal parser must also reject nesting without a join policy.
+        nlohmann::json unrestricted_params;
+        search_op = collectionManager.do_search(params, unrestricted_params, response, now_ts);
+        ASSERT_FALSE(search_op.ok()) << response;
+        ASSERT_EQ(400, search_op.code());
+    }
+}
+
 TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesWildcardFacetMetadata) {
     auto authors_schema = R"({
         "name": "dynamic_policy_authors",
