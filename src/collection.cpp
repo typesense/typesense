@@ -1489,6 +1489,21 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     return num_indexed;
 }
 
+static std::string normalize_curation_rule_query(const std::string& rule_query, const std::string& locale,
+                                                 const std::vector<char>& symbols_to_index,
+                                                 const std::vector<char>& token_separators,
+                                                 std::shared_ptr<Stemmer> stemmer) {
+    std::vector<char> symbols = symbols_to_index;
+    symbols.push_back('{');
+    symbols.push_back('}');
+    symbols.push_back('*');
+    symbols.push_back('.');
+
+    std::vector<std::string> tokens;
+    Tokenizer(rule_query, true, false, locale, symbols, token_separators, stemmer, true).tokenize(tokens);
+    return StringUtils::join(tokens, " ");
+}
+
 bool Collection::does_curation_match(const curation_t& curation, std::string& query,
                                      std::set<uint32_t>& excluded_set,
                                      string& actual_query, const std::string& curation_normalized_query, const string& filter_query,
@@ -5134,6 +5149,44 @@ void Collection::build_highlight_snapshots(
     }
 }
 
+static void substitute_rule_stemmed_query_tokens(const curation_t& curation, const std::vector<std::string>& query_tokens,
+                                                 const std::string& locale, const std::vector<char>& symbols,
+                                                 const std::vector<char>& separators,
+                                                 std::vector<std::string>& rule_tokens) {
+    std::vector<size_t> missing_positions;
+    for(size_t j = 0; j < rule_tokens.size(); j++) {
+        if(std::find(query_tokens.begin(), query_tokens.end(), rule_tokens[j]) == query_tokens.end()) {
+            missing_positions.push_back(j);
+        }
+    }
+
+    if(missing_positions.empty()) {
+        return;
+    }
+
+    auto rule_stemmer = StemmerManager::get_instance().get_stemmer(curation.rule.locale,
+                                                                   curation.rule.stemming_dictionary);
+    if(rule_stemmer == nullptr) {
+        return;
+    }
+
+    std::vector<std::string> stemmed_rule_tokens;
+    StringUtils::split(normalize_curation_rule_query(curation.rule.query, locale, symbols, separators, rule_stemmer),
+                       stemmed_rule_tokens, " ");
+    if(stemmed_rule_tokens.size() != rule_tokens.size()) {
+        return;
+    }
+
+    for(const auto j: missing_positions) {
+        for(const auto& query_token: query_tokens) {
+            if(rule_stemmer->stem(query_token) == stemmed_rule_tokens[j]) {
+                rule_tokens[j] = query_token;
+                break;
+            }
+        }
+    }
+}
+
 void Collection::process_filter_sort_curations(std::vector<const curation_t*>& filter_sort_curations,
                                           const std::set<const curation_t*>& matched_filter_curations,
                                           const std::string& stopwords_set,
@@ -5153,21 +5206,13 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
                                           const std::vector<char>& query_token_separators) const {
 
     std::vector<const curation_t*> matched_dynamic_curations;
+    const auto& symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
+    const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
     auto compute_normalized_query = [&](const curation_t& curation) {
-      auto symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
-      symbols.push_back('{');
-      symbols.push_back('}');
-      symbols.push_back('*');
-      symbols.push_back('.');
-
-      const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
       const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
 
-      std::vector<std::string> tokens;
-      Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
-      tokenizer.tokenize(tokens);
-      auto query_normalized = StringUtils::join(tokens, " ");
+      auto query_normalized = normalize_curation_rule_query(curation.rule.query, query_locale, symbols, separators,
+                                                            use_search_field_stemmer ? stemmer : nullptr);
       size_t i = 0;
       while(i < query_normalized.size()) {
           if(query_normalized[i] == '{') {
@@ -5200,6 +5245,10 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       StringUtils::split(query_normalized, rule_tokens, " ");
 
       if(matched_filter_curations.count(ov) != 0) {
+          if(ov->rule.stem) {
+              substitute_rule_stemmed_query_tokens(*ov, q_include_tokens, query_locale, symbols, separators, rule_tokens);
+          }
+
           if(!stopword_struct.stopwords.empty()) {
               std::vector<std::string> non_stopword_tokens;
               for(const auto& rule_token: rule_tokens) {
