@@ -12241,7 +12241,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
             "denied_fields": ["secret_code"]
         }
     })"_json;
-    nlohmann::json embedded_params = {{AuthManager::AUTH_JOIN_POLICY_PARAM, policy}};
+    nlohmann::json embedded_params = {{"__typesense_join_policy", policy}};
     std::string json_res;
 
     std::map<std::string, std::string> req_params = {
@@ -12274,7 +12274,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
     ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors_alias_a", {{"allowed_fields", {"name"}}}},
             {"policy_authors_alias_b", {{"allowed_fields", {"private_notes"}}}}
     };
@@ -12283,7 +12283,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(403, search_op.code());
     ASSERT_EQ("Conflicting join policies are configured for collection `policy_authors`.", search_op.error());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors_alias_a", {{"allowed_fields", {"country", "name", "name"}}}},
             {"policy_authors_alias_b", {{"allowed_fields", {"name", "country"}},
                                          {"denied_fields", nlohmann::json::array()}}}
@@ -12295,7 +12295,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors_alias_a", nlohmann::json::object()},
             {"policy_authors_alias_b", {{"allowed_fields", {"*"}}}}
     };
@@ -12303,12 +12303,12 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params["filter_by"] = "$policy_authors(name:=Alice)";
 
     auto broader_wildcard_policy = policy;
     broader_wildcard_policy["policy_authors"]["allowed_fields"] = {"name", "foo*"};
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = broader_wildcard_policy;
+    embedded_params["__typesense_join_policy"] = broader_wildcard_policy;
     req_params["include_fields"] = "$policy_authors(foobar*)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
@@ -12319,7 +12319,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto narrower_wildcard_policy = policy;
     narrower_wildcard_policy["policy_authors"]["allowed_fields"] = {"name", "foobar*"};
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = narrower_wildcard_policy;
+    embedded_params["__typesense_join_policy"] = narrower_wildcard_policy;
     req_params["include_fields"] = "$policy_authors(foo*)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
@@ -12328,7 +12328,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("requested", result["hits"][0]["document"]["policy_authors"]["foobar_visible"]);
     ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("foo_internal"));
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params.erase("include_fields");
 
     req_params["filter_by"] = "$policy_authors(private_notes:=secret)";
@@ -12388,7 +12388,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     auto underscore_sort_allowed_policy = policy;
     underscore_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("_salary");
     underscore_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("secret_embedding");
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = underscore_sort_allowed_policy;
+    embedded_params["__typesense_join_policy"] = underscore_sort_allowed_policy;
     req_params["sort_by"] = "$policy_authors(_salary:asc)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
@@ -12396,7 +12396,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params["sort_by"] = "$policy_authors(_rand(1):asc)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
@@ -12409,7 +12409,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
               search_op.error());
 
     req_params["filter_by"] = "title:=One";
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_cities", {{"allowed_fields", {"label"}}}}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12424,7 +12424,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(403, search_op.code());
     ASSERT_EQ("Joining collection `policy_missing_authors` is not allowed by this API key.", search_op.error());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_missing_authors", nlohmann::json::object()}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12433,7 +12433,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Referenced collection `policy_missing_authors` not found.", search_op.error());
 
     req_params["filter_by"] = "$policy_authors(name:=Alice)";
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params.erase("sort_by");
     req_params["facet_by"] = "$policy_authors(private_notes)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12451,11 +12451,11 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto facet_sort_allowed_policy = policy;
     facet_sort_allowed_policy["policy_authors"]["allowed_fields"].push_back("salary");
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = facet_sort_allowed_policy;
+    embedded_params["__typesense_join_policy"] = facet_sort_allowed_policy;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params["facet_by"] = "$policy_authors(name)";
     req_params["facet_return_parent"] = "*";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12467,7 +12467,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto wildcard_parent_policy = policy;
     wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public*"};
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = wildcard_parent_policy;
+    embedded_params["__typesense_join_policy"] = wildcard_parent_policy;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     result = nlohmann::json::parse(json_res);
@@ -12478,7 +12478,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto unmatched_wildcard_parent_policy = policy;
     unmatched_wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public_secret*"};
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = unmatched_wildcard_parent_policy;
+    embedded_params["__typesense_join_policy"] = unmatched_wildcard_parent_policy;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     result = nlohmann::json::parse(json_res);
@@ -12489,7 +12489,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto exact_stored_parent_policy = policy;
     exact_stored_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public_secret"};
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = exact_stored_parent_policy;
+    embedded_params["__typesense_join_policy"] = exact_stored_parent_policy;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     result = nlohmann::json::parse(json_res);
@@ -12497,7 +12497,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Alice", exact_stored_parent["name"]);
     ASSERT_EQ("undeclared stored only", exact_stored_parent["public_secret"]);
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
 
     auto parent_searches = R"json([{
         "collection": "policy_books",
@@ -12518,13 +12518,13 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     auto unrestricted_parent_policy = policy;
     unrestricted_parent_policy["policy_authors"] = nlohmann::json::object();
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = unrestricted_parent_policy;
+    embedded_params["__typesense_join_policy"] = unrestricted_parent_policy;
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     result = nlohmann::json::parse(json_res);
     ASSERT_EQ("secret", result["facet_counts"][0]["counts"][0]["parent"]["private_notes"]);
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params.erase("facet_return_parent");
     req_params["facet_by"] = "$policy_authors(*)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12535,7 +12535,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     req_params.erase("facet_by");
     req_params["include_fields"] = "$policy_authors(private_notes)";
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors", {{"denied_fields", {"private_notes", "secret*"}}}}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12555,7 +12555,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     req_params["filter_by"] = "title:=One";
     req_params["include_fields"] = "$policy_authors(*)";
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors", {{"allowed_fields", nlohmann::json::array()}}}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12563,7 +12563,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(403, search_op.code());
     ASSERT_EQ("No fields of joined collection `policy_authors` are allowed by this API key.", search_op.error());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors", nlohmann::json::object()}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12572,7 +12572,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("undeclared stored only",
               result["hits"][0]["document"]["policy_authors"]["public_secret"]);
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+    embedded_params["__typesense_join_policy"] = {
             {"policy_authors", {{"denied_fields", {"*"}}}}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -12581,7 +12581,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("public_secret"));
     ASSERT_TRUE(result["hits"][0]["document"]["policy_authors"].empty());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = nlohmann::json::object();
+    embedded_params["__typesense_join_policy"] = nlohmann::json::object();
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ(403, search_op.code());
@@ -12647,7 +12647,7 @@ TEST_F(CollectionJoinTest, ScopedAPIKeyJoinPolicyIntegrationTest) {
 
     nlohmann::json direct_scoped_params = {
             {"include_fields", "title,$scoped_policy_authors(name)"},
-            {AuthManager::AUTH_JOIN_POLICY_PARAM, forged_policy}
+            {"__typesense_join_policy", forged_policy}
     };
     const auto direct_scoped_key = make_scoped_key(direct_scoped_params);
     std::map<std::string, std::string> auth_params;
@@ -12656,10 +12656,79 @@ TEST_F(CollectionJoinTest, ScopedAPIKeyJoinPolicyIntegrationTest) {
                                           {collection_key_t("scoped_policy_books", direct_scoped_key)},
                                           auth_params, direct_embedded_params));
     ASSERT_EQ(direct_scoped_params["include_fields"], direct_embedded_params[0]["include_fields"]);
-    ASSERT_EQ(policy, direct_embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+    ASSERT_EQ(policy, direct_embedded_params[0]["__typesense_join_policy"]);
 
     const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
+
+    nlohmann::json trusted_join_embedded_params = {
+            {"filter_by", "$scoped_policy_authors(private_notes:=secret-a)"},
+            {"exclude_fields", "$scoped_policy_authors(*)"},
+            {"__typesense_join_policy", nlohmann::json::object()}
+    };
+    std::map<std::string, std::string> trusted_join_req_params = {
+            {"collection", "scoped_policy_books"},
+            {"q", "*"}
+    };
+    std::string trusted_join_json_res;
+    auto trusted_join_op = collectionManager.do_search(trusted_join_req_params, trusted_join_embedded_params,
+                                                        trusted_join_json_res, now_ts);
+    ASSERT_TRUE(trusted_join_op.ok()) << trusted_join_op.error();
+    ASSERT_EQ(1, nlohmann::json::parse(trusted_join_json_res)["found"]);
+
+    auto trusted_union_searches = R"([{
+        "collection": "scoped_policy_books",
+        "q": "*"
+    }])"_json;
+    std::vector<nlohmann::json> trusted_union_embedded_params = {trusted_join_embedded_params};
+    std::map<std::string, std::string> trusted_union_req_params;
+    nlohmann::json trusted_union_response;
+    auto trusted_union_op = collectionManager.do_union(trusted_union_req_params, trusted_union_embedded_params,
+                                                        trusted_union_searches, trusted_union_response, now_ts);
+    ASSERT_TRUE(trusted_union_op.ok()) << trusted_union_op.error();
+    ASSERT_EQ(1, trusted_union_response["found"]);
+
+    trusted_join_req_params["filter_by"] = "$scoped_policy_authors(name:=Alice)";
+    trusted_join_op = collectionManager.do_search(trusted_join_req_params, trusted_join_embedded_params,
+                                                   trusted_join_json_res, now_ts);
+    ASSERT_FALSE(trusted_join_op.ok());
+    ASSERT_EQ(403, trusted_join_op.code());
+    ASSERT_EQ("Joining collection `scoped_policy_authors` is not allowed by this API key.",
+              trusted_join_op.error());
+
+    ASSERT_TRUE(collectionManager.upsert_preset("scoped-policy-forbidden-join", {
+            {"filter_by", "$scoped_policy_authors(name:=Alice)"}
+    }).ok());
+    std::map<std::string, std::string> preset_join_req_params = {
+            {"collection", "scoped_policy_books"},
+            {"q", "*"},
+            {"preset", "scoped-policy-forbidden-join"}
+    };
+    trusted_join_op = collectionManager.do_search(preset_join_req_params, trusted_join_embedded_params,
+                                                   trusted_join_json_res, now_ts);
+    ASSERT_FALSE(trusted_join_op.ok());
+    ASSERT_EQ(403, trusted_join_op.code());
+    ASSERT_EQ("Joining collection `scoped_policy_authors` is not allowed by this API key.",
+              trusted_join_op.error());
+
+    trusted_join_req_params.erase("filter_by");
+    trusted_join_req_params.erase("exclude_fields");
+    trusted_join_req_params["include_fields"] = "$scoped_policy_authors(*)";
+    trusted_join_embedded_params.erase("exclude_fields");
+    trusted_join_embedded_params["__typesense_join_policy"] = {
+            {"scoped_policy_authors", {{"allowed_fields", {"name"}}}}
+    };
+    trusted_join_op = collectionManager.do_search(trusted_join_req_params, trusted_join_embedded_params,
+                                                   trusted_join_json_res, now_ts);
+    ASSERT_TRUE(trusted_join_op.ok()) << trusted_join_op.error();
+    const auto trusted_join_result = nlohmann::json::parse(trusted_join_json_res);
+    const auto& caller_included_authors = trusted_join_result["hits"][0]["document"]["scoped_policy_authors"];
+    const auto& caller_included_author = caller_included_authors.is_array() ? caller_included_authors[0] :
+                                                                          caller_included_authors;
+    ASSERT_TRUE(caller_included_author.is_object()) << trusted_join_result.dump(2);
+    ASSERT_EQ("Alice", caller_included_author["name"]);
+    ASSERT_EQ(0, caller_included_author.count("private_notes"));
+
     std::map<std::string, std::string> req_params = {
             {"collection", "scoped_policy_books"},
             {"q", "*"},
@@ -12689,14 +12758,14 @@ TEST_F(CollectionJoinTest, ScopedAPIKeyJoinPolicyIntegrationTest) {
 
     nlohmann::json reverse_scoped_params = {
             {"include_fields", "name,$scoped_policy_books(title)"},
-            {AuthManager::AUTH_JOIN_POLICY_PARAM, forged_policy}
+            {"__typesense_join_policy", forged_policy}
     };
     const auto reverse_scoped_key = make_scoped_key(reverse_scoped_params);
     std::vector<nlohmann::json> reverse_embedded_params(1, nlohmann::json::object());
     ASSERT_TRUE(auth_manager.authenticate("documents:search",
                                           {collection_key_t("scoped_policy_authors", reverse_scoped_key)},
                                           auth_params, reverse_embedded_params));
-    ASSERT_EQ(policy, reverse_embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+    ASSERT_EQ(policy, reverse_embedded_params[0]["__typesense_join_policy"]);
 
     req_params = {
             {"collection", "scoped_policy_authors"},
@@ -12779,7 +12848,7 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicyAppliesAfterCurations) {
             "denied_fields": ["private_notes"]
         }
     })"_json;
-    nlohmann::json embedded_params = {{AuthManager::AUTH_JOIN_POLICY_PARAM, policy}};
+    nlohmann::json embedded_params = {{"__typesense_join_policy", policy}};
     nlohmann::json unrestricted_params;
     std::string json_res;
     std::map<std::string, std::string> req_params = {
@@ -12798,13 +12867,13 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicyAppliesAfterCurations) {
     ASSERT_EQ("Field `private_notes` of joined collection `curation_policy_authors` is not allowed by this API key.",
               search_op.error());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = nlohmann::json::object();
+    embedded_params["__typesense_join_policy"] = nlohmann::json::object();
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ(403, search_op.code());
     ASSERT_EQ("Joining collection `curation_policy_authors` is not allowed by this API key.", search_op.error());
 
-    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
+    embedded_params["__typesense_join_policy"] = policy;
     req_params["q"] = "sort me";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());

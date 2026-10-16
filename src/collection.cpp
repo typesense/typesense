@@ -3030,6 +3030,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     if(!parse_filter_op.ok()) {
         return parse_filter_op;
     }
+    const auto* pre_curation_filter_root = filter_tree_root_guard.get();
 
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
@@ -3327,8 +3328,11 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         effective_sort_fields = &curated_sort_fields;
     }
 
-    auto policy_op = coll_args.validate_post_curation_filter_sort(filter_tree_root_guard.get(),
-                                                                  *effective_sort_fields);
+    const std::vector<sort_by> no_curated_sort_fields;
+    auto policy_op = coll_args.validate_post_curation_filter_sort(
+            filter_tree_root_guard.get(),
+            curated_sort_by.empty() ? no_curated_sort_fields : curated_sort_fields,
+            pre_curation_filter_root);
     if(!policy_op.ok()) {
         return policy_op;
     }

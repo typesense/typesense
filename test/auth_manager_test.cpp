@@ -496,7 +496,7 @@ TEST_F(AuthManagerTest, JoinPolicyIsPersistedAndInheritedByScopedKeys) {
     std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
     ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("books", parent.value)},
                                               params, embedded_params));
-    ASSERT_EQ(joins, embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+    ASSERT_EQ(joins, embedded_params[0]["__typesense_join_policy"]);
 
     const std::string custom_params = R"({"filter_by":"id:*","__typesense_join_policy":{}})";
     const std::string scoped_key = StringUtils::base64_encode(
@@ -504,7 +504,7 @@ TEST_F(AuthManagerTest, JoinPolicyIsPersistedAndInheritedByScopedKeys) {
     embedded_params.assign(1, nlohmann::json::object());
     ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("books", scoped_key)},
                                               params, embedded_params));
-    ASSERT_EQ(joins, embedded_params[0][AuthManager::AUTH_JOIN_POLICY_PARAM]);
+    ASSERT_EQ(joins, embedded_params[0]["__typesense_join_policy"]);
 }
 
 TEST_F(AuthManagerTest, ValidatesJoinPolicyShape) {
@@ -834,7 +834,7 @@ TEST_F(AuthManagerTest, PatchKeyCanRemoveJoinPolicy) {
     std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
     ASSERT_TRUE(patched_auth_manager.authenticate("documents:search", {collection_key_t("books", "patchjoins")},
                                                       params, embedded_params));
-    ASSERT_FALSE(embedded_params[0].contains(AuthManager::AUTH_JOIN_POLICY_PARAM));
+    ASSERT_FALSE(embedded_params[0].contains("__typesense_join_policy"));
 }
 
 TEST_F(AuthManagerTest, PatchKeyUpdateMultipleFields) {

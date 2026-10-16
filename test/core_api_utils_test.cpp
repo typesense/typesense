@@ -344,7 +344,7 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchC
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
     ASSERT_EQ("scoped_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -425,7 +425,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, "auth_key"));
     ASSERT_EQ("body_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -642,14 +642,14 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     hash_req_base->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 111},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "alpha"}
+        {"__typesense_authorized_collection", "alpha"}
     });
 
     auto hash_req_variant = make_req("a", "bc");
     hash_req_variant->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 999999},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "beta"}
+        {"__typesense_authorized_collection", "beta"}
     });
 
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
