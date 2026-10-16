@@ -2249,14 +2249,16 @@ Option<bool> apply_embedded_params(nlohmann::json& embedded_params, std::map<std
 }
 
 struct resolved_join_policy_t {
-    bool allow_all_fields = true;
+    bool allow_all_fields = false;
     std::vector<std::string> allowed_fields;
     std::vector<std::string> denied_fields;
     std::vector<std::string> denied_wildcard_patterns;
 };
 
 nlohmann::json canonicalize_join_field_policy(const nlohmann::json& policy_json) {
-    std::vector<std::string> allowed_fields;
+    // Omission is the unrestricted shorthand; an explicit empty array remains
+    // empty and therefore authorizes no fields.
+    std::vector<std::string> allowed_fields = {"*"};
     std::vector<std::string> denied_fields;
     if(policy_json.contains("allowed_fields")) {
         allowed_fields = policy_json.at("allowed_fields").get<std::vector<std::string>>();
@@ -2404,13 +2406,21 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
     spp::sparse_hash_set<std::string> denied_field_patterns;
     if(policy_json.contains("allowed_fields")) {
         const auto& allowed_fields = policy_json.at("allowed_fields");
-        policy.allow_all_fields = allowed_fields.empty();
-        for(const auto& field_name: allowed_fields) {
-            auto pattern = field_name.get<std::string>();
-            if(!pattern.empty()) {
-                allowed_field_patterns.emplace(std::move(pattern));
+        policy.allow_all_fields = std::any_of(allowed_fields.begin(), allowed_fields.end(), [](const auto& field_name) {
+            return field_name.template get<std::string>() == "*";
+        });
+        if(!policy.allow_all_fields) {
+            for(const auto& field_name: allowed_fields) {
+                auto pattern = field_name.get<std::string>();
+                if(!pattern.empty()) {
+                    allowed_field_patterns.emplace(std::move(pattern));
+                }
             }
         }
+    } else {
+        // Policies are normally canonicalized first, but keep an omitted
+        // allow-list unrestricted if this helper is called directly.
+        policy.allow_all_fields = true;
     }
     if(policy_json.contains("denied_fields")) {
         for(const auto& field_name: policy_json.at("denied_fields")) {
@@ -2742,7 +2752,7 @@ Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields
                 reference.include_fields = StringUtils::join(effective_includes, ",");
             }
         } else {
-            // An empty allow-list means all fields are candidates, but an explicitly
+            // A wildcard allow-list means all fields are candidates, but an explicitly
             // requested field must still be checked against the deny-list. Wildcards
             // are clamped below by adding the denied fields to exclude_fields.
             for(const auto& requested: requested_includes) {

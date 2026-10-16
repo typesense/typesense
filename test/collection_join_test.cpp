@@ -12295,6 +12295,14 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
 
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors_alias_a", nlohmann::json::object()},
+            {"policy_authors_alias_b", {{"allowed_fields", {"*"}}}}
+    };
+    req_params["filter_by"] = "$policy_authors_alias_a(name:=Alice)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+
     embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = policy;
     req_params["filter_by"] = "$policy_authors(name:=Alice)";
 
@@ -12532,6 +12540,23 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
 
     req_params["filter_by"] = "title:=One";
     req_params["include_fields"] = "$policy_authors(*)";
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors", {{"allowed_fields", nlohmann::json::array()}}}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("No fields of joined collection `policy_authors` are allowed by this API key.", search_op.error());
+
+    embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
+            {"policy_authors", nlohmann::json::object()}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ("undeclared stored only",
+              result["hits"][0]["document"]["policy_authors"]["public_secret"]);
+
     embedded_params[AuthManager::AUTH_JOIN_POLICY_PARAM] = {
             {"policy_authors", {{"denied_fields", {"*"}}}}
     };
