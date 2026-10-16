@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <cstdlib>
+#include <thread>
+#include <atomic>
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
@@ -5808,4 +5810,117 @@ TEST_F(CollectionTest, MaxQueryLengthTruncatesVoiceTranscriptBeforeSearch) {
     ASSERT_FALSE(error_result.ok());
     EXPECT_EQ(422, error_result.code());
     EXPECT_EQ("transcription failed", error_result.error());
+}
+
+TEST_F(CollectionTest, BulkImportDocumentsAlwaysFetchableWhenSearchable) {
+    // Regression test for https://github.com/typesense/typesense/issues/3028: a search running while
+    // `add_many()` is in progress must never return fewer hits than it should for the `found` count it
+    // reports. Before the fix, `Collection::batch_index()` made a batch searchable before writing it to the
+    // store, so a concurrent search could select seq_ids whose documents it could not fetch yet.
+    //
+    // The test pauses every `batch_index()` call at the boundary between the store write and the in-memory
+    // index update, and runs a search (on another thread) plus a GET of the batch's last document while it
+    // is paused. That search is therefore guaranteed to run inside an `add_many()` call.
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll_bulk_visibility").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll_bulk_visibility", 1, fields, "points").get();
+    }
+
+    // Must stay within the default `max_per_page` (250), otherwise every search fails validation.
+    const size_t per_page = 250;
+
+    struct paused_search_t {
+        size_t batch_start;
+        bool search_ok;
+        std::string search_error;
+        size_t found;
+        size_t num_hits;
+        bool batch_doc_fetchable;
+    };
+
+    std::vector<paused_search_t> paused_searches;
+    std::string current_batch_last_id;
+    size_t current_batch_start = 0;
+
+    collection_batch_index_before_memory_index = [&]() {
+        paused_search_t paused{current_batch_start, false, "", 0, 0, false};
+
+        // `batch_index()` stays blocked on this thread until the search below has finished.
+        std::thread searcher([&]() {
+            auto res_op = coll1->search("racedoc", {"title"}, "", {}, sort_fields, {0}, per_page, 1,
+                                        FREQUENCY, {false});
+            paused.search_ok = res_op.ok();
+            if(!res_op.ok()) {
+                paused.search_error = res_op.error();
+                return;
+            }
+
+            auto res = res_op.get();
+            paused.found = res["found"].get<size_t>();
+            paused.num_hits = res["hits"].size();
+            paused.batch_doc_fetchable = coll1->get(current_batch_last_id).ok();
+        });
+        searcher.join();
+
+        paused_searches.push_back(paused);
+    };
+
+    // Clear the hook on every exit path, including a failed assertion.
+    struct hook_reset_t {
+        ~hook_reset_t() { collection_batch_index_before_memory_index = nullptr; }
+    } hook_reset;
+
+    const size_t num_docs = 1000;
+    const size_t batch_size = 100;
+    nlohmann::json dummy_document;
+    size_t num_imported = 0;
+    bool import_ok = true;
+
+    for(size_t i = 0; i < num_docs; i += batch_size) {
+        std::vector<std::string> batch;
+        for(size_t j = i; j < std::min(num_docs, i + batch_size); j++) {
+            nlohmann::json doc;
+            doc["id"] = std::to_string(j);
+            doc["title"] = "racedoc";
+            doc["points"] = (int) j;
+            batch.push_back(doc.dump());
+        }
+
+        current_batch_start = i;
+        current_batch_last_id = std::to_string(std::min(num_docs, i + batch_size) - 1);
+
+        nlohmann::json import_response = coll1->add_many(batch, dummy_document);
+        import_ok = import_ok && import_response["success"].get<bool>();
+        num_imported += import_response["num_imported"].get<size_t>();
+    }
+
+    collection_batch_index_before_memory_index = nullptr;
+
+    ASSERT_TRUE(import_ok);
+    ASSERT_EQ(num_docs, num_imported);
+
+    // One paused search per batch, each run inside `add_many()`.
+    ASSERT_EQ(num_docs / batch_size, paused_searches.size());
+
+    for(const auto& paused: paused_searches) {
+        ASSERT_TRUE(paused.search_ok) << "batch " << paused.batch_start << ": " << paused.search_error;
+        // Every seq_id the search selected can be materialized...
+        ASSERT_EQ(std::min(paused.found, per_page), paused.num_hits)
+            << "batch " << paused.batch_start << ": found=" << paused.found << " hits=" << paused.num_hits;
+        // ...and the paused batch is already stored, so its documents can be fetched.
+        ASSERT_TRUE(paused.batch_doc_fetchable) << "batch " << paused.batch_start;
+    }
+
+    auto res = coll1->search("racedoc", {"title"}, "", {}, sort_fields, {0}, per_page, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(num_docs, res["found"].get<size_t>());
+    ASSERT_EQ(per_page, res["hits"].size());
+
+    collectionManager.drop_collection("coll_bulk_visibility");
 }
