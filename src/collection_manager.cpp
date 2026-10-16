@@ -2362,7 +2362,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 SearchAnalytics::LOG_TYPE,
                 orig_coll_name,
                 analytics_query,
-                analytics_query,
+                "",
                 req_params["x-typesense-user-id"],
                 args.filter_query,
                 args.analytics_tag
@@ -2375,6 +2375,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
             } else {
+                internal_event.expanded_q = analytics_query;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
                 internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
                 AnalyticsManager::get_instance().add_internal_event(internal_event);
