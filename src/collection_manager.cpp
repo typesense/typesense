@@ -2252,6 +2252,7 @@ struct resolved_join_policy_t {
     bool allow_all_fields = true;
     std::vector<std::string> allowed_fields;
     std::vector<std::string> denied_fields;
+    std::vector<std::string> denied_wildcard_patterns;
 };
 
 nlohmann::json canonicalize_join_field_policy(const nlohmann::json& policy_json) {
@@ -2293,9 +2294,13 @@ bool join_field_pattern_matches(const std::string& pattern, const std::string& f
         return true;
     }
     if(!pattern.empty() && pattern.back() == '*') {
-        return field_name.rfind(pattern.substr(0, pattern.size() - 1), 0) == 0;
+        const auto prefix_size = pattern.size() - 1;
+        return field_name.size() >= prefix_size &&
+               pattern.compare(0, prefix_size, field_name, 0, prefix_size) == 0;
     }
-    return field_name == pattern || field_name.rfind(pattern + ".", 0) == 0;
+    return field_name == pattern ||
+           (field_name.size() > pattern.size() && field_name[pattern.size()] == '.' &&
+            field_name.compare(0, pattern.size(), pattern) == 0);
 }
 
 bool join_field_allowed(const resolved_join_policy_t& policy, const std::string& field_name) {
@@ -2310,6 +2315,11 @@ bool join_field_allowed(const resolved_join_policy_t& policy, const std::string&
         return false;
     }
     for(const auto& pattern: policy.denied_fields) {
+        if(join_field_pattern_matches(pattern, field_name)) {
+            return false;
+        }
+    }
+    for(const auto& pattern: policy.denied_wildcard_patterns) {
         if(join_field_pattern_matches(pattern, field_name)) {
             return false;
         }
@@ -2429,10 +2439,23 @@ Option<resolved_join_policy_t> resolve_join_policy(const nlohmann::json& joins,
         policy.allowed_fields.emplace_back(std::move(field_name));
     }
     for(auto it = denied_fields_full.begin(); it != denied_fields_full.end(); ++it) {
-        policy.denied_fields.emplace_back(it.key());
+        auto field_name = it.key();
+        // Keep raw policy wildcards out of the normal projection set. They are
+        // applied separately so ordinary include/exclude pruning stays exact.
+        if(!field_name.empty() && field_name.back() == '*' &&
+           denied_field_patterns.count(field_name) != 0) {
+            continue;
+        }
+        policy.denied_fields.emplace_back(std::move(field_name));
+    }
+    for(const auto& pattern: denied_field_patterns) {
+        if(!pattern.empty() && pattern.back() == '*') {
+            policy.denied_wildcard_patterns.emplace_back(pattern);
+        }
     }
     std::sort(policy.allowed_fields.begin(), policy.allowed_fields.end());
     std::sort(policy.denied_fields.begin(), policy.denied_fields.end());
+    std::sort(policy.denied_wildcard_patterns.begin(), policy.denied_wildcard_patterns.end());
     return Option<resolved_join_policy_t>(std::move(policy));
 }
 
@@ -2741,6 +2764,7 @@ Option<bool> apply_join_projection_policy(std::vector<ref_include_exclude_fields
             }
         }
         append_join_fields(reference.exclude_fields, policy.denied_fields);
+        reference.policy_exclude_field_patterns = policy.denied_wildcard_patterns;
 
         if(!reference.sort_by_str.empty()) {
             std::vector<sort_by> ref_sorts;

@@ -7628,21 +7628,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
             continue ;
         }
 
-        bool excluded = exclude_names.count(nested_name) != 0 || exclude_names.count("*") != 0;
-        if(!excluded && !exclude_names.empty()) {
-            std::string wildcard_pattern;
-            wildcard_pattern.reserve(nested_name.size() + 1);
-            for(const auto c: nested_name) {
-                wildcard_pattern.push_back(c);
-                wildcard_pattern.push_back('*');
-                excluded = exclude_names.count(wildcard_pattern) != 0;
-                wildcard_pattern.pop_back();
-                if(excluded) {
-                    break;
-                }
-            }
-        }
-        if(excluded) {
+        if(exclude_names.count(nested_name) != 0) {
             it = doc.erase(it);
             continue ;
         }
@@ -8921,13 +8907,6 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
                 continue;
             }
             return Option<bool>(field_op.code(), field_op.error());
-        }
-
-        // Keep the pattern in addition to its schema expansion. A document can
-        // contain stored-only fields that are absent from search_schema, and the
-        // pattern must still be applied to those fields while pruning the result.
-        if(!f_name.empty() && f_name.back() == '*') {
-            exclude_fields_vec.push_back(f_name);
         }
     }
 

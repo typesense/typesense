@@ -12258,6 +12258,15 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("undeclared stored only",
               result["hits"][0]["document"]["policy_authors"]["public_secret"]);
 
+    req_params["exclude_fields"] = "$policy_authors(public*)";
+    search_op = collectionManager.do_search(req_params, unrestricted_embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, result["hits"][0]["document"]["policy_authors"].count("public_name"));
+    ASSERT_EQ("undeclared stored only",
+              result["hits"][0]["document"]["policy_authors"]["public_secret"]);
+    req_params.erase("exclude_fields");
+
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok()) << search_op.error();
     result = nlohmann::json::parse(json_res);

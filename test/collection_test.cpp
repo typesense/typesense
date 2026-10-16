@@ -2234,10 +2234,11 @@ TEST_F(CollectionTest, PruneFieldsFromDocument) {
     Collection::prune_doc(document, tsl::htrie_set<char>(), {"notfound"}, "");
     ASSERT_EQ(4, document.size());
 
-    // a global exclusion must take precedence over every document field
+    // Wildcard expansion happens against the schema before pruning. A raw
+    // wildcard must not remove stored-only fields from an arbitrary document.
     document = get_prune_doc();
     Collection::prune_doc(document, tsl::htrie_set<char>(), {"*"}, "");
-    ASSERT_TRUE(document.empty());
+    ASSERT_EQ(4, document.size());
 
     // included set is prefix of allowed fields
     document = get_prune_doc();
