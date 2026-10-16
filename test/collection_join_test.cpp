@@ -12481,6 +12481,23 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Alice", embedded_facet_caller_parent["name"]);
     ASSERT_EQ(0, embedded_facet_caller_parent.count("private_notes"));
 
+    auto embedded_parent_params = embedded_params;
+    embedded_parent_params["facet_return_parent"] = "*";
+    auto caller_facet_params = req_params;
+    caller_facet_params.erase("facet_return_parent");
+    search_op = collectionManager.do_search(caller_facet_params, embedded_parent_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    const auto& caller_facet_embedded_parent = result["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(nlohmann::json({{"name", "Alice"}}), caller_facet_embedded_parent);
+
+    // An admin can explicitly authorize the facet and its full parent together.
+    embedded_parent_params["facet_by"] = "$policy_authors(name)";
+    search_op = collectionManager.do_search(caller_facet_params, embedded_parent_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ("secret", result["facet_counts"][0]["counts"][0]["parent"]["private_notes"]);
+
     auto wildcard_parent_policy = policy;
     wildcard_parent_policy["policy_authors"]["allowed_fields"] = {"name", "public*"};
     embedded_params["__typesense_join_policy"] = wildcard_parent_policy;
@@ -12531,6 +12548,14 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     const auto& restricted_union_parent = parent_union_response["facet_counts"][0]["counts"][0]["parent"];
     ASSERT_EQ(1, restricted_union_parent.size());
     ASSERT_EQ("Alice", restricted_union_parent["name"]);
+
+    parent_union_embedded_params[0]["facet_return_parent"] = "*";
+    parent_searches[0].erase("facet_return_parent");
+    union_op = collectionManager.do_union(parent_union_req_params, parent_union_embedded_params,
+                                          parent_searches, parent_union_response, now_ts);
+    ASSERT_TRUE(union_op.ok()) << union_op.error();
+    const auto& caller_union_facet_parent = parent_union_response["facet_counts"][0]["counts"][0]["parent"];
+    ASSERT_EQ(nlohmann::json({{"name", "Alice"}}), caller_union_facet_parent);
 
     auto unrestricted_parent_policy = policy;
     unrestricted_parent_policy["policy_authors"] = nlohmann::json::object();
