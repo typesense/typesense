@@ -302,6 +302,7 @@ struct collection_search_args_t {
     nlohmann::json join_policy = nullptr;
     std::shared_ptr<Collection> join_policy_collection;
     bool apply_join_policy_to_facet_parent = true;
+    bool apply_join_policy_to_facets = true;
 
     std::vector<std::vector<KV*>> result_group_kvs{};
 
@@ -388,6 +389,8 @@ struct collection_search_args_t {
                                                     const filter_node_t* pre_curation_filter_root) const;
 
     void prune_reference_facet_parent(const std::string& collection_name, nlohmann::json& parent) const;
+
+    Option<bool> filter_reference_facets(std::vector<facet>& facets) const;
 };
 
 class Collection: std::enable_shared_from_this<Collection> {

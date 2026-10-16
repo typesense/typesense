@@ -3044,6 +3044,11 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
+    auto facet_policy_op = coll_args.filter_reference_facets(facets);
+    if(!facet_policy_op.ok()) {
+        return facet_policy_op;
+    }
+
     if(!coll_args.facet_return_parent.empty()) {
         auto op = process_facet_return_parent(coll_args.facet_return_parent);
         if(!op.ok()) {

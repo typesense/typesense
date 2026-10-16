@@ -12629,6 +12629,72 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ("Joining collection `policy_authors` is not allowed by this API key.", search_op.error());
 }
 
+TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesWildcardFacetMetadata) {
+    auto authors_schema = R"({
+        "name": "dynamic_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "secret", "type": "string", "facet": true}
+        ]
+    })"_json;
+    auto authors = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(authors.ok());
+    ASSERT_TRUE(authors.get()->add(R"({"id":"a","name":"Alice","secret":"hidden"})").ok());
+    ASSERT_TRUE(authors.get()->add(R"({"id":"b","name":"Bob","secret":"hidden"})").ok());
+    auto books_schema = R"({
+        "name": "dynamic_policy_books",
+        "fields": [{"name":"author_id","type":"string","reference":"dynamic_policy_authors.id"}]
+    })"_json;
+    auto books = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(books.ok());
+    ASSERT_TRUE(books.get()->add(R"({"id":"1","author_id":"a"})").ok());
+    ASSERT_TRUE(books.get()->add(R"({"id":"2","author_id":"b"})").ok());
+
+    nlohmann::json embedded_params = {{"__typesense_join_policy", {
+        {"dynamic_policy_authors", {{"allowed_fields", {"name"}}}}
+    }}};
+    std::map<std::string, std::string> params = {
+        {"collection", "dynamic_policy_books"}, {"q", "*"},
+        {"facet_by", "$dynamic_policy_authors(*)"}, {"facet_min_occurrence_ratio", "0.9"}
+    };
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string response;
+    auto search_op = collectionManager.do_search(params, embedded_params, response, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_TRUE(nlohmann::json::parse(response)["facet_counts"].empty());
+
+    // The boundary is inclusive; denied facets must still be removed.
+    params["facet_min_occurrence_ratio"] = "0.5";
+    search_op = collectionManager.do_search(params, embedded_params, response, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(response);
+    ASSERT_EQ(1, result["facet_counts"].size());
+    ASSERT_EQ("$dynamic_policy_authors(name)", result["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, result["facet_counts"][0]["counts"].size());
+
+    // Explicit and prefix facets do not use the dynamic occurrence threshold.
+    params["facet_min_occurrence_ratio"] = "0.9";
+    for(const auto& expression: {"$dynamic_policy_authors(name)", "$dynamic_policy_authors(na*)"}) {
+        params["facet_by"] = expression;
+        search_op = collectionManager.do_search(params, embedded_params, response, now_ts);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        result = nlohmann::json::parse(response);
+        ASSERT_EQ(1, result["facet_counts"].size());
+        ASSERT_EQ(2, result["facet_counts"][0]["counts"].size());
+    }
+
+    params["facet_by"] = "$dynamic_policy_authors(*)";
+    nlohmann::json searches = nlohmann::json::array({params});
+    std::vector<nlohmann::json> union_embedded_params = {embedded_params};
+    std::map<std::string, std::string> union_params;
+    nlohmann::json union_response;
+    auto union_op = collectionManager.do_union(union_params, union_embedded_params, searches,
+                                               union_response, now_ts);
+    ASSERT_TRUE(union_op.ok()) << union_op.error();
+    ASSERT_TRUE(union_response["facet_counts"].empty());
+}
+
 TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesRawDenyPaths) {
     auto authors_schema = R"({
         "name": "raw_deny_authors",

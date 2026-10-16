@@ -2882,7 +2882,9 @@ Option<std::string> apply_join_facet_policy(const std::string& expression,
             return Option<std::string>(403, "No facets of joined collection `" + current_collection->get_name() +
                                             "` are allowed by this API key.");
         }
-        return Option<std::string>(StringUtils::join(allowed_facets, ","));
+        // Keep wildcard metadata from the normal parser. Unauthorized matches
+        // are removed from parsed facets before execution.
+        return Option<std::string>(facet_expression);
     }
 
     auto field_op = check_join_field(policy, current_collection->get_name(), field_name);
@@ -2924,6 +2926,33 @@ Option<bool> collection_search_args_t::validate_post_curation_filter_sort(
         return filter_op;
     }
     return validate_join_sorts(effective_sort_fields, join_policy_collection, join_policy, false);
+}
+
+Option<bool> collection_search_args_t::filter_reference_facets(std::vector<facet>& facets) const {
+    if(join_policy.is_null() || !apply_join_policy_to_facets) {
+        return Option<bool>(true);
+    }
+
+    for(auto it = facets.begin(); it != facets.end();) {
+        if(it->reference_collection_name.empty() || !it->is_wildcard_match) {
+            ++it;
+            continue;
+        }
+        std::shared_ptr<Collection> ref_collection;
+        auto policy_op = resolve_join_policy(join_policy, it->reference_collection_name, ref_collection);
+        if(!policy_op.ok()) {
+            return Option<bool>(policy_op.code(), policy_op.error());
+        }
+        if(!join_field_allowed(policy_op.get(), it->field_name)) {
+            it = facets.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for(size_t i = 0; i < facets.size(); ++i) {
+        facets[i].orig_index = i;
+    }
+    return Option<bool>(true);
 }
 
 void collection_search_args_t::prune_reference_facet_parent(const std::string& collection_name,
@@ -3086,6 +3115,7 @@ Option<bool> prepare_execution_join_policy(const nlohmann::json& embedded_params
     // facet. An embedded parent option must not bypass caller facet policies.
     args.apply_join_policy_to_facet_parent = embedded_params.count("facet_return_parent") == 0 ||
                                              embedded_params.count("facet_by") == 0;
+    args.apply_join_policy_to_facets = embedded_params.count("facet_by") == 0;
 
     std::map<std::string, std::string> trusted_params;
     auto trusted_embedded_params = embedded_params;
@@ -3131,7 +3161,7 @@ Option<bool> prepare_execution_join_policy(const nlohmann::json& embedded_params
     }
 
     // facet_by is replaced, rather than combined, during scoped-key merging.
-    // Rewrite caller, preset and NL-generated wildcards, but leave an
+    // Validate caller, preset and NL-generated wildcards, but leave an
     // admin-authored embedded facet expression untouched.
     if(embedded_params.count("facet_by") == 0) {
         for(auto& facet_expression: args.facet_fields) {
@@ -3429,6 +3459,10 @@ Option<bool> CollectionManager::validate_facet_params(const std::vector<collecti
             auto parse_op = collection->parse_facet_with_lock(field, parsed_facets);
             if(!parse_op.ok()) {
                 return parse_op;
+            }
+            auto policy_op = args.filter_reference_facets(parsed_facets);
+            if(!policy_op.ok()) {
+                return policy_op;
             }
 
             for(const auto& a_facet : parsed_facets) {
