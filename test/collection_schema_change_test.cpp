@@ -2154,3 +2154,64 @@ TEST_F(CollectionSchemaChangeTest, DropObjectFieldWithSimilarPrefix) {
     ASSERT_EQ(1, schema_map.count("attributes_filter"));
     ASSERT_EQ(1, schema_map.count("attributes_nested_string"));
 }
+
+TEST_F(CollectionSchemaChangeTest, DropNestedWildcardDoesNotRemoveSiblingsOrSharedPrefix) {
+    // dropping a wildcard nested field must only remove the pattern and its materialized children
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "facetAttributes",            "type": "object",   "facet": false, "optional": true},
+            {"name": "facetAttributes.*",          "type": "string[]", "facet": true,  "optional": true},
+            {"name": "facetAttributes.menuBusca",  "type": "string[]", "facet": true,  "optional": true},
+            {"name": "facetAttributesList",        "type": "object",   "facet": false, "optional": true},
+            {"name": "facetAttributesList.key",    "type": "string",   "facet": true,  "optional": true},
+            {"name": "facetAttributesList.value",  "type": "string",   "facet": true,  "optional": true},
+            {"name": "name",                       "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll != nullptr);
+
+    nlohmann::json doc;
+    doc["id"] = "a";
+    doc["name"] = "alpha";
+    doc["facetAttributes"] = nlohmann::json::object();
+    doc["facetAttributes"]["menuBusca"] = {"m1"};
+    doc["facetAttributes"]["cor"] = {"red"};
+    doc["facetAttributesList"] = nlohmann::json::object();
+    doc["facetAttributesList"]["key"] = "k";
+    doc["facetAttributesList"]["value"] = "v";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    auto schema_map = coll->get_schema();
+    ASSERT_EQ(1, schema_map.count("facetAttributes"));
+    ASSERT_EQ(1, schema_map.count("facetAttributes.menuBusca"));
+    ASSERT_EQ(1, schema_map.count("facetAttributes.cor"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList.key"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList.value"));
+    ASSERT_EQ(1, coll->get_dynamic_fields().count("facetAttributes.*"));
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "facetAttributes.*", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    schema_map = coll->get_schema();
+
+    ASSERT_EQ(0, coll->get_dynamic_fields().count("facetAttributes.*"));
+    ASSERT_EQ(0, schema_map.count("facetAttributes.cor"));
+
+    ASSERT_EQ(1, schema_map.count("facetAttributes"));
+    ASSERT_EQ(1, schema_map.count("facetAttributes.menuBusca"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList.key"));
+    ASSERT_EQ(1, schema_map.count("facetAttributesList.value"));
+    ASSERT_EQ(1, schema_map.count("name"));
+}
