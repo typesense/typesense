@@ -3751,6 +3751,91 @@ TEST_F(CollectionSortingTest, VectorSearchBucketRankingTwoBuckets) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, VectorSearchBucketStableSecondarySort) {
+    // Test that secondary sort is stable when bucketing vector distance:
+    // Within a bucket, when secondary sort values are equal, the original
+    // vector distance order should be preserved
+    nlohmann::json schema = nlohmann::json::parse(R"({
+        "name": "test",
+        "fields": [
+            {"name": "boost", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ],
+        "default_sorting_field": "boost"
+    })");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // Create 6 documents with same boost value but different vector distances
+    // Vector distances to query [1.0, 0.0, 0.0] will be ordered by closeness
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["boost"] = 100;  // same boost for all
+    doc1["vec"] = {0.95, 0.05, 0.0};  // closest to query
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["boost"] = 100;
+    doc2["vec"] = {0.9, 0.1, 0.0};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["boost"] = 100;
+    doc3["vec"] = {0.8, 0.2, 0.0};
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["boost"] = 100;
+    doc4["vec"] = {0.7, 0.3, 0.0};
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["boost"] = 100;
+    doc5["vec"] = {0.6, 0.4, 0.0};
+
+    nlohmann::json doc6;
+    doc6["id"] = "5";
+    doc6["boost"] = 100;
+    doc6["vec"] = {0.5, 0.5, 0.0};  // furthest from query
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc6.dump()).ok());
+
+    // Use 2 buckets: first 3 docs in bucket 0, last 3 in bucket 1
+    // All docs have same boost, so within each bucket the order should
+    // be preserved as the original vector distance order (stable sort)
+    sort_fields = {
+        sort_by("_vector_distance(buckets: 2)", "ASC"),
+        sort_by("boost", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([1.0, 0.0, 0.0])").get();
+
+    ASSERT_EQ(6, results["hits"].size());
+
+    // Bucket 0 (closest 3): should preserve vector distance order (0, 1, 2)
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // Bucket 1 (furthest 3): should preserve vector distance order (3, 4, 5)
+    ASSERT_EQ("3", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][4]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][5]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, EvalExpressionWithBackticks) {
     nlohmann::json schema = nlohmann::json::parse(R"({
         "name": "test",
