@@ -1147,7 +1147,7 @@ public:
                                                           std::string& filter_query,
                                                           bool& is_wildcard_query) const;
 
-    static Option<bool> do_union(const std::vector<uint32_t>& collection_ids,
+    static Option<bool> do_union(const std::vector<std::shared_ptr<Collection>>& collections,
                                  std::vector<collection_search_args_t>& searches, std::vector<long>& searchTimeMillis,
                                  const union_global_params_t& union_params, nlohmann::json& result, bool remove_duplicates);
 
