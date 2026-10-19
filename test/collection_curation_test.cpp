@@ -4910,6 +4910,61 @@ TEST_F(CollectionCurationTest, FilterPinnedHits) {
     ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionCurationTest, PinnedHitsSurviveSmallFilterResults) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("bucket", field_types::STRING, true),
+                                 field("group_key", field_types::STRING, true)};
+    auto* coll = collectionManager.create_collection("coll_pin_cap", 1, fields).get();
+    ASSERT_NE(nullptr, coll);
+
+    auto add_doc = [&](const std::string& id, const std::string& bucket) {
+        nlohmann::json doc = {{"id", id}, {"title", id}, {"bucket", bucket}, {"group_key", id}};
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    };
+
+    add_doc("n1", "one");
+    add_doc("n2", "two");
+    add_doc("n3", "two");
+    add_doc("p1", "pins");
+    add_doc("p2", "pins");
+    add_doc("p3", "pins");
+
+    const std::string pinned_hits = "p1:3,p2:4,p3:5";
+    auto run_search = [&](const std::string& filter_by, bool grouped) {
+        const std::vector<std::string> group_by_fields = grouped ? std::vector<std::string>{"group_key"} :
+                                                                   std::vector<std::string>{};
+        return coll->search("*", {"title"}, filter_by, {}, {}, {0}, 20, 1, FREQUENCY, {false},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5, "", 10,
+                            pinned_hits, "", group_by_fields, 1).get();
+    };
+    auto get_hit_ids = [](const nlohmann::json& results, bool grouped) {
+        std::vector<std::string> ids;
+        if (grouped) {
+            for (const auto& group : results["grouped_hits"]) {
+                ids.push_back(group["hits"][0]["document"]["id"].get<std::string>());
+            }
+        } else {
+            for (const auto& hit : results["hits"]) {
+                ids.push_back(hit["document"]["id"].get<std::string>());
+            }
+        }
+        return ids;
+    };
+
+    for (const bool grouped : {false, true}) {
+        auto results = run_search("bucket:=one", grouped);
+        ASSERT_EQ(4, results["found"].get<size_t>()) << "grouped=" << grouped;
+        EXPECT_EQ((std::vector<std::string>{"n1", "p1", "p2", "p3"}), get_hit_ids(results, grouped));
+
+        results = run_search("bucket:=two", grouped);
+        ASSERT_EQ(5, results["found"].get<size_t>()) << "grouped=" << grouped;
+        EXPECT_EQ((std::vector<std::string>{"n3", "n2", "p1", "p2", "p3"}), get_hit_ids(results, grouped));
+    }
+
+    collectionManager.drop_collection("coll_pin_cap");
+}
+
 TEST_F(CollectionCurationTest, AvoidTypoMatchingWhenOverlapWithCuratedData) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
