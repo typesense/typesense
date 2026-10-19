@@ -4080,6 +4080,8 @@ private:
 
     class SignalHandling {
     public:
+        static constexpr unsigned CRASH_HANDLER_TIMEOUT_S = 60;
+
         static std::vector<int> make_default_signals() {
             const int posix_signals[] = {
                     // Signals for which the default action is "Core".
@@ -4220,6 +4222,24 @@ private:
 #endif
         static void
         sig_handler(int signo, siginfo_t *info, void *_ctx) {
+            // Watchdog: if crash handling hangs (e.g. on a lock held by the crashing thread), the
+            // default action of SIGALRM terminates the process instead of leaving it alive but wedged.
+            // An ignored SIGALRM is inherited across exec, so restore the default action first. SIGALRM is
+            // also blocked by this handler's mask, so unblock it to have it delivered here.
+            struct sigaction alarm_action;
+            memset(&alarm_action, 0, sizeof alarm_action);
+            alarm_action.sa_handler = SIG_DFL;
+            sigemptyset(&alarm_action.sa_mask);
+            sigaction(SIGALRM, &alarm_action, nullptr);
+
+            sigset_t alarm_set;
+            sigemptyset(&alarm_set);
+            sigaddset(&alarm_set, SIGALRM);
+            pthread_sigmask(SIG_UNBLOCK, &alarm_set, nullptr);
+            alarm(CRASH_HANDLER_TIMEOUT_S);
+            LOG(ERROR) << "Received signal " << signo << ", process will be terminated in at most "
+                       << CRASH_HANDLER_TIMEOUT_S << " seconds.";
+
             handleSignal(signo, info, _ctx);
 
             // try to forward the signal.

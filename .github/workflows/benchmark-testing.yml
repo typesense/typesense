@@ -9,114 +9,108 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   benchmark-testing:
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        with:
+          persist-credentials: false
 
+      # only push runs of this repo, the binaries below get executed
       - name: Get run IDs and SHAs
         id: get-runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          # First determine if we're on a fork
-          REPO_INFO=$(gh api /repos/${{ github.repository }})
-          IS_FORK=$(echo "$REPO_INFO" | jq -r '.fork')
-          PARENT_REPO=$(echo "$REPO_INFO" | jq -r '.parent.full_name // empty')
-          DEFAULT_BRANCH=$(echo "$REPO_INFO" | jq -r '.default_branch')
-          
-          echo "Is fork: $IS_FORK"
-          if [ "$IS_FORK" = "true" ]; then
-            echo "This is a fork of $PARENT_REPO"
-            # For forks, get successful runs from the current repo
-            REPO_TO_CHECK="${{ github.repository }}"
-          else
-            echo "This is the main repo"
-            # For main repo, get successful runs from main branch
-            REPO_TO_CHECK="${{ github.repository }}"
-            BRANCH_FILTER="and .head_branch == \"$DEFAULT_BRANCH\""
-          fi
+          DEFAULT_BRANCH=$(gh api "/repos/$REPO" -q '.default_branch')
 
-          echo "Fetching workflow runs from $REPO_TO_CHECK..."
-          if [ "$IS_FORK" = "true" ]; then
-            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
-              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
-              -q '.workflow_runs[] | select(.conclusion == "success") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}' \
-              --paginate | head -n 2)
-          else
-            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
-              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
-              -q ".workflow_runs[] | select(.conclusion == \"success\" and .head_branch == \"$DEFAULT_BRANCH\") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}" \
-              --paginate | head -n 2)
-          fi
-          
+          RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO/actions/workflows/tests.yml/runs?branch=$DEFAULT_BRANCH&event=push&status=success&per_page=100" \
+            -q "[.workflow_runs[] | select(.event == \"push\" and .conclusion == \"success\" and .head_branch == \"$DEFAULT_BRANCH\" and .head_repository.full_name == \"$REPO\")] | sort_by(.created_at) | reverse | .[] | {id: .id, sha: .head_sha}" \
+            | head -n 2)
+
           echo "Found runs info:"
           echo "$RUNS_INFO"
-          
+
           if [ -z "$RUNS_INFO" ]; then
             echo "No successful runs found"
             exit 1
           fi
-          
-          # Extract the latest run info (first line)
-          LATEST_RUN=$(echo "$RUNS_INFO" | head -n 1)
-          LATEST_ID=$(echo "$LATEST_RUN" | jq -r '.id')
-          LATEST_SHA=$(echo "$LATEST_RUN" | jq -r '.sha')
-          
-          # Extract the previous run info (second line)
-          PREVIOUS_RUN=$(echo "$RUNS_INFO" | tail -n 1)
-          PREVIOUS_ID=$(echo "$PREVIOUS_RUN" | jq -r '.id')
-          PREVIOUS_SHA=$(echo "$PREVIOUS_RUN" | jq -r '.sha')
-          
-          echo "Latest run ID: $LATEST_ID"
-          echo "Latest SHA: $LATEST_SHA"
-          echo "Previous run ID: $PREVIOUS_ID"
-          echo "Previous SHA: $PREVIOUS_SHA"
-          
-          # Set outputs
-          echo "latest_run=$LATEST_ID" >> $GITHUB_OUTPUT
-          echo "previous_run=$PREVIOUS_ID" >> $GITHUB_OUTPUT
-          echo "latest_sha=$LATEST_SHA" >> $GITHUB_OUTPUT
-          echo "previous_sha=$PREVIOUS_SHA" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ github.token }}
 
-      # Download latest version binary
+          LATEST_RUN=$(echo "$RUNS_INFO" | head -n 1)
+          PREVIOUS_RUN=$(echo "$RUNS_INFO" | tail -n 1)
+
+          {
+            echo "latest_run=$(echo "$LATEST_RUN" | jq -r '.id')"
+            echo "latest_sha=$(echo "$LATEST_RUN" | jq -r '.sha')"
+            echo "previous_run=$(echo "$PREVIOUS_RUN" | jq -r '.id')"
+            echo "previous_sha=$(echo "$PREVIOUS_RUN" | jq -r '.sha')"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Download Latest Version Binary
-        uses: dawidd6/action-download-artifact@v2
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          workflow: tests.yml
           name: typesense-server
           path: ./current-binary
-          run_id: ${{ steps.get-runs.outputs.latest_run }}
-          workflow_conclusion: success
+          run-id: ${{ steps.get-runs.outputs.latest_run }}
+          github-token: ${{ github.token }}
 
-      # Download previous version binary
       - name: Download Previous Version Binary
-        uses: dawidd6/action-download-artifact@v2
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          workflow: tests.yml
           name: typesense-server
           path: ./base-binary
-          run_id: ${{ steps.get-runs.outputs.previous_run }}
-          workflow_conclusion: success
+          run-id: ${{ steps.get-runs.outputs.previous_run }}
+          github-token: ${{ github.token }}
 
-      # Make binaries executable
       - name: Make binaries executable
         run: |
           chmod +x ./current-binary/typesense-server
           chmod +x ./base-binary/typesense-server
 
-      # Download previous benchmark data
+      # same rule for the stored benchmark data: only runs this workflow started itself
+      - name: Find previous benchmark data
+        id: get-data-run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT_RUN: ${{ github.run_id }}
+        run: |
+          DEFAULT_BRANCH=$(gh api "/repos/$REPO" -q '.default_branch')
+
+          RUN_IDS=$(gh api -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO/actions/workflows/benchmark-testing.yml/runs?branch=$DEFAULT_BRANCH&per_page=50" \
+            -q "[.workflow_runs[] | select((.event == \"schedule\" or .event == \"workflow_dispatch\") and .head_branch == \"$DEFAULT_BRANCH\" and .head_repository.full_name == \"$REPO\" and .id != $CURRENT_RUN)] | sort_by(.created_at) | reverse | .[].id")
+
+          for RUN_ID in $RUN_IDS; do
+            HAS_DATA=$(gh api "/repos/$REPO/actions/runs/$RUN_ID/artifacts?name=benchmark-data" \
+              -q '[.artifacts[] | select(.expired == false)] | length')
+            if [ "$HAS_DATA" != "0" ]; then
+              echo "Using benchmark data from run $RUN_ID"
+              echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "No previous benchmark data found"
+
       - name: Download previous benchmark data
-        uses: dawidd6/action-download-artifact@v2
+        if: steps.get-data-run.outputs.run_id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: benchmark-data
-          workflow: benchmark-testing.yml
           path: ./benchmark/influxdb-data
-          search_artifacts: true
-          workflow_conclusion: ""
+          run-id: ${{ steps.get-data-run.outputs.run_id }}
+          github-token: ${{ github.token }}
         continue-on-error: true
 
       # Prepare InfluxDB
@@ -141,7 +135,7 @@ jobs:
           '
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3.9.1
         with:
           node-version: '20'
 
@@ -159,13 +153,15 @@ jobs:
         working-directory: benchmark
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LATEST_SHA: ${{ steps.get-runs.outputs.latest_sha }}
+          PREVIOUS_SHA: ${{ steps.get-runs.outputs.previous_sha }}
         run: |
           # Print the SHAs for reference
-          echo "Latest SHA: ${{ steps.get-runs.outputs.latest_sha }}"
-          echo "Previous SHA: ${{ steps.get-runs.outputs.previous_sha }}"
+          echo "Latest SHA: $LATEST_SHA"
+          echo "Previous SHA: $PREVIOUS_SHA"
           
           ./dist/index.js benchmark \
-            --binaries $(pwd)/../base-binary/typesense-server $(pwd)/../current-binary/typesense-server -c ${{ steps.get-runs.outputs.previous_sha }} ${{ steps.get-runs.outputs.latest_sha }} -d $(pwd)/benchmark-workdir  -y -v  --duration 1m
+            --binaries $(pwd)/../base-binary/typesense-server $(pwd)/../current-binary/typesense-server -c "$PREVIOUS_SHA" "$LATEST_SHA" -d $(pwd)/benchmark-workdir  -y -v  --duration 1m
 
       # Fix permissions and save data
       - name: Fix permissions for artifact upload
@@ -177,7 +173,7 @@ jobs:
           sudo find ./influxdb-data -type f -exec chmod 644 {} \;
 
       - name: Upload benchmark data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: benchmark-data
@@ -187,7 +183,7 @@ jobs:
           overwrite: false
 
       - name: Upload reproduction guide
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: reproduction-guide

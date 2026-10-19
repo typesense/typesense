@@ -1151,6 +1151,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(!union_op.ok() && union_op.code() == 408) {
             res->set(union_op.code(), union_op.error());
             req->overloaded = true;
+            res->final = true;
+            stream_response(req, res);
             return false;
         }
     } else {
@@ -1451,6 +1453,14 @@ Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std:
                                                                          ref_include_exclude_fields_vec);
     if (!initialize_op.ok()) {
         return initialize_op;
+    }
+
+    if(!req->embedded_params_vec.empty()) {
+        auto policy_op = CollectionManager::enforce_join_policy(req->embedded_params_vec[0], collection, filter_query,
+                                                                 ref_include_exclude_fields_vec);
+        if(!policy_op.ok()) {
+            return policy_op;
+        }
     }
 
     spp::sparse_hash_set<std::string> includes;
@@ -2408,7 +2418,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
         req_json["expires_at"].get<uint64_t>(),
-        req_json["autodelete"].get<bool>()
+        req_json["autodelete"].get<bool>(),
+        req_json.count("joins") != 0 ? req_json["joins"] : nlohmann::json(nullptr)
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);
@@ -2446,8 +2457,18 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     const api_key_t& existing_key = get_key_op.get();
 
+    // `joins: null` is PATCH-only deletion syntax. Remove it before applying
+    // standard API key validation, where a present `joins` value must be an object.
+    const bool remove_joins = req_json.contains("joins") && req_json["joins"].is_null();
+    if(remove_joins) {
+        req_json.erase("joins");
+    }
+
     // Merge: start from existing key's JSON representation, then overlay request fields
     nlohmann::json merged_json = existing_key.to_json();
+    if(remove_joins) {
+        merged_json.erase("joins");
+    }
     for(auto it = req_json.begin(); it != req_json.end(); ++it) {
         merged_json[it.key()] = it.value();
     }
@@ -2472,7 +2493,8 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
         merged_json["actions"].get<std::vector<std::string>>(),
         merged_json["collections"].get<std::vector<std::string>>(),
         merged_json["expires_at"].get<uint64_t>(),
-        merged_json["autodelete"].get<bool>()
+        merged_json["autodelete"].get<bool>(),
+        merged_json.count("joins") != 0 ? merged_json["joins"] : nlohmann::json(nullptr)
     );
     api_key.id = existing_key.id; // ensure the id remains the same
 
@@ -3223,7 +3245,9 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    // peer IPs are not known until all nodes resolve, so the allowlist can be empty then
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         return false;
     }
@@ -3555,7 +3579,9 @@ bool post_proxy_sse(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     std::string url_error = "Bad request.";
     const std::vector<std::string>& allowed_src_ips = Config::get_instance().get_proxy_allowed_src_ips();
 
-    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips)) {
+    // peer IPs are not known until all nodes resolve, so the allowlist can be empty then
+    if(!APIAcl::instance().is_allowed(req->client_ip, url, allowed_src_ips,
+                                      Config::get_instance().get_proxy_allow_only_peer_src_ips())) {
         res->set(url_status_code, url_error);
         res->final = true;
         stream_response(req, res);

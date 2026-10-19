@@ -5,6 +5,7 @@
 #include "curation_index_manager.h"
 #include "raft_server.h"
 #include "string_utils.h"
+#include "tsconfig.h"
 #include "synonym_index_manager.h"
 #include <analytics_manager.h>
 #include <collection_manager.h>
@@ -343,7 +344,7 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchC
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
     ASSERT_EQ("scoped_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -424,7 +425,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, "auth_key"));
     ASSERT_EQ("body_coll",
-              req->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM].get<std::string>());
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
 
     ASSERT_TRUE(post_multi_search(req, res));
 
@@ -432,6 +433,93 @@ TEST_F(CoreAPIUtilsTest, MultiSearchUsesAuthenticatedBodyCollectionInsteadOfTopL
     ASSERT_EQ("body_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
     ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
     ASSERT_EQ("body match", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CoreAPIUtilsTest, ScopedJoinFilterCannotBeBypassedWithOr) {
+    nlohmann::json orders_schema = R"({
+        "name": "orders",
+        "fields": [
+          {"name": "amt", "type": "int32"}
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(orders_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* orders = op.get();
+    ASSERT_TRUE(orders->add(R"({"id":"o1","amt":10})", CREATE).ok());
+    ASSERT_TRUE(orders->add(R"({"id":"o2","amt":20})", CREATE).ok());
+
+    nlohmann::json iso_schema = R"({
+        "name": "iso",
+        "fields": [
+          {"name": "tenant", "type": "string"},
+          {"name": "status", "type": "string"},
+          {"name": "order_id", "type": "string", "reference": "orders.id"}
+        ]
+    })"_json;
+    op = collectionManager.create_collection(iso_schema);
+    ASSERT_TRUE(op.ok());
+    Collection* iso = op.get();
+    ASSERT_TRUE(iso->add(R"({"id":"i1","tenant":"A","status":"closed","order_id":"o1"})", CREATE).ok());
+    ASSERT_TRUE(iso->add(R"({"id":"i2","tenant":"B","status":"open","order_id":"o2"})", CREATE).ok());
+
+    api_key_t parent_key("ScopedJoinBypassParentKey", "scoped join parent", {"documents:search"}, {"orders"},
+                         api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    const std::string custom_params = "{\"filter_by\":\"$iso(tenant:=A)\"}";
+    const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                           parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+    const std::string scoped_key = StringUtils::base64_encode(scoped_key_payload);
+    const std::vector<std::string> bypass_filters = {
+            "$iso(status:=closed || tenant:=B)",
+            "$iso(id:=zzz) || amt:>0",
+    };
+
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"},
+                                         get_search, false, false);
+    for(const auto& bypass_filter : bypass_filters) {
+        auto req = std::make_shared<http_req>();
+        auto res = std::make_shared<http_res>(nullptr);
+        req->params = {
+                {"collection", "orders"},
+                {"q", "*"},
+                {"filter_by", bypass_filter},
+        };
+
+        ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_search, scoped_key));
+        ASSERT_TRUE(get_search(req, res));
+
+        auto response = nlohmann::json::parse(res->body);
+        ASSERT_EQ(1, response["found"].get<size_t>());
+        ASSERT_EQ(1, response["hits"].size());
+        ASSERT_EQ("o1", response["hits"][0]["document"]["id"].get<std::string>());
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    for(const auto& bypass_filter : bypass_filters) {
+        body["searches"].push_back({
+                {"collection", "orders"},
+                {"q", "*"},
+                {"filter_by", bypass_filter},
+        });
+    }
+    req->body = body.dump();
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_TRUE(post_multi_search(req, res));
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, response["results"].size());
+    for(const auto& result : response["results"]) {
+        ASSERT_EQ(1, result["found"].get<size_t>());
+        ASSERT_EQ(1, result["hits"].size());
+        ASSERT_EQ("o1", result["hits"][0]["document"]["id"].get<std::string>());
+    }
 }
 
 TEST_F(CoreAPIUtilsTest, SearchCacheShouldRespectScopedEmbeddedFilters) {
@@ -554,14 +642,14 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     hash_req_base->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 111},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "alpha"}
+        {"__typesense_authorized_collection", "alpha"}
     });
 
     auto hash_req_variant = make_req("a", "bc");
     hash_req_variant->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 999999},
-        {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "beta"}
+        {"__typesense_authorized_collection", "beta"}
     });
 
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
@@ -1600,6 +1688,63 @@ TEST_F(CoreAPIUtilsTest, Union) {
     nlohmann::json response = nlohmann::json::parse(res->body);
     ASSERT_EQ(0, response.count("results"));
     ASSERT_EQ(20, response["found"]);
+}
+
+TEST_F(CoreAPIUtilsTest, UnionSearchCutoffWithNothingToReturnIsRequestTimeout) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 10; i++) {
+        nlohmann::json doc;
+        doc["title"] = "widget " + std::to_string(i);
+        ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
+    }
+
+    nlohmann::json body;
+    body["union"] = true;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "widget";
+    search["query_by"] = "title";
+    body["searches"].push_back(search);
+
+    auto make_req = [&body]() {
+        auto req = std::make_shared<http_req>();
+        req->body = body.dump();
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+        // The search's budget is spent before it starts, so it is cut off before it finds anything.
+        req->params["search_cutoff_ms"] = "0";
+        req->params["use_cache"] = "true";
+        return req;
+    };
+
+    auto req = make_req();
+    auto res = std::make_shared<http_res>(nullptr);
+    // The handler streams its own response, so it has to mark it final.
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
+    ASSERT_EQ("Request Timeout", nlohmann::json::parse(res->body)["message"]);
+    ASSERT_TRUE(res->final);
+
+    // The 408 asks the client to retry, so it must not have been cached as the answer to that retry.
+    req = make_req();
+    res = std::make_shared<http_res>(nullptr);
+    res->final = false;
+
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ(408, res->status_code);
+    ASSERT_TRUE(res->final);
 }
 
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
@@ -3358,6 +3503,140 @@ TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeReferenceFields) {
     ASSERT_TRUE(resp["authors"].contains("id"));
 }
 
+TEST_F(CoreAPIUtilsTest, JoinPolicyAppliesToExportAndDocumentGet) {
+    auto authors_schema = R"({
+        "name": "endpoint_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "private_notes", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"author-1","name":"Alice","private_notes":"secret"})").ok());
+
+    auto books_schema = R"({
+        "name": "endpoint_policy_books",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author_id", "type": "string", "reference": "endpoint_policy_authors.id"}
+        ]
+    })"_json;
+    create_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(create_op.ok());
+    ASSERT_TRUE(create_op.get()->add(
+            R"({"id":"book-1","title":"One","author_id":"author-1"})").ok());
+
+    auto& auth_manager = collectionManager.getAuthManager();
+    api_key_t no_joins_key("NoEndpointJoinsKey", "no endpoint joins",
+                           {"documents:get", "documents:export"}, {"endpoint_policy_books"},
+                           api_key_t::FAR_FUTURE_TIMESTAMP, false, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.create_key(no_joins_key).ok());
+
+    const auto attach_auth_context = [&](const std::shared_ptr<http_req>& req, const std::string& action,
+                                         const std::string& key) {
+        std::map<std::string, std::string> auth_params = req->params;
+        std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
+        const bool authenticated = auth_manager.authenticate(
+                action, {collection_key_t("endpoint_policy_books", key)}, auth_params, embedded_params);
+        if(authenticated) {
+            req->embedded_params_vec = std::move(embedded_params);
+        }
+        return authenticated;
+    };
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", no_joins_key.value));
+    ASSERT_FALSE(get_fetch_document(req, res));
+    ASSERT_EQ(403, res->status_code);
+    ASSERT_EQ("Joining collection `endpoint_policy_authors` is not allowed by this API key.",
+              nlohmann::json::parse(res->body)["message"]);
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(name:=Alice)"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", no_joins_key.value));
+    ASSERT_FALSE(get_export_documents(req, res));
+    ASSERT_EQ(403, res->status_code);
+    ASSERT_EQ("Joining collection `endpoint_policy_authors` is not allowed by this API key.",
+              nlohmann::json::parse(res->body)["message"]);
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+
+    const auto policy = R"({
+        "endpoint_policy_authors": {
+            "allowed_fields": ["name"],
+            "denied_fields": ["private_notes"]
+        }
+    })"_json;
+    api_key_t restricted_key("RestrictedEndpointJoinsKey", "restricted endpoint joins",
+                             {"documents:get", "documents:export"}, {"endpoint_policy_books"},
+                             api_key_t::FAR_FUTURE_TIMESTAMP, false, policy);
+    ASSERT_TRUE(auth_manager.create_key(restricted_key).ok());
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", restricted_key.value));
+    ASSERT_TRUE(get_fetch_document(req, res));
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Alice", response["endpoint_policy_authors"]["name"]);
+    ASSERT_EQ(0, response["endpoint_policy_authors"].count("private_notes"));
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"id", "book-1"},
+            {"include_fields", "$endpoint_policy_authors(private_notes)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:get", restricted_key.value));
+    ASSERT_FALSE(get_fetch_document(req, res));
+    ASSERT_EQ(403, res->status_code);
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(name:=Alice)"},
+            {"include_fields", "title,$endpoint_policy_authors(name)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", restricted_key.value));
+    ASSERT_TRUE(get_export_documents(req, res));
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("Alice", response["endpoint_policy_authors"]["name"]);
+    ASSERT_EQ(0, response["endpoint_policy_authors"].count("private_notes"));
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params = {
+            {"collection", "endpoint_policy_books"},
+            {"filter_by", "$endpoint_policy_authors(private_notes:=secret)"}
+    };
+    ASSERT_TRUE(attach_auth_context(req, "documents:export", restricted_key.value));
+    ASSERT_FALSE(get_export_documents(req, res));
+    ASSERT_EQ(403, res->status_code);
+    delete dynamic_cast<export_state_t*>(req->data);
+    req->data = nullptr;
+}
+
 TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
     auto schema = R"({
             "name": "collection3",
@@ -3998,4 +4277,83 @@ TEST_F(CoreAPIUtilsTest, UnionRemoveDuplicates) {
     ASSERT_EQ("0", response["hits"][2]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][3]["document"]["id"]);
     ASSERT_EQ("1", response["hits"][4]["document"]["id"]);
+}
+
+TEST_F(CoreAPIUtilsTest, MaxQueryLengthTruncatesSingleMultiAndUnionWithCache) {
+    struct RestoreLimitAndCache {
+        const uint64_t previous = Config::get_instance().get_max_query_len();
+        ~RestoreLimitAndCache() {
+            Config::get_instance().set_max_query_len(std::to_string(previous));
+            post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+        }
+    } restore;
+    post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+    auto& config = Config::get_instance();
+    config.set_max_query_len("4");
+    for(const std::string kind : {"single", "multi", "union"}) {
+        SCOPED_TRACE(kind);
+        const std::string name = "query_limit_" + kind;
+        auto created = collectionManager.create_collection(name, 1,
+            {field("title", field_types::STRING, false)}, "");
+        ASSERT_TRUE(created.ok()) << created.error();
+        auto* collection = created.get();
+        ASSERT_TRUE(collection->add(R"({"id":"1","title":"café"})").ok());
+        route_path route = kind == "single" ?
+            route_path("GET", {"collections", ":collection", "documents", "search"}, get_search, false, false) :
+            route_path("POST", {"multi_search"}, post_multi_search, false, false);
+        const auto invoke = [&](const std::string& query, bool cache) {
+            auto req = std::make_shared<http_req>();
+            req->route_hash = route.route_hash();
+            req->params = {{"use_cache", cache ? "true" : "false"}, {"cache_ttl", "600"}};
+            if(kind == "single") {
+                req->params.insert({{"collection", name}, {"q", query}, {"query_by", "title"},
+                                    {"num_typos", "0"}, {"prefix", "false"}, {"drop_tokens_threshold", "0"}});
+            } else {
+                nlohmann::json body = {{"searches", nlohmann::json::array({
+                    {{"collection", name}, {"q", query}, {"query_by", "title"},
+                     {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}},
+                    {{"collection", name}, {"q", query}, {"query_by", "title"},
+                     {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}}
+                })}};
+                if(kind == "union") { body["union"] = true; }
+                req->body = body.dump();
+            }
+            EXPECT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, route, "auth_key"));
+            auto res = std::make_shared<http_res>(nullptr);
+            EXPECT_TRUE(kind == "single" ? get_search(req, res) : post_multi_search(req, res));
+            EXPECT_EQ(200, res->status_code) << res->body;
+            return nlohmann::json::parse(res->body);
+        };
+        const auto members = [&](const nlohmann::json& response) {
+            return kind == "multi" ? response.at("results") : nlohmann::json::array({response});
+        };
+        const auto prefix = members(invoke("café", false));
+        const auto first_response = invoke("cafézzzzzz", true);
+        const auto first = members(first_response);
+        ASSERT_EQ(prefix.size(), first.size());
+        for(size_t i = 0; i < first.size(); ++i) {
+            EXPECT_EQ(prefix[i]["hits"], first[i]["hits"]);
+            EXPECT_EQ(prefix[i]["found"], first[i]["found"]);
+            if(kind == "union") {
+                for(const auto& params : first[i]["union_request_params"]) {
+                    EXPECT_EQ("café", params["q"]);
+                }
+            } else {
+                EXPECT_EQ("café", first[i]["request_params"]["q"]);
+            }
+        }
+        // Mutating the corpus independently proves the next response is cached.
+        ASSERT_TRUE(collection->add(R"({"id":"2","title":"café"})").ok());
+        EXPECT_EQ(first_response, invoke("cafézzzzzz", true));
+        const auto fresh = members(invoke("cafézzzzzz", false));
+        for(size_t i = 0; i < fresh.size(); ++i) {
+            EXPECT_GT(fresh[i]["found"].get<size_t>(), first[i]["found"].get<size_t>());
+        }
+        post_clear_cache(std::make_shared<http_req>(), std::make_shared<http_res>(nullptr));
+        config.set_max_query_len("0");
+        for(const auto& member : members(invoke("cafézzzzzz", false))) {
+            EXPECT_EQ(0, member["found"]);
+        }
+        config.set_max_query_len("4");
+    }
 }

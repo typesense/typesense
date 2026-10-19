@@ -1,7 +1,7 @@
 #include "auth_manager.h"
+#include "filter.h"
 #include <openssl/evp.h>
 #include <regex>
-#include <join.h>
 
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
@@ -198,6 +198,10 @@ bool AuthManager::authenticate(const std::string& action,
             if(!auth_against_key(coll_key.collection, action, api_key, false)) {
                 return false;
             }
+            if((action == DOCUMENTS_SEARCH_ACTION || action == DOCUMENTS_GET_ACTION ||
+                action == DOCUMENTS_EXPORT_ACTION) && !api_key.joins.is_null()) {
+                embedded_params[AUTH_JOIN_POLICY_PARAM] = api_key.joins;
+            }
         } else {
             // could be a scoped API key
             Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params);
@@ -386,6 +390,10 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
                 return Option<bool>(403, "Forbidden.");
             }
 
+            // This is reserved authentication state. A scoped-key payload must not be able to
+            // forge or broaden the policy inherited from its parent key.
+            embedded_params.erase(AUTH_JOIN_POLICY_PARAM);
+
             auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params);
             if(!effective_collection_op.ok()) {
                 LOG(ERROR) << effective_collection_op.error();
@@ -413,6 +421,9 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
                 }
             }
 
+            if(!root_api_key.joins.is_null()) {
+                embedded_params[AUTH_JOIN_POLICY_PARAM] = root_api_key.joins;
+            }
             embedded_params[AUTH_RESOLVED_COLLECTION_PARAM] = effective_collection;
             return Option<bool>(true);
         }
@@ -473,6 +484,35 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
         }
     }
 
+    if(key_obj.count("joins") != 0) {
+        const auto& joins = key_obj["joins"];
+        if(!joins.is_object()) {
+            return Option<uint32_t>(400, "Wrong format for `joins`. It should be an object.");
+        }
+
+        for(const auto& join_item: joins.items()) {
+            if(join_item.key().empty() || !join_item.value().is_object()) {
+                return Option<uint32_t>(400, "Each `joins` entry must have a non-empty collection name and an object value.");
+            }
+
+            for(const auto& policy_item: join_item.value().items()) {
+                if(policy_item.key() != "allowed_fields" && policy_item.key() != "denied_fields") {
+                    return Option<uint32_t>(400, "Unknown `joins` property `" + policy_item.key() + "`.");
+                }
+                if(!policy_item.value().is_array()) {
+                    return Option<uint32_t>(400, "`joins." + join_item.key() + "." + policy_item.key() +
+                                                     "` must be an array of strings.");
+                }
+                for(const auto& field_name: policy_item.value()) {
+                    if(!field_name.is_string()) {
+                        return Option<uint32_t>(400, "`joins." + join_item.key() + "." + policy_item.key() +
+                                                         "` must be an array of strings.");
+                    }
+                }
+            }
+        }
+    }
+
     return Option<uint32_t>(200);
 }
 
@@ -501,20 +541,20 @@ bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_par
         auto& embedded_param = str_value;
         auto& query_param = req_params[item.key()];
 
-        // Join follows $collection_name(<join_condition>) pattern. There might be false-positive matches with this
-        // regular expression like, "(field: foo$) || (field: bar)" but that is acceptable.
-        const std::regex join_pattern(R"(\$.+\(.+\))");
-        if (std::regex_search(embedded_param, join_pattern) && std::regex_search(query_param, join_pattern) &&
-            !Join::merge_join_conditions(embedded_param, query_param)) {
+        // The request filter must terminate independently. Otherwise an open backtick can consume the embedded
+        // filter appended below and bypass its restrictions.
+        std::queue<std::string> tokens;
+        if(!filter::tokenize_filter_query("(" + query_param + ")", tokens).ok() ||
+           tokens.back() != ")") {
             return false;
         }
 
-        if(!req_params[item.key()].empty() && !str_value.empty()) {
-            req_params[item.key()] = "(" + req_params[item.key()] + ") && (" + str_value + ")";
-        } else if(req_params[item.key()].empty() && !str_value.empty()) {
-            req_params[item.key()] = "(" + str_value + ")";
-        } else if(!req_params[item.key()].empty() && str_value.empty()) {
-            req_params[item.key()] = "(" + req_params[item.key()] + ")";
+        if(!query_param.empty() && !embedded_param.empty()) {
+            query_param = "(" + query_param + ") && (" + embedded_param + ")";
+        } else if(query_param.empty() && !embedded_param.empty()) {
+            query_param = "(" + embedded_param + ")";
+        } else if(!query_param.empty() && embedded_param.empty()) {
+            query_param = "(" + query_param + ")";
         }
     } else if(overwrite) {
         req_params[item.key()] = str_value;

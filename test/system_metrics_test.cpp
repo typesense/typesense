@@ -1,6 +1,25 @@
 #include <gtest/gtest.h>
 #include "system_metrics.h"
 
+#ifndef ASAN_BUILD
+TEST(SystemMetricsTest, ResidentMemoryIncludesActivePagesAndAllocatorOverhead) {
+    nlohmann::json metrics;
+    SystemMetrics::get_instance().get("/tmp", metrics);
+    const auto active = std::stoull(metrics["typesense_memory_active_bytes"].get<std::string>());
+    const auto resident = std::stoull(metrics["typesense_memory_resident_bytes"].get<std::string>());
+    EXPECT_GT(active, 0);
+    EXPECT_GT(resident, active);
+#ifdef __linux__
+    EXPECT_EQ("0", metrics["typesense_jemalloc_stats_read_errors"]);
+#endif
+    EXPECT_GT(std::stoull(metrics["typesense_jemalloc_page_size"].get<std::string>()), 0);
+    EXPECT_TRUE(metrics.contains("typesense_jemalloc_arena_0_dirty_decay_ms"));
+    EXPECT_TRUE(metrics.contains("typesense_jemalloc_arena_0_muzzy_decay_ms"));
+    EXPECT_TRUE(metrics.contains("typesense_jemalloc_dirty_pages"));
+    EXPECT_TRUE(metrics.contains("typesense_jemalloc_background_thread_num_runs"));
+}
+#endif
+
 TEST(SystemMetricsTest, ParsingNetworkStats) {
     std::string proc_net_dev_path = std::string(ROOT_DIR)+"test/resources/proc_net_dev.txt";
     uint64_t received_bytes, sent_bytes;

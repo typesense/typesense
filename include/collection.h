@@ -81,6 +81,8 @@ public:
     explicit union_global_params_t(const std::map<std::string, std::string>& req_params);
 };
 
+class Collection;
+
 struct collection_search_args_t {
     static constexpr auto NUM_TYPOS = "num_typos";
     static constexpr auto MIN_LEN_1TYPO = "min_len_1typo";
@@ -297,6 +299,11 @@ struct collection_search_args_t {
     size_t group_max_candidates;
     size_t diversity_limit;
 
+    nlohmann::json join_policy = nullptr;
+    std::shared_ptr<Collection> join_policy_collection;
+    bool apply_join_policy_to_facet_parent = true;
+    bool apply_join_policy_to_facets = true;
+
     std::vector<std::vector<KV*>> result_group_kvs{};
 
     collection_search_args_t(std::string raw_query, std::vector<std::string> search_fields, std::string filter_query,
@@ -376,6 +383,14 @@ struct collection_search_args_t {
                              collection_search_args_t& args);
 
     void curation_union_global_params(union_global_params_t& global_params);
+
+    Option<bool> validate_post_curation_filter_sort(const filter_node_t* filter_root,
+                                                    const std::vector<sort_by>& effective_sort_fields,
+                                                    const filter_node_t* pre_curation_filter_root) const;
+
+    void prune_reference_facet_parent(const std::string& collection_name, nlohmann::json& parent) const;
+
+    Option<bool> filter_reference_facets(std::vector<facet>& facets) const;
 };
 
 class Collection: std::enable_shared_from_this<Collection> {
@@ -831,7 +846,8 @@ private:
                                         const facet_query_t& facet_query, size_t highlight_affix_num_tokens,
                                         size_t snippet_threshold, const std::string& highlight_start_tag,
                                         const std::string& highlight_end_tag, const std::string& raw_query,
-                                        nlohmann::json& results, bool is_union = false) const;
+                                        nlohmann::json& results, bool is_union = false,
+                                        const collection_search_args_t* search_args = nullptr) const;
 
     static Option<bool> merge_facet_results(nlohmann::json& result);
     static Option<bool> filter_dynamic_facets_by_occurrence(nlohmann::json& facet_counts, size_t found_docs,

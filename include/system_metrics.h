@@ -191,6 +191,10 @@ public:
 
     uint64_t get_memory_used_bytes();
 
+    // Release jemalloc's unused dirty pages to the OS before retrying a memory guard check.
+    // Returns false when jemalloc is unavailable or the purge fails.
+    bool purge_jemalloc_unused_memory();
+
     uint64_t get_cached_jemalloc_unused_memory();
 
     // Reads container-scoped memory limit and current usage from cgroup files.

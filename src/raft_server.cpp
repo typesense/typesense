@@ -5,6 +5,7 @@
 #include "store.h"
 #include "thread_local_vars.h"
 #include <algorithm>
+#include <braft/log.h>
 #include <butil/files/file_enumerator.h>
 #include <collection_manager.h>
 #include <conversation_model_manager.h>
@@ -13,6 +14,7 @@
 #include <http_client.h>
 #include <string_utils.h>
 #include <thread>
+#include <filesystem>
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -43,42 +45,51 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     braft::NodeOptions node_options;
 
-    size_t max_tries = 3;
+    std::string nodes_config = nodes;
 
     while(true) {
-        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
+        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes_config);
 
-        if(actual_nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
-            continue;
-        }
-
-        if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
-            if(--max_tries == 0) {
-                LOG(ERROR) << "Giving up parsing nodes configuration: `" << nodes << "`";
+        if(!actual_nodes_config.empty()) {
+            if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+                LOG(ERROR) << "Failed to parse nodes configuration: `" << actual_nodes_config << "`";
                 return -1;
             }
 
-            LOG(ERROR) << "Failed to parse nodes configuration: `" << nodes << "` -- " << " will retry shortly...";
-
-            size_t i = 0;
-            while(i++ < 30) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                if(quit_abruptly) {
-                    // enables quitting of server during retries
-                    return -1;
-                }
+            if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
+                Config::get_instance().update_proxy_src_ips(actual_nodes_config);
             }
 
-            continue;
+            LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
+            break;
         }
 
-        if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
-            Config::get_instance().update_proxy_src_ips(actual_nodes_config);
+        // Braft uses `initial_conf` only when the node has no log or snapshot: otherwise it recovers the membership
+        // from them. So an existing node can start without resolving its peers, and the periodic peer refresh
+        // will apply the nodes configuration once all hosts resolve.
+        if(has_persisted_raft_state(raft_dir)) {
+            LOG(WARNING) << "Unable to resolve all hosts in nodes configuration: `" << nodes_config << "`, "
+                         << "starting with persisted cluster membership.";
+            break;
         }
 
-        LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
-        break;
+        // A fresh node must never bootstrap with a partial peer list, so we wait for all hosts to resolve.
+        LOG(WARNING) << "Unable to resolve all hosts in nodes configuration: `" << nodes_config << "`, "
+                     << "will retry shortly...";
+
+        for(size_t i = 0; i < 10; i++) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if(quit_abruptly) {
+                // enables quitting of server during retries
+                return -1;
+            }
+        }
+
+        // pick up any changes made to the nodes file while waiting
+        const Option<std::string>& refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
+        if(refreshed_nodes_op.ok()) {
+            nodes_config = refreshed_nodes_op.get();
+        }
     }
 
     this->read_caught_up = false;
@@ -115,7 +126,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::Node* node = new braft::Node("default_group", braft::PeerId(peering_endpoint, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
-    bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
+    bool snapshot_exists = has_completed_snapshot(snapshot_dir);
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
@@ -150,7 +161,29 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     return 0;
 }
 
-// can return empty string if DNS resolution fails on all nodes
+bool ReplicationState::has_completed_snapshot(const std::string& snapshot_dir) {
+    std::error_code ec;
+    for(const auto& entry: std::filesystem::directory_iterator(snapshot_dir, ec)) {
+        // ignore the `temp` directory of an unfinished snapshot, which braft deletes on init
+        if(entry.path().filename().string().rfind("snapshot_", 0) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool ReplicationState::has_persisted_raft_state(const std::string& raft_dir) {
+    if(has_completed_snapshot(raft_dir + "/" + snapshot_dir_name)) {
+        return true;
+    }
+
+    braft::ConfigurationManager configuration_manager;
+    braft::SegmentLogStorage log_storage(raft_dir + "/" + log_dir_name);
+    return log_storage.init(&configuration_manager) == 0 && log_storage.last_log_index() > 0;
+}
+
+// returns empty string if DNS resolution fails for any of the nodes
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
     if(nodes_config.empty()) {
@@ -180,7 +213,7 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
     int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
     if (status != 0) {
         LOG(ERROR) << "Unable to resolve host: " << hostname << ", error: " << gai_strerror(status);
-        return hostname; // Return original hostname on error
+        return "";
     }
 
     char ip_str[INET6_ADDRSTRLEN];
@@ -200,10 +233,6 @@ std::string ReplicationState::hostname2ipstr(const std::string& hostname) {
     }
 
     freeaddrinfo(result);
-
-    if(resolved_ip.empty()) {
-        return hostname; // Return original hostname if resolution didn't produce a valid IP
-    }
 
     return resolved_ip;
 }
@@ -231,15 +260,12 @@ std::string ReplicationState::resolve_node_hosts(const string& nodes_config) {
 
         std::string resolved_ip = hostname2ipstr(node_parts[0]);
         if(resolved_ip.empty()) {
+            // a partial peer list must never be applied, since that would remove valid peers from the cluster
             LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
-            continue;
+            return "";
         }
 
         final_nodes_vec.push_back(resolved_ip + ":" + node_parts[1] + ":" + node_parts[2]);
-    }
-
-    if(final_nodes_vec.empty()) {
-        return "";
     }
 
     std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");
@@ -839,7 +865,10 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
     }
 
     braft::Configuration new_conf;
-    new_conf.parse_from(nodes);
+    if(new_conf.parse_from(nodes) != 0 || new_conf.empty()) {
+        LOG(WARNING) << "Unable to parse nodes configuration: `" << nodes << "`, skipping refresh.";
+        return ;
+    }
 
     braft::NodeStatus nodeStatus;
     node->get_status(&nodeStatus);
@@ -1110,16 +1139,19 @@ bool ReplicationState::reset_peers() {
                                                                             refreshed_nodes_op.get());
 
         if(nodes_config.empty()) {
-            LOG(WARNING) << "No nodes resolved from peer configuration.";
+            LOG(WARNING) << "Unable to resolve all nodes in peer configuration.";
+            return false;
+        }
+
+        braft::Configuration peer_config;
+        if(peer_config.parse_from(nodes_config) != 0) {
+            LOG(WARNING) << "Unable to parse nodes configuration: `" << nodes_config << "`";
             return false;
         }
 
         if(Config::get_instance().get_proxy_allow_only_peer_src_ips()) {
             Config::get_instance().update_proxy_src_ips(nodes_config);
         }
-
-        braft::Configuration peer_config;
-        peer_config.parse_from(nodes_config);
 
         std::vector<braft::PeerId> peers;
         peer_config.list_peers(&peers);

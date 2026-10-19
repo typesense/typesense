@@ -12,6 +12,7 @@
 #include <collection_manager.h>
 #include <string_utils.h>
 #include "curation_index_manager.h"
+#include "tsconfig.h"
 
 class UnionTest : public ::testing::Test {
 protected:
@@ -3207,4 +3208,103 @@ TEST_F(UnionTest, SearchCutoffKeepsInfixMatchesFiltered) {
     ASSERT_LT(json_res["found"].get<size_t>(), INFIX_DOCS_PER_COLLECTION);
     ASSERT_FALSE(json_res["hits"].empty());
     assert_only_kitchen();
+}
+
+// Each sub-search resets the thread-local search_cutoff, so the union has to
+// carry an earlier sub-search's cutoff past the ones that run after it.
+TEST_F(UnionTest, SearchCutoffCoversEverySubSearch) {
+    const size_t docs_per_collection = 20;
+    for (const auto& name: {"cutoff_0", "cutoff_1"}) {
+        nlohmann::json schema_json = {
+                {"name",   name},
+                {"fields", {{{"name", "title"},    {"type", "string"}},
+                            {{"name", "category"}, {"type", "string"}}}}
+        };
+        auto collection_create_op = collectionManager.create_collection(schema_json);
+        ASSERT_TRUE(collection_create_op.ok());
+        for (size_t i = 0; i < docs_per_collection; i++) {
+            nlohmann::json document = {{"title", "widget " + std::to_string(i)}, {"category", "kitchen"}};
+            ASSERT_TRUE(collection_create_op.get()->add(document.dump()).ok());
+        }
+    }
+
+    // Only the first sub-search has its budget spent. The second runs with the
+    // default budget, so any cutoff the union reports is the first one's.
+    searches = R"([
+                    {
+                        "collection": "cutoff_0",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=kitchen",
+                        "search_cutoff_ms": 0
+                    },
+                    {
+                        "collection": "cutoff_1",
+                        "q": "widget",
+                        "query_by": "title",
+                        "filter_by": "category:=office"
+                    }
+                ])"_json;
+    embedded_params = std::vector<nlohmann::json>(2, nlohmann::json::object());
+    req_params.clear();
+
+    // The first sub-search is cut off before it finds anything and the second
+    // matches nothing, so the union has nothing to return and answers 408.
+    auto search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(408, search_op.code());
+    ASSERT_EQ("Request Timeout", search_op.error());
+
+    // With a pinned hit in the first sub-search and real hits from the second,
+    // the union succeeds but still has to report the cutoff.
+    searches[0]["pinned_hits"] = "0:1";
+    searches[1]["filter_by"] = "category:=kitchen";
+    // do_union leaves the last sub-search's merged params behind in req_params.
+    req_params.clear();
+    json_res.clear();
+    search_op = collectionManager.do_union(req_params, embedded_params, searches, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    ASSERT_TRUE(json_res["search_cutoff"].get<bool>());
+    ASSERT_EQ(1 + docs_per_collection, json_res["found"].get<size_t>());
+    ASSERT_EQ("0", json_res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(json_res["hits"][0]["curated"].get<bool>());
+}
+
+TEST_F(UnionTest, MaxQueryLengthTruncatesEachMember) {
+    struct RestoreLimit {
+        const uint64_t previous = Config::get_instance().get_max_query_len();
+        ~RestoreLimit() { Config::get_instance().set_max_query_len(std::to_string(previous)); }
+    } restore;
+    auto created = collectionManager.create_collection("query_limit_union", 1,
+        {field("title", field_types::STRING, false)}, "");
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto* collection = created.get();
+    ASSERT_TRUE(collection->add(R"({"id":"1","title":"café"})").ok());
+    ASSERT_TRUE(collection->add(R"({"id":"2","title":"soap"})").ok());
+
+    const auto run = [&](const std::string& first, const std::string& second) {
+        std::map<std::string, std::string> params = {{"max_query_len", "0"}};
+        std::vector<nlohmann::json> embedded = {nlohmann::json::object(), {{"max_query_len", 100}}};
+        nlohmann::json members = nlohmann::json::array();
+        for(const auto& q : {first, second}) {
+            members.push_back({{"collection", "query_limit_union"}, {"q", q}, {"query_by", "title"},
+                               {"num_typos", 0}, {"prefix", false}, {"drop_tokens_threshold", 0}});
+        }
+        nlohmann::json response;
+        auto op = collectionManager.do_union(params, embedded, members, response, now_ts);
+        EXPECT_TRUE(op.ok()) << op.error();
+        EXPECT_FALSE(response.contains("error")) << response.dump();
+        return response;
+    };
+    auto& config = Config::get_instance();
+    config.set_max_query_len("0");
+    const auto expected = run("café", "soap");
+    ASSERT_EQ(2, expected["found"]);
+    const auto unbounded = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(0, unbounded["found"]);
+    config.set_max_query_len("4");
+    const auto truncated = run("cafézzzzzz", "soapzzzzzz");
+    EXPECT_EQ(expected["found"], truncated["found"]);
+    EXPECT_EQ(expected["hits"], truncated["hits"]);
+    EXPECT_EQ(expected["union_request_params"], truncated["union_request_params"]);
 }

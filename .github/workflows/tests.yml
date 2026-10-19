@@ -8,13 +8,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
@@ -38,7 +43,7 @@ jobs:
           sudo apt-get install -y lld
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.14.0
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
@@ -70,13 +75,13 @@ jobs:
         if: failure()
 
       - name: Save build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
 
       - name: Save test logs on failure
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-logs
           path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
@@ -88,72 +93,22 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Download Typesense Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: typesense-server
           path: ./typesense-server-binary
 
-      - name: Get previous successful run
-        id: get-previous-run
-        run: |
-          # First determine if we're on a fork
-          REPO_INFO=$(gh api /repos/${{ github.repository }})
-          IS_FORK=$(echo "$REPO_INFO" | jq -r '.fork')
-          PARENT_REPO=$(echo "$REPO_INFO" | jq -r '.parent.full_name // empty')
-          DEFAULT_BRANCH=$(echo "$REPO_INFO" | jq -r '.default_branch')
-
-          echo "Is fork: $IS_FORK"
-          if [ "$IS_FORK" = "true" ]; then
-            echo "This is a fork of $PARENT_REPO"
-            # For forks, get successful runs from the current repo
-            REPO_TO_CHECK="${{ github.repository }}"
-          else
-            echo "This is the main repo"
-            # For main repo, get successful runs from main branch
-            REPO_TO_CHECK="${{ github.repository }}"
-            BRANCH_FILTER="and .head_branch == \"$DEFAULT_BRANCH\""
-          fi
-
-          echo "Fetching workflow runs from $REPO_TO_CHECK..."
-          if [ "$IS_FORK" = "true" ]; then
-            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
-              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
-              -q '.workflow_runs[] | select(.conclusion == "success") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}' \
-              --paginate | head -n 1)
-          else
-            RUNS_INFO=$(gh api -H "Accept: application/vnd.github+json" \
-              /repos/$REPO_TO_CHECK/actions/workflows/tests.yml/runs \
-              -q ".workflow_runs[] | select(.conclusion == \"success\" and .head_branch == \"$DEFAULT_BRANCH\") | {id: .id, sha: .head_sha, branch: .head_branch, conclusion: .conclusion}" \
-              --paginate | head -n 1)
-          fi
-
-          echo "Found runs info:"
-          echo "$RUNS_INFO"
-
-          if [ -z "$RUNS_INFO" ]; then
-            echo "No successful runs found"
-            echo "previous_run_id=" >> $GITHUB_OUTPUT
-          else
-            # Extract the latest run info
-            LATEST_RUN=$(echo "$RUNS_INFO" | head -n 1)
-            LATEST_ID=$(echo "$LATEST_RUN" | jq -r '.id')
-            echo "Latest successful run ID: $LATEST_ID"
-            echo "previous_run_id=$LATEST_ID" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Download cached model (if exists)
-        uses: actions/download-artifact@v5
+      # default-branch pushes own the shared entry, pr saves stay in the pr scope
+      - name: Restore model cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          name: tei-model-cache
           path: ./hf_cache
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.get-previous-run.outputs.previous_run_id }}
-        continue-on-error: true
+          key: tei-model-sentence-transformers-all-MiniLM-L6-v2
 
       - name: Check cache contents
         run: |
@@ -171,13 +126,13 @@ jobs:
         run: chmod +x ./typesense-server-binary/typesense-server
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Start TEI Container
         run: |
           docker run -d --name tei-container --runtime=runc -p 8080:80 \
             -v ${{ github.workspace }}/hf_cache:/data \
-            ghcr.io/huggingface/text-embeddings-inference:cpu-latest \
+            ghcr.io/huggingface/text-embeddings-inference:cpu-latest@sha256:cc1f06b5b2e38d979aca1cc054675426bf4d94247f6d22e399d73e09131dfe79 \
             --model-id sentence-transformers/all-MiniLM-L6-v2
 
       - name: Wait for TEI Container to be ready
@@ -227,16 +182,6 @@ jobs:
           TYPESENSE_DATA_DIR: ${{ github.workspace }}/tmp/test
           OPEN_AI_API_KEY: ""
         run: typesense-api-tests --no-secrets
-
-      - name: Upload model cache for next run
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tei-model-cache
-          path: ./hf_cache
-          if-no-files-found: warn
-          overwrite: false
-          retention-days: 7
 
       - name: Cleanup TEI Container
         if: always()
