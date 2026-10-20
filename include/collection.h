@@ -82,6 +82,7 @@ public:
 };
 
 class Collection;
+struct join_policy_context_t;
 
 struct collection_search_args_t {
     static constexpr auto NUM_TYPOS = "num_typos";
@@ -299,7 +300,7 @@ struct collection_search_args_t {
     size_t group_max_candidates;
     size_t diversity_limit;
 
-    nlohmann::json join_policy = nullptr;
+    std::shared_ptr<join_policy_context_t> join_policy;
     std::shared_ptr<Collection> join_policy_collection;
     bool apply_join_policy_to_facet_parent = true;
     bool apply_join_policy_to_facets = true;
