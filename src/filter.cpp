@@ -415,7 +415,8 @@ Option<bool> toFilter(const std::string& expression,
                       const Store* store,
                       const std::string& doc_id_prefix,
                       const bool& validate_field_names,
-                      const std::string& object_field_prefix) {
+                      const std::string& object_field_prefix,
+                      const bool& resolve_ids) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
     if (found_index == std::string::npos) {
@@ -468,6 +469,10 @@ Option<bool> toFilter(const std::string& expression,
                     break;
                 }
 
+                if (!resolve_ids) {
+                    continue;
+                }
+
                 // we have to convert the doc_id to seq id
                 std::string seq_id_str;
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_id, seq_id_str);
@@ -487,7 +492,7 @@ Option<bool> toFilter(const std::string& expression,
             if (doc_ids[0] == "*") {
                 filter_exp.values.emplace_back("*");
                 filter_exp.comparators.push_back(id_comparator);
-            } else {
+            } else if (resolve_ids) {
                 std::string seq_id_str;
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
                 if (seq_id_status == StoreStatus::FOUND) {
@@ -772,7 +777,8 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const Store* store,
                          const std::string& doc_id_prefix,
                          const bool& validate_field_names,
-                         const std::string& object_field_prefix) {
+                         const std::string& object_field_prefix,
+                         const bool& resolve_ids) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
     std::string error_message;
@@ -844,7 +850,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 Option<bool> parse_filter_op = filter::parse_filter_query(object_filter_query, search_schema,
                                                                           store, doc_id_prefix, filter_node,
                                                                           validate_field_names,
-                                                                          object_prefix);
+                                                                          object_prefix, true, resolve_ids);
                 if (!parse_filter_op.ok()) {
                     return parse_filter_op;
                 }
@@ -856,7 +862,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 filter_node->filter_query = object_expression;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
-                                                    validate_field_names, object_field_prefix);
+                                                    validate_field_names, object_field_prefix, resolve_ids);
                 if (!toFilter_op.ok()) {
                     is_successful = false;
                     error_message = toFilter_op.error();
@@ -896,7 +902,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                         filter_node_t*& root,
                                         const bool& validate_field_names,
                                         const std::string& object_field_prefix,
-                                        const bool& validate_max_ops) {
+                                        const bool& validate_max_ops,
+                                        const bool& resolve_ids) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
     if (_filter_query.empty()) {
@@ -930,7 +937,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                               store,
                                               doc_id_prefix,
                                               validate_field_names,
-                                              object_field_prefix);
+                                              object_field_prefix,
+                                              resolve_ids);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }

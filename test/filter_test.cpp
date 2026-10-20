@@ -2477,6 +2477,27 @@ TEST_F(FilterTest, PrefixStringFilter) {
     delete filter_tree_root;
 }
 
+TEST_F(FilterTest, ValidateIdFiltersWithoutResolution) {
+    const tsl::htrie_map<char, field> schema;
+    // A null store ensures validation cannot perform any ID lookups.
+    for (const std::string query : {"id: foo", "id: [foo, bar]"}) {
+        SCOPED_TRACE(query);
+        filter_node_t* root = nullptr;
+        auto op = filter::parse_filter_query(query, schema, nullptr, "", root, false, "", true, false);
+        std::unique_ptr<filter_node_t> guard(root);
+        ASSERT_TRUE(op.ok()) << op.error();
+        ASSERT_NE(nullptr, root);
+        EXPECT_EQ("id", root->filter_exp.field_name);
+    }
+
+    filter_node_t* root = nullptr;
+    auto op = filter::parse_filter_query("id:", schema, nullptr, "", root, false, "", true, false);
+    std::unique_ptr<filter_node_t> guard(root);
+    ASSERT_FALSE(op.ok());
+    EXPECT_EQ(400, op.code());
+    EXPECT_EQ("Error with filter field `id`: Filter value cannot be empty.", op.error());
+}
+
 TEST_F(FilterTest, IdFilterIterator) {
     Collection *coll;
 

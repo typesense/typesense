@@ -2498,9 +2498,10 @@ Option<bool> validate_join_filter(const std::string& filter_query, const std::sh
     filter_node_t* root = nullptr;
     const auto schema = collection->get_schema();
     const auto doc_id_prefix = std::to_string(collection->get_collection_id()) + "_$DI_";
+    // Authorization only needs field names and join structure, not resolved document IDs.
     auto parse_op = filter::parse_filter_query(filter_query, schema,
                                                CollectionManager::get_instance().get_store(), doc_id_prefix,
-                                               root, false);
+                                               root, false, "", true, /*resolve_ids=*/false);
     std::unique_ptr<filter_node_t> guard(root);
     if(!parse_op.ok()) {
         return parse_op;

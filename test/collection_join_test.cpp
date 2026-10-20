@@ -12274,6 +12274,22 @@ TEST_F(CollectionJoinTest, APIKeyJoinFieldPolicy) {
     ASSERT_EQ(1, result["hits"][0]["document"]["policy_authors"].size());
     ASSERT_EQ("Alice", result["hits"][0]["document"]["policy_authors"]["name"]);
 
+    req_params["filter_by"] = "id:[book-1, missing] && $policy_authors(name:=Alice)";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["found"]);
+    ASSERT_EQ("book-1", result["hits"][0]["document"]["id"]);
+
+    // ID fields must still be authorized even when validation skips their resolution.
+    req_params["filter_by"] = "$policy_authors(id:[author-1, missing])";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(403, search_op.code());
+    ASSERT_EQ("Field `id` of joined collection `policy_authors` is not allowed by this API key.",
+              search_op.error());
+    req_params["filter_by"] = "$policy_authors(name:=Alice)";
+
     embedded_params["__typesense_join_policy"] = {
             {"policy_authors_alias_a", {{"allowed_fields", {"name"}}}},
             {"policy_authors_alias_b", {{"allowed_fields", {"private_notes"}}}}
