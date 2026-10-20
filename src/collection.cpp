@@ -8523,7 +8523,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         return Option<bool>(true);
     }
 
-    for (int i = 0; i < facet_field.size();) {
+    size_t i = 0;
+    while (i < facet_field.size()) {
         if (facet_field[i] == '(') {
             //facet field name complete, check validity
             if (search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
@@ -8581,12 +8582,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
             if (param_str == "sort_by") { //sort_by params
                 sort_found = true;
-                for (i; facet_field.size(); i++) {
-                    if (facet_field[i] == ',' || facet_field[i] == ')') {
-                        break;
-                    } else {
-                        param_str += facet_field[i];
-                    }
+                while (i < facet_field.size() && facet_field[i] != ',' && facet_field[i] != ')') {
+                    param_str += facet_field[i];
+                    i++;
                 }
 
                 std::vector<std::string> tokens;
@@ -8633,11 +8631,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 top_k_found = true;
                 param_str.clear();
                 i++; //skip :
-                for (i; i < facet_field.size(); i++) {
-                    if (facet_field[i] == ',' || facet_field[i] == ')') {
-                        break;
-                    }
+                while (i < facet_field.size() && facet_field[i] != ',' && facet_field[i] != ')') {
                     param_str += facet_field[i];
+                    i++;
                 }
 
                 if (param_str.empty() || (param_str != "true" && param_str != "false")) {
