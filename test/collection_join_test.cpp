@@ -12780,6 +12780,79 @@ TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesWildcardFacetMetadata) {
     ASSERT_TRUE(union_response["facet_counts"].empty());
 }
 
+TEST_F(CollectionJoinTest, APIKeyJoinPolicyRepeatedFiltersAndFacetParents) {
+    auto authors_schema = R"({
+        "name": "cached_policy_authors",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "secret", "type": "string"}
+        ]
+    })"_json;
+    auto authors_op = collectionManager.create_collection(authors_schema);
+    ASSERT_TRUE(authors_op.ok());
+    auto books_schema = R"({
+        "name": "cached_policy_books",
+        "fields": [{"name": "author_id", "type": "string", "reference": "cached_policy_authors.id"}]
+    })"_json;
+    auto books_op = collectionManager.create_collection(books_schema);
+    ASSERT_TRUE(books_op.ok());
+    for(const auto& name: {"Alice", "Bob", "Carol"}) {
+        ASSERT_TRUE(authors_op.get()->add(nlohmann::json({{"id", name}, {"name", name},
+                                                        {"secret", "hidden"}}).dump()).ok());
+        ASSERT_TRUE(books_op.get()->add(nlohmann::json({{"id", name}, {"author_id", name}}).dump()).ok());
+    }
+    ASSERT_TRUE(collectionManager.upsert_symlink("cached_policy_alias", "cached_policy_authors").ok());
+
+    const std::map<std::string, std::string> params = {
+            {"collection", "cached_policy_books"}, {"q", "*"},
+            {"filter_by", "$cached_policy_authors(name:=Alice || name:=Bob || name:=Carol) && "
+                          "$cached_policy_alias(name:!=Nobody)"},
+            {"facet_by", "$cached_policy_alias(name)"}, {"facet_return_parent", "*"}
+    };
+    nlohmann::json embedded = {{"__typesense_join_policy", {
+            {"cached_policy_alias", {{"allowed_fields", {"name"}}}}
+    }}};
+    const auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string response;
+    auto request = params;
+    auto op = collectionManager.do_search(request, embedded, response, now_ts);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto result = nlohmann::json::parse(response);
+    ASSERT_EQ(3, result["found"]);
+    ASSERT_EQ(3, result["facet_counts"][0]["counts"].size());
+    for(const auto& count: result["facet_counts"][0]["counts"]) {
+        EXPECT_EQ(nlohmann::json({{"name", count["value"]}}), count["parent"]);
+    }
+
+    // A subsequent request must use its own policy, even for the same collection.
+    embedded["__typesense_join_policy"]["cached_policy_alias"]["allowed_fields"] = {"name", "secret"};
+    request = params;
+    op = collectionManager.do_search(request, embedded, response, now_ts);
+    ASSERT_TRUE(op.ok()) << op.error();
+    result = nlohmann::json::parse(response);
+    ASSERT_EQ(3, result["facet_counts"][0]["counts"].size());
+    for(const auto& count: result["facet_counts"][0]["counts"]) {
+        EXPECT_EQ("hidden", count["parent"]["secret"]);
+    }
+
+    embedded["__typesense_join_policy"]["cached_policy_alias"]["denied_fields"] = {"name"};
+    request = params;
+    op = collectionManager.do_search(request, embedded, response, now_ts);
+    ASSERT_FALSE(op.ok());
+    EXPECT_EQ(403, op.code());
+
+    auto allowed_embedded = embedded;
+    allowed_embedded["__typesense_join_policy"]["cached_policy_alias"].erase("denied_fields");
+    std::vector<nlohmann::json> union_policies = {allowed_embedded, embedded};
+    std::map<std::string, std::string> union_params;
+    nlohmann::json union_result;
+    op = collectionManager.do_union(union_params, union_policies,
+                                     nlohmann::json::array({params, params}), union_result, now_ts);
+    ASSERT_TRUE(op.ok()) << op.error();
+    EXPECT_EQ(403, union_result["code"]);
+}
+
 TEST_F(CollectionJoinTest, APIKeyJoinPolicyPreservesRawDenyPaths) {
     auto authors_schema = R"({
         "name": "raw_deny_authors",
