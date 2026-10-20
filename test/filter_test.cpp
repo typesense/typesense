@@ -2587,6 +2587,57 @@ TEST_F(FilterTest, IdFilterIterator) {
     filter_tree_root = nullptr;
 }
 
+TEST_F(FilterTest, ObjectFilterValidation) {
+    auto schema = R"({
+        "name": "menu",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "ingredients", "type": "object[]"},
+            {"name": "ingredients.name", "type": "string[]"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"name": "Pasta", "ingredients": [{"name": "cheese"}]})").ok());
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    const std::vector<std::string> invalid_filters = {
+        "x.{}",
+        "ingredients.{}",
+        "ingredients.{   }",
+        "ingredients.{} && name: Pasta",
+        "name: Pasta && ingredients.{}",
+        "name: Pasta || ingredients.{ }",
+        "(name: Pasta && name: Pasta) && ingredients.{}",
+        "ingredients.{name: cheese} && ingredients.{}"
+    };
+    for (const auto& filter_query : invalid_filters) {
+        SCOPED_TRACE(filter_query);
+        filter_node_t* root = nullptr;
+        auto parse_op = filter::parse_filter_query(filter_query, coll->get_schema(), store, doc_id_prefix, root);
+        std::unique_ptr<filter_node_t> root_guard(root);
+        ASSERT_FALSE(parse_op.ok());
+        ASSERT_EQ(400, parse_op.code());
+        ASSERT_EQ("Object filter cannot be empty.", parse_op.error());
+        ASSERT_EQ(nullptr, root);
+
+        auto search_op = coll->search("*", {}, filter_query, {}, {}, {2});
+        ASSERT_FALSE(search_op.ok());
+        ASSERT_EQ(400, search_op.code());
+        ASSERT_EQ("Object filter cannot be empty.", search_op.error());
+    }
+
+    for (const auto& filter_query : {"", "   ", "ingredients.{name: cheese}",
+                                    "name: Pasta && ingredients.{name: cheese}"}) {
+        SCOPED_TRACE(filter_query);
+        auto search_op = coll->search("*", {}, filter_query, {}, {}, {2});
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        ASSERT_EQ(1, search_op.get()["found"]);
+    }
+}
+
 TEST_F(FilterTest, ObjectFitlterIterator) {
     auto schema_json =
             R"({

@@ -781,11 +781,11 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const bool& resolve_ids) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
+    uint32_t error_code = 400;
     std::string error_message;
 
-    filter_node_t *filter_node = nullptr;
-
     while (!postfix.empty()) {
+        filter_node_t* filter_node = nullptr;
         const std::string expression = postfix.front();
         postfix.pop();
 
@@ -851,8 +851,11 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                                                                           store, doc_id_prefix, filter_node,
                                                                           validate_field_names,
                                                                           object_prefix, true, resolve_ids);
-                if (!parse_filter_op.ok()) {
-                    return parse_filter_op;
+                if (!parse_filter_op.ok() || filter_node == nullptr) {
+                    is_successful = false;
+                    error_code = parse_filter_op.ok() ? 400 : parse_filter_op.code();
+                    error_message = parse_filter_op.ok() ? "Object filter cannot be empty." : parse_filter_op.error();
+                    break;
                 }
 
                 // Only root node of the object filter needs to be marked. Prevents redundant calls to
@@ -884,7 +887,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             nodeStack.pop();
         }
 
-        return Option<bool>(400, error_message);
+        return Option<bool>(error_code, error_message);
     }
 
     if (nodeStack.empty()) {
