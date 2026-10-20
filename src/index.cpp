@@ -3607,8 +3607,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     topster_size = std::max((size_t)1, topster_size);  // needs to be atleast 1 since scoring is mandatory
     topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params, true,
                               group_key_allowlist);
-    curated_topster = new Topster<KV>(topster_size, group_limit, is_group_by_first_pass, group_found_params, true,
-                                      group_key_allowlist);
+    const size_t curated_topster_size = std::max(topster_size, included_ids.size());
+    curated_topster = new Topster<KV>(curated_topster_size, group_limit, is_group_by_first_pass,
+                                      group_found_params, true, group_key_allowlist);
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
