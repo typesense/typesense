@@ -631,6 +631,7 @@ private:
                              std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              std::vector<uint32_t>& excluded_ids,
                              std::vector<const curation_t*>& filter_curations,
+                             std::set<const curation_t*>& matched_filter_curations,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
                              nlohmann::json& curation_metadata,
@@ -642,6 +643,7 @@ private:
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
+                        std::set<const curation_t*>& matched_filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
                         diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
@@ -732,6 +734,8 @@ private:
                                         std::string& fallback_field_type);
 
     void process_filter_sort_curations(std::vector<const curation_t*>& filter_curations,
+                                  const std::set<const curation_t*>& matched_filter_curations,
+                                  const std::string& stopwords_set,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
