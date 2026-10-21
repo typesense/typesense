@@ -3192,6 +3192,174 @@ TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
     ASSERT_TRUE(res.get()["hits"][0]["document"].count("word_not_to_store") == 0);
 }
 
+TEST_F(CollectionSpecificMoreTest, StoreFalseFieldIsStillIndexedAndFilterable) {
+    // Regression test for a bug introduced while fixing https://github.com/typesense/typesense/issues/3028
+    // (bulk-import visibility race). Collection::batch_index() writes a `store:false`-stripped COPY of the
+    // document to RocksDB before making the seq_id searchable, but must still index the FULL, unstripped
+    // document into memory -- otherwise a `store:false` (or nested/object) field would be durably written
+    // to disk correctly but silently never become searchable/filterable at all, even though the import
+    // reports success. Filtering (rather than just searching) on the store:false field is what actually
+    // proves it made it into the in-memory index, since a plain `search("*")` would look identical whether
+    // or not the field was indexed (it's never returned in the response either way).
+    nlohmann::json schema = R"({
+         "name": "coll_store_filter",
+         "fields": [
+           {"name": "title", "type": "string"},
+           {"name": "category", "type": "string", "facet": true, "store": false}
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    nlohmann::json doc;
+    doc["title"] = "wireless mouse";
+    doc["category"] = "electronics";
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    // Filtering on the store:false field only succeeds if it was actually indexed in-memory.
+    auto filter_res = coll->search("*", {}, "category:= electronics", {"category"}, sort_fields, {0}, 10, 1,
+                                   FREQUENCY, {false});
+    ASSERT_TRUE(filter_res.ok());
+    ASSERT_EQ(1, filter_res.get()["found"].get<int>());
+
+    // Faceting likewise only works off the in-memory facet index.
+    ASSERT_EQ(1, filter_res.get()["facet_counts"].size());
+    ASSERT_EQ("electronics", filter_res.get()["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) filter_res.get()["facet_counts"][0]["counts"][0]["count"]);
+
+    // The field is still never returned in the response, since it's `store:false`.
+    ASSERT_EQ(0, filter_res.get()["hits"][0]["document"].count("category"));
+
+    collectionManager.drop_collection("coll_store_filter");
+}
+
+TEST_F(CollectionSpecificMoreTest, NestedObjectFieldIsStillIndexedAndFilterableAfterBatchIndex) {
+    // Same regression as above (issue #3028 fix), but for the OTHER thing that used to get stripped from
+    // `index_record.doc` in place before Phase 3 could index it: the transient flattened dot-keys that
+    // `remove_flat_fields()` removes. Nested/object fields are indexed off those flattened keys, so if
+    // stripping ran before indexing, a nested field would silently stop being filterable too.
+    nlohmann::json schema = R"({
+         "name": "coll_nested_filter",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "name", "type": "object" }
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    auto doc = R"({
+        "name": {"first": "John", "last": "Smith"}
+    })"_json;
+
+    ASSERT_TRUE(coll->add(doc.dump(), CREATE).ok());
+
+    auto filter_res = coll->search("*", {}, "name.first:= John", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(filter_res.ok());
+    ASSERT_EQ(1, filter_res.get()["found"].get<int>());
+
+    collectionManager.drop_collection("coll_nested_filter");
+}
+
+TEST_F(CollectionSpecificMoreTest, RejectedGeopolygonIsNotLeftInStore) {
+    // `Collection::batch_index()` writes a document to the store before indexing it in memory (#3028). An
+    // invalid geopolygon passes validation and is only rejected later, inside `GeoPolygonIndex::addPolygon()`
+    // while being indexed, so that late failure must undo the store write: a rejected insert must not be
+    // fetchable, and a rejected update must leave the original document in place, also after a restart.
+    nlohmann::json schema = R"({
+         "name": "coll_rejected_polygon",
+         "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "area", "type": "geopolygon"}
+         ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll = coll_op.get();
+
+    const std::vector<double> valid_area = {0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0};
+    // Repeats a vertex, which S2 rejects ("Edge 6 has duplicate vertex with edge 10").
+    const std::vector<double> invalid_area = {0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0,
+                                              0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0,
+                                              5.0, 4.0, 5.0, 2.0, 2.0, 2.0, 2.0, 4.0};
+
+    nlohmann::json doc0;
+    doc0["id"] = "0";
+    doc0["name"] = "original";
+    doc0["area"] = valid_area;
+    ASSERT_TRUE(coll->add(doc0.dump()).ok());
+
+    // Rejected insert: not stored, not searchable.
+    nlohmann::json doc1;
+    doc1["id"] = "1";
+    doc1["name"] = "rejected";
+    doc1["area"] = invalid_area;
+    auto insert_op = coll->add(doc1.dump());
+    ASSERT_FALSE(insert_op.ok());
+    ASSERT_EQ(400, insert_op.code());
+    ASSERT_EQ(404, coll->get("1").code());
+
+    // Rejected update: the original stored document is kept.
+    nlohmann::json update;
+    update["id"] = "0";
+    update["name"] = "updated";
+    update["area"] = invalid_area;
+    auto update_op = coll->add(update.dump(), UPDATE);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ(400, update_op.code());
+
+    auto check_state = [&](Collection* c) {
+        ASSERT_EQ(404, c->get("1").code());
+
+        auto get_op = c->get("0");
+        ASSERT_TRUE(get_op.ok());
+        ASSERT_EQ("original", get_op.get()["name"].get<std::string>());
+        ASSERT_EQ(valid_area, get_op.get()["area"].get<std::vector<double>>());
+
+        auto res_op = c->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(res_op.ok());
+        ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+        ASSERT_EQ(1, res_op.get()["hits"].size());
+        ASSERT_EQ("0", res_op.get()["hits"][0]["document"]["id"].get<std::string>());
+        ASSERT_EQ(1, c->get_num_documents());
+
+        // The restored document is searchable by its original values.
+        res_op = c->search("original", {"name"}, "area:(1.0, 1.0)", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(res_op.ok());
+        ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+        for(const std::string& rejected_value: {"rejected", "updated"}) {
+            res_op = c->search(rejected_value, {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+            ASSERT_TRUE(res_op.ok());
+            ASSERT_EQ(0, res_op.get()["found"].get<size_t>());
+        }
+    };
+
+    check_state(coll);
+
+    // emulate restart: reload the collection from disk
+    collectionManager.dispose();
+    stemmerManager.dispose();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    store = new Store(state_dir_path);
+    stemmerManager.init(store);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    coll = collectionManager.get_collection("coll_rejected_polygon").get();
+    ASSERT_TRUE(coll != nullptr);
+    check_state(coll);
+
+    collectionManager.drop_collection("coll_rejected_polygon");
+}
+
 TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
     // a `store: false` field is stripped before the document is written to disk. when the field is
     // also `optional: false`, the reloaded document used to fail validation and the entire
