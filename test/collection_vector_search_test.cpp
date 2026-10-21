@@ -2905,6 +2905,27 @@ TEST_F(CollectionVectorTest, DISABLED_HybridSortingTest) {
     ASSERT_EQ(results["hits"][3]["document"]["name"].get<std::string>(), hybrid_results["hits"][3]["document"]["name"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, OpenAIAda002NeverSendsDimensions) {
+    // the request paths pass the model name without the `openai/` namespace
+    ASSERT_FALSE(OpenAIEmbedder::should_send_dimensions(true, "text-embedding-ada-002"));
+    ASSERT_TRUE(OpenAIEmbedder::should_send_dimensions(true, "text-embedding-3-small"));
+    ASSERT_FALSE(OpenAIEmbedder::should_send_dimensions(false, "text-embedding-3-small"));
+}
+
+TEST_F(CollectionVectorTest, DetectsDimensionsUnsupportedError) {
+    nlohmann::json rejected = R"({"error": "API error: This model does not support specifying dimensions."})"_json;
+    ASSERT_TRUE(OpenAIEmbedder::is_dimensions_unsupported(embedding_res_t(400, rejected)));
+
+    nlohmann::json too_long = R"({"error": "API error: This model's maximum context length is 8192 tokens."})"_json;
+    ASSERT_FALSE(OpenAIEmbedder::is_dimensions_unsupported(embedding_res_t(400, too_long)));
+
+    ASSERT_FALSE(OpenAIEmbedder::is_dimensions_unsupported(embedding_res_t(401, rejected)));
+    ASSERT_FALSE(OpenAIEmbedder::is_dimensions_unsupported(embedding_res_t(std::vector<float>{0.1f, 0.2f})));
+
+    nlohmann::json no_error = R"({"response": {}})"_json;
+    ASSERT_FALSE(OpenAIEmbedder::is_dimensions_unsupported(embedding_res_t(400, no_error)));
+}
+
 TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
     if (std::getenv("api_key_1") == nullptr || std::getenv("api_key_2") == nullptr) {
         LOG(INFO) << "Skipping test as api_key_1 or api_key_2 is not set";
