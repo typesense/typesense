@@ -144,8 +144,14 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
         *api_key_prefix = StringUtils::join(api_key_prefixes, ",");
     }
 
-    const bool authenticated = collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params,
-                                                                  embedded_params_vec);
+    const auto action_it = req_params.find("action");
+    const bool is_single_document_upsert = rpath.handler == post_add_document &&
+                                           action_it != req_params.end() && action_it->second == "upsert";
+    // Keep create-key access for clients that already use this endpoint for upserts.
+    const bool authenticated =
+            (is_single_document_upsert && collectionManager.auth_key_matches(req_auth_key, "documents:upsert",
+                    collections, req_params, embedded_params_vec)) ||
+            collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params, embedded_params_vec);
     if(!authenticated) {
         return false;
     }
