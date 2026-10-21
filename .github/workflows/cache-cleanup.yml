@@ -1,0 +1,40 @@
+name: cache-cleanup
+
+# pr runs can't delete their own caches (fork tokens are read-only), so prune them here.
+# never checks out or runs pr code
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  pull-requests: read
+
+jobs:
+  prune-pr-disk-caches:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Delete disk caches of closed prs and older entries of open ones
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          caches=$(gh cache list --key bazel-disk-1-pr- --sort created_at --order desc --limit 1000 --json id,ref)
+
+          for ref in $(echo "$caches" | jq -r '[.[].ref] | unique | .[]'); do
+            pr=$(echo "$ref" | cut -d/ -f3)
+            state=$(gh pr view "$pr" --json state --jq .state)
+
+            if [ "$state" = "OPEN" ]; then
+              ids=$(echo "$caches" | jq -r --arg ref "$ref" '[.[] | select(.ref == $ref)] | .[1:][].id')
+            else
+              ids=$(echo "$caches" | jq -r --arg ref "$ref" '.[] | select(.ref == $ref) | .id')
+            fi
+
+            for id in $ids; do
+              echo "Deleting cache $id ($ref, pr $state)"
+              gh cache delete "$id"
+            done
+          done
