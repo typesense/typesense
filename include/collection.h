@@ -464,6 +464,9 @@ private:
 
     std::unordered_map<std::string, field> dynamic_fields;
 
+    // Matching follows schema declaration order; the map remains for name lookups.
+    std::vector<field> ordered_dynamic_fields;
+
     tsl::htrie_map<char, field> nested_fields;
 
     tsl::htrie_map<char, field> embedding_fields;
@@ -652,7 +655,7 @@ private:
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
-                                          const std::unordered_map<std::string, field>& dyn_fields,
+                                          const std::vector<field>& dyn_fields,
                                           tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
                                           bool is_update,

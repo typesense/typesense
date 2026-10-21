@@ -112,6 +112,13 @@ Collection::Collection(const std::string& name, const uint32_t& collection_id, c
     this->altered_docs= 0;
     this->validated_docs= 0;
 
+    ordered_dynamic_fields.reserve(this->dynamic_fields.size());
+    for(const auto& f: fields) {
+        if(f.is_dynamic()) {
+            ordered_dynamic_fields.push_back(this->dynamic_fields.at(f.name));
+        }
+    }
+
     for (auto& update_ref_info: update_ref_infos) {
         update_reference_field(update_ref_info.field, update_ref_info.referenced_field);
     }
@@ -1117,7 +1124,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             batch_doc_ids.insert(doc_id);
 
             std::string fallback_field_type_copy;
-            std::unordered_map<std::string, field> dynamic_fields_copy;
+            std::vector<field> dynamic_fields_copy;
             tsl::htrie_map<char, field> nested_fields_copy;
             spp::sparse_hash_map<std::string, reference_info_t> reference_fields_copy;
 
@@ -1126,7 +1133,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             {
                 std::shared_lock lock(mutex);
                 fallback_field_type_copy = fallback_field_type;
-                dynamic_fields_copy = dynamic_fields;
+                dynamic_fields_copy = ordered_dynamic_fields;
                 nested_fields_copy = nested_fields;
                 reference_fields_copy = reference_fields;
                 search_schema_copy = search_schema;
@@ -7354,7 +7361,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.is_dynamic()) {
-            dynamic_fields.emplace(f.name, f);
+            if(dynamic_fields.emplace(f.name, f).second) {
+                ordered_dynamic_fields.push_back(f);
+            }
         } else {
             schema_additions.emplace(f.name, f);
             search_schema.emplace(f.name, f);
@@ -7535,6 +7544,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(del_field.is_dynamic()) {
             dynamic_fields.erase(del_field.name);
+            ordered_dynamic_fields.erase(std::remove_if(ordered_dynamic_fields.begin(), ordered_dynamic_fields.end(),
+                                                       [&del_field](const field& f) {
+                                                           return f.name == del_field.name;
+                                                       }), ordered_dynamic_fields.end());
         }
 
         if(del_field.nested) {
@@ -7637,6 +7650,49 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             check_store_alter_status_msg(false, error);
             reset_alter_status_counters();
             return batch_alter_op;
+        }
+    }
+
+    {
+        std::unique_lock ulock(mutex);
+        // Additions and re-added rules run in separate phases. Restore their
+        // common request order after both phases, keeping surviving rules first.
+        std::unordered_map<std::string, size_t> requested_order;
+        for(const auto& field_json: alter_payload["fields"]) {
+            if(!field_json.contains("drop")) {
+                requested_order.emplace(field_json["name"].get<std::string>(), requested_order.size() + 1);
+            }
+        }
+        std::vector<field> updated_dynamic_fields;
+        updated_dynamic_fields.reserve(dynamic_fields.size());
+        for(const auto& f: fields) {
+            if(f.is_dynamic() && dynamic_fields.count(f.name) != 0) {
+                updated_dynamic_fields.push_back(f);
+            }
+        }
+        std::stable_sort(updated_dynamic_fields.begin(), updated_dynamic_fields.end(),
+                         [&requested_order](const field& a, const field& b) {
+                             auto a_it = requested_order.find(a.name);
+                             auto b_it = requested_order.find(b.name);
+                             return (a_it == requested_order.end() ? 0 : a_it->second) <
+                                    (b_it == requested_order.end() ? 0 : b_it->second);
+                         });
+        if(!std::equal(updated_dynamic_fields.begin(), updated_dynamic_fields.end(),
+                       ordered_dynamic_fields.begin(), ordered_dynamic_fields.end(),
+                       [](const field& a, const field& b) { return a.name == b.name; })) {
+            size_t dynamic_index = 0;
+            for(auto& f: fields) {
+                if(f.is_dynamic() && dynamic_fields.count(f.name) != 0) {
+                    f = updated_dynamic_fields[dynamic_index++];
+                }
+            }
+            ordered_dynamic_fields = std::move(updated_dynamic_fields);
+            auto persist_op = persist_collection_meta();
+            if(!persist_op.ok()) {
+                check_store_alter_status_msg(false, persist_op.error());
+                reset_alter_status_counters();
+                return persist_op;
+            }
         }
     }
 
@@ -7825,10 +7881,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     std::set<std::string> delete_field_names;
 
     // ensure that drop values are at the top: required for drop+add use case
-    std::sort(schema_changes["fields"].begin(), schema_changes["fields"].end(),
-              [](nlohmann::json& a, nlohmann::json& b) {
-                    return a.contains("drop") > b.contains("drop");
-              });
+    std::stable_partition(schema_changes["fields"].begin(), schema_changes["fields"].end(),
+                          [](const nlohmann::json& f) { return f.contains("drop"); });
 
     for(const auto& kv: schema_changes["fields"].items()) {
         if (!kv.value().is_object()) {
@@ -7863,7 +7917,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         }
     }
 
-    std::unordered_map<std::string, field> new_dynamic_fields;
+    std::vector<field> new_dynamic_fields;
+    std::unordered_map<std::string, size_t> new_dynamic_field_positions;
     int json_array_index = -1;
 
     for(const auto& kv: schema_changes["fields"].items()) {
@@ -8013,10 +8068,15 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(f.is_dynamic()) {
-                    if(!f.is_reference_helper && new_dynamic_fields.find(f.name) != new_dynamic_fields.end()) {
+                    auto insertion = new_dynamic_field_positions.emplace(f.name, new_dynamic_fields.size());
+                    if(!f.is_reference_helper && !insertion.second) {
                         return Option<bool>(400, "There can be only one field named `" + f.name + "`.");
                     }
-                    new_dynamic_fields[f.name] = f;
+                    if(insertion.second) {
+                        new_dynamic_fields.push_back(f);
+                    } else {
+                        new_dynamic_fields[insertion.first->second] = f;
+                    }
                 } else {
                     if(!f.is_reference_helper && updated_search_schema.find(f.name) != updated_search_schema.end()) {
                         return Option<bool>(400, "There can be only one field named `" + f.name + "`.");
@@ -8110,6 +8170,33 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         return Option<bool>(400, "There can be only one field named `.*`.");
     }
 
+    // Rediscovered fields must use the same precedence as subsequent ingestion.
+    // Only include surviving rules when this request introduces dynamic rules.
+    std::vector<field> validation_dynamic_fields;
+    if(!new_dynamic_fields.empty()) {
+        for(const auto& f: ordered_dynamic_fields) {
+            if(delete_field_names.count(f.name) == 0) {
+                validation_dynamic_fields.push_back(f);
+            }
+        }
+    }
+    validation_dynamic_fields.insert(validation_dynamic_fields.end(),
+                                     new_dynamic_fields.begin(), new_dynamic_fields.end());
+
+    // Surviving rules must not rediscover fields deliberately dropped outside
+    // the new rules' scope. Keep them known only to detection, not validation.
+    auto detection_schema = updated_search_schema;
+    if(validation_dynamic_fields.size() > new_dynamic_fields.size()) {
+        for(const auto& f: del_fields) {
+            if(!f.is_dynamic() && f.name != ".*" && updated_search_schema.count(f.name) == 0 &&
+               std::none_of(new_dynamic_fields.begin(), new_dynamic_fields.end(), [&f](const field& rule) {
+                   return std::regex_match(f.name, std::regex(rule.name));
+               })) {
+                detection_schema.emplace(f.name, f);
+            }
+        }
+    }
+
     // data validations: here we ensure that already stored data is compatible with requested schema changes
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
     std::string upper_bound_key = get_seq_id_collection_prefix() + "`";  // cannot inline this
@@ -8137,7 +8224,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             !updated_reference_fields.empty()) {
             std::vector<field> new_fields;
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
-                                                           updated_search_schema, new_dynamic_fields,
+                                                           detection_schema, validation_dynamic_fields,
                                                            updated_nested_fields,
                                                            fallback_field_type, false,
                                                            new_fields,
@@ -8168,6 +8255,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
+                    detection_schema[new_field.name] = new_field;
                 }
             }
         }
@@ -8318,7 +8406,7 @@ Option<bool> Collection::resolve_field_type(field& new_field,
 Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const DIRTY_VALUES& dirty_values,
                                            const tsl::htrie_map<char, field>& schema,
-                                           const std::unordered_map<std::string, field>& dyn_fields,
+                                           const std::vector<field>& dyn_fields,
                                            tsl::htrie_map<char, field>& nested_fields,
                                            const std::string& fallback_field_type,
                                            bool is_update,
@@ -8337,9 +8425,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             bool skip_field = false;
 
             // check against dynamic field definitions
-            for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
-                auto& dynamic_field = dyn_field_it->second;
-
+            for(const auto& dynamic_field: dyn_fields) {
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
                     // to prevent confusion we also disallow dynamic field names that contain ".*"
                     if((kv.key() != ".*" && kv.key().find(".*") != std::string::npos)) {
