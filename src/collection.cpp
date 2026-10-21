@@ -5747,8 +5747,11 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
     bool use_word_tokenizer = Tokenizer::has_word_tokenizer(search_field.locale);
     bool normalise = !use_word_tokenizer;
 
+    const auto& field_symbols = search_field.symbols_to_index.empty() ? symbols_to_index : search_field.symbols_to_index;
+    const auto& field_separators = search_field.token_separators.empty() ? token_separators : search_field.token_separators;
+
     std::vector<std::string> raw_query_tokens;
-    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
+    Tokenizer(raw_query, normalise, false, search_field.locale, field_symbols, field_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
 
     if(raw_query_tokens.empty()) {
         return ;
@@ -5916,8 +5919,8 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
         std::string text = h_obj.get<std::string>();
         h_obj = nlohmann::json::object();
 
-        handle_highlight_text(text, normalise, search_field, is_arr_obj_ele, symbols_to_index,
-                              token_separators, array_highlight, string_utils, use_word_tokenizer,
+        handle_highlight_text(text, normalise, search_field, is_arr_obj_ele, field_symbols,
+                              field_separators, array_highlight, string_utils, use_word_tokenizer,
                               highlight_affix_num_tokens,
                               qtoken_leaves, last_valid_offset_index,
                               prefix_token_num_chars,
@@ -6009,9 +6012,6 @@ void Collection::highlight_result(const bool& enable_nested_fields, const std::v
 
             text = document[search_field.name][match_index.index];
         }
-
-        const auto& field_symbols = search_field.symbols_to_index.empty() ? symbols_to_index : search_field.symbols_to_index;
-        const auto& field_separators = search_field.token_separators.empty() ? token_separators : search_field.token_separators;
 
         handle_highlight_text(text, normalise, search_field, false, field_symbols, field_separators,
                               highlight, string_utils, use_word_tokenizer, highlight_affix_num_tokens,
