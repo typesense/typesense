@@ -287,32 +287,39 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
         request->zstream_initialized = true;
     }
 
-    std::string outbuffer;
-    outbuffer.resize(10 * request->body.size());
-
     request->zs.next_in = (Bytef *) request->body.c_str();
     request->zs.avail_in = request->body.size();
-    std::size_t size_uncompressed = 0;
+    std::string outbuffer;
+    std::array<char, 64 * 1024> chunk;
     int ret = 0;
     do {
-        request->zs.avail_out = static_cast<unsigned int>(outbuffer.size());
-        request->zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
-        ret = inflate(&request->zs, Z_FINISH);
+        const auto previous_avail_in = request->zs.avail_in;
+        request->zs.avail_out = chunk.size();
+        request->zs.next_out = reinterpret_cast<Bytef *>(chunk.data());
+        ret = inflate(&request->zs, Z_NO_FLUSH);
         if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
-            std::string error_msg = request->zs.msg;
+            std::string error_msg = request->zs.msg ? request->zs.msg : "Invalid gzip stream.";
             inflateEnd(&request->zs);
+            request->zstream_initialized = false;
             return Option<bool>(400, error_msg);
         }
+        outbuffer.append(chunk.data(), chunk.size() - request->zs.avail_out);
+        if(ret == Z_BUF_ERROR && request->zs.avail_in == previous_avail_in &&
+           request->zs.avail_out == chunk.size()) {
+            break;
+        }
+    } while (ret != Z_STREAM_END && (request->zs.avail_in > 0 || request->zs.avail_out == 0));
 
-        size_uncompressed += (outbuffer.size() - request->zs.avail_out);
-    } while (request->zs.avail_out == 0);
+    if(request->last_chunk_aggregate && ret != Z_STREAM_END) {
+        inflateEnd(&request->zs);
+        request->zstream_initialized = false;
+        return Option<bool>(400, "Incomplete gzip stream.");
+    }
 
     if (ret == Z_STREAM_END) {
         request->zstream_initialized = false;
         inflateEnd(&request->zs);
     }
-
-    outbuffer.resize(size_uncompressed);
 
     request->body = outbuffer;
     request->chunk_len = outbuffer.size();
