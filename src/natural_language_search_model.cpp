@@ -110,6 +110,29 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
+bool NaturalLanguageSearchModel::uses_max_completion_tokens(const std::string& model_name_without_namespace) {
+    const std::string& name = model_name_without_namespace;
+    if(name.size() >= 2 && name[0] == 'o' && isdigit(name[1])) {
+        return true;
+    }
+    const std::string prefix = "gpt-";
+    size_t pos = name.find(prefix);
+    if(pos == std::string::npos) {
+        return false;
+    }
+    size_t i = pos + prefix.size();
+    if(i >= name.size() || !isdigit(name[i])) {
+        return false;
+    }
+    size_t major = 0;
+    while(i < name.size() && isdigit(name[i])) {
+        major = major * 10 + (name[i] - '0');
+        i++;
+    }
+    // azure names gpt-3.5-turbo as gpt-35-turbo
+    return major >= 5 && major != 35;
+}
+
 Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::json& model_config) {
     if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
        model_config["api_key"].get<std::string>().empty()) {
@@ -118,13 +141,11 @@ Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::j
     // Validate API key by making a test API call
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
-                        && isdigit(model_name_without_namespace[1]));
-    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
     if(model_config.count("temperature") != 0) {
-        if(is_o_model || is_gpt5_model) {
-            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 models.");
+        if(is_reasoning_model) {
+            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 and newer models.");
         }
         if(!model_config["temperature"].is_number() || 
            model_config["temperature"].get<float>() < 0 || 
@@ -137,7 +158,7 @@ Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::j
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    if(is_o_model || is_gpt5_model) {
+    if(is_reasoning_model) {
         test_request["max_completion_tokens"] = 10;
     } else {
         test_request["max_tokens"] = 10;
@@ -164,13 +185,11 @@ Option<nlohmann::json> NaturalLanguageSearchModel::openai_vllm_generate_search_p
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
     std::string api_url = model_config.value("api_url", std::string("https://api.openai.com/v1/chat/completions"));
 
-    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
-                        && isdigit(model_name_without_namespace[1]));
-    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
     nlohmann::json request_body;
     request_body["model"] = model_name_without_namespace;
-    if(is_o_model || is_gpt5_model) {
+    if(is_reasoning_model) {
         request_body["max_completion_tokens"] = max_bytes;
     } else {
         request_body["max_tokens"] = max_bytes;
@@ -1117,13 +1136,11 @@ Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::js
 
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
-                        && isdigit(model_name_without_namespace[1]));
-    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
     if(model_config.count("temperature") != 0) {
-        if(is_o_model || is_gpt5_model) {
-            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 models.");
+        if(is_reasoning_model) {
+            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 and newer models.");
         }
         if(!model_config["temperature"].is_number() || 
            model_config["temperature"].get<float>() < 0 || 
@@ -1135,7 +1152,7 @@ Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::js
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    if(is_o_model || is_gpt5_model) {
+    if(is_reasoning_model) {
         test_request["max_completion_tokens"] = 10;
     } else {
         test_request["max_tokens"] = 10;
@@ -1160,13 +1177,11 @@ Option<nlohmann::json> NaturalLanguageSearchModel::azure_generate_search_params(
     float temperature = model_config.value("temperature", 0.0f);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
 
-    bool is_o_model = (model_name_without_namespace.size() >= 2 && model_name_without_namespace[0] == 'o' 
-                        && isdigit(model_name_without_namespace[1]));
-    bool is_gpt5_model = model_name_without_namespace.find("gpt-5") != std::string::npos;
+    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
     nlohmann::json request_body;
     request_body["model"] = model_name_without_namespace;
-    if(is_o_model || is_gpt5_model) {
+    if(is_reasoning_model) {
         request_body["max_completion_tokens"] = max_bytes;
     } else {
         request_body["max_tokens"] = max_bytes;
