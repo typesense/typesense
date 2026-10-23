@@ -4,6 +4,7 @@
 #include <algorithm>
 #include "curation_index_manager.h"
 #include "store.h"
+#include "test_tmp_path.h"
 
 class CurationIndexManagerTest : public ::testing::Test {
 protected:
@@ -11,7 +12,7 @@ protected:
     CurationIndexManager& mgr = CurationIndexManager::get_instance();
 
     virtual void SetUp() {
-        std::string state_dir_path = "/tmp/typesense_test/curation_index_manager";
+        std::string state_dir_path = test_tmp_path("/curation_index_manager");
         system(("rm -rf " + state_dir_path + " && mkdir -p " + state_dir_path).c_str());
         store = new Store(state_dir_path);
         mgr.init_store(store);

@@ -7,6 +7,7 @@
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
+#include "test_tmp_path.h"
 
 class CollectionSynonymsTest : public ::testing::Test {
 protected:
@@ -17,7 +18,7 @@ protected:
     Collection *coll_mul_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_curation";
+        std::string state_dir_path = test_tmp_path("/collection_curation");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 

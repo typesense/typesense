@@ -8,6 +8,7 @@
 #include "collection.h"
 #include "embedder_manager.h"
 #include "http_client.h"
+#include "test_tmp_path.h"
 
 class CollectionAllFieldsTest : public ::testing::Test {
 protected:
@@ -19,10 +20,10 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
+        std::string state_dir_path = test_tmp_path("/collection_all_fields");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system("mkdir -p /tmp/typesense_test/models");
+        system(("mkdir -p " + test_tmp_path("/models")).c_str());
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -1641,7 +1642,7 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1662,7 +1663,7 @@ TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1683,7 +1684,7 @@ TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
 }
 
 TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1701,7 +1702,7 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
     nlohmann::json schema = R"({
         "name": "obj_coll",
         "fields": [
@@ -1964,7 +1965,7 @@ TEST_F(CollectionAllFieldsTest, FieldTokenSeparatorsOnRestart) {
     delete store;
     fields.clear();
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
+    std::string state_dir_path = test_tmp_path("/collection_all_fields");
     store = new Store(state_dir_path);
 
     collectionManager.init(store, 1.0, "auth_key", quit);

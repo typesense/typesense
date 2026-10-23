@@ -6,6 +6,7 @@
 #include <doc_analytics.h>
 #include <search_analytics.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 
 class AnalyticsManagerTest : public ::testing::Test {
 protected:
@@ -22,12 +23,12 @@ protected:
 
     void setupCollection() {
         Config::get_instance().set_enable_search_analytics(true);
-        state_dir_path = "/tmp/typesense_test/analytics_manager_test";
-        analytics_dir_path = "/tmp/typesense-test/analytics";
+        state_dir_path = test_tmp_path("/analytics_manager_test");
+        analytics_dir_path = test_tmp_path("/analytics");
 
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system("mkdir -p /tmp/typesense_test/models");
+        system(("mkdir -p " + test_tmp_path("/models")).c_str());
 
         store = new Store(state_dir_path);
 

@@ -9,6 +9,7 @@
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
+#include "test_tmp_path.h"
 
 static nlohmann::json find_doc_by_id(const nlohmann::json& results, const std::string& doc_id) {
     for (const auto& hit : results["hits"]) {
@@ -30,7 +31,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+        std::string state_dir_path = test_tmp_path("/collection_specific_more");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -2694,7 +2695,7 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3230,7 +3231,7 @@ TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
     stemmerManager.init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
@@ -3362,7 +3363,7 @@ TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3631,7 +3632,7 @@ TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
 
     stemmerManager.init(store);
@@ -3667,7 +3668,7 @@ TEST_F(CollectionSpecificMoreTest, ReloadMergedStemmingDictionaryOnRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
 
     stemmerManager.init(store);

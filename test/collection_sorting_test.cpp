@@ -7,6 +7,7 @@
 #include <map>
 #include <collection_manager.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 
 class CollectionSortingTest : public ::testing::Test {
 protected:
@@ -18,7 +19,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_sorting";
+        std::string state_dir_path = test_tmp_path("/collection_sorting");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -2387,7 +2388,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2899,7 +2900,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryQsSorting) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -2968,7 +2969,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
             ]
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto coll_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(coll_op.ok());

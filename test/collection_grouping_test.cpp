@@ -7,6 +7,7 @@
 #include "collection.h"
 #include "tsconfig.h"
 #include "curation_index_manager.h"
+#include "test_tmp_path.h"
 
 class CollectionGroupingTest : public ::testing::Test {
 protected:
@@ -16,7 +17,7 @@ protected:
     Collection *coll_group;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_grouping";
+        std::string state_dir_path = test_tmp_path("/collection_grouping");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 

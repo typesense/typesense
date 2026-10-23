@@ -10,6 +10,7 @@
 #include "collection.h"
 #include "curation_index_manager.h"
 #include <join.h>
+#include "test_tmp_path.h"
 
 class CollectionJoinTest : public ::testing::Test {
 protected:
@@ -19,7 +20,7 @@ protected:
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
-    std::string state_dir_path = "/tmp/typesense_test/collection_join";
+    std::string state_dir_path = test_tmp_path("/collection_join");
 
     void setupCollection() {
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -4386,7 +4387,7 @@ protected:
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
-    std::string state_dir_path = "/tmp/typesense_test/collection_join";
+    std::string state_dir_path = test_tmp_path("/collection_join");
 
     Collection* products = nullptr;
     Collection* customers = nullptr;
@@ -4431,7 +4432,7 @@ protected:
             })"_json
         };
 
-        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+        EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
         auto collection_create_op = collectionManager.create_collection(schema_json);
         ASSERT_TRUE(collection_create_op.ok());
@@ -7532,7 +7533,7 @@ protected:
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
-    std::string state_dir_path = "/tmp/typesense_test/collection_join";
+    std::string state_dir_path = test_tmp_path("/collection_join");
 
     Collection* products = nullptr;
     Collection* customers = nullptr;
@@ -7573,7 +7574,7 @@ protected:
             })"_json
         };
 
-        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+        EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
         auto collection_create_op = collectionManager.create_collection(schema_json);
         ASSERT_TRUE(collection_create_op.ok());
@@ -9648,7 +9649,7 @@ TEST_F(CollectionJoinTest, FilterByReferenceAlias) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());

@@ -13,6 +13,7 @@
 #include <string_utils.h>
 #include "curation_index_manager.h"
 #include "tsconfig.h"
+#include "test_tmp_path.h"
 
 class UnionTest : public ::testing::Test {
 protected:
@@ -20,7 +21,7 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
 
-    std::string state_dir_path = "/tmp/typesense_test/union";
+    std::string state_dir_path = test_tmp_path("/union");
 
     std::map<std::string, std::string> req_params{};
     std::vector<nlohmann::json> embedded_params;
@@ -36,7 +37,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+        EmbedderManager::set_model_dir(test_tmp_path("/models"));
     }
 
     void setupProductsCollection() {

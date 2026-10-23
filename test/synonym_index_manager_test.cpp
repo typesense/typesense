@@ -4,6 +4,7 @@
 #include <algorithm>
 #include "synonym_index_manager.h"
 #include "store.h"
+#include "test_tmp_path.h"
 
 class SynonymIndexManagerTest : public ::testing::Test {
 protected:
@@ -11,7 +12,7 @@ protected:
     SynonymIndexManager& mgr = SynonymIndexManager::get_instance();
 
     virtual void SetUp() {
-        std::string state_dir_path = "/tmp/typesense_test/synonym_index_manager";
+        std::string state_dir_path = test_tmp_path("/synonym_index_manager");
         system(("rm -rf " + state_dir_path + " && mkdir -p " + state_dir_path).c_str());
         store = new Store(state_dir_path);
         mgr.init_store(store);

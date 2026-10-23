@@ -15,6 +15,7 @@
 #include <map>
 #include <unistd.h>
 #include <vector>
+#include "test_tmp_path.h"
 
 uint64_t hash_request(const std::shared_ptr<http_req>& req);
 
@@ -29,7 +30,7 @@ protected:
 
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/core_api_utils";
+        std::string state_dir_path = test_tmp_path("/core_api_utils");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -2457,7 +2458,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -2595,7 +2596,7 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
         "history_collection": "conversation_store"
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_tmp_path("/models"));
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";

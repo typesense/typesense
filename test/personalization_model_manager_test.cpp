@@ -3,6 +3,7 @@
 #include "store.h"
 #include <filesystem>
 #include "collection_manager.h"
+#include "test_tmp_path.h"
 
 class PersonalizationModelManagerTest : public ::testing::Test {
 protected:
@@ -12,14 +13,14 @@ protected:
     std::atomic<bool> quit = false;
 
     void SetUp() override {
-        temp_dir = (std::filesystem::temp_directory_path() / "personalization_model_manager_test").string();
+        temp_dir = test_tmp_path("/personalization_model_manager_test");
         system(("rm -rf " + temp_dir + " && mkdir -p " + temp_dir).c_str());
-        std::string test_dir = "/tmp/typesense_test/personalization_model_manager_test/models";
+        std::string test_dir = test_tmp_path("/personalization_model_manager_test/models");
         system(("rm -rf " + test_dir + " && mkdir -p " + test_dir).c_str());
         EmbedderManager::set_model_dir(test_dir);
 
         // Create test collection
-        std::string state_dir_path = "/tmp/typesense_test/personalization_model_manager_test";
+        std::string state_dir_path = test_tmp_path("/personalization_model_manager_test");
         Config::get_instance().set_data_dir(state_dir_path);
 
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -38,7 +39,7 @@ protected:
     }
 
     void TearDown() override {
-        std::string test_dir = "/tmp/typesense_test";
+        std::string test_dir = test_tmp_path();
         system(("rm -rf " + test_dir).c_str());
         collectionManager.dispose();
         PersonalizationModelManager::dispose();

@@ -139,7 +139,7 @@ cc_binary(
 
 filegroup(
     name = "test_src_files",
-    srcs = glob(["test/*.cpp"]),
+    srcs = glob(["test/*.cpp", "test/*.h"]),
 )
 
 filegroup(
