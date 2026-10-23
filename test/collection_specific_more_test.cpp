@@ -7,9 +7,9 @@
 #include <collection_manager.h>
 #include <posting.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
-#include "test_tmp_path.h"
 
 static nlohmann::json find_doc_by_id(const nlohmann::json& results, const std::string& doc_id) {
     for (const auto& hit : results["hits"]) {
