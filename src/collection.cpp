@@ -2627,7 +2627,7 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                                           nlohmann::json& curation_metadata,
                                                           const bool& is_union_search,
                                                           const uint32_t& union_search_index) const {
-    // A search's first lock: queue behind any document write already waiting for `mutex` (see write_turnstile).
+    // Only this top-level lock is gated: gating nested join locks could deadlock joins across collections.
     { std::lock_guard turnstile_lock(write_turnstile); }
     std::shared_lock lock(mutex);
     return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
@@ -4201,19 +4201,17 @@ static int64_t steady_clock_ms() {
 }
 
 std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
-    // Polls rather than a timed lock: std::shared_mutex has none, and a writer re-checks within 1 ms of a release.
     std::unique_lock lock(mutex, std::try_to_lock);
     while(!lock.owns_lock()) {
         if(steady_clock_ms() >= write_turnstile_closable_at) {
             std::lock_guard turnstile_lock(write_turnstile);
-            // Rechecked under the turnstile: a writer queued behind one that just gave up must not hold it again.
             if(steady_clock_ms() >= write_turnstile_closable_at) {
                 const int64_t closed_at = steady_clock_ms();
                 const auto give_up_at = std::chrono::steady_clock::now() + WRITE_TURNSTILE_MAX_HOLD;
                 while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
-                // Set before the turnstile is released, so a writer queued on it can't close the gate straight away.
+                // Set before releasing the turnstile, so that a writer queued on it can't close the gate again.
                 const int64_t now = steady_clock_ms();
                 write_turnstile_closable_at = now + WRITE_TURNSTILE_OPEN_RATIO * (now - closed_at);
                 if(lock.owns_lock()) {

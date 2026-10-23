@@ -5178,7 +5178,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImpo
     std::future<bool> import;
     std::future<size_t> later_search;
 
-    // Stands in for a search inside run_search_with_lock(), which holds the collection lock shared throughout.
+    // Stands in for a search in progress.
     std::shared_lock in_flight_search(coll->get_mutex());
 
     import = std::async(std::launch::async, [&]() {
@@ -5186,8 +5186,6 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImpo
     });
     ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
 
-    // A search that starts while the import waits for the collection lock must queue behind the import. If new
-    // searches are admitted ahead of a waiting writer, overlapping searches keep the import out indefinitely.
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_import");
     });
@@ -5198,7 +5196,6 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImpo
     ASSERT_TRUE(import.get());
     ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
 
-    // Having run after the import, the later search sees the imported document.
     ASSERT_EQ(2, later_search.get());
 
     collectionManager.drop_collection("write_waits_import");
@@ -5219,14 +5216,12 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAf
 
     std::shared_lock in_flight_search(coll->get_mutex());
 
-    // A document with a field the schema hasn't seen first takes the collection lock exclusively to add the field.
     import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second", "year": 2026})"_json.dump()).ok();
     });
     ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
 
-    // The later search filters on the new field, so it succeeds only if it ran after the field was added. Its
-    // document count isn't asserted: indexing takes the lock again afterwards, and the search may run in between.
+    // Only the new field is checked: indexing retakes the lock, so the search may run before the document lands.
     later_search = std::async(std::launch::async, [&]() {
         std::map<std::string, std::string> req_params = {
                 {"collection", "write_waits_new_field"},
@@ -5272,7 +5267,6 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDele
     });
     ASSERT_EQ(std::future_status::timeout, remove.wait_for(std::chrono::seconds(1)));
 
-    // A delete by id waits for the collection lock like an import, and a later search must not overtake it.
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_delete");
     });
@@ -5309,7 +5303,6 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfte
 
     std::shared_lock in_flight_search(coll->get_mutex());
 
-    // Delete by filter removes the matched ids in batches through remove_if_found_many().
     remove_many = std::async(std::launch::async, [&]() {
         auto remove_op = coll->remove_if_found_many({seq_id_1.get(), seq_id_2.get()});
         return remove_op.ok() ? remove_op.get() : SIZE_MAX;
@@ -5343,8 +5336,7 @@ TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearches
     std::future<bool> import;
     std::future<size_t> later_search;
 
-    // Stands in for nested join or reference reads from another collection's searches: they take the collection
-    // lock shared without passing the turnstile. Here they never leave, so the write can't get the lock.
+    // Stands in for nested join reads, which don't pass the turnstile, and here never leave.
     std::shared_lock ungated_readers(coll->get_mutex());
 
     import = std::async(std::launch::async, [&]() {
@@ -5352,8 +5344,6 @@ TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearches
     });
     ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
 
-    // A write that can't make progress must stop holding searches back after a bounded wait. Otherwise a stalled
-    // write becomes a search outage.
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_bounded");
     });
@@ -5365,7 +5355,6 @@ TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearches
     ASSERT_TRUE(import.get());
     ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
 
-    // The search ran while the write was still waiting, so it saw only the first document.
     ASSERT_EQ(1, later_search.get());
 
     collectionManager.drop_collection("write_waits_bounded");
@@ -5385,7 +5374,6 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     std::future<bool> second_import;
     std::future<size_t> later_search;
 
-    // A reader that bypasses the turnstile and never leaves, so the first write gives up holding searches back.
     std::shared_lock ungated_readers(coll->get_mutex());
 
     first_import = std::async(std::launch::async, [&]() {
@@ -5393,8 +5381,6 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     });
     ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(2500)));
 
-    // A second write arriving while the first still waits must not close the gate again, or searches would be held
-    // back for another bound per queued writer.
     second_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
     });
@@ -5412,7 +5398,6 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     ASSERT_TRUE(second_import.get());
     ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
 
-    // The search ran before either write got the lock.
     ASSERT_EQ(1, later_search.get());
 
     collectionManager.drop_collection("write_waits_cooldown");
@@ -5432,7 +5417,6 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
     std::future<bool> second_import;
     std::future<size_t> later_search;
 
-    // The first write holds the gate for about a second behind a reader, then gets the lock.
     std::shared_lock reader(coll->get_mutex());
     first_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
@@ -5442,8 +5426,6 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
     ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
     ASSERT_TRUE(first_import.get());
 
-    // A second write right behind it, blocked by another reader, must leave the gate open for a while, or
-    // back-to-back writes behind slow readers would keep searches gated almost all the time.
     std::shared_lock second_reader(coll->get_mutex());
     second_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
@@ -5460,7 +5442,6 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
     ASSERT_TRUE(second_import.get());
     ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
 
-    // The search ran after the first write and before the second.
     ASSERT_EQ(2, later_search.get());
 
     collectionManager.drop_collection("write_waits_duty_cycle");
@@ -5495,9 +5476,7 @@ TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJo
     });
     ASSERT_EQ(std::future_status::timeout, parent_import.wait_for(std::chrono::seconds(1)));
 
-    // A join search on the child takes the parent's lock shared while it holds the child's. That nested acquisition
-    // must not wait for the parent's writer: a search on the parent that joins back to the child nests the other way,
-    // so with writers waiting on both collections the two searches would deadlock.
+    // A child search holds the child's lock while taking the parent's; that nested lock must not wait for a writer.
     join_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_links", "$write_waits_parents(id:*)");
     });

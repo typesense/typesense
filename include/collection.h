@@ -402,26 +402,15 @@ private:
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex alter_mutex;
 
-    // std::shared_mutex prefers readers: a search is admitted while a writer waits, so overlapping searches can
-    // keep a document write out of `mutex` indefinitely. A document writer holds this while it waits for `mutex`,
-    // and a search passes through it before its first shared lock, so a search that starts while a write waits
-    // queues behind the write. Nested shared locks (joins, references) don't pass through it: one that waited for a
-    // writer while its thread holds another collection's lock could deadlock against a join in the other direction.
+    // Held by a waiting document writer, so that new searches queue behind it (std::shared_mutex prefers readers).
     // Lock order: alter_mutex -> write_turnstile -> mutex.
     mutable std::mutex write_turnstile;
 
-    // A writer holds the turnstile for at most WRITE_TURNSTILE_MAX_HOLD; past that, a search that started earlier or a
-    // nested reader is keeping it out, so it logs a warning and keeps waiting with the turnstile open. After any hold,
-    // no writer takes the turnstile again for WRITE_TURNSTILE_OPEN_RATIO times as long as it was held, so new searches
-    // are held back at most a quarter of the time however writes arrive, and a stalled write never becomes an outage.
+    // A writer holds the turnstile for at most MAX_HOLD; after a hold of T, it stays open for OPEN_RATIO * T.
     static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
     static constexpr int64_t WRITE_TURNSTILE_OPEN_RATIO = 3;
-
-    // steady_clock milliseconds before which no writer may hold the turnstile.
     std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
 
-    // Takes `mutex` exclusively for a document write, ahead of searches that start after this call. The caller must
-    // not hold `mutex`.
     std::unique_lock<std::shared_mutex> lock_for_write();
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
