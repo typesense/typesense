@@ -5191,7 +5191,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImpo
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_import");
     });
-    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
 
     in_flight_search.unlock();
     ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
@@ -5240,7 +5240,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAf
         auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
         return search_op.ok() ? std::string() : search_op.error();
     });
-    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
 
     in_flight_search.unlock();
     ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
@@ -5276,7 +5276,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDele
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_delete");
     });
-    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
 
     in_flight_search.unlock();
     ASSERT_EQ(std::future_status::ready, remove.wait_for(std::chrono::seconds(10)));
@@ -5319,7 +5319,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfte
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_delete_many");
     });
-    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
 
     in_flight_search.unlock();
     ASSERT_EQ(std::future_status::ready, remove_many.wait_for(std::chrono::seconds(10)));
@@ -5328,6 +5328,94 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfte
     ASSERT_EQ(1, later_search.get());
 
     collectionManager.drop_collection("write_waits_delete_many");
+}
+
+TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearchesOnlyBriefly) {
+    auto schema = R"({
+        "name": "write_waits_bounded",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    // Stands in for nested join or reference reads from another collection's searches: they take the collection
+    // lock shared without passing the turnstile. Here they never leave, so the write can't get the lock.
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    // A write that can't make progress must stop holding searches back after a bounded wait. Otherwise a stalled
+    // write becomes a search outage.
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_bounded");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(4)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    // The search ran while the write was still waiting, so it saw only the first document.
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_bounded");
+}
+
+TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBackAgain) {
+    auto schema = R"({
+        "name": "write_waits_cooldown",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> first_import;
+    std::future<bool> second_import;
+    std::future<size_t> later_search;
+
+    // A reader that bypasses the turnstile and never leaves, so the first write gives up holding searches back.
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    first_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(2500)));
+
+    // A second write arriving while the first still waits must not close the gate again, or searches would be held
+    // back for another bound per queued writer.
+    second_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(500)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_cooldown");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(first_import.get());
+    ASSERT_TRUE(second_import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    // The search ran before either write got the lock.
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_cooldown");
 }
 
 TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJoinedCollection) {

@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <map>
 #include <thread>
+#include <chrono>
+#include <limits>
 #include <memory>
 #include <atomic>
 #include <mutex>
@@ -401,12 +403,22 @@ private:
     mutable std::shared_mutex alter_mutex;
 
     // std::shared_mutex prefers readers: a search is admitted while a writer waits, so overlapping searches can
-    // keep a document write out of `mutex` indefinitely. A document writer holds this from the moment it starts
-    // waiting for `mutex` until it holds it, and a search passes through it before its first shared lock, so a
-    // search that starts while a write waits queues behind the write. Nested shared locks (joins, references) don't
-    // pass through it: one that waited for a writer while its thread holds another collection's lock could deadlock
-    // against a join in the other direction. Lock order: alter_mutex -> write_turnstile -> mutex.
+    // keep a document write out of `mutex` indefinitely. A document writer holds this while it waits for `mutex`,
+    // and a search passes through it before its first shared lock, so a search that starts while a write waits
+    // queues behind the write. Nested shared locks (joins, references) don't pass through it: one that waited for a
+    // writer while its thread holds another collection's lock could deadlock against a join in the other direction.
+    // Lock order: alter_mutex -> write_turnstile -> mutex.
     mutable std::mutex write_turnstile;
+
+    // A search that started earlier, or a nested reader, can keep a writer out of `mutex` for longer than
+    // WRITE_TURNSTILE_MAX_HOLD. The writer then logs a warning and keeps waiting with the turnstile open, and no writer
+    // holds it again for WRITE_TURNSTILE_COOLDOWN, so searches on a collection are held back for at most 2 s in 32 s
+    // however many writes wait, and a stalled write never becomes a search outage.
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_COOLDOWN{30000};
+
+    // steady_clock milliseconds before which no writer may hold the turnstile.
+    std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
 
     // Takes `mutex` exclusively for a document write, ahead of searches that start after this call. The caller must
     // not hold `mutex`.

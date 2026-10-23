@@ -4195,9 +4195,35 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
 }
 
+static int64_t steady_clock_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
-    std::lock_guard turnstile_lock(write_turnstile);
-    return std::unique_lock(mutex);
+    // Polls rather than a timed lock: std::shared_mutex has none, and a writer re-checks within 1 ms of a release.
+    std::unique_lock lock(mutex, std::try_to_lock);
+    while(!lock.owns_lock()) {
+        if(steady_clock_ms() >= write_turnstile_closable_at) {
+            std::lock_guard turnstile_lock(write_turnstile);
+            // Rechecked under the turnstile: a writer queued behind one that just gave up must not hold it again.
+            if(steady_clock_ms() >= write_turnstile_closable_at) {
+                const auto give_up_at = std::chrono::steady_clock::now() + WRITE_TURNSTILE_MAX_HOLD;
+                while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                if(lock.owns_lock()) {
+                    break;
+                }
+                write_turnstile_closable_at = steady_clock_ms() + WRITE_TURNSTILE_COOLDOWN.count();
+                LOG(WARNING) << "`" << name << "` collection: write waited " << WRITE_TURNSTILE_MAX_HOLD.count()
+                             << " ms for the collection lock; no longer holding new searches back while it waits.";
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lock.try_lock();
+    }
+    return lock;
 }
 
 Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
