@@ -12,10 +12,27 @@ permissions:
   contents: read
 
 jobs:
+  # with no Bazel cache to restore, the build compiles everything, so it gets the larger runner
+  cache-probe:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-22.04
+    outputs:
+      warm: ${{ steps.lookup.outputs.cache-matched-key != '' }}
+    steps:
+      # the path and key prefix are setup-bazel 0.14.0's own for the disk cache below
+      - id: lookup
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /home/runner/.cache/bazel-disk
+          key: setup-bazel-1-linux-disk-main-jan21-2026-
+          restore-keys: setup-bazel-1-linux-disk-main-jan21-2026-
+          lookup-only: true
+
   test:
+    needs: cache-probe
     # a same-repo PR is already tested by its branch's push run
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ${{ vars.TEST_RUNNER || 'ubuntu-22.04' }}
+    runs-on: ${{ needs.cache-probe.outputs.warm == 'true' && (vars.TEST_RUNNER || 'ubuntu-22.04') || (vars.COLD_RUNNER || vars.TEST_RUNNER || 'ubuntu-22.04') }}
 
     steps:
       - name: Checkout code
