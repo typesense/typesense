@@ -5357,6 +5357,11 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
 
         if(already_segmented) {
             StringUtils::split(token, sub_tokens, " ");
+        } else if(locale == "ja" && !token.empty() && token.find('"') == std::string::npos &&
+                  (symbols_to_index_has_minus || token.find('-') == std::string::npos)) {
+            // Japanese normalization is not idempotent. Preserve the indexed term from the first pass,
+            // unless query-only symbols still require tokenization with the field configuration.
+            sub_tokens.push_back(token);
         } else {
             Tokenizer(token, true, false, locale, custom_symbols, custom_separators).tokenize(sub_tokens);
         }
