@@ -16,12 +16,14 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # On a private repo's 2-core runner, a cold build plus the test run filled the root disk, and the
-      # Bazel cache could then not be saved. Drop preinstalled SDKs the build never uses.
+      # A private repo's standard runner (2 vCPU, 8 GB RAM) starts with 14 GB free, which a cold build
+      # and the test run overflow. Drop preinstalled SDKs the build never uses (about 29 GB).
       - name: Free disk space
         run: |
-          nproc; free -g; df -h / /mnt
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          nproc; free -m; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+            /usr/share/swift /usr/local/share/powershell /opt/microsoft /usr/local/share/chromium \
+            /usr/lib/google-cloud-sdk /opt/az
           df -h /
 
       - name: Checkout code
@@ -57,6 +59,13 @@ jobs:
           disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
           repository-cache: true
           external-cache: true
+
+      # The workspace .bazelrc runs 6 jobs, about 1.4 GB each for engine compiles: too many for a 2-core,
+      # 8 GB runner. ~/.bazelrc is read after it; test lines apply after build lines, so set both.
+      - name: Match Bazel jobs to small runners
+        run: |
+          if [ "$(nproc)" -le 2 ]; then printf '\nbuild --jobs=2\ntest --jobs=2\n' >> ~/.bazelrc; fi
+          cat ~/.bazelrc
 
       - name: Build protobuf deps
         run: |
