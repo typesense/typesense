@@ -5492,7 +5492,7 @@ TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJo
     join_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_links", "$write_waits_parents(id:*)");
     });
-    EXPECT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::seconds(2)));
+    EXPECT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::milliseconds(500)));
 
     in_flight_parent_search.unlock();
     ASSERT_EQ(std::future_status::ready, parent_import.wait_for(std::chrono::seconds(10)));
