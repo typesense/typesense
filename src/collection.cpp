@@ -5513,15 +5513,15 @@ Option<bool> Collection::get_filter_ids_with_lock(const std::string& filter_quer
     return get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
-Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+Option<bool> Collection::get_related_parent_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id_vec, result);
+    return get_related_parent_ids(field_name, seq_id_vec, result);
 }
 
-Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
+Option<bool> Collection::get_related_parent_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                          std::vector<uint32_t>& result) const {
-    return index->get_related_ids_with_lock(ref_field_name, seq_id_vec, result);
+    return index->get_related_parent_ids_with_lock(ref_field_name, seq_id_vec, result);
 }
 
 Option<bool> Collection::get_object_array_related_id_with_lock(const std::string& ref_field_name,
@@ -10688,7 +10688,7 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
             }
         } else {
             std::vector<uint32_t> ids;
-            auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+            auto get_references_op = get_related_parent_ids_with_lock(field_name, {seq_id}, ids);
             if (!get_references_op.ok()) {
                 auto const& schema = get_schema();
                 auto it = schema.find(field_name);
@@ -10706,7 +10706,7 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
         }
     } else {
         std::vector<uint32_t> ids;
-        auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+        auto get_references_op = get_related_parent_ids_with_lock(field_name, {seq_id}, ids);
         if (!get_references_op.ok()) {
             auto const& schema = get_schema();
             auto it = schema.find(field_name);
