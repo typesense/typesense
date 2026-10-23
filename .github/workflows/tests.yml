@@ -1,6 +1,9 @@
 name: tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: ['v[0-9]+']
+  pull_request:
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
