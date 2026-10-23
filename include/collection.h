@@ -410,12 +410,12 @@ private:
     // Lock order: alter_mutex -> write_turnstile -> mutex.
     mutable std::mutex write_turnstile;
 
-    // A search that started earlier, or a nested reader, can keep a writer out of `mutex` for longer than
-    // WRITE_TURNSTILE_MAX_HOLD. The writer then logs a warning and keeps waiting with the turnstile open, and no writer
-    // holds it again for WRITE_TURNSTILE_COOLDOWN, so searches on a collection are held back for at most 2 s in 32 s
-    // however many writes wait, and a stalled write never becomes a search outage.
+    // A writer holds the turnstile for at most WRITE_TURNSTILE_MAX_HOLD; past that, a search that started earlier or a
+    // nested reader is keeping it out, so it logs a warning and keeps waiting with the turnstile open. After any hold,
+    // no writer takes the turnstile again for WRITE_TURNSTILE_OPEN_RATIO times as long as it was held, so new searches
+    // are held back at most a quarter of the time however writes arrive, and a stalled write never becomes an outage.
     static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
-    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_COOLDOWN{30000};
+    static constexpr int64_t WRITE_TURNSTILE_OPEN_RATIO = 3;
 
     // steady_clock milliseconds before which no writer may hold the turnstile.
     std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};

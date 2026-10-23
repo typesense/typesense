@@ -4208,14 +4208,17 @@ std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
             std::lock_guard turnstile_lock(write_turnstile);
             // Rechecked under the turnstile: a writer queued behind one that just gave up must not hold it again.
             if(steady_clock_ms() >= write_turnstile_closable_at) {
+                const int64_t closed_at = steady_clock_ms();
                 const auto give_up_at = std::chrono::steady_clock::now() + WRITE_TURNSTILE_MAX_HOLD;
                 while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
+                // Set before the turnstile is released, so a writer queued on it can't close the gate straight away.
+                const int64_t now = steady_clock_ms();
+                write_turnstile_closable_at = now + WRITE_TURNSTILE_OPEN_RATIO * (now - closed_at);
                 if(lock.owns_lock()) {
                     break;
                 }
-                write_turnstile_closable_at = steady_clock_ms() + WRITE_TURNSTILE_COOLDOWN.count();
                 LOG(WARNING) << "`" << name << "` collection: write waited " << WRITE_TURNSTILE_MAX_HOLD.count()
                              << " ms for the collection lock; no longer holding new searches back while it waits.";
             }

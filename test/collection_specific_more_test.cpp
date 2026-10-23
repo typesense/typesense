@@ -5418,6 +5418,54 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     collectionManager.drop_collection("write_waits_cooldown");
 }
 
+TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanItWasClosed) {
+    auto schema = R"({
+        "name": "write_waits_duty_cycle",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> first_import;
+    std::future<bool> second_import;
+    std::future<size_t> later_search;
+
+    // The first write holds the gate for about a second behind a reader, then gets the lock.
+    std::shared_lock reader(coll->get_mutex());
+    first_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::seconds(1)));
+    reader.unlock();
+    ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(first_import.get());
+
+    // A second write right behind it, blocked by another reader, must leave the gate open for a while, or
+    // back-to-back writes behind slow readers would keep searches gated almost all the time.
+    std::shared_lock second_reader(coll->get_mutex());
+    second_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(200)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_duty_cycle");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    second_reader.unlock();
+    ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(second_import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    // The search ran after the first write and before the second.
+    ASSERT_EQ(2, later_search.get());
+
+    collectionManager.drop_collection("write_waits_duty_cycle");
+}
+
 TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJoinedCollection) {
     auto parent_schema = R"({
         "name": "write_waits_parents",
