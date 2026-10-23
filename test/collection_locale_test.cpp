@@ -31,6 +31,77 @@ protected:
     }
 };
 
+TEST_F(CollectionLocaleTest, JapaneseQueryPreservesIndexedTokens) {
+    auto coll = collectionManager.create_collection("japanese", 1,
+        {field("title", field_types::STRING, false, false, true, "ja")}).get();
+    std::vector<std::string> expected = {"う゛ぃ", "ー", "がん"};
+    std::vector<std::string> actual;
+    Tokenizer("ヴィーガン", true, false, "ja").tokenize(actual);
+    ASSERT_EQ(expected, actual);
+    for(const std::string query: {"ヴィーガン", "ヴァイオリン", "ヴィーガン cafe", "ビーガン", "和食"}) {
+        SCOPED_TRACE(query);
+        std::vector<std::string> indexed, included, unstemmed;
+        std::vector<std::vector<std::string>> excluded, phrases;
+        Tokenizer(query, true, false, "ja").tokenize(indexed);
+        coll->parse_search_query(query, included, unstemmed, excluded, phrases, "ja", false);
+        EXPECT_EQ(indexed, included);
+    }
+}
+
+TEST_F(CollectionLocaleTest, JapaneseSearchPreservesNormalizedTerms) {
+    auto coll = collectionManager.create_collection("japanese", 1,
+        {field("title", field_types::STRING, false, false, true, "ja")}).get();
+    const std::vector<std::string> titles = {"ヴィーガン", "ビーガン", "ベジタリアン", "和食", "チキンウィング", "中華"};
+    for(size_t i = 0; i < titles.size(); i++) {
+        ASSERT_TRUE(coll->add(nlohmann::json({{"id", std::to_string(i + 1)}, {"title", titles[i]}}).dump()).ok());
+    }
+    for(size_t i = 0; i < 4; i++) {
+        for(bool prefix: {true, false}) {
+            auto result = coll->search(titles[i], {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {prefix},
+                                       0).get();
+            ASSERT_EQ(1, result["found"]) << titles[i];
+            EXPECT_EQ(std::to_string(i + 1), result["hits"][0]["document"]["id"]);
+        }
+    }
+    auto result = coll->search("存在しない", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    EXPECT_EQ(0, result["found"]);
+}
+
+TEST_F(CollectionLocaleTest, JapaneseQueryOperatorsAndConfiguration) {
+    auto coll = collectionManager.create_collection("japanese", 1,
+        {field("title", field_types::STRING, false, false, true, "ja")}).get();
+    const std::vector<std::string> vegan = {"う゛ぃ", "ー", "がん"};
+    auto parse = [&](const std::string& query, bool segmented, const std::vector<char>& symbols,
+                     const std::vector<char>& separators, const std::vector<std::string>& expected_include,
+                     const std::vector<std::vector<std::string>>& expected_exclude,
+                     const std::vector<std::vector<std::string>>& expected_phrases) {
+        SCOPED_TRACE(query);
+        std::vector<std::string> included, unstemmed;
+        std::vector<std::vector<std::string>> excluded, phrases;
+        coll->parse_search_query(query, included, unstemmed, excluded, phrases, "ja", segmented,
+                                 "", nullptr, symbols, separators);
+        EXPECT_EQ(expected_include, included);
+        EXPECT_EQ(expected_exclude, excluded);
+        EXPECT_EQ(expected_phrases, phrases);
+    };
+    parse("\"ヴィーガン\"", false, {}, {}, {"*"}, {}, {vegan});
+    parse("-\"ヴィーガン\" cafe", false, {}, {}, {"cafe"}, {vegan}, {});
+    parse("ヴィーガン -cafe", false, {}, {}, vegan, {{"cafe"}}, {});
+    parse("\"", false, {}, {}, {"##hrhdh##"}, {}, {});
+    parse("-", false, {}, {}, {"##hrhdh##"}, {}, {});
+    parse("ヴィーガン cafe", true, {}, {}, {"ヴィーガン", "cafe"}, {}, {});
+    for(const auto& symbols: std::vector<std::vector<char>>{{}, {'-'}, {'"'}, {'#'}}) {
+        for(const std::string query: {"cafe-shop", "cafe\"shop", "cafe#shop", "ヴィーガン"}) {
+            std::vector<std::string> indexed;
+            Tokenizer(query, true, false, "ja", symbols, {'_'}).tokenize(indexed);
+            parse(query, false, symbols, {'_'}, indexed, {}, {});
+        }
+    }
+    std::vector<std::string> indexed;
+    Tokenizer("ヴィーガン_cafe", true, false, "ja", {}, {'_'}).tokenize(indexed);
+    parse("ヴィーガン_cafe", false, {}, {'_'}, indexed, {}, {});
+}
+
 TEST_F(CollectionLocaleTest, SearchAgainstJapaneseText) {
     Collection *coll1;
 
