@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <future>
 #include <collection_manager.h>
 #include <posting.h>
 #include "collection.h"
@@ -5142,4 +5143,236 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatF
               results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
+}
+
+static size_t search_found(CollectionManager& collectionManager, const std::string& collection_name,
+                           const std::string& filter_by = "") {
+    std::map<std::string, std::string> req_params = {
+            {"collection", collection_name},
+            {"q", "*"},
+            {"filter_by", filter_by},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    if(!search_op.ok()) {
+        return SIZE_MAX;
+    }
+    return nlohmann::json::parse(json_res)["found"].get<size_t>();
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImport) {
+    auto schema = R"({
+        "name": "write_waits_import",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    // Declared before the lock, so that the lock is released before the futures wait on their threads.
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    // Stands in for a search inside run_search_with_lock(), which holds the collection lock shared throughout.
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    // A search that starts while the import waits for the collection lock must queue behind the import. If new
+    // searches are admitted ahead of a waiting writer, overlapping searches keep the import out indefinitely.
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_import");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    // Having run after the import, the later search sees the imported document.
+    ASSERT_EQ(2, later_search.get());
+
+    collectionManager.drop_collection("write_waits_import");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAfterTheImport) {
+    auto schema = R"({
+        "name": "write_waits_new_field",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> import;
+    std::future<std::string> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    // A document with a field the schema hasn't seen first takes the collection lock exclusively to add the field.
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second", "year": 2026})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    // The later search filters on the new field, so it succeeds only if it ran after the field was added. Its
+    // document count isn't asserted: indexing takes the lock again afterwards, and the search may run in between.
+    later_search = std::async(std::launch::async, [&]() {
+        std::map<std::string, std::string> req_params = {
+                {"collection", "write_waits_new_field"},
+                {"q", "*"},
+                {"filter_by", "year:2026"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        return search_op.ok() ? std::string() : search_op.error();
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ("", later_search.get());
+
+    collectionManager.drop_collection("write_waits_new_field");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDelete) {
+    auto schema = R"({
+        "name": "write_waits_delete",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok());
+
+    std::future<bool> remove;
+    std::future<size_t> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    remove = std::async(std::launch::async, [&]() {
+        return coll->remove("1").ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, remove.wait_for(std::chrono::seconds(1)));
+
+    // A delete by id waits for the collection lock like an import, and a later search must not overtake it.
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_delete");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, remove.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(remove.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_delete");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfterTheDelete) {
+    auto schema = R"({
+        "name": "write_waits_delete_many",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok());
+
+    auto seq_id_1 = coll->doc_id_to_seq_id("1");
+    auto seq_id_2 = coll->doc_id_to_seq_id("2");
+    ASSERT_TRUE(seq_id_1.ok());
+    ASSERT_TRUE(seq_id_2.ok());
+
+    std::future<size_t> remove_many;
+    std::future<size_t> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    // Delete by filter removes the matched ids in batches through remove_if_found_many().
+    remove_many = std::async(std::launch::async, [&]() {
+        auto remove_op = coll->remove_if_found_many({seq_id_1.get(), seq_id_2.get()});
+        return remove_op.ok() ? remove_op.get() : SIZE_MAX;
+    });
+    ASSERT_EQ(std::future_status::timeout, remove_many.wait_for(std::chrono::seconds(1)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_delete_many");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, remove_many.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(2, remove_many.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_delete_many");
+}
+
+TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJoinedCollection) {
+    auto parent_schema = R"({
+        "name": "write_waits_parents",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto parent = collectionManager.create_collection(parent_schema).get();
+    ASSERT_TRUE(parent->add(R"({"id": "p0", "name": "first"})"_json.dump()).ok());
+
+    auto child_schema = R"({
+        "name": "write_waits_links",
+        "fields": [
+            {"name": "parent_id", "type": "string", "reference": "write_waits_parents.id"}
+        ]
+    })"_json;
+    auto child = collectionManager.create_collection(child_schema).get();
+    ASSERT_TRUE(child->add(R"({"id": "c0", "parent_id": "p0"})"_json.dump()).ok());
+
+    std::future<bool> parent_import;
+    std::future<size_t> join_search;
+
+    std::shared_lock in_flight_parent_search(parent->get_mutex());
+
+    parent_import = std::async(std::launch::async, [&]() {
+        return parent->add(R"({"id": "p1", "name": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, parent_import.wait_for(std::chrono::seconds(1)));
+
+    // A join search on the child takes the parent's lock shared while it holds the child's. That nested acquisition
+    // must not wait for the parent's writer: a search on the parent that joins back to the child nests the other way,
+    // so with writers waiting on both collections the two searches would deadlock.
+    join_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_links", "$write_waits_parents(id:*)");
+    });
+    EXPECT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::seconds(2)));
+
+    in_flight_parent_search.unlock();
+    ASSERT_EQ(std::future_status::ready, parent_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(parent_import.get());
+    ASSERT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, join_search.get());
+
+    collectionManager.drop_collection("write_waits_links");
+    collectionManager.drop_collection("write_waits_parents");
 }

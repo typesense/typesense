@@ -572,7 +572,7 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 
     std::unordered_set<std::string> dummy_set;
     {
-        std::unique_lock index_lock(referencing_coll->mutex);
+        auto index_lock = referencing_coll->lock_for_write();
         Index::batch_memory_index(referencing_coll->index, index_records, referencing_coll->default_sorting_field,
                                   referencing_coll->search_schema, referencing_coll->embedding_fields,
                                   referencing_coll->fallback_field_type, referencing_coll->token_separators,
@@ -1152,7 +1152,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         }
 
         if(!new_fields.empty()) {
-            std::unique_lock lock(mutex);
+            auto lock = lock_for_write();
 
             bool found_new_field = false;
             for(auto& new_field: new_fields) {
@@ -1460,7 +1460,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     Index::batch_validate_and_preprocess(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                            fallback_field_type, token_separators, symbols_to_index, true);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                               fallback_field_type, token_separators, symbols_to_index, dummy);
 
@@ -1477,7 +1477,7 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
                     remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     const auto collection_name = name;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
@@ -2627,6 +2627,8 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                                           nlohmann::json& curation_metadata,
                                                           const bool& is_union_search,
                                                           const uint32_t& union_search_index) const {
+    // A search's first lock: queue behind any document write already waiting for `mutex` (see write_turnstile).
+    { std::lock_guard turnstile_lock(write_turnstile); }
     std::shared_lock lock(mutex);
     return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
                                   conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
@@ -4191,6 +4193,11 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
     //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
+}
+
+std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
+    std::lock_guard turnstile_lock(write_turnstile);
+    return std::unique_lock(mutex);
 }
 
 Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
@@ -6617,7 +6624,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
                                  const bool& cascade_remove) {
     spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
     {
-        std::unique_lock lock(mutex);
+        std::shared_lock lock(mutex);
         referenced_in_copy = referenced_in;
     }
 
@@ -6628,7 +6635,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     }
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
 
         index->remove(seq_id, document, {}, false);
         if (num_documents != 0) {
@@ -6919,7 +6926,7 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     Collection::cascade_remove(name, records, remove_from_store);
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
         for(auto& record: records) {
             index->remove(record.seq_id, record.doc, {}, false);
             if (num_documents != 0) {

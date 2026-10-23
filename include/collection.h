@@ -400,6 +400,18 @@ private:
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex alter_mutex;
 
+    // std::shared_mutex prefers readers: a search is admitted while a writer waits, so overlapping searches can
+    // keep a document write out of `mutex` indefinitely. A document writer holds this from the moment it starts
+    // waiting for `mutex` until it holds it, and a search passes through it before its first shared lock, so a
+    // search that starts while a write waits queues behind the write. Nested shared locks (joins, references) don't
+    // pass through it: one that waited for a writer while its thread holds another collection's lock could deadlock
+    // against a join in the other direction. Lock order: alter_mutex -> write_turnstile -> mutex.
+    mutable std::mutex write_turnstile;
+
+    // Takes `mutex` exclusively for a document write, ahead of searches that start after this call. The caller must
+    // not hold `mutex`.
+    std::unique_lock<std::shared_mutex> lock_for_write();
+
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
     struct highlight_t {
