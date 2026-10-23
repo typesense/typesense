@@ -4226,8 +4226,12 @@ std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
                 if(lock.owns_lock()) {
                     break;
                 }
-                LOG(WARNING) << "`" << name << "` collection: write waited " << hold.count()
-                             << " ms for the collection lock; no longer holding new searches back while it waits.";
+                if(now >= write_turnstile_next_warning_at) {
+                    write_turnstile_next_warning_at = now + WRITE_TURNSTILE_WARNING_INTERVAL_MS;
+                    LOG(WARNING) << "`" << name << "` collection: write waited " << hold.count()
+                                 << " ms for the collection lock; no longer holding new searches back while it waits. "
+                                 << "Logged at most once a minute.";
+                }
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

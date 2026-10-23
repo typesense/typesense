@@ -414,6 +414,10 @@ private:
     static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
     std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
 
+    // Earliest steady-clock ms at which a writer that gave up logs again. Guarded by write_turnstile.
+    int64_t write_turnstile_next_warning_at = std::numeric_limits<int64_t>::min();
+    static constexpr int64_t WRITE_TURNSTILE_WARNING_INTERVAL_MS = 60 * 1000;
+
     std::unique_lock<std::shared_mutex> lock_for_write();
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
