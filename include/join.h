@@ -77,8 +77,7 @@ struct ref_include_collection_names_t {
 
 struct negate_left_join_t {
     bool is_negate_join = false;
-    size_t excluded_ids_size = 0;
-    std::unique_ptr<uint32_t []> excluded_ids = nullptr;
+    id_list_t* seq_ids = nullptr;
 
     negate_left_join_t() = default;
 };
@@ -132,91 +131,70 @@ public:
                                                   const bool& is_reference_value = true);
 
     template <typename F>
-    static void negate_left_join(id_list_t* const seq_ids, uint32_t*& reference_docs, uint32_t& reference_docs_count,
-                                 F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
-                                 std::set<uint32_t>& unique_doc_ids,
-                                 negate_left_join_t& negate_left_join_info);
+    static Option<bool> negate_left_join(const std::string& ref_collection_name, const bool& is_reference_array_field,
+                                         F&& get_related_child_ids, const bool& is_match_all_ids_filter,
+                                         std::set<uint32_t>& unique_doc_ids,
+                                         negate_left_join_t& negate_left_join_info,
+                                         filter_result_t& filter_result);
 };
 
 template <typename F>
-void Join::negate_left_join(id_list_t* const seq_ids, uint32_t*& reference_docs, uint32_t& reference_docs_count,
-                            F&& get_doc_id, const bool& is_match_all_ids_filter, std::vector<std::pair<uint32_t, uint32_t>>& id_pairs,
-                            std::set<uint32_t>& unique_doc_ids,
-                            negate_left_join_t& negate_left_join_info) {
-    uint32_t* negate_reference_docs = nullptr;
-    size_t negate_index = 0;
-    std::set<uint32_t> unique_negate_doc_ids;
+Option<bool> Join::negate_left_join(const std::string& ref_collection_name, const bool& is_reference_array_field,
+                                    F&& get_related_child_ids, const bool& is_match_all_ids_filter,
+                                    std::set<uint32_t>& unique_doc_ids,
+                                    negate_left_join_t& negate_left_join_info,
+                                    filter_result_t& filter_result) {
+    std::vector<uint32_t> doc_ids;
+    std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), std::back_inserter(doc_ids));
+    unique_doc_ids.clear();
 
-    // If the negate join is on all ids like !$CollName(id:*), we don't need to collect any references.
-    if (!is_match_all_ids_filter) {
-        auto it = seq_ids->new_iterator();
-        negate_reference_docs = new uint32_t[seq_ids->num_ids() - reference_docs_count];
-        for (size_t i = 0; i < reference_docs_count && it.valid(); i++) {
-            while (it.valid() && it.id() < reference_docs[i]) {
-                const auto &reference_doc_id = it.id();
-                it.next();
+    uint32_t* negated_doc_ids = nullptr;
+    size_t negated_doc_ids_len = 0;
 
-                negate_reference_docs[negate_index++] = reference_doc_id;
-                std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
-                for (const auto &doc_id: doc_ids) {
-                    // If we have 3 products: product_a, product_b, product_c
-                    // and products_viewed like:
-                    // user_a:  [product_a]
-                    // user_b:  [product_a, product_b]
-                    // We should return product_b and product_c for "Products not seen by user_a".
-                    // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
-                    if (doc_id == Join::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
-                        continue;
-                    }
+    // If we have 3 products: product_a, product_b, product_c
+    // and products_viewed like:
+    // user_a:  [product_a]
+    // user_b:  [product_a, product_b]
+    // We should return product_b and product_c for "Products not seen by user_a".
+    // `unique_doc_ids` has the list of products viewed by user_a, `seq_ids - unique_doc_ids` will be the products not viewed.
+    uint32_t* all_doc_ids = negate_left_join_info.seq_ids->uncompress();
+    negated_doc_ids_len = ArrayUtils::exclude_scalar(all_doc_ids, negate_left_join_info.seq_ids->num_ids(), doc_ids.data(),
+                                                     doc_ids.size(), &negated_doc_ids);
+    delete[] all_doc_ids;
 
-                    id_pairs.emplace_back(doc_id, reference_doc_id);
-                    unique_negate_doc_ids.insert(doc_id);
-                }
-            }
-            if (!it.valid()) {
-                break;
-            }
-            while (i + 1 < reference_docs_count &&
-                   (reference_docs[i] + 1 == reference_docs[i + 1])) { // Skip consecutive ids.
-                i++;
-            }
-            it.skip_to(reference_docs[i] + 1);
+    std::vector<uint32_t> negated_docs_vector(negated_doc_ids, negated_doc_ids + negated_doc_ids_len);
+    delete [] negated_doc_ids;
+
+    std::vector<std::pair<uint32_t, reference_filter_result_t>> id_ref_pairs;
+    for (const auto& doc_id: negated_docs_vector) {
+        std::vector<uint32_t> related_doc_ids;
+        Option<bool> op = get_related_child_ids(doc_id, related_doc_ids);
+        if (!op.ok() && op.code() == 400) {
+            return op;
         }
 
-        if (reference_docs_count > 0 && it.valid()) {
-            it.skip_to(reference_docs[reference_docs_count - 1] + 1);
+        // product_c will not have any references.
+        if (related_doc_ids.empty()) {
+            id_ref_pairs.emplace_back(doc_id, reference_filter_result_t());
+            continue;
         }
-        while (it.valid()) {
-            const auto &reference_doc_id = it.id();
-            it.next();
 
-            negate_reference_docs[negate_index++] = reference_doc_id;
-            std::vector<uint32_t> doc_ids = get_doc_id(reference_doc_id);
-            for (const auto &doc_id: doc_ids) {
-                // If we have 3 products: product_a, product_b, product_c
-                // and products_viewed like:
-                // user_a:  [product_a]
-                // user_b:  [product_a, product_b]
-                // We should return product_b and product_c for "Products not seen by user_a".
-                // So rejecting doc_id's already present in unique_doc_ids (product_a in the above example).
-                if (doc_id == Join::reference_helper_sentinel_value || unique_doc_ids.count(doc_id) != 0) {
-                    continue;
-                }
-
-                id_pairs.emplace_back(doc_id, reference_doc_id);
-                unique_negate_doc_ids.insert(doc_id);
-            }
-        }
+        auto related_docs = new uint32_t[related_doc_ids.size()];
+        std::copy(related_doc_ids.begin(), related_doc_ids.end(), related_docs);
+        auto r = reference_filter_result_t(related_doc_ids.size(), related_docs, is_reference_array_field);
+        id_ref_pairs.emplace_back(doc_id, std::move(r));
     }
 
-    delete [] reference_docs;
-    reference_docs = negate_reference_docs;
-    reference_docs_count = negate_index;
+    filter_result.count = id_ref_pairs.size();
+    filter_result.docs = new uint32_t[id_ref_pairs.size()];
+    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[id_ref_pairs.size()] {};
 
-    // Main purpose of `negate_left_join_info.excluded_ids` is help identify the doc_ids that don't have any references.
-    negate_left_join_info.excluded_ids_size = unique_doc_ids.size();
-    negate_left_join_info.excluded_ids.reset(new uint32_t[unique_doc_ids.size()]);
-    std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), negate_left_join_info.excluded_ids.get());
+    uint32_t filter_result_index = 0;
+    for (auto& [doc_id, references]: id_ref_pairs) {
+        filter_result.docs[filter_result_index] = doc_id;
+        filter_result.coll_to_references[filter_result_index][ref_collection_name] = std::move(references);
+        filter_result_index++;
+    }
 
-    unique_doc_ids = unique_negate_doc_ids;
+    return Option<bool>(true);
 }
