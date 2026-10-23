@@ -5176,7 +5176,11 @@ struct WritePriorityMaxPercentage {
     }
 };
 
+// The longest hold, so that the timed waits in the gate tests keep their room on a loaded machine.
+static constexpr int WRITE_PRIORITY_FOR_A_2_S_HOLD = 100;
+
 TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImport) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
     auto schema = R"({
         "name": "write_waits_import",
         "fields": [
@@ -5214,6 +5218,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImpo
 }
 
 TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAfterTheImport) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
     auto schema = R"({
         "name": "write_waits_new_field",
         "fields": [
@@ -5259,6 +5264,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAf
 }
 
 TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDelete) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
     auto schema = R"({
         "name": "write_waits_delete",
         "fields": [
@@ -5294,6 +5300,7 @@ TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDele
 }
 
 TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfterTheDelete) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
     auto schema = R"({
         "name": "write_waits_delete_many",
         "fields": [
@@ -5354,12 +5361,13 @@ TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearches
     import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(100)));
 
+    // At the default setting the hold is 500 ms.
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_bounded");
     });
-    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(4)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(900)));
     EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
 
     ungated_readers.unlock();
@@ -5382,6 +5390,8 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     auto coll = collectionManager.create_collection(schema).get();
     ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
 
+    // A 1 s hold, after a give-up open for 1 s.
+    WritePriorityMaxPercentage write_priority(50);
     std::future<bool> first_import;
     std::future<bool> second_import;
     std::future<size_t> later_search;
@@ -5391,12 +5401,12 @@ TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBac
     first_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(2500)));
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(1200)));
 
     second_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(500)));
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(100)));
 
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_cooldown");
@@ -5429,11 +5439,12 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
     std::future<bool> second_import;
     std::future<size_t> later_search;
 
+    // Released before the 500 ms hold ends, so the first write gets in after about 400 ms closed.
     std::shared_lock reader(coll->get_mutex());
     first_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::seconds(1)));
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(400)));
     reader.unlock();
     ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
     ASSERT_TRUE(first_import.get());
@@ -5442,12 +5453,12 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
     second_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(200)));
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(100)));
 
     later_search = std::async(std::launch::async, [&]() {
         return search_found(collectionManager, "write_waits_duty_cycle");
     });
-    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(500)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(300)));
 
     second_reader.unlock();
     ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
@@ -5460,6 +5471,7 @@ TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanI
 }
 
 TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJoinedCollection) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
     auto parent_schema = R"({
         "name": "write_waits_parents",
         "fields": [
@@ -5568,12 +5580,12 @@ TEST_F(CollectionSpecificMoreTest, AWriteAtHalfPriorityLeavesTheGateOpenAsLongAs
     first_import = std::async(std::launch::async, [&]() {
         return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
     });
-    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::seconds(1)));
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(600)));
     reader.unlock();
     ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
     ASSERT_TRUE(first_import.get());
 
-    // About 1 s closed, so at 50 % the gate may close again after about 1 s open.
+    // About 0.6 s closed, so at 50 % the gate may close again after about 0.6 s open.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     std::shared_lock second_reader(coll->get_mutex());
     second_import = std::async(std::launch::async, [&]() {
@@ -5594,4 +5606,81 @@ TEST_F(CollectionSpecificMoreTest, AWriteAtHalfPriorityLeavesTheGateOpenAsLongAs
     ASSERT_EQ(3, later_search.get());
 
     collectionManager.drop_collection("write_priority_half");
+}
+
+TEST_F(CollectionSpecificMoreTest, AWriteAtHalfPriorityHoldsSearchesBackForASecond) {
+    auto schema = R"({
+        "name": "write_priority_half_hold",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    WritePriorityMaxPercentage write_priority(50);
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(300)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_half_hold");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(400)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(1)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_priority_half_hold");
+}
+
+TEST_F(CollectionSpecificMoreTest, ALowWritePriorityStillHoldsSearchesBackForHalfASecond) {
+    auto schema = R"({
+        "name": "write_priority_low_hold",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    // Unclamped, 1 % would be a 20 ms hold, shorter than most searches already running.
+    WritePriorityMaxPercentage write_priority(1);
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(200)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_low_hold");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(150)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(1)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_priority_low_hold");
 }

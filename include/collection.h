@@ -406,8 +406,11 @@ private:
     // Lock order: alter_mutex -> write_turnstile -> mutex.
     mutable std::mutex write_turnstile;
 
-    // A writer holds the turnstile for at most MAX_HOLD; after a hold of T, it stays open for T * (100 - p) / p, where
-    // p is the write-priority-max-percentage setting (0: no turnstile).
+    // A writer holds the turnstile for p * HOLD_PER_PERCENT, within [MIN_HOLD, MAX_HOLD]; after a hold of T, it stays
+    // open for T * (100 - p) / p, where p is the write-priority-max-percentage setting (0: no turnstile).
+    // MIN_HOLD: a hold shorter than the searches already running always gives up.
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_HOLD_PER_PERCENT{20};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MIN_HOLD{500};
     static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
     std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
 

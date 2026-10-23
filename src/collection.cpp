@@ -4214,7 +4214,9 @@ std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
             std::lock_guard turnstile_lock(write_turnstile);
             if(steady_clock_ms() >= write_turnstile_closable_at) {
                 const int64_t closed_at = steady_clock_ms();
-                const auto give_up_at = std::chrono::steady_clock::now() + WRITE_TURNSTILE_MAX_HOLD;
+                const auto hold = std::clamp(write_priority * WRITE_TURNSTILE_HOLD_PER_PERCENT,
+                                             WRITE_TURNSTILE_MIN_HOLD, WRITE_TURNSTILE_MAX_HOLD);
+                const auto give_up_at = std::chrono::steady_clock::now() + hold;
                 while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
@@ -4224,7 +4226,7 @@ std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
                 if(lock.owns_lock()) {
                     break;
                 }
-                LOG(WARNING) << "`" << name << "` collection: write waited " << WRITE_TURNSTILE_MAX_HOLD.count()
+                LOG(WARNING) << "`" << name << "` collection: write waited " << hold.count()
                              << " ms for the collection lock; no longer holding new searches back while it waits.";
             }
         }
