@@ -48,8 +48,14 @@ jobs:
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
-          repository-cache: true
+          # one name for v31 and every PR, so a PR (forks too) restores v31's cache; bump it to start empty
+          disk-cache: main-jan21-2026
+          # also keys the disk cache, so a dependency's build change saves a fresh entry
+          repository-cache: |
+            WORKSPACE
+            .bazelrc
+            .bazelversion
+            bazel/**
           external-cache: true
 
       - name: Build protobuf deps
