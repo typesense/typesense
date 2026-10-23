@@ -39,8 +39,7 @@ protected:
     }
 
     void TearDown() override {
-        std::string test_dir = test_tmp_path();
-        system(("rm -rf " + test_dir).c_str());
+        system(("rm -rf " + temp_dir).c_str());
         collectionManager.dispose();
         PersonalizationModelManager::dispose();
         delete store;
