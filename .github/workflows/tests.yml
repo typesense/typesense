@@ -114,6 +114,8 @@ jobs:
 
   api-tests:
     needs: test
+    # explicit, so a failed cache probe two jobs up doesn't skip this one
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-22.04
     env:
       HAS_API_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_URL != '' }}
