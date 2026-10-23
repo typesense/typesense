@@ -30,8 +30,8 @@ jobs:
 
   test:
     needs: cache-probe
-    # a same-repo PR is already tested by its branch's push run
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    # a same-repo PR is already tested by its branch's push run; a failed probe means the larger runner
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ${{ needs.cache-probe.outputs.warm == 'true' && (vars.TEST_RUNNER || 'ubuntu-22.04') || (vars.COLD_RUNNER || vars.TEST_RUNNER || 'ubuntu-22.04') }}
 
     steps:
