@@ -2388,7 +2388,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2900,7 +2900,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryQsSorting) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -2969,7 +2969,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
             ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto coll_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(coll_op.ok());

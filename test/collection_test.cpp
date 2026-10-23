@@ -29,7 +29,7 @@ protected:
         std::string state_dir_path = test_tmp_path("/collection");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system(("mkdir -p " + test_tmp_path("/models")).c_str());
+        system(("mkdir -p " + test_models_dir()).c_str());
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -4778,7 +4778,7 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4812,7 +4812,7 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4841,7 +4841,7 @@ TEST_F(CollectionTest, HybridSearch) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4874,7 +4874,7 @@ TEST_F(CollectionTest, HybridSearch) {
 //                             ]
 //                         })"_json;
     
-//     EmbedderManager::set_model_dir(test_tmp_path("/models"));
+//     EmbedderManager::set_model_dir(test_models_dir());
 //
 
 //     auto op = collectionManager.create_collection(schema);
@@ -4902,7 +4902,7 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4975,7 +4975,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                         ]
                     })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5005,7 +5005,7 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                     ]
                 })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5030,7 +5030,7 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
                     ]
                 })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5054,7 +5054,7 @@ TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
             ]
         })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_FALSE(op.ok());
@@ -5070,7 +5070,7 @@ TEST_F(CollectionTest, WrongTypeForEmbedding) {
                 ]
             })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5093,7 +5093,7 @@ TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
             ]
         })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5116,7 +5116,7 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
                     ]
                 })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5169,7 +5169,7 @@ TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
 
@@ -5202,7 +5202,7 @@ TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
@@ -5233,7 +5233,7 @@ TEST_F(CollectionTest, HideOpenAIApiKey) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
@@ -5257,7 +5257,7 @@ TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
 
@@ -5289,7 +5289,7 @@ TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
                 ]
             })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5322,7 +5322,7 @@ TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
                 ]
             })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

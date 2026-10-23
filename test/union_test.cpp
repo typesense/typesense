@@ -37,7 +37,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        EmbedderManager::set_model_dir(test_tmp_path("/models"));
+        EmbedderManager::set_model_dir(test_models_dir());
     }
 
     void setupProductsCollection() {

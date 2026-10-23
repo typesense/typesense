@@ -1654,7 +1654,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1703,7 +1703,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1736,7 +1736,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1786,7 +1786,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             ]
         })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1852,7 +1852,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1889,7 +1889,7 @@ TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
         ]
     })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(create_op.ok());
@@ -1958,7 +1958,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1992,7 +1992,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
             "enable_nested_fields": true
         })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

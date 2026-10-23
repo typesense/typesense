@@ -3689,7 +3689,7 @@ TEST_F(CollectionFilteringTest, FilterOnObjectFields) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());

@@ -28,7 +28,7 @@ protected:
 
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system(("mkdir -p " + test_tmp_path("/models")).c_str());
+        system(("mkdir -p " + test_models_dir()).c_str());
 
         store = new Store(state_dir_path);
 

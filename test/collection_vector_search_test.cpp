@@ -517,7 +517,7 @@ TEST_F(CollectionVectorTest, VectorUpsertOnEmptyValues) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     nlohmann::json doc = R"(
@@ -1215,7 +1215,7 @@ TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
@@ -1298,7 +1298,7 @@ TEST_F(CollectionVectorTest, EmbeddOptionalFieldNullValueUpsert) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
@@ -1341,7 +1341,7 @@ TEST_F(CollectionVectorTest, SortKeywordSearchWithAutoEmbedVector) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
@@ -1375,7 +1375,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1524,7 +1524,7 @@ TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     nlohmann::json doc;
@@ -1682,7 +1682,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithEvalSort) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     nlohmann::json doc;
@@ -1731,7 +1731,7 @@ TEST_F(CollectionVectorTest, VectorSearchWithEvalSort) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     nlohmann::json doc;
@@ -1783,7 +1783,7 @@ TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
 
@@ -1840,7 +1840,7 @@ TEST_F(CollectionVectorTest, HideCredential) {
             ]
         })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -1897,7 +1897,7 @@ TEST_F(CollectionVectorTest, UpdateOfFieldReferencedByEmbedding) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1957,7 +1957,7 @@ TEST_F(CollectionVectorTest, UpdateOfFieldNotReferencedByEmbedding) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -2011,7 +2011,7 @@ TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -2037,7 +2037,7 @@ TEST_F(CollectionVectorTest, EmbeddingFieldWithIdFieldPrecedingInSchema) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -2057,7 +2057,7 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
@@ -2128,7 +2128,7 @@ TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExistsOnUpsert) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -2214,7 +2214,7 @@ TEST_F(CollectionVectorTest, SemanticSearchReturnOnlyVectorDistance) {
         })"_json;
 
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2252,7 +2252,7 @@ TEST_F(CollectionVectorTest, KeywordSearchReturnOnlyTextMatchInfo) {
         })"_json;
 
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2821,7 +2821,7 @@ TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
             ]
         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2857,7 +2857,7 @@ TEST_F(CollectionVectorTest, DISABLED_HybridSortingTest) {
             ]
     })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
     auto coll1 = collection_create_op.get();
@@ -3024,7 +3024,7 @@ TEST_F(CollectionVectorTest, TestMultilingualE5) {
             ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -3085,7 +3085,7 @@ TEST_F(CollectionVectorTest, TestTwoEmbeddingFieldsSamePrefix) {
                             ]
                             })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
 
@@ -3130,7 +3130,7 @@ TEST_F(CollectionVectorTest, TestOneEmbeddingOneKeywordFieldsHaveSamePrefix) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
 
@@ -3175,7 +3175,7 @@ TEST_F(CollectionVectorTest, HybridSearchOnlyKeyworMatchDoNotHaveVectorDistance)
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
 
@@ -3223,7 +3223,7 @@ TEST_F(CollectionVectorTest, QueryByNotAutoEmbeddingVectorField) {
                     ]
                     })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3267,7 +3267,7 @@ TEST_F(CollectionVectorTest, TestUnloadingModelsOnCollectionDelete) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto schema = actual_schema;
     auto collection_create_op = collectionManager.create_collection(schema);
@@ -3343,7 +3343,7 @@ TEST_F(CollectionVectorTest, TestUnloadingModelsOnDrop) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto schema = actual_schema;
     auto collection_create_op = collectionManager.create_collection(schema);
@@ -3453,7 +3453,7 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto schema = actual_schema;
     auto collection_create_op = collectionManager.create_collection(schema);
@@ -3537,7 +3537,7 @@ TEST_F(CollectionVectorTest, TestHybridSearchAlphaParam) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3674,7 +3674,7 @@ TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
                         ]
                         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3751,7 +3751,7 @@ TEST_F(CollectionVectorTest, TestSearchNonIndexedEmbeddingField) {
                     ]
                     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3830,7 +3830,7 @@ TEST_F(CollectionVectorTest, TestSemanticSearchAfterUpdate) {
                 ]
                 })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3910,7 +3910,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -4025,7 +4025,7 @@ TEST_F(CollectionVectorTest, TestImageEmbeddingWithWrongModel) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4051,7 +4051,7 @@ TEST_F(CollectionVectorTest, TestImageEmbedding) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4120,7 +4120,7 @@ TEST_F(CollectionVectorTest, TestHybridSearchHiddenHits) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4186,7 +4186,7 @@ TEST_F(CollectionVectorTest, TryAddingMultipleImageFieldToEmbedFrom) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4215,7 +4215,7 @@ TEST_F(CollectionVectorTest, TestLongTextForImageEmbedding) {
             ]
         })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4260,7 +4260,7 @@ TEST_F(CollectionVectorTest, TestMultipleFieldsForImageEmbedding) {
             ]
             })"_json;
     
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4301,7 +4301,7 @@ TEST_F(CollectionVectorTest, TestInvalidImage) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4332,7 +4332,7 @@ TEST_F(CollectionVectorTest, TestCLIPTokenizerUnicode) {
     })"_json;
 
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4432,7 +4432,7 @@ TEST_F(CollectionVectorTest, TestEmbeddingValues) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4471,7 +4471,7 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -4593,7 +4593,7 @@ TEST_F(CollectionVectorTest, TestPartiallyUpdateConversationModel) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -4641,7 +4641,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQs) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4679,7 +4679,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4755,7 +4755,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsWithHybridSearch) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4792,7 +4792,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsHybridSearchAlpha) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4847,7 +4847,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsWeight) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -4902,7 +4902,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsWeightInvalid) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
@@ -5027,7 +5027,7 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
         }
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -5877,7 +5877,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithFilteringAndFlatSearchCutoff) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -5962,7 +5962,7 @@ TEST_F(CollectionVectorTest, ThreeSortFieldsWithVectorSearch) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6052,7 +6052,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6178,7 +6178,7 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreWithTwoFieldsTest) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6291,7 +6291,7 @@ TEST_F(CollectionVectorTest, UpdateEmbeddings) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6348,7 +6348,7 @@ TEST_F(CollectionVectorTest, TestRankFusionOrdering) {
                 ]
                 })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6567,7 +6567,7 @@ TEST_F(CollectionVectorTest, DISABLED_TestImageEmbeddingMultilingual) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -6784,7 +6784,7 @@ TEST_F(CollectionVectorTest, ConversationWithUnion) {
                             ]
                             })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -6951,7 +6951,7 @@ TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
                                         ]
                                     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());

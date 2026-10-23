@@ -2458,7 +2458,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -2596,7 +2596,7 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
         "history_collection": "conversation_store"
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";

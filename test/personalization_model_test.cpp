@@ -14,7 +14,7 @@ protected:
     void SetUp() override {
         temp_dir = test_tmp_path("/personalization_model_test");
         system(("rm -rf " + temp_dir + " && mkdir -p " + temp_dir).c_str());
-        std::string test_dir = test_tmp_path("/models");
+        std::string test_dir = test_models_dir();
         system(("rm -rf " + test_dir + " && mkdir -p " + test_dir).c_str());
         EmbedderManager::set_model_dir(test_dir);
 

@@ -5108,7 +5108,7 @@ TEST_F(CollectionCurationTest, OverridesWithSemanticSearch) {
             ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto coll_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(coll_op.ok());
@@ -6772,7 +6772,7 @@ TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
             }
         ]
     })"_json;
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -6853,7 +6853,7 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir(test_tmp_path("/models"));
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto coll_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(coll_op.ok());
