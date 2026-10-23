@@ -4203,6 +4203,13 @@ static int64_t steady_clock_ms() {
 std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
     std::unique_lock lock(mutex, std::try_to_lock);
     while(!lock.owns_lock()) {
+        // Read once per pass: a /config change to 0 between two reads would divide by zero below.
+        const int64_t write_priority = Config::get_instance().get_write_priority_max_percentage();
+        if(write_priority == 0) {
+            lock.lock();
+            break;
+        }
+
         if(steady_clock_ms() >= write_turnstile_closable_at) {
             std::lock_guard turnstile_lock(write_turnstile);
             if(steady_clock_ms() >= write_turnstile_closable_at) {
@@ -4213,7 +4220,7 @@ std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
                 }
                 // Set before releasing the turnstile, so that a writer queued on it can't close the gate again.
                 const int64_t now = steady_clock_ms();
-                write_turnstile_closable_at = now + WRITE_TURNSTILE_OPEN_RATIO * (now - closed_at);
+                write_turnstile_closable_at = now + (now - closed_at) * (100 - write_priority) / write_priority;
                 if(lock.owns_lock()) {
                     break;
                 }

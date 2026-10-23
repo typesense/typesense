@@ -406,9 +406,9 @@ private:
     // Lock order: alter_mutex -> write_turnstile -> mutex.
     mutable std::mutex write_turnstile;
 
-    // A writer holds the turnstile for at most MAX_HOLD; after a hold of T, it stays open for OPEN_RATIO * T.
+    // A writer holds the turnstile for at most MAX_HOLD; after a hold of T, it stays open for T * (100 - p) / p, where
+    // p is the write-priority-max-percentage setting (0: no turnstile).
     static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
-    static constexpr int64_t WRITE_TURNSTILE_OPEN_RATIO = 3;
     std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
 
     std::unique_lock<std::shared_mutex> lock_for_write();
