@@ -16,6 +16,14 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # On a private repo's 2-core runner, a cold build plus the test run filled the root disk, and the
+      # Bazel cache could then not be saved. Drop preinstalled SDKs the build never uses.
+      - name: Free disk space
+        run: |
+          nproc; free -g; df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -87,9 +95,17 @@ jobs:
           path: ${{ env.BAZEL_TESTLOGS_FULL_PATH }}/
         if: failure()
 
+      - name: Disk usage
+        if: always()
+        run: df -h /; du -sh ~/.bazel ~/.cache/bazel-disk ~/.cache/bazel-repo 2>/dev/null || true
+
   api-tests:
     needs: test
     runs-on: ubuntu-22.04
+    # Secrets are empty on fork PRs and in repos that never set them, so run the secret suite only
+    # when every key it reads is present.
+    env:
+      HAS_API_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_URL != '' }}
 
     steps:
       - name: Checkout code
@@ -162,7 +178,7 @@ jobs:
           tar -xzf ./artifacts/v29.tar.gz -C ./artifacts/v29/
 
       - name: Run API tests with secrets
-        if: github.event.pull_request.head.repo.fork == false
+        if: env.HAS_API_SECRETS == 'true'
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
@@ -174,7 +190,7 @@ jobs:
         run: typesense-api-tests
 
       - name: Run API tests without secrets
-        if: github.event.pull_request.head.repo.fork == true
+        if: env.HAS_API_SECRETS != 'true'
         working-directory: api_tests
         env:
           TYPESENSE_BINARY_PATH: ${{ github.workspace }}/typesense-server-binary/typesense-server
