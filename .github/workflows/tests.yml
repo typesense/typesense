@@ -17,8 +17,9 @@ env:
   BAZEL_DISK_CACHE: main-jan21-2026
 
 jobs:
+  # without a cache the build compiles everything, so it goes to COLD_RUNNER; skipped when that isn't set
   cache-probe:
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    if: vars.COLD_RUNNER != '' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-22.04
     outputs:
       warm: ${{ steps.lookup.outputs.cache-matched-key != '' }}
