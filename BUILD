@@ -180,6 +180,7 @@ config_setting(
 
 cc_test(
     name = "typesense-test",
+    shard_count = 8,
     srcs = [
         ":src_files",
         ":test_src_files",
