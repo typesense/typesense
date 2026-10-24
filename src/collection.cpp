@@ -3387,7 +3387,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                 for(size_t j = 0; j < original_tokens.size(); j++) {
                     const auto& original = original_tokens[j];
                     auto& token = field_query_tokens[i].q_include_tokens[j];
-                    token.value = stemmer ? stemmer->stem(original) : original;
+                    token.value = stemmer && !pre_segmented_query ? stemmer->stem(original) : original;
                     token.root_len = token.value.size();
                 }
 

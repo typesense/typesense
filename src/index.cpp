@@ -5189,6 +5189,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                         }
                     }
 
+                    std::bitset<100> exact_leaf_seen;
                     auto search_field_candidates = [&](size_t field_id, bool fallback_pass) {
                         if(allowed_fields && !allowed_fields->test(field_id)) {
                             return true;
@@ -5215,6 +5216,9 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                         }
                         std::vector<art_leaf*> field_leaves;
                         std::set<std::string> field_unique_tokens;
+                        if(exact_leaf_seen[field_id]) {
+                            field_unique_tokens.emplace(field_value);
+                        }
                         const bool prefer_continuation = last_token && !fallback_pass;
                         const auto& tree_name = fallback_pass ? the_fields[field_id].name : search_field.faceted_name();
                         art_fuzzy_search_i(search_index.at(tree_name),
@@ -5245,6 +5249,45 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                         }
                         return true;
                     };
+
+                    // Reserve exact field-specific forms before prefix expansions fill the
+                    // shared candidate limit. There are at most one per search field.
+                    if(costs[token_index] == 0) {
+                        for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
+                            if(allowed_fields && !allowed_fields->test(field_id)) {
+                                continue;
+                            }
+                            const auto& field_value = (*field_tokens)[field_id][token_index].value;
+                            const auto& search_field = search_schema.at(the_fields[field_id].name);
+                            auto* leaf = static_cast<art_leaf*>(art_search(
+                                search_index.at(search_field.faceted_name()),
+                                reinterpret_cast<const unsigned char*>(field_value.c_str()),
+                                field_value.size() + 1));
+                            if(!leaf) {
+                                continue;
+                            }
+                            exact_leaf_seen.set(field_id);
+                            if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
+                                bool has_match = filter_result_iterator->contains_atleast_one(leaf->values);
+                                filter_result_iterator->reset();
+                                if(filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+                                    search_cutoff = true;
+                                    return Option<bool>(true);
+                                }
+                                if(!has_match) {
+                                    continue;
+                                }
+                            }
+                            auto it = candidate_indices.find(field_value);
+                            if(it == candidate_indices.end()) {
+                                candidate_indices.emplace(field_value, leaf_tokens.size());
+                                leaf_tokens.push_back(field_value);
+                                leaf_fields.emplace_back();
+                                it = candidate_indices.find(field_value);
+                            }
+                            leaf_fields[it->second].set(field_id);
+                        }
+                    }
 
                     for(size_t field_id : preferred_fields) {
                         if(!search_field_candidates(field_id, false)) {

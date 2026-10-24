@@ -4030,6 +4030,75 @@ TEST_F(CollectionSpecificMoreTest, MixedFieldPrefixFallsBackAcrossFields) {
     EXPECT_EQ(2, result.get()["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, MixedFieldPreSegmentedQueryKeepsLiteralForms) {
+    auto schema = R"({"name":"mixed_preseg","fields":[{"name":"title","type":"string","stem":true},{"name":"names","type":"string"}]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"stem","title":"James","names":"Other"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"literal","title":"Other","names":"James"})"_json.dump()).ok());
+    for(const auto& fields : {std::vector<std::string>{"title", "names"}, std::vector<std::string>{"names", "title"}}) {
+        for(const auto& weights : {std::vector<uint32_t>{1, 2}, std::vector<uint32_t>{2, 1}}) {
+            auto result = coll->search("james", fields, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                10, "", 30, 4, "", 10, "", "", {}, 3, "<mark>", "</mark>", weights,
+                1000000, true, true);
+            ASSERT_TRUE(result.ok());
+            EXPECT_EQ(1, result.get()["found"].get<size_t>());
+            EXPECT_FALSE(find_doc_by_id(result.get(), "literal").empty());
+            EXPECT_TRUE(find_doc_by_id(result.get(), "stem").empty());
+        }
+    }
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldFilteredExactDoesNotFillPrefixCap) {
+    auto schema = R"({"name":"mixed_filtered_cap","fields":[{"name":"title","type":"string","stem":true},{"name":"names","type":"string"},{"name":"group","type":"string","facet":true}]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"hidden","title":"Jame","names":"Other","group":"hidden"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"visible","title":"Jameson","names":"Other","group":"visible"})"_json.dump()).ok());
+    auto result = coll->search("james", {"title", "names"}, "group:=visible", {}, {}, {0},
+        10, 1, FREQUENCY, {true}, 0, spp::sparse_hash_set<std::string>(),
+        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, "", "", {}, 3,
+        "<mark>", "</mark>", {2, 1}, 1000000, true, false, true, "", false,
+        6000000, 4, 7, fallback, 1);
+    ASSERT_TRUE(result.ok());
+    EXPECT_FALSE(find_doc_by_id(result.get(), "visible").empty());
+    EXPECT_TRUE(find_doc_by_id(result.get(), "hidden").empty());
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldExactTokenSurvivesPrefixCandidateCap) {
+    auto schema = R"({"name":"mixed_cap","fields":[{"name":"title","type":"string","stem":true},{"name":"names","type":"string"}]})"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"target","title":"Other","names":"James"})"_json.dump()).ok());
+    for(const auto& [id, title] : {std::pair{"a", "Jamel"}, {"b", "Jameson"}, {"c", "Jamestown"}, {"d", "Jame"}}) {
+        ASSERT_TRUE(coll->add(nlohmann::json{{"id", id}, {"title", title}, {"names", "Other"}}.dump()).ok());
+    }
+    for(const auto& fields : {std::vector<std::string>{"title", "names"}, std::vector<std::string>{"names", "title"}}) {
+        for(const auto& weights : {std::vector<uint32_t>{1, 2}, std::vector<uint32_t>{2, 1}}) {
+            for(size_t cap : {size_t(1), size_t(4)}) {
+                auto result = coll->search("james", fields, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0,
+                    spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                    10, "", 30, 4, "", 10, "", "", {}, 3, "<mark>", "</mark>", weights,
+                    1000000, true, false, true, "", false, 6000000, 4, 7, fallback, cap);
+                ASSERT_TRUE(result.ok());
+                EXPECT_FALSE(find_doc_by_id(result.get(), "target").empty());
+                EXPECT_FALSE(find_doc_by_id(result.get(), "d").empty());
+            }
+        }
+    }
+    auto last_token = coll->search("other james", {"title", "names"}, "", {}, {}, {0},
+        10, 1, FREQUENCY, {true}, 0, spp::sparse_hash_set<std::string>(),
+        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, "", "", {}, 3,
+        "<mark>", "</mark>", {2, 1}, 1000000, true, false, true, "", false,
+        6000000, 4, 7, fallback, 1);
+    ASSERT_TRUE(last_token.ok());
+    EXPECT_FALSE(find_doc_by_id(last_token.get(), "target").empty());
+}
+
 TEST_F(CollectionSpecificMoreTest, MixedFieldCustomDictionaryKeepsLiteralTokens) {
     ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("mixed_people",
         {R"({"word":"people","root":"person"})"}).ok());
