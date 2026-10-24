@@ -9,6 +9,7 @@
 #include "collection.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
+#include "stopwords_manager.h"
 
 static nlohmann::json find_doc_by_id(const nlohmann::json& results, const std::string& doc_id) {
     for (const auto& hit : results["hits"]) {
@@ -2917,8 +2918,20 @@ TEST_F(CollectionSpecificMoreTest, StemmingEnglishWithCaps) {
     std::vector<sort_by> sort_fields = {};
 
     auto res = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("0", res["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    auto with_typos = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {2},
+        10, 1, FREQUENCY, {true}, 0, spp::sparse_hash_set<std::string>(),
+        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 2).get();
+    ASSERT_EQ(2, with_typos["hits"].size());
+    ASSERT_STREQ("0", with_typos["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", with_typos["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    auto without_typos = coll1->search("onions", {"subClass","name"}, "", {}, sort_fields, {0},
+        10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, without_typos["hits"].size());
+    ASSERT_STREQ("0", without_typos["hits"][0]["document"]["id"].get<std::string>().c_str());
 }
 
 TEST_F(CollectionSpecificMoreTest, StemmingEnglishPrefixHighlight) {
@@ -3831,6 +3844,212 @@ TEST_F(CollectionSpecificMoreTest, StemmingRemoveDocLeavesNoStalePostings) {
     ASSERT_EQ(1, res["found"].get<size_t>());
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldStemmingPreservesExactTokens) {
+    nlohmann::json schema = R"({
+        "name": "mixed_field_stemming",
+        "fields": [
+            {"name": "title", "type": "string", "stem": true},
+            {"name": "names", "type": "string[]", "stem": false}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"Best candidate for the position","names":["Jane Doe","James Fishback","Bob Wilson"]})"_json.dump()).ok());
+    // The stem of "james" is "jame". It must not match a literal "jame" in names.
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"Unrelated text","names":["Jame Fishback"]})"_json.dump()).ok());
+
+    auto search = [&](const std::string& query, const std::vector<std::string>& fields,
+                      const std::vector<uint32_t>& weights,
+                      bool prefix = false, bool pre_segmented = false) {
+        return coll->search(query, fields, "", {}, {}, {0},
+                            10, 1, FREQUENCY, {prefix}, 0,
+                            spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                            10, "", 30, 4, "", 10, "", "", {}, 3,
+                            "<mark>", "</mark>", weights, 1000000, true, pre_segmented);
+    };
+
+    const std::vector<std::pair<std::vector<std::string>, std::vector<uint32_t>>> field_orders = {
+        {{"names", "title"}, {1, 2}},
+        {{"names", "title"}, {2, 1}},
+        {{"names", "title"}, {1, 1}},
+        {{"title", "names"}, {2, 1}},
+        {{"title", "names"}, {1, 2}},
+        {{"title", "names"}, {1, 1}},
+    };
+    for(const auto& [fields, weights] : field_orders) {
+        auto result_op = search("james fishback", fields, weights);
+        ASSERT_TRUE(result_op.ok());
+        const auto& result = result_op.get();
+        ASSERT_EQ(1, result["found"].get<size_t>());
+        ASSERT_EQ("1", result["hits"][0]["document"]["id"].get<std::string>());
+        EXPECT_EQ(2, result["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+        EXPECT_EQ(0, result["hits"][0]["text_match_info"]["num_tokens_dropped"].get<size_t>());
+    }
+
+    auto split_fields = search("candidate fishback", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(split_fields.ok());
+    ASSERT_EQ(1, split_fields.get()["found"].get<size_t>());
+    EXPECT_EQ("1", split_fields.get()["hits"][0]["document"]["id"].get<std::string>());
+    EXPECT_EQ(2, split_fields.get()["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+
+    auto phrase = search("\"james fishback\"", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(phrase.ok());
+    ASSERT_EQ(1, phrase.get()["found"].get<size_t>());
+    EXPECT_EQ("1", phrase.get()["hits"][0]["document"]["id"].get<std::string>());
+
+    auto excluded = search("fishback -james", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(excluded.ok());
+    ASSERT_EQ(1, excluded.get()["found"].get<size_t>());
+    EXPECT_EQ("2", excluded.get()["hits"][0]["document"]["id"].get<std::string>());
+
+    auto highlighted = search("james fishback", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(highlighted.ok());
+    ASSERT_EQ(1, highlighted.get()["found"].get<size_t>());
+    EXPECT_NE(std::string::npos, highlighted.get()["hits"][0]["highlights"].dump().find("James"));
+
+    for(const auto& query : {"*", ""}) {
+        auto wildcard = search(query, {"title", "names"}, {2, 1});
+        ASSERT_TRUE(wildcard.ok());
+        EXPECT_EQ(2, wildcard.get()["found"].get<size_t>());
+    }
+
+    auto segmented = search("james fishback", {"title", "names"}, {2, 1}, false, true);
+    ASSERT_TRUE(segmented.ok());
+    EXPECT_EQ(1, segmented.get()["found"].get<size_t>());
+
+    auto exact_last_token = search("james", {"title", "names"}, {2, 1});
+    auto prefix_last_token = search("james", {"title", "names"}, {2, 1}, true);
+    ASSERT_TRUE(exact_last_token.ok());
+    ASSERT_TRUE(prefix_last_token.ok());
+    ASSERT_EQ(1, exact_last_token.get()["found"].get<size_t>());
+    ASSERT_EQ(1, prefix_last_token.get()["found"].get<size_t>());
+    EXPECT_EQ(exact_last_token.get()["hits"][0]["text_match_info"]["score"],
+              prefix_last_token.get()["hits"][0]["text_match_info"]["score"]);
+    for(const auto& fields : {std::vector<std::string>{"title", "names"},
+                              std::vector<std::string>{"names", "title"}}) {
+        auto exact_prefix = search("james", fields, {1, 1}, true);
+        ASSERT_TRUE(exact_prefix.ok());
+        auto exact_hit = find_doc_by_id(exact_prefix.get(), "1");
+        ASSERT_FALSE(exact_hit.empty());
+        EXPECT_NE(std::string::npos, exact_hit["highlights"].dump().find("<mark>James</mark>"));
+
+        auto partial_prefix = search("jame", fields, {1, 1}, true);
+        ASSERT_TRUE(partial_prefix.ok());
+        auto partial_hit = find_doc_by_id(partial_prefix.get(), "1");
+        ASSERT_FALSE(partial_hit.empty());
+        EXPECT_NE(std::string::npos, partial_hit["highlights"].dump().find("<mark>Jame</mark>s"));
+    }
+
+    auto& stopwords_manager = StopwordsManager::get_instance();
+    stopwords_manager.init(store);
+    ASSERT_TRUE(stopwords_manager.upsert_stopword("mixed_stemming_stopwords",
+        R"({"stopwords":["james"],"locale":"en"})"_json).ok());
+    auto with_stopwords = coll->search("james fishback", {"title", "names"}, "", {}, {}, {0},
+        10, 1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
+        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, "", "", {}, 3,
+        "<mark>", "</mark>", {2, 1}, 1000, true, false, true, "", false, 10000,
+        4, 7, fallback, 4, {off}, 100, 100, 2, false, false, "", true, 0,
+        max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "mixed_stemming_stopwords");
+    ASSERT_TRUE(with_stopwords.ok());
+    EXPECT_EQ(1, with_stopwords.get()["found"].get<size_t>());
+    EXPECT_EQ(2, with_stopwords.get()["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+    stopwords_manager.delete_stopword("mixed_stemming_stopwords");
+
+    ASSERT_TRUE(stopwords_manager.upsert_stopword("mixed_stemming_all_stopwords",
+        R"({"stopwords":["fishback"],"locale":"en"})"_json).ok());
+    auto all_stopwords = coll->search("fishback", {"title", "names"}, "", {}, {}, {0},
+        10, 1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
+        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, "", "", {}, 3,
+        "<mark>", "</mark>", {2, 1}, 1000, true, false, true, "", false, 10000,
+        4, 7, fallback, 4, {off}, 100, 100, 2, false, false, "", true, 0,
+        max_score, 100, 0, 0, 0, "exhaustive", 30000, 2, "mixed_stemming_all_stopwords");
+    ASSERT_TRUE(all_stopwords.ok());
+    EXPECT_EQ(0, all_stopwords.get()["found"].get<size_t>());
+    stopwords_manager.delete_stopword("mixed_stemming_all_stopwords");
+
+    auto genuine_drop = coll->search("james fishback missing", {"title", "names"}, "", {}, {}, {0},
+        10, 1, FREQUENCY, {false}, 10);
+    ASSERT_TRUE(genuine_drop.ok());
+    ASSERT_GE(genuine_drop.get()["found"].get<size_t>(), 1);
+    auto dropped_hit = find_doc_by_id(genuine_drop.get(), "1");
+    ASSERT_FALSE(dropped_hit.empty());
+    EXPECT_EQ(2, dropped_hit["text_match_info"]["tokens_matched"].get<size_t>());
+    EXPECT_EQ(1, dropped_hit["text_match_info"]["num_tokens_dropped"].get<size_t>());
+
+    auto split_join = coll->search("jamesfishback", {"title", "names"}, "", {}, {}, {2},
+        10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(split_join.ok());
+    ASSERT_EQ(1, split_join.get()["found"].get<size_t>());
+    EXPECT_EQ("1", split_join.get()["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_TRUE(coll->add(R"({"id":"3","title":"Other","names":["James James"]})"_json.dump()).ok());
+    auto repeated = search("james james", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(repeated.ok());
+    auto repeated_hit = find_doc_by_id(repeated.get(), "3");
+    ASSERT_FALSE(repeated_hit.empty());
+    EXPECT_EQ(2, repeated_hit["text_match_info"]["tokens_matched"].get<size_t>());
+
+    auto& synonym_manager = SynonymIndexManager::get_instance();
+    synonym_manager.init_store(store);
+    SynonymIndex synonym_index(store, "mixed_stemming_synonyms");
+    ASSERT_TRUE(synonym_manager.add_synonym_index("mixed_stemming_synonyms", std::move(synonym_index)).ok());
+    coll->set_synonym_sets({"mixed_stemming_synonyms"});
+    ASSERT_TRUE(synonym_manager.upsert_synonym_item("mixed_stemming_synonyms",
+        R"({"id":"jim-james","root":"jim","synonyms":["james"]})"_json).ok());
+    auto synonym = search("jim fishback", {"title", "names"}, {2, 1});
+    ASSERT_TRUE(synonym.ok());
+    ASSERT_EQ(1, synonym.get()["found"].get<size_t>());
+    EXPECT_EQ("1", synonym.get()["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldPrefixFallsBackAcrossFields) {
+    nlohmann::json schema = R"({
+        "name":"mixed_prefix_fallback",
+        "fields":[
+            {"name":"title","type":"string","stem":true},
+            {"name":"names","type":"string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"target","title":"Candidate","names":"James"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"distractor","title":"James","names":"Other"})"_json.dump()).ok());
+
+    auto result = coll->search("james cand", {"title", "names"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, 0,
+                               spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                               10, "", 30, 4, "", 10, "", "", {}, 3,
+                               "<mark>", "</mark>", {2, 1});
+    ASSERT_TRUE(result.ok());
+    ASSERT_EQ(1, result.get()["found"].get<size_t>());
+    EXPECT_EQ("target", result.get()["hits"][0]["document"]["id"].get<std::string>());
+    EXPECT_EQ(2, result.get()["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldCustomDictionaryKeepsLiteralTokens) {
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("mixed_people",
+        {R"({"word":"people","root":"person"})"}).ok());
+    nlohmann::json schema = R"({
+        "name":"mixed_dictionary",
+        "fields":[
+            {"name":"title","type":"string","stem_dictionary":"mixed_people"},
+            {"name":"names","type":"string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"person","names":"people"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"other","names":"person"})"_json.dump()).ok());
+    auto result = coll->search("people", {"title", "names"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(result.ok());
+    ASSERT_EQ(1, result.get()["found"].get<size_t>());
+    EXPECT_EQ("1", result.get()["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, StemmingUpdateDocLeavesNoStalePostings) {

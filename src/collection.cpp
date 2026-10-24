@@ -3303,12 +3303,26 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         field_query_tokens.emplace_back(query_tokens_t{});
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
         const std::string & field_locale = most_weighted_field.locale;
+        const bool mixed_stemming = std::any_of(weighted_search_fields.begin(), weighted_search_fields.end(),
+                [&](const auto& search_field) {
+                    return search_schema.at(search_field.name).get_stemmer() != most_weighted_field.get_stemmer();
+                });
 
         parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer(),
-                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators);
+                           most_weighted_field.symbols_to_index, most_weighted_field.token_separators,
+                           mixed_stemming && most_weighted_field.get_stemmer() != nullptr);
+
+        // Curations remove all occurrences of a normalized token. Preserve the
+        // corresponding original spelling before they change the include list.
+        std::vector<std::string> pre_curation_tokens;
+        std::vector<std::string> pre_curation_unstemmed_tokens;
+        if(mixed_stemming && most_weighted_field.get_stemmer()) {
+            pre_curation_tokens = q_include_tokens;
+            pre_curation_unstemmed_tokens = q_unstemmed_tokens;
+        }
 
         // process filter curations first, before synonyms (order is important)
 
@@ -3318,6 +3332,22 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
                                  most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
                                  most_weighted_field.token_separators);
+
+        const bool include_sentinel = q_include_tokens == std::vector<std::string>{"*"} ||
+                                      q_include_tokens == std::vector<std::string>{"##hrhdh##"};
+        if(mixed_stemming && most_weighted_field.get_stemmer() != nullptr && !include_sentinel &&
+           pre_curation_tokens.size() != pre_curation_unstemmed_tokens.size()) {
+            return Option<bool>(500, "Query token normalization lost its original token positions.");
+        }
+        if(mixed_stemming && most_weighted_field.get_stemmer() != nullptr && !include_sentinel) {
+            std::set<std::string> surviving_tokens(q_include_tokens.begin(), q_include_tokens.end());
+            q_unstemmed_tokens.clear();
+            for(size_t i = 0; i < pre_curation_tokens.size(); i++) {
+                if(surviving_tokens.count(pre_curation_tokens[i]) != 0) {
+                    q_unstemmed_tokens.push_back(pre_curation_unstemmed_tokens[i]);
+                }
+            }
+        }
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -3338,9 +3368,42 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             }
         }
 
+        const bool has_field_specific_query_syntax = mixed_stemming &&
+            (query.find_first_of("\"-") != std::string::npos ||
+             !field_query_tokens[0].q_exclude_tokens.empty() || !field_query_tokens[0].q_phrases.empty());
         for(size_t i = 1; i < weighted_search_fields.size(); i++) {
             field_query_tokens.emplace_back(query_tokens_t{});
             field_query_tokens[i] = field_query_tokens[0];
+            const auto& original_tokens = q_unstemmed_tokens.empty() ? q_include_tokens : q_unstemmed_tokens;
+            if(mixed_stemming && q_include_tokens != std::vector<std::string>{"*"} &&
+               q_include_tokens != std::vector<std::string>{"##hrhdh##"} &&
+               original_tokens.size() != q_include_tokens.size()) {
+                return Option<bool>(500, "Query token normalization lost its original token positions.");
+            }
+            if(mixed_stemming && q_include_tokens != std::vector<std::string>{"*"} &&
+               q_include_tokens != std::vector<std::string>{"##hrhdh##"}) {
+                const auto& search_field = search_schema.at(weighted_search_fields[i].name);
+                auto stemmer = search_field.get_stemmer();
+                for(size_t j = 0; j < original_tokens.size(); j++) {
+                    const auto& original = original_tokens[j];
+                    auto& token = field_query_tokens[i].q_include_tokens[j];
+                    token.value = stemmer ? stemmer->stem(original) : original;
+                    token.root_len = token.value.size();
+                }
+
+            }
+            if(has_field_specific_query_syntax) {
+                const auto& search_field = search_schema.at(weighted_search_fields[i].name);
+                std::vector<std::string> ignored_include_tokens;
+                std::vector<std::string> ignored_unstemmed_tokens;
+                field_query_tokens[i].q_exclude_tokens.clear();
+                field_query_tokens[i].q_phrases.clear();
+                parse_search_query(query, ignored_include_tokens, ignored_unstemmed_tokens,
+                                   field_query_tokens[i].q_exclude_tokens, field_query_tokens[i].q_phrases,
+                                   search_field.locale, pre_segmented_query, stopwords_set,
+                                   search_field.get_stemmer(),
+                                   search_field.symbols_to_index, search_field.token_separators);
+            }
         }
     }
 
@@ -5417,7 +5480,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                                     std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer,
                                     const std::vector<char>& most_weighted_field_symbols_to_index,
-                                    const std::vector<char>& most_weighted_field_token_separators) const {
+                                    const std::vector<char>& most_weighted_field_token_separators,
+                                    bool preserve_unstemmed_positions) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -5438,6 +5502,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
+            if(preserve_unstemmed_positions && stemmer) {
+                tokens_non_stemmed = tokens;
+            }
         } else {
             std::vector<char> custom_symbols = most_weighted_field_symbols_to_index.empty() ? symbols_to_index : most_weighted_field_symbols_to_index;
             custom_symbols.push_back('"');
@@ -5465,9 +5532,15 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
 
-        for (const auto& val: stopwordStruct.stopwords) {
-            tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
-            tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
+        if(preserve_unstemmed_positions) {
+            for (const auto& val: stopwordStruct.stopwords) {
+                tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
+            }
+        } else {
+            for (const auto& val: stopwordStruct.stopwords) {
+                tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
+                tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
+            }
         }
 
         bool exclude_operator_prior = false;
@@ -5488,6 +5561,24 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy,
                            exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,
                            already_segmented, locale, nullptr, most_weighted_field_symbols_to_index, most_weighted_field_token_separators);
+
+            if(preserve_unstemmed_positions && q_unstemmed_tokens != std::vector<std::string>{"*"} &&
+               q_unstemmed_tokens != std::vector<std::string>{"##hrhdh##"}) {
+                std::vector<std::string> original_tokens;
+                std::vector<std::string> normalized_tokens;
+                for(const auto& original : q_unstemmed_tokens) {
+                    auto normalized = already_segmented ? original : stemmer->stem(original);
+                    if(stopwordStruct.stopwords.count(normalized) == 0) {
+                        original_tokens.push_back(original);
+                        normalized_tokens.push_back(std::move(normalized));
+                    }
+                }
+                q_unstemmed_tokens = std::move(original_tokens);
+                if(normalized_tokens.empty()) {
+                    normalized_tokens.push_back(q_exclude_tokens.empty() && q_phrases.empty() ? "##hrhdh##" : "*");
+                }
+                q_include_tokens = std::move(normalized_tokens);
+            }
         }
     }
 }
