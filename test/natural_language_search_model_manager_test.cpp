@@ -2260,4 +2260,41 @@ TEST_F(NaturalLanguageSearchModelManagerTest, InitSkipsStoredModelWithInvalidCon
     ASSERT_EQ(NaturalLanguageSearchModelManager::get_model("bad_private_key_model").code(), 404);
 
     NaturalLanguageSearchModel::disable_request_capture();
+
+TEST_F(NaturalLanguageSearchModelManagerTest, NonStringGeneratedParamValues) {
+    add_valid_model_mock_response();
+    auto config = create_valid_model_config();
+    std::string model_id = "default";
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::add_model(config, model_id, false).ok());
+
+    auto schema = R"({
+        "name":"books",
+        "fields":[{"name":"title", "type":"string"}, {"name":"points", "type":"int32"}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    ASSERT_TRUE(coll->add(R"({"title":"Dune", "points":150})").ok());
+    ASSERT_TRUE(coll->add(R"({"title":"Foundation", "points":50})").ok());
+
+    add_search_params_mock_response({{"q", "*"}, {"filter_by", "points:>100"}, {"per_page", 5},
+                                     {"prioritize_exact_match", false}, {"sort_by", nullptr}});
+    std::map<std::string, std::string> params = {
+        {"collection", "books"}, {"query_by", "title"}, {"nl_query", "true"},
+        {"q", "top five books with more than 100 points"}
+    };
+
+    Option<uint64_t> nl_search_op(0);
+    ASSERT_NO_THROW(nl_search_op = NaturalLanguageSearchModelManager::process_nl_query_and_augment_params(params));
+    ASSERT_TRUE(nl_search_op.ok());
+    ASSERT_EQ("5", params["per_page"]);
+    ASSERT_EQ("false", params["prioritize_exact_match"]);
+    ASSERT_EQ(0, params.count("sort_by"));
+
+    std::string response;
+    nlohmann::json embedded;
+    ASSERT_TRUE(collectionManager.do_search(params, embedded, response, 0).ok());
+    auto results = nlohmann::json::parse(response);
+    ASSERT_EQ(1, results["found"]);
+    ASSERT_EQ("Dune", results["hits"][0]["document"]["title"]);
 }
