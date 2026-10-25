@@ -812,12 +812,8 @@ async function startHeldImport(port: number, collection: string, rest: () => str
   };
 }
 
-// Per market, an import is held open once a piece of it is applied, then a complete import into the same collection
-// lands while it is open, so a snapshot taken next holds an incomplete request that finishes after it.
-//
-// The server dispatches a streamed request on its first body read and counts toward its first piece only the bytes
-// after that read, so how much body it needs before replicating depends on how reads split. Parts of more than one
-// piece are sent one at a time until the leader applies an entry; unsent parts go with the rest at finish().
+// Per market, holds an import open once a piece of it is applied, then lands a complete import into the same collection.
+// Parts go one at a time: the server doesn't count its first body read toward a piece, so one part may not be enough.
 async function startOverlappingReferenceImports(leader: MultiNodeConfig): Promise<HeldImport[]> {
   const heldImports: HeldImport[] = [];
   for (const market of MARKETS) {
