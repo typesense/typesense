@@ -959,7 +959,13 @@ async function assertJoinSearchSucceeds(market: MarketConfig, node: MultiNodeCon
   }
 
   const searchBody = execution.bodyJson;
-  expect(searchBody.results?.[0]?.found).toBe(TARGET_PRODUCT_MATCH_COUNT);
+  const found = searchBody.results?.[0]?.found;
+  if (found !== TARGET_PRODUCT_MATCH_COUNT) {
+    const nodeStatus = await getStatus(node);
+    console.error(`JOIN query for ${market.code.toUpperCase()} on ${node.name} found ${found}, expected ` +
+      `${TARGET_PRODUCT_MATCH_COUNT}; status=${JSON.stringify(nodeStatus)}; body=${execution.bodyText.slice(0, 2000)}`);
+  }
+  expect(found).toBe(TARGET_PRODUCT_MATCH_COUNT);
 
   const hits = searchBody.results?.[0]?.hits ?? [];
   expect(hits.length).toBeGreaterThan(0);
