@@ -5,7 +5,6 @@ export class TypesenseTestRunner {
   private manager: TypesenseProcessManager;
   private static instance: TypesenseTestRunner;
   private exit_code: number = 0;
-  private readonly decoder = new TextDecoder();
 
   constructor() {
     this.manager = new TypesenseProcessManager();
