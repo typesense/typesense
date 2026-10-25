@@ -80,7 +80,13 @@ jobs:
             .bazelrc
             .bazelversion
             bazel/**
-          external-cache: true
+          # onnx_runtime is refetched when its build file or patch changes, so they key its copy too
+          external-cache: |
+            manifest:
+              onnx_runtime:
+                - WORKSPACE
+                - bazel/onnxruntime.BUILD
+                - bazel/onnx.patch
 
       # setup-bazel saves its disk cache only when the exact key missed, and that key changes only with the build
       # files, so it stopped refreshing; this one is keyed per commit and restores the week's newest entry
