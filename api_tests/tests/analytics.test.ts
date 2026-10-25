@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 import { Phases } from "../src/constants";
-import { fetchMultiNode, fetchSingleNode, waitForMultiAnalyticsFlush, waitForSingleAnalyticsFlush } from "../src/request";
+import { fetchMultiNode, fetchSingleNode, readAfterFlush, waitForMultiAnalyticsFlush, waitForSingleAnalyticsFlush } from "../src/request";
 import { z } from "zod";
 
 const MULTI_NODE_ANALYTICS_FLUSH_WAIT = 9000;
@@ -426,7 +426,8 @@ describe(Phases.SINGLE_FRESH, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForSingleAnalyticsFlush();
-    let res = await fetchSingleNode("/analytics/events?user_id=user1&name=product_queries_with_capture&n=10");
+    let res = await readAfterFlush(() => fetchSingleNode("/analytics/events?user_id=user1&name=product_queries_with_capture&n=10"),
+      (body) => JSON.parse(body).events?.length === 1);
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
@@ -467,7 +468,7 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(data.ok).toBe(true);
 
     await waitForSingleAnalyticsFlush();
-    res = await fetchSingleNode("/collections/analytics_products/documents/1");
+    res = await readAfterFlush(() => fetchSingleNode("/collections/analytics_products/documents/1"), (body) => JSON.parse(body).popularity === 3);
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
     expect(data1.popularity).toBe(3);
@@ -479,7 +480,7 @@ describe(Phases.SINGLE_FRESH, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForSingleAnalyticsFlush();
-    let res = await fetchSingleNode("/collections/analytics_queries/documents/export");
+    let res = await readAfterFlush(() => fetchSingleNode("/collections/analytics_queries/documents/export"), (body) => body.split("\n").map((line) => JSON.parse(line)).some((row) => row.count === 2));
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
     let data = res_json.split("\n").map((item: any) => JSON.parse(item));
@@ -515,7 +516,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
     });
     expect(res.ok).toBe(true);
     await waitForSingleAnalyticsFlush(); 
-    res = await fetchSingleNode("/collections/analytics_products/documents/1");
+    res = await readAfterFlush(() => fetchSingleNode("/collections/analytics_products/documents/1"), (body) => JSON.parse(body).popularity === 4);
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
     expect(data1.popularity).toBe(4);
@@ -527,7 +528,7 @@ describe(Phases.SINGLE_RESTARTED, () => {
     await fetchSingleNode("/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForSingleAnalyticsFlush() 
-    let res = await fetchSingleNode("/collections/analytics_queries/documents/export");
+    let res = await readAfterFlush(() => fetchSingleNode("/collections/analytics_queries/documents/export"), (body) => body.split("\n").map((line) => JSON.parse(line)).some((row) => row.count === 3));
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
     let data = res_json.split("\n").map((item: any) => JSON.parse(item));
@@ -852,7 +853,8 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.ok).toBe(true);
 
     await waitForMultiAnalyticsFlush(); 
-    res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10");
+    res = await readAfterFlush(() => fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10"),
+      (body) => JSON.parse(body).events?.length === 1);
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
@@ -880,7 +882,8 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.ok).toBe(true);
 
     await waitForMultiAnalyticsFlush(); 
-    res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_without_capture&n=10");
+    res = await readAfterFlush(() => fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_without_capture&n=10"),
+      (body) => JSON.parse(body).events?.length === 1);
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
@@ -897,7 +900,8 @@ describe(Phases.MULTI_FRESH, () => {
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForMultiAnalyticsFlush(); 
-    let res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_with_capture&n=10");
+    let res = await readAfterFlush(() => fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_queries_with_capture&n=10"),
+      (body) => JSON.parse(body).events?.length === 1);
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);
@@ -914,7 +918,7 @@ describe(Phases.MULTI_FRESH, () => {
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForMultiAnalyticsFlush(); 
-    let res = await fetchMultiNode(3, "/collections/analytics_queries/documents/export");
+    let res = await readAfterFlush(() => fetchMultiNode(3, "/collections/analytics_queries/documents/export"), (body) => body.split("\n").map((line) => JSON.parse(line)).some((row) => row.count === 2));
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
     let data = res_json.split("\n").map((item: any) => JSON.parse(item));
@@ -953,7 +957,7 @@ describe(Phases.MULTI_FRESH, () => {
     expect(data.ok).toBe(true);
 
     await waitForMultiAnalyticsFlush(); 
-    res = await fetchMultiNode(1, "/collections/analytics_products/documents/1");
+    res = await readAfterFlush(() => fetchMultiNode(1, "/collections/analytics_products/documents/1"), (body) => JSON.parse(body).popularity === 3);
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
     expect(data1.popularity).toBe(3);
@@ -987,7 +991,7 @@ describe(Phases.MULTI_RESTARTED, () => {
     });
     expect(res.ok).toBe(true);
     await waitForMultiAnalyticsFlush(); 
-    res = await fetchMultiNode(3, "/collections/analytics_products/documents/1");
+    res = await readAfterFlush(() => fetchMultiNode(3, "/collections/analytics_products/documents/1"), (body) => JSON.parse(body).popularity === 4);
     expect(res.ok).toBe(true);
     const data1 = (await res.json()) as any;
     expect(data1.popularity).toBe(4);
@@ -999,7 +1003,7 @@ describe(Phases.MULTI_RESTARTED, () => {
     await fetchMultiNode(2, "/collections/analytics_products/documents/search?q=typesense&query_by=company_name", { headers: { "x-typesense-user-id": "user1" } });
 
     await waitForMultiAnalyticsFlush() 
-    let res = await fetchMultiNode(1, "/collections/analytics_queries/documents/export");
+    let res = await readAfterFlush(() => fetchMultiNode(1, "/collections/analytics_queries/documents/export"), (body) => body.split("\n").map((line) => JSON.parse(line)).some((row) => row.count === 3));
     expect(res.ok).toBe(true);
     const res_json = (await res.text()) as any;
     let data = res_json.split("\n").map((item: any) => JSON.parse(item));
@@ -1025,7 +1029,8 @@ describe(Phases.MULTI_RESTARTED, () => {
     expect(data.ok).toBe(true);
 
     await waitForMultiAnalyticsFlush(); 
-    res = await fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10");
+    res = await readAfterFlush(() => fetchMultiNode(3, "/analytics/events?user_id=user1&name=product_clicks&n=10"),
+      (body) => JSON.parse(body).events?.length === 2);
     expect(res.ok).toBe(true);
     let data1 = AnalyticsEventList.safeParse(await res.json());
     expect(data1.success).toBe(true);

@@ -90,6 +90,25 @@ function isCommittedIndexInSync(data: any[]) {
   });
 }
 
+// A flush empties a node's analytics buffers before it posts their contents to the leader, so a read right after
+// waitFor*AnalyticsFlush can run before those writes land. Reads until `done` accepts the body or FLUSH_TIMEOUT_MS
+// passes, and returns the last response either way so the caller's assertions report what was there.
+export async function readAfterFlush(read: () => Promise<Response>, done: (body: string) => boolean): Promise<Response> {
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  while (true) {
+    const res = await read();
+    const body = await res.text();
+    let accepted = false;
+    try {
+      accepted = res.ok && done(body);
+    } catch {}
+    if (accepted || Date.now() >= deadline) {
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    }
+    await Bun.sleep(POLL_INTERVAL_MS);
+  }
+}
+
 function isAnalyticsDrained(status: any) {
   return Object.values(status).every((count) => count === 0);
 }
