@@ -43,19 +43,19 @@ export class TypesenseTestRunner {
     try {
       await this.singleFresh(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
 
     try {
       await this.singleRestarted(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
 
     try {
       await this.singleSnapshot(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
   }
 
@@ -63,20 +63,26 @@ export class TypesenseTestRunner {
     try {
       await this.multiFresh(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
 
     try {
       await this.multiRestarted(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
 
     try {
       await this.multiSnapshot(filters, testFile);
     } catch (err) {
-      console.error(err);
+      this.failStep(err);
     }
+  }
+
+  // a step that throws (a server that never got healthy, or one that didn't stop) leaves its phase unrun
+  private failStep(err: unknown) {
+    console.error(err);
+    this.exit_code = 1;
   }
 
   private buildTestCommand(pattern: string, testFile: string | null): string[] {
