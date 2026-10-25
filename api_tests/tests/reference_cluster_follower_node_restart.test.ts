@@ -1069,7 +1069,9 @@ describe(Phases.NO_PHASE, () => {
     }, WAIT_TIMEOUT_MS);
     expect(snapshotRes.status).toBe(201);
     expect(await snapshotRes.json()).toEqual({ success: true });
-    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", WAIT_TIMEOUT_MS)).toBeGreaterThan(0);
+    // at least each market's held import, still incomplete
+    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", WAIT_TIMEOUT_MS))
+      .toBeGreaterThanOrEqual(MARKETS.length);
 
     const heldResponses = await Promise.all(heldImports.map((held) => held.finish()));
     await waitForDrainedWrites(remainingNodes, WAIT_TIMEOUT_MS);
@@ -1091,7 +1093,8 @@ describe(Phases.NO_PHASE, () => {
     const restoredHealth = await waitForHealthy(restoredNode, WAIT_TIMEOUT_MS);
     expect(restoredHealth.status).toBe(200);
     expect(restoredHealth.data.ok).toBe(true);
-    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", WAIT_TIMEOUT_MS)).toBeGreaterThan(0);
+    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", WAIT_TIMEOUT_MS))
+      .toBeGreaterThanOrEqual(MARKETS.length);
 
     await Promise.all(CLUSTER_NODES.map((node) => waitForHealthy(node, WAIT_TIMEOUT_MS)));
     await waitForDrainedWrites(CLUSTER_NODES, WAIT_TIMEOUT_MS);
