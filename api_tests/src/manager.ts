@@ -146,6 +146,7 @@ export class TypesenseProcessManager {
     this.spawnServer(node.name, args, node.port, logDir);
     if (waitForHealth) {
       await this.waitForHealth(node.port);
+      await this.waitForReplay([node.port]);
     }
   }
 
@@ -317,14 +318,18 @@ export class TypesenseProcessManager {
 
   private async waitForHealth(port: number, timeout = 20000) {
     const start = Date.now();
+    let lastResult = "no response";
     while (Date.now() - start < timeout) {
       try {
         const res = await fetch(`http://localhost:${port}/health`);
         if (res.ok) return;
-      } catch {}
+        lastResult = `${res.status} ${await res.text()}`;
+      } catch (err) {
+        lastResult = `${err}`;
+      }
       await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error(`Timed out waiting for /health on port ${port}`);
+    throw new Error(`Timed out after ${timeout} ms waiting for /health on port ${port}: ${lastResult}`);
   }
 
   async shutdown() {
