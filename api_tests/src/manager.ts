@@ -160,8 +160,8 @@ export class TypesenseProcessManager {
       await this.startClusterNode(node, nodesFile, false);
     }
 
-    await this.waitForHealth(firstNode.port);
     await this.electLeader(firstNode.port);
+    await this.waitForLeader(configs, firstNode);
 
     for (const node of configs) {
       await this.waitForHealth(node.port);
@@ -220,15 +220,56 @@ export class TypesenseProcessManager {
     await this.startMultiNode(configs, nodesFile);
   }
 
-  async electLeader(port: number = 5108) {
-    const res = await fetch(`http://localhost:${port}/operations/vote`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-TYPESENSE-API-KEY": "xyz",
-      },
+  // Asks the node to campaign as soon as its API answers. The node campaigns one election timeout (5 s) after the
+  // vote, and refuses a vote while it already leads, so a node that already leads needs none.
+  async electLeader(port: number = 5108, timeout = 20000) {
+    const deadline = Date.now() + timeout;
+    let lastResult = "no response";
+    while (Date.now() < deadline) {
+      try {
+        const status: any = await (await this.fetchNode(port, "/status")).json();
+        if (status.state === "LEADER") return;
+        const res = await this.fetchNode(port, "/operations/vote", { method: "POST" });
+        const body: any = await res.json();
+        if (res.ok && body.success === true) return;
+        lastResult = `${res.status} ${JSON.stringify(body)}`;
+      } catch (err) {
+        lastResult = `${err}`;
+      }
+      await Bun.sleep(250);
+    }
+    throw new Error(`Elect leader on port ${port} failed within ${timeout} ms: ${lastResult}`);
+  }
+
+  // Waits until `leader` leads and every other node follows. The takeover a vote starts lands an election timeout
+  // later; a test running by then would have its writes on the old leader rejected.
+  private async waitForLeader(configs: MultiNodeConfig[], leader: MultiNodeConfig, timeout = 20000) {
+    const deadline = Date.now() + timeout;
+    let states: string[] = [];
+    while (Date.now() < deadline) {
+      states = await Promise.all(configs.map(async (node) => {
+        try {
+          const status: any = await (await this.fetchNode(node.port, "/status")).json();
+          return `${status.state}`;
+        } catch (err) {
+          return `${err}`;
+        }
+      }));
+      if (configs.every((node, index) => states[index] === (node.name === leader.name ? "LEADER" : "FOLLOWER"))) {
+        return;
+      }
+      await Bun.sleep(100);
+    }
+    throw new Error(`${leader.name} did not become the only leader within ${timeout} ms: ` +
+      configs.map((node, index) => `${node.name}=${states[index]}`).join(", "));
+  }
+
+  private fetchNode(port: number, path: string, init: RequestInit = {}) {
+    return fetch(`http://localhost:${port}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", "X-TYPESENSE-API-KEY": "xyz" },
+      signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) throw new Error(`Elect leader failed: ${res.statusText}`);
   }
 
   async createSnapshot(port: number, snapshot_path: string = "") {
