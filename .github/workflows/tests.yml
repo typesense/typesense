@@ -81,7 +81,11 @@ jobs:
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
         with:
           bazelisk-cache: true
-          bazelrc: build --disk_cache=/home/runner/.cache/bazel-disk
+          # .bazelrc's --jobs=6 suits a laptop; a CI runner gives each Bazel job a core
+          bazelrc: |
+            build --disk_cache=/home/runner/.cache/bazel-disk
+            build --jobs=HOST_CPUS
+            test --jobs=HOST_CPUS
           repository-cache: |
             WORKSPACE
             .bazelrc
