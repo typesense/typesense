@@ -107,7 +107,7 @@ export class TypesenseTestRunner {
     const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     await proc.exited;
 
-    console.log(`\n=== Output of phase: ${phase} ===\n`);
+    console.log(`\n=== Output of phase: ${phase}${testFile ? ` (${testFile})` : ""} ===\n`);
     if (stdout) {
       process.stdout.write(stdout);
     }
@@ -125,13 +125,24 @@ export class TypesenseTestRunner {
     return proc.exitCode === 0;
   }
 
+  // Each file with no-phase tests manages its own servers on its own ports, so the files run side by side.
   async noPhase(filters: Filters[], testFile: string | null = null) {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
     const pattern = this.getTestNamePattern(Phases.NO_PHASE, filters);
-    if (!(await this.runPhaseTests(Phases.NO_PHASE, pattern, testFile))) {
+    const files = testFile ? [testFile] : await this.findFilesWith("Phases.NO_PHASE");
+    const results = await Promise.all(files.map((file) => this.runPhaseTests(Phases.NO_PHASE, pattern, file)));
+    if (results.includes(false)) {
       console.error(`\n=== ❌ Phase ${Phases.NO_PHASE} failed ===\n`);
       this.exit_code = 1;
     }
+  }
+
+  private async findFilesWith(text: string): Promise<string[]> {
+    const files: string[] = [];
+    for await (const file of new Bun.Glob("tests/*.test.ts").scan(".")) {
+      if ((await Bun.file(file).text()).includes(text)) files.push(file);
+    }
+    return files.sort();
   }
 
   async singleFresh(filters: Filters[], testFile: string | null = null) {
