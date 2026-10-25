@@ -435,7 +435,11 @@ function getTypesenseLogPath(node: MultiNodeConfig): string {
 }
 
 function getLogSize(node: MultiNodeConfig): number {
-  return statSync(getTypesenseLogPath(node)).size;
+  try {
+    return statSync(getTypesenseLogPath(node)).size;
+  } catch {
+    return 0;
+  }
 }
 
 // Every node logs its raft configuration when a change commits; the nodes file is re-read every 10 s.
@@ -465,33 +469,27 @@ function seedLocalSnapshotFromLeader(leaderNode: MultiNodeConfig, followerNode: 
   cpSync(join(leaderStateDir, "meta"), join(followerStateDir, "meta"), { recursive: true });
 }
 
-function getMaxLoggedInFlightRequestCount(node: MultiNodeConfig, verb: "Serialized" | "Restored"): number | null {
+// The count of the first "Serialized/Restored N in-flight requests" line the node logged past `fromOffset`.
+function getLoggedInFlightRequestCount(node: MultiNodeConfig, verb: "Serialized" | "Restored", fromOffset: number): number | null {
   try {
-    const logText = readFileSync(getTypesenseLogPath(node), "utf8");
+    const logText = readFileSync(getTypesenseLogPath(node)).subarray(fromOffset).toString("utf8");
     const logMessage = verb === "Serialized" ? "for snapshot" : "from snapshot";
-    const matches = [...logText.matchAll(new RegExp(`${verb} (\\d+) in-flight requests ${logMessage}\\.`, "g"))];
-    if (matches.length === 0) {
-      return null;
-    }
-
-    return Math.max(...matches.map((match) => Number.parseInt(match[1] ?? "0", 10)));
+    const match = logText.match(new RegExp(`${verb} (\\d+) in-flight requests ${logMessage}\\.`));
+    return match ? Number.parseInt(match[1] ?? "0", 10) : null;
   } catch {
     return null;
   }
 }
 
-async function waitForPositiveInFlightSnapshotLog(node: MultiNodeConfig, verb: "Serialized" | "Restored", timeoutMs: number): Promise<number> {
-  let maxCount: number | null = null;
-  await waitForCondition(`${node.name} ${verb.toLowerCase()} in-flight snapshot requests`, async () => {
-    maxCount = getMaxLoggedInFlightRequestCount(node, verb);
-    return maxCount !== null && maxCount > 0;
-  }, timeoutMs, 1_000);
+async function waitForInFlightSnapshotLog(node: MultiNodeConfig, verb: "Serialized" | "Restored", fromOffset: number,
+                                          timeoutMs: number): Promise<number> {
+  let count: number | null = null;
+  await waitForCondition(`${node.name} to log ${verb.toLowerCase()} in-flight snapshot requests`, async () => {
+    count = getLoggedInFlightRequestCount(node, verb, fromOffset);
+    return count !== null;
+  }, timeoutMs, 250);
 
-  if (maxCount === null) {
-    throw new Error(`Missing ${verb.toLowerCase()} in-flight snapshot log for ${node.name}`);
-  }
-
-  return maxCount;
+  return count!;
 }
 
 async function waitForLeader(nodes: MultiNodeConfig[], timeoutMs: number = 120_000): Promise<MultiNodeConfig> {
@@ -747,6 +745,10 @@ function buildTailFitmentDocument(market: MarketConfig, fitmentSequence: number)
 type HeldImport = {
   // sends the rest of the body and resolves with the raw HTTP response
   finish: () => Promise<string>;
+  // the connection's state, for a failure message
+  describe: () => string;
+  // settles when the server closes the connection, which before finish() means it answered early
+  closed: Promise<void>;
 };
 
 function chunked(text: string): string {
@@ -774,7 +776,15 @@ async function startHeldImport(port: number, collection: string, firstPart: stri
     `Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n` + chunked(firstPart),
   );
 
+  let isClosed = false;
+  closed.then(() => { isClosed = true; }, () => { isClosed = true; });
+
   return {
+    closed,
+    describe() {
+      return `${collection} held import: ${socket.bytesWritten} bytes written, ${socket.writableLength} buffered, ` +
+        `closed=${isClosed}, response so far=${JSON.stringify(response.slice(0, 300))}`;
+    },
     async finish() {
       socket.write(chunked(rest) + "0\r\n\r\n");
       let timer: Timer | undefined;
@@ -809,9 +819,15 @@ async function startOverlappingReferenceImports(leader: MultiNodeConfig): Promis
     expect(Buffer.byteLength(firstPart)).toBeGreaterThan(STREAM_WINDOW_BYTES);
     expect(Buffer.byteLength(firstPart)).toBeLessThan(2 * STREAM_WINDOW_BYTES);
     const rest = lines(HELD_IMPORT_FIRST_PART_DOC_COUNT, HELD_IMPORT_REST_DOC_COUNT);
-    heldImports.push(await startHeldImport(leader.port, market.collections.fitments, firstPart, rest));
+    const held = await startHeldImport(leader.port, market.collections.fitments, firstPart, rest);
+    heldImports.push(held);
     appliedIndex += 1;
-    await waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS);
+    await Promise.race([
+      waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS),
+      held.closed.then(() => { throw new Error("the server answered before the body was finished"); }),
+    ]).catch((error) => {
+      throw new Error(`${error.message}; ${held.describe()}`);
+    });
   }
 
   const overlappingImports: Promise<void>[] = [];
@@ -1064,13 +1080,14 @@ describe(Phases.NO_PHASE, () => {
     const leaderAfterRemoval = await waitForLeader(remainingNodes);
     const { heldImports, overlappingImports } = await startOverlappingReferenceImports(leaderAfterRemoval);
 
+    const leaderLogSizeBeforeSnapshot = getLogSize(leaderAfterRemoval);
     const snapshotRes = await fetchNode(leaderAfterRemoval.port, "/operations/snapshot", {
       method: "POST",
     }, WAIT_TIMEOUT_MS);
     expect(snapshotRes.status).toBe(201);
     expect(await snapshotRes.json()).toEqual({ success: true });
     // at least each market's held import, still incomplete
-    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", WAIT_TIMEOUT_MS))
+    expect(await waitForInFlightSnapshotLog(leaderAfterRemoval, "Serialized", leaderLogSizeBeforeSnapshot, WAIT_TIMEOUT_MS))
       .toBeGreaterThanOrEqual(MARKETS.length);
 
     const heldResponses = await Promise.all(heldImports.map((held) => held.finish()));
@@ -1087,13 +1104,14 @@ describe(Phases.NO_PHASE, () => {
     const nodesConfigAfterRestore = readFileSync(processManager.nodesFile, "utf8");
     expect(nodesConfigAfterRestore).toContain(`:${followerToRestore.peerPort}:${followerToRestore.port}`);
 
+    const restoredLogSizeBeforeStart = getLogSize(followerToRestore);
     await processManager.startClusterNode(followerToRestore, processManager.nodesFile, false);
 
     const restoredNode = getNodeByName(followerToRestore.name);
     const restoredHealth = await waitForHealthy(restoredNode, WAIT_TIMEOUT_MS);
     expect(restoredHealth.status).toBe(200);
     expect(restoredHealth.data.ok).toBe(true);
-    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", WAIT_TIMEOUT_MS))
+    expect(await waitForInFlightSnapshotLog(restoredNode, "Restored", restoredLogSizeBeforeStart, WAIT_TIMEOUT_MS))
       .toBeGreaterThanOrEqual(MARKETS.length);
 
     await Promise.all(CLUSTER_NODES.map((node) => waitForHealthy(node, WAIT_TIMEOUT_MS)));
