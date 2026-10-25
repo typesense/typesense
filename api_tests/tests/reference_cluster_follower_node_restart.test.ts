@@ -219,19 +219,6 @@ type SearchExecution = {
 
 let manager: TypesenseProcessManager | null = null;
 
-beforeAll(() => {
-  rmSync(BASE_DIR, { recursive: true, force: true });
-  mkdirSync(BASE_DIR, { recursive: true });
-  manager = new TypesenseProcessManager(BASE_DIR);
-});
-
-afterAll(async () => {
-  if (manager) {
-    await manager.shutdown();
-  }
-  rmSync(BASE_DIR, { recursive: true, force: true });
-});
-
 function getNodeByName(name: string): MultiNodeConfig {
   const node = CLUSTER_NODES.find((entry) => entry.name === name);
   if (!node) {
@@ -929,6 +916,20 @@ async function assertRestoredReferenceSchemas(node: MultiNodeConfig) {
 }
 
 describe(Phases.NO_PHASE, () => {
+  // inside the phase, so other phases' processes that load this file never touch its cluster
+  beforeAll(() => {
+    rmSync(BASE_DIR, { recursive: true, force: true });
+    mkdirSync(BASE_DIR, { recursive: true });
+    manager = new TypesenseProcessManager(BASE_DIR);
+  });
+
+  // the next run's beforeAll clears the directory; keeping it leaves the logs for a failed run
+  afterAll(async () => {
+    if (manager) {
+      await manager.shutdown();
+    }
+  });
+
   it("preserves scaled reverse nested joins on a follower restarted from a leader snapshot with in-flight batched writes", async () => {
     if (!manager) {
       throw new Error("Process manager was not initialized");

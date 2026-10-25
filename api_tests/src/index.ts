@@ -28,9 +28,12 @@ export class TypesenseTestRunner {
   async run(filters: Filters[], testFile: string | null = null) {
     try {
       this.manager.cleanDataDirs();
-      await this.singleServerTests(filters, testFile);
-      await this.multiServerTests(filters, testFile);
-      await this.noPhase(filters, testFile);
+      // the three groups share no port, directory or server, so they run side by side
+      await Promise.all([
+        this.singleServerTests(filters, testFile),
+        this.multiServerTests(filters, testFile),
+        this.noPhase(filters, testFile),
+      ]);
       await this.manager.shutdown();
       process.exit(this.exit_code);
     } catch (err) {
@@ -93,16 +96,18 @@ export class TypesenseTestRunner {
     return cmd;
   }
 
-  private runPhaseTests(phase: Phases, pattern: string, testFile: string | null) {
-    const proc = Bun.spawnSync({
+  private async runPhaseTests(phase: Phases, pattern: string, testFile: string | null) {
+    const proc = Bun.spawn({
       cmd: this.buildTestCommand(pattern, testFile),
       stderr: "pipe",
       stdout: "pipe",
     });
 
-    const stdout = proc.stdout ? this.decoder.decode(proc.stdout) : "";
-    const stderr = proc.stderr ? this.decoder.decode(proc.stderr) : "";
+    // read both pipes while the phase runs, and print its output as one block so concurrent phases don't interleave
+    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    await proc.exited;
 
+    console.log(`\n=== Output of phase: ${phase} ===\n`);
     if (stdout) {
       process.stdout.write(stdout);
     }
@@ -123,7 +128,7 @@ export class TypesenseTestRunner {
   async noPhase(filters: Filters[], testFile: string | null = null) {
     console.log(`\n=== ⭐ Running phase: ${Phases.NO_PHASE} ===\n`);
     const pattern = this.getTestNamePattern(Phases.NO_PHASE, filters);
-    if (!this.runPhaseTests(Phases.NO_PHASE, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.NO_PHASE, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.NO_PHASE} failed ===\n`);
       this.exit_code = 1;
     }
@@ -133,7 +138,7 @@ export class TypesenseTestRunner {
     await this.manager.startSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_FRESH, filters);
-    if (!this.runPhaseTests(Phases.SINGLE_FRESH, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.SINGLE_FRESH, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_FRESH} failed ===\n`);
       this.exit_code = 1;
     }
@@ -143,7 +148,7 @@ export class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_RESTARTED, filters);
-    if (!this.runPhaseTests(Phases.SINGLE_RESTARTED, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.SINGLE_RESTARTED, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_RESTARTED} failed ===\n`);
       this.exit_code = 1;
     }
@@ -154,7 +159,7 @@ export class TypesenseTestRunner {
     await this.manager.restartSingleNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.SINGLE_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.SINGLE_SNAPSHOT, filters);
-    if (!this.runPhaseTests(Phases.SINGLE_SNAPSHOT, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.SINGLE_SNAPSHOT, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.SINGLE_SNAPSHOT} failed ===\n`);
       this.exit_code = 1;
     }
@@ -164,7 +169,7 @@ export class TypesenseTestRunner {
     await this.manager.startMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_FRESH} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_FRESH, filters);
-    if (!this.runPhaseTests(Phases.MULTI_FRESH, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.MULTI_FRESH, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_FRESH} failed ===\n`);
       this.exit_code = 1;
     }
@@ -174,7 +179,7 @@ export class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_RESTARTED} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_RESTARTED, filters);
-    if (!this.runPhaseTests(Phases.MULTI_RESTARTED, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.MULTI_RESTARTED, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_RESTARTED} failed ===\n`);
       this.exit_code = 1;
     }
@@ -185,7 +190,7 @@ export class TypesenseTestRunner {
     await this.manager.restartMultiNode();
     console.log(`\n=== ⭐ Running phase: ${Phases.MULTI_SNAPSHOT} ===\n`);
     const pattern = this.getTestNamePattern(Phases.MULTI_SNAPSHOT, filters);
-    if (!this.runPhaseTests(Phases.MULTI_SNAPSHOT, pattern, testFile)) {
+    if (!(await this.runPhaseTests(Phases.MULTI_SNAPSHOT, pattern, testFile))) {
       console.error(`\n=== ❌ Phase ${Phases.MULTI_SNAPSHOT} failed ===\n`);
       this.exit_code = 1;
     }
