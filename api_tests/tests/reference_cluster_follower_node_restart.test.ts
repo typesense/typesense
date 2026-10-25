@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { Phases } from "../src/constants";
 import { TypesenseProcessManager, type MultiNodeConfig } from "../src/manager";
 
-setDefaultTimeout(45 * 60 * 1000);
+setDefaultTimeout(5 * 60 * 1000);
 
 const BASE_DIR = join(process.cwd(), "./data/join-snapshot");
-const CLUSTER_REFRESH_WAIT_MS = 30_000;
-const CLUSTER_HEALTH_TIMEOUT_MS = 20 * 60 * 1000;
-const RESTARTED_NODE_TIMEOUT_MS = 20 * 60 * 1000;
-const IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
-const SNAPSHOT_TIMEOUT_MS = 10 * 60 * 1000;
+// every wait below is for seconds of work on this data; the bound only ends a stuck cluster
+const WAIT_TIMEOUT_MS = 2 * 60 * 1000;
+// the server hands a streamed body to its handler in pieces of this many bytes (ACTIVE_STREAM_WINDOW_SIZE)
+const STREAM_WINDOW_BYTES = 196_605;
 
 function parsePositiveInt(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
@@ -28,14 +28,18 @@ function parsePositiveInt(name: string, defaultValue: number): number {
 }
 
 const IMPORT_BATCH_SIZE = parsePositiveInt("JOIN_SNAPSHOT_IMPORT_BATCH_SIZE", 40_000);
-const CATEGORY_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_CATEGORY_COUNT_PER_MARKET", 5_000);
-const PRODUCT_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_PRODUCT_COUNT_PER_MARKET", 50_000);
-const VEHICLE_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_VEHICLE_COUNT_PER_MARKET", 50_000);
+const CATEGORY_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_CATEGORY_COUNT_PER_MARKET", 50);
+const PRODUCT_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_PRODUCT_COUNT_PER_MARKET", 1_000);
+const VEHICLE_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_VEHICLE_COUNT_PER_MARKET", 1_000);
 const NON_TARGET_FITMENTS_PER_PRODUCT = parsePositiveInt("JOIN_SNAPSHOT_NON_TARGET_FITMENTS_PER_PRODUCT", 4);
-const TARGET_PRODUCT_MATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TARGET_PRODUCT_MATCH_COUNT", 18_016);
+const TARGET_PRODUCT_MATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TARGET_PRODUCT_MATCH_COUNT", 200);
 const QUERY_PAGE_SIZE = parsePositiveInt("JOIN_SNAPSHOT_QUERY_PAGE_SIZE", 5);
-const TAIL_FITMENT_BATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TAIL_FITMENT_BATCH_COUNT", 2);
-const TAIL_FITMENT_DOC_COUNT_PER_BATCH = parsePositiveInt("JOIN_SNAPSHOT_TAIL_FITMENT_DOC_COUNT_PER_BATCH", IMPORT_BATCH_SIZE);
+// Tail fitments per market: an import held open after its first piece, and a complete one that arrives while the
+// first is open. The held one's first part spans one to two STREAM_WINDOW_BYTES and the complete one less than one,
+// so each is one raft entry.
+const HELD_IMPORT_FIRST_PART_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_FIRST_PART_DOC_COUNT", 3_000);
+const HELD_IMPORT_REST_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_REST_DOC_COUNT", 1_000);
+const OVERLAPPING_IMPORT_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_OVERLAPPING_IMPORT_DOC_COUNT", 1_000);
 const TARGET_PRODUCT_INDEX = Math.min(
   PRODUCT_COUNT_PER_MARKET - 1,
   Math.max(0, Math.floor(PRODUCT_COUNT_PER_MARKET / 2)),
@@ -93,7 +97,7 @@ function getFitmentCountPerMarket(): number {
 }
 
 function getTailFitmentCountPerMarket(): number {
-  return TAIL_FITMENT_BATCH_COUNT * TAIL_FITMENT_DOC_COUNT_PER_BATCH;
+  return HELD_IMPORT_FIRST_PART_DOC_COUNT + HELD_IMPORT_REST_DOC_COUNT + OVERLAPPING_IMPORT_DOC_COUNT;
 }
 
 function getExpectedProductCountPerMarket(): number {
@@ -324,7 +328,7 @@ async function waitForCondition(
     }
     await Bun.sleep(intervalMs);
   }
-  throw new Error(`Timed out waiting for ${label}`);
+  throw new Error(`Timed out after ${timeoutMs} ms waiting for ${label}`);
 }
 
 async function waitForHealthy(node: MultiNodeConfig, timeoutMs: number): Promise<{ status: number; data: HealthResponse }> {
@@ -403,31 +407,46 @@ async function waitForDrainedWrites(nodes: MultiNodeConfig[], timeoutMs: number)
     }
 
     return statuses.every((status) => status.queued_writes === 0);
-  }, timeoutMs);
+  }, timeoutMs).catch((error) => {
+    throw new Error(`${error.message}; last statuses: ${JSON.stringify(lastStatuses)}`);
+  });
 
   return lastStatuses;
 }
 
-async function waitForPositiveQueuedWrites(node: MultiNodeConfig, timeoutMs: number): Promise<StatusResponse> {
+async function waitForAppliedIndexAtLeast(node: MultiNodeConfig, index: number, timeoutMs: number): Promise<StatusResponse> {
   let lastStatus: StatusResponse | null = null;
-  await waitForCondition(`${node.name} queued writes to become positive`, async () => {
+  await waitForCondition(`${node.name} to apply raft index ${index}`, async () => {
     try {
       lastStatus = await getStatus(node);
-      return lastStatus.queued_writes > 0;
+      return getAppliedIndex(lastStatus) >= index;
     } catch {
       return false;
     }
-  }, timeoutMs, 250);
+  }, timeoutMs, 50).catch((error) => {
+    throw new Error(`${error.message}; last status: ${JSON.stringify(lastStatus)}`);
+  });
 
-  if (!lastStatus) {
-    throw new Error(`Queued writes status missing for ${node.name}`);
-  }
-
-  return lastStatus;
+  return lastStatus!;
 }
 
 function getTypesenseLogPath(node: MultiNodeConfig): string {
   return join(BASE_DIR, "logs", node.logDir, "typesense.log");
+}
+
+function getLogSize(node: MultiNodeConfig): number {
+  return statSync(getTypesenseLogPath(node)).size;
+}
+
+// Every node logs its raft configuration when a change commits; the nodes file is re-read every 10 s.
+async function waitForConfigurationWithout(nodes: MultiNodeConfig[], removed: MultiNodeConfig, logSizes: number[],
+                                           timeoutMs: number) {
+  const removedPeer = `:${removed.peerPort}:${removed.port}`;
+  await waitForCondition(`${nodes.map((node) => node.name).join(", ")} to commit a configuration without ${removed.name}`,
+    async () => nodes.every((node, index) => {
+      const newLines = readFileSync(getTypesenseLogPath(node)).subarray(logSizes[index]).toString("utf8").split("\n");
+      return newLines.some((line) => line.includes("Configuration of this group is") && !line.includes(removedPeer));
+    }), timeoutMs, 250);
 }
 
 function seedLocalSnapshotFromLeader(leaderNode: MultiNodeConfig, followerNode: MultiNodeConfig) {
@@ -525,7 +544,7 @@ async function importJsonlBatch(port: number, collection: string, lines: string[
       },
       body: lines.join("\n"),
     },
-    IMPORT_TIMEOUT_MS,
+    WAIT_TIMEOUT_MS,
   );
 
   expect(res.ok).toBe(true);
@@ -725,22 +744,94 @@ function buildTailFitmentDocument(market: MarketConfig, fitmentSequence: number)
   };
 }
 
-function startTailReferenceImports(port: number): Promise<void>[] {
-  const importPromises: Promise<void>[] = [];
+type HeldImport = {
+  // sends the rest of the body and resolves with the raw HTTP response
+  finish: () => Promise<string>;
+};
 
+function chunked(text: string): string {
+  return `${Buffer.byteLength(text).toString(16)}\r\n${text}\r\n`;
+}
+
+// Starts an import whose body is sent as chunked HTTP, and stops after the first part: the server replicates the
+// request piece by piece, so until finish() it is an incomplete in-flight request.
+async function startHeldImport(port: number, collection: string, firstPart: string, rest: string): Promise<HeldImport> {
+  const socket = connect(port, "127.0.0.1");
+  let response = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (data) => { response += data; });
+  const closed = new Promise<void>((resolve, reject) => {
+    socket.on("close", () => resolve());
+    socket.on("error", reject);
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
+  socket.write(
+    `POST /collections/${collection}/documents/import?action=create HTTP/1.1\r\n` +
+    `Host: localhost:${port}\r\nX-TYPESENSE-API-KEY: xyz\r\nContent-Type: text/plain\r\n` +
+    `Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n` + chunked(firstPart),
+  );
+
+  return {
+    async finish() {
+      socket.write(chunked(rest) + "0\r\n\r\n");
+      let timer: Timer | undefined;
+      await Promise.race([
+        closed,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${collection} held import got no response in ${WAIT_TIMEOUT_MS} ms`)),
+            WAIT_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      return response;
+    },
+  };
+}
+
+type OverlappingImports = {
+  heldImports: HeldImport[];
+  overlappingImports: Promise<void>[];
+};
+
+// The shape 3671101c fixed: per market, an import is held open after its first piece is applied, then a complete
+// import into the same collection is applied. The earlier-started request is incomplete and will finish last. The
+// complete one isn't awaited: a server that waits on the held request never answers it until that one finishes.
+async function startOverlappingReferenceImports(leader: MultiNodeConfig): Promise<OverlappingImports> {
+  let appliedIndex = getAppliedIndex(await getStatus(leader));
+  const heldImports: HeldImport[] = [];
   for (const market of MARKETS) {
-    for (let batchIndex = 0; batchIndex < TAIL_FITMENT_BATCH_COUNT; batchIndex++) {
-      const batchStart = batchIndex * TAIL_FITMENT_DOC_COUNT_PER_BATCH;
-      const tailFitmentLines = Array.from({ length: TAIL_FITMENT_DOC_COUNT_PER_BATCH }, (_, index) =>
-        JSON.stringify(buildTailFitmentDocument(market, batchStart + index))
-      );
-      importPromises.push(
-        importJsonlBatch(port, market.collections.fitments, tailFitmentLines, `${market.collections.fitments} tail-${batchIndex}`)
-      );
-    }
+    const lines = (start: number, count: number) => Array.from({ length: count }, (_, index) =>
+      JSON.stringify(buildTailFitmentDocument(market, start + index))).join("\n");
+    const firstPart = `${lines(0, HELD_IMPORT_FIRST_PART_DOC_COUNT)}\n`;
+    // between one and two windows, so the first part is exactly one raft entry
+    expect(Buffer.byteLength(firstPart)).toBeGreaterThan(STREAM_WINDOW_BYTES);
+    expect(Buffer.byteLength(firstPart)).toBeLessThan(2 * STREAM_WINDOW_BYTES);
+    const rest = lines(HELD_IMPORT_FIRST_PART_DOC_COUNT, HELD_IMPORT_REST_DOC_COUNT);
+    heldImports.push(await startHeldImport(leader.port, market.collections.fitments, firstPart, rest));
+    appliedIndex += 1;
+    await waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS);
   }
 
-  return importPromises;
+  const overlappingImports: Promise<void>[] = [];
+  for (const market of MARKETS) {
+    const start = HELD_IMPORT_FIRST_PART_DOC_COUNT + HELD_IMPORT_REST_DOC_COUNT;
+    const lines = Array.from({ length: OVERLAPPING_IMPORT_DOC_COUNT }, (_, index) =>
+      JSON.stringify(buildTailFitmentDocument(market, start + index)));
+    expect(Buffer.byteLength(lines.join("\n"))).toBeLessThan(STREAM_WINDOW_BYTES);
+    overlappingImports.push(importJsonlBatch(leader.port, market.collections.fitments, lines,
+      `${market.collections.fitments} overlapping`));
+    appliedIndex += 1;
+    await waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS);
+  }
+
+  return { heldImports, overlappingImports };
+}
+
+function assertHeldImportSucceeded(response: string, label: string) {
+  expect(response.split("\r\n")[0]).toBe("HTTP/1.1 200 OK");
+  assertImportSucceeded(response, label);
 }
 
 async function getCollectionSchema(port: number, collection: string): Promise<CollectionSchemaResponse> {
@@ -893,7 +984,7 @@ async function waitForRestoredCollectionsToLoad(node: MultiNodeConfig, timeoutMs
     }
 
     return true;
-  }, timeoutMs, 5_000);
+  }, timeoutMs, 250);
 }
 
 async function assertRestoredReferenceSchemas(node: MultiNodeConfig) {
@@ -945,7 +1036,7 @@ describe(Phases.NO_PHASE, () => {
       await importMarketData(initialLeader.port, market);
     }
 
-    await waitForDrainedWrites(CLUSTER_NODES, CLUSTER_HEALTH_TIMEOUT_MS);
+    await waitForDrainedWrites(CLUSTER_NODES, WAIT_TIMEOUT_MS);
     await assertAllJoinQueriesSucceed(CLUSTER_NODES);
 
     const leaderBeforeRemoval = await waitForLeader(CLUSTER_NODES);
@@ -958,31 +1049,33 @@ describe(Phases.NO_PHASE, () => {
     const remainingNodes = CLUSTER_NODES.filter((node) => node.name !== followerToRestore.name);
 
     await processManager.stopServer(followerToRestore.name);
+    const logSizesBeforeRemoval = remainingNodes.map(getLogSize);
     processManager.writeNodesConfig(remainingNodes);
 
     const nodesConfigAfterRemoval = readFileSync(processManager.nodesFile, "utf8");
     expect(nodesConfigAfterRemoval).not.toContain(`:${followerToRestore.peerPort}:${followerToRestore.port}`);
 
-    await Bun.sleep(CLUSTER_REFRESH_WAIT_MS);
-    await pollClusterHealthAndStats(remainingNodes, "Cluster /health and /stats.json after 30s refresh wait");
+    await waitForConfigurationWithout(remainingNodes, followerToRestore, logSizesBeforeRemoval, WAIT_TIMEOUT_MS);
+    await pollClusterHealthAndStats(remainingNodes, "Cluster /health and /stats.json after the peer refresh");
 
-    await Promise.all(remainingNodes.map((node) => waitForHealthy(node, CLUSTER_HEALTH_TIMEOUT_MS)));
-    await waitForRaftIndexParity(remainingNodes, CLUSTER_HEALTH_TIMEOUT_MS);
+    await Promise.all(remainingNodes.map((node) => waitForHealthy(node, WAIT_TIMEOUT_MS)));
+    await waitForRaftIndexParity(remainingNodes, WAIT_TIMEOUT_MS);
 
     const leaderAfterRemoval = await waitForLeader(remainingNodes);
-    const tailImportPromises = startTailReferenceImports(leaderAfterRemoval.port);
-    const leaderStatusWithQueuedWrites = await waitForPositiveQueuedWrites(leaderAfterRemoval, CLUSTER_HEALTH_TIMEOUT_MS);
-    expect(leaderStatusWithQueuedWrites.queued_writes).toBeGreaterThan(0);
+    const { heldImports, overlappingImports } = await startOverlappingReferenceImports(leaderAfterRemoval);
 
     const snapshotRes = await fetchNode(leaderAfterRemoval.port, "/operations/snapshot", {
       method: "POST",
-    }, SNAPSHOT_TIMEOUT_MS);
+    }, WAIT_TIMEOUT_MS);
     expect(snapshotRes.status).toBe(201);
     expect(await snapshotRes.json()).toEqual({ success: true });
-    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", CLUSTER_HEALTH_TIMEOUT_MS)).toBeGreaterThan(0);
-1
-    await Promise.all(tailImportPromises);
-    await waitForDrainedWrites(remainingNodes, CLUSTER_HEALTH_TIMEOUT_MS);
+    expect(await waitForPositiveInFlightSnapshotLog(leaderAfterRemoval, "Serialized", WAIT_TIMEOUT_MS)).toBeGreaterThan(0);
+
+    const heldResponses = await Promise.all(heldImports.map((held) => held.finish()));
+    await waitForDrainedWrites(remainingNodes, WAIT_TIMEOUT_MS);
+    heldResponses.forEach((response, index) =>
+      assertHeldImportSucceeded(response, `${MARKETS[index]!.collections.fitments} held`));
+    await Promise.all(overlappingImports);
 
     rmSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true, force: true });
     mkdirSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true });
@@ -995,16 +1088,16 @@ describe(Phases.NO_PHASE, () => {
     await processManager.startClusterNode(followerToRestore, processManager.nodesFile, false);
 
     const restoredNode = getNodeByName(followerToRestore.name);
-    const restoredHealth = await waitForHealthy(restoredNode, RESTARTED_NODE_TIMEOUT_MS);
+    const restoredHealth = await waitForHealthy(restoredNode, WAIT_TIMEOUT_MS);
     expect(restoredHealth.status).toBe(200);
     expect(restoredHealth.data.ok).toBe(true);
-    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", RESTARTED_NODE_TIMEOUT_MS)).toBeGreaterThan(0);
+    expect(await waitForPositiveInFlightSnapshotLog(restoredNode, "Restored", WAIT_TIMEOUT_MS)).toBeGreaterThan(0);
 
-    await Promise.all(CLUSTER_NODES.map((node) => waitForHealthy(node, RESTARTED_NODE_TIMEOUT_MS)));
-    await waitForDrainedWrites(CLUSTER_NODES, RESTARTED_NODE_TIMEOUT_MS);
+    await Promise.all(CLUSTER_NODES.map((node) => waitForHealthy(node, WAIT_TIMEOUT_MS)));
+    await waitForDrainedWrites(CLUSTER_NODES, WAIT_TIMEOUT_MS);
 
-    await waitForRestoredCollectionsToLoad(restoredNode, RESTARTED_NODE_TIMEOUT_MS);
+    await waitForRestoredCollectionsToLoad(restoredNode, WAIT_TIMEOUT_MS);
     await assertRestoredReferenceSchemas(restoredNode);
     await assertAllJoinQueriesSucceed(CLUSTER_NODES);
-  }, { timeout: 45 * 60 * 1000 });
+  }, { timeout: 5 * 60 * 1000 });
 });
