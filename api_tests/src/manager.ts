@@ -1,4 +1,4 @@
-import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync, existsSync, writeFileSync, openSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "bun";
 import { networkInterfaces } from "node:os";
@@ -8,7 +8,11 @@ type ServerInstance = {
   process: Bun.Subprocess;
   name: string;
   port: number;
+  logDir: string;
 };
+
+// a graceful stop takes under 2 s; one still running after this is hung
+const STOP_TIMEOUT_MS = 30_000;
 
 export type MultiNodeConfig = {
   name: string;
@@ -68,15 +72,22 @@ export class TypesenseProcessManager {
     }
   }
 
-  private spawnServer(name: string, args: string[], port: number) {
-    const proc = Bun.spawn([this.binaryPath, ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: process.env,
-      killSignal: "SIGINT",
-    });
-
-    this.processes.set(name, { process: proc, name, port });
+  private spawnServer(name: string, args: string[], port: number, logDir: string) {
+    // appended, so a restarted server keeps the earlier output next to its log
+    const stdout = openSync(join(logDir, `${name}.stdout`), "a");
+    const stderr = openSync(join(logDir, `${name}.stderr`), "a");
+    try {
+      const proc = Bun.spawn([this.binaryPath, ...args], {
+        stdout,
+        stderr,
+        env: process.env,
+        killSignal: "SIGINT",
+      });
+      this.processes.set(name, { process: proc, name, port, logDir });
+    } finally {
+      closeSync(stdout);
+      closeSync(stderr);
+    }
   }
 
   async startSingleNode(dataDir: string = "typesense-data", port: number = 8108, peeringPort: number = 8107, name: string = "single-node") {
@@ -96,7 +107,7 @@ export class TypesenseProcessManager {
       `--peering-port=${peeringPort}`,
       ...TypesenseProcessManager.additionalConfigs,
     ];
-    this.spawnServer(name, args, port);
+    this.spawnServer(name, args, port, logDir);
     return this.waitForHealth(port);
   }
 
@@ -131,7 +142,7 @@ export class TypesenseProcessManager {
       ...TypesenseProcessManager.additionalConfigs,
     ];
 
-    this.spawnServer(node.name, args, node.port);
+    this.spawnServer(node.name, args, node.port, logDir);
     if (waitForHealth) {
       await this.waitForHealth(node.port);
     }
@@ -160,9 +171,40 @@ export class TypesenseProcessManager {
   async stopServer(name: string) {
     const instance = this.processes.get(name);
     if (!instance) return;
-    instance.process.kill("SIGINT");
-    await instance.process.exited;
     this.processes.delete(name);
+    await this.stopProcess(instance, "SIGINT");
+  }
+
+  // Sends the signal and waits for exit. A server still running after STOP_TIMEOUT_MS gets every thread's stack
+  // written next to its log, is killed, and fails the caller.
+  private async stopProcess(instance: ServerInstance, signal: "SIGINT" | "SIGTERM") {
+    instance.process.kill(signal);
+    let timer: Timer | undefined;
+    const exited = await Promise.race([
+      instance.process.exited.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), STOP_TIMEOUT_MS); }),
+    ]);
+    clearTimeout(timer);
+    if (exited) return;
+
+    const pid = instance.process.pid;
+    const stackFile = join(instance.logDir, `${instance.name}-${pid}.stacks`);
+    let stacks: string;
+    try {
+      const gdb = Bun.spawnSync({
+        cmd: ["sudo", "-n", "gdb", "-p", `${pid}`, "-batch", "-ex", "set pagination off", "-ex", "thread apply all bt"],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      stacks = `${gdb.stdout.toString()}${gdb.stderr.toString()}`;
+    } catch (err) {
+      stacks = `gdb could not run: ${err}`;
+    }
+    writeFileSync(stackFile, stacks);
+    instance.process.kill("SIGKILL");
+    await instance.process.exited;
+    throw new Error(`${instance.name} (pid ${pid}, port ${instance.port}) did not exit within ${STOP_TIMEOUT_MS} ms ` +
+      `of ${signal}; thread stacks are in ${stackFile}`);
   }
 
   async restartSingleNode() {
@@ -217,12 +259,19 @@ export class TypesenseProcessManager {
 
   async shutdown() {
     console.log("🔻 Cleaning up Typesense processes...");
-    for (const [name, instance] of this.processes.entries()) {
-      console.log(`➡️ Gracefully stopping ${name} (port ${instance.port})`);
-      instance.process.kill("SIGTERM");
-      await instance.process.exited;
-    }
+    const instances = [...this.processes.values()];
     this.processes.clear();
+    let firstError: unknown;
+    for (const instance of instances) {
+      console.log(`➡️ Gracefully stopping ${instance.name} (port ${instance.port})`);
+      try {
+        await this.stopProcess(instance, "SIGTERM");
+      } catch (err) {
+        console.error(err);
+        firstError ??= err;
+      }
+    }
+    if (firstError) throw firstError;
   };
 
   private installSignalHandlers() {
