@@ -185,10 +185,11 @@ export class TypesenseProcessManager {
         }
       }));
       const replayed = statuses.every((status) => {
-        const applied = status.applying_index === 0 ? status.known_applied_index : status.applying_index;
-        // older servers (the v29 binary in migrate.test.ts) may not report queued_writes
-        return (status.queued_writes ?? 0) === 0 && status.last_index === status.committed_index &&
-          status.committed_index === applied;
+        // older servers (the v29 binary in migrate.test.ts) report only committed_index and queued_writes
+        const last = status.last_index ?? status.committed_index;
+        const applied = status.known_applied_index === undefined ? status.committed_index :
+          (status.applying_index === 0 ? status.known_applied_index : status.applying_index);
+        return status.queued_writes === 0 && last === status.committed_index && status.committed_index === applied;
       });
       if (replayed) return;
       await Bun.sleep(100);
