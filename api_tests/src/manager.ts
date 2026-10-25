@@ -108,7 +108,8 @@ export class TypesenseProcessManager {
       ...TypesenseProcessManager.additionalConfigs,
     ];
     this.spawnServer(name, args, port, logDir);
-    return this.waitForHealth(port);
+    await this.waitForHealth(port);
+    await this.waitForReplay([port]);
   }
 
   getNodesConfigString(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs) {
@@ -166,6 +167,33 @@ export class TypesenseProcessManager {
     for (const node of configs) {
       await this.waitForHealth(node.port);
     }
+    await this.waitForReplay(configs.map((node) => node.port));
+  }
+
+  // /health turns ok while a restarted node still replays its raft log through the batched indexer (it allows up to
+  // healthy-read-lag queued writes), so tests would read a half-loaded node. Waits until every node has applied its
+  // whole log and indexed it.
+  async waitForReplay(ports: number[], timeout = 60000) {
+    const deadline = Date.now() + timeout;
+    let statuses: any[] = [];
+    while (Date.now() < deadline) {
+      statuses = await Promise.all(ports.map(async (port) => {
+        try {
+          return await (await this.fetchNode(port, "/status")).json();
+        } catch (err) {
+          return { error: `${err}` };
+        }
+      }));
+      const replayed = statuses.every((status) => {
+        const applied = status.applying_index === 0 ? status.known_applied_index : status.applying_index;
+        // older servers (the v29 binary in migrate.test.ts) may not report queued_writes
+        return (status.queued_writes ?? 0) === 0 && status.last_index === status.committed_index &&
+          status.committed_index === applied;
+      });
+      if (replayed) return;
+      await Bun.sleep(100);
+    }
+    throw new Error(`Ports ${ports.join(", ")} did not finish replaying within ${timeout} ms: ${JSON.stringify(statuses)}`);
   }
 
   async stopServer(name: string) {
