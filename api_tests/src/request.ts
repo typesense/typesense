@@ -28,18 +28,19 @@ export async function fetchMultiNodeRequest(node: number, url: string, options?:
 }
 
 export async function fetchMultiNode(node: number, url: string, options?: RequestInit): Promise<Response> {
-  await waitForMultiNodeSync();
+  await waitForNodeSync(node);
   const res = await fetchMultiNodeRequest(node, url, options);
   return res;
 }
 
-// Waits until all three nodes have committed and applied the same last index.
-async function waitForMultiNodeSync() {
+// Waits until `node` has applied every entry the leader holds and the leader has committed them, so a request to it
+// sees every earlier write. Followers learn a commit on the leader's next heartbeat; the leader needs no wait.
+async function waitForNodeSync(node: number) {
   const deadline = Date.now() + SYNC_TIMEOUT_MS;
   let statuses: any[] = [];
   while (true) {
     statuses = await getMultiNodeStatuses();
-    if (isCommittedIndexInSync(statuses)) return;
+    if (isNodeInSync(statuses, node - 1)) return;
     if (Date.now() >= deadline) {
       throw new Error(`Multi-node cluster did not converge within ${SYNC_TIMEOUT_MS} ms: ${JSON.stringify(statuses)}`);
     }
@@ -58,6 +59,19 @@ async function getMultiNodeStatuses(): Promise<any[]> {
 
 export async function checkCommitedIndex() {
   return isCommittedIndexInSync(await getMultiNodeStatuses());
+}
+
+function getAppliedIndex(status: any) {
+  return status.applying_index === 0 ? status.known_applied_index : status.applying_index;
+}
+
+function isNodeInSync(statuses: any[], nodeIndex: number) {
+  const leaders = statuses.filter((status) => status.state === "LEADER");
+  const leader = leaders[0];
+  if (leaders.length !== 1 || !leader || leader.committed_index !== leader.last_index) {
+    return false;
+  }
+  return getAppliedIndex(statuses[nodeIndex]) >= leader.last_index;
 }
 
 function isCommittedIndexInSync(data: any[]) {
