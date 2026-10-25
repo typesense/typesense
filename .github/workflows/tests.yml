@@ -16,6 +16,8 @@ env:
   # it to start empty. Each push to the default branch saves a new entry, and each ISO week starts empty:
   # Bazel 6.2 never marks an entry as read, so entries a build no longer uses can't be pruned.
   BAZEL_DISK_CACHE: main-jan21-2026
+  # only a push to the default branch saves the disk cache; every other run only reads it
+  SAVES_CACHE: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
 
 jobs:
   # without a cache the build compiles everything, so it goes to COLD_RUNNER; skipped when that isn't set
@@ -25,16 +27,21 @@ jobs:
     outputs:
       warm: ${{ steps.lookup.outputs.cache-matched-key != '' }}
       week: ${{ steps.week.outputs.week }}
+      last_week: ${{ steps.week.outputs.last_week }}
     steps:
       - id: week
-        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "last_week=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
       # the same path and key prefix as the test job's disk cache
       - id: lookup
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: /home/runner/.cache/bazel-disk
           key: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
-          restore-keys: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
+          restore-keys: |
+            bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
+            ${{ env.SAVES_CACHE != 'true' && format('bazel-disk-{0}-{1}-', env.BAZEL_DISK_CACHE, steps.week.outputs.last_week) || '' }}
           lookup-only: true
 
   test:
@@ -89,18 +96,24 @@ jobs:
                 - bazel/onnx.patch
 
       # setup-bazel saves its disk cache only when the exact key missed, and that key changes only with the build
-      # files, so it stopped refreshing; this one is keyed per commit and restores the week's newest entry
+      # files, so it stopped refreshing; this one is keyed per commit and restores the week's newest entry. A run
+      # that only reads may start from last week's newest one; the saves still start each week empty.
       - id: week
         env:
           PROBE_WEEK: ${{ needs.cache-probe.outputs.week }}
-        run: echo "week=${PROBE_WEEK:-$(date -u +%G-W%V)}" >> "$GITHUB_OUTPUT"
+          PROBE_LAST_WEEK: ${{ needs.cache-probe.outputs.last_week }}
+        run: |
+          echo "week=${PROBE_WEEK:-$(date -u +%G-W%V)}" >> "$GITHUB_OUTPUT"
+          echo "last_week=${PROBE_LAST_WEEK:-$(date -u -d '7 days ago' +%G-W%V)}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the Bazel disk cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: /home/runner/.cache/bazel-disk
           key: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-${{ github.sha }}
-          restore-keys: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
+          restore-keys: |
+            bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
+            ${{ env.SAVES_CACHE != 'true' && format('bazel-disk-{0}-{1}-', env.BAZEL_DISK_CACHE, steps.week.outputs.last_week) || '' }}
 
       - name: Build protobuf deps
         run: |
@@ -120,7 +133,7 @@ jobs:
 
       # only the default branch writes, so every PR starts from its newest build; a failed test still saves
       - name: Save the Bazel disk cache
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+        if: ${{ !cancelled() && env.SAVES_CACHE == 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: /home/runner/.cache/bazel-disk
