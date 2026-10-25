@@ -164,7 +164,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/setup"
           start() {
             name=$1; shift
-            ( "$@" > "$RUNNER_TEMP/setup/$name.log" 2>&1; echo $? > "$RUNNER_TEMP/setup/$name.tmp"
+            ( start_s=$SECONDS; "$@" > "$RUNNER_TEMP/setup/$name.log" 2>&1; echo "$? $((SECONDS - start_s))" > "$RUNNER_TEMP/setup/$name.tmp"
               mv "$RUNNER_TEMP/setup/$name.tmp" "$RUNNER_TEMP/setup/$name.rc" ) &
           }
           start tei docker run -d --name tei-container --runtime=runc -p 8080:80 \
@@ -203,7 +203,9 @@ jobs:
             if ! timeout 300 bash -c "until [ -f '$RUNNER_TEMP/setup/$name.rc' ]; do sleep 1; done"; then
               echo "$name did not finish in 300 s"; cat "$RUNNER_TEMP/setup/$name.log"; exit 1
             fi
-            if [ "$(cat "$RUNNER_TEMP/setup/$name.rc")" != 0 ]; then
+            read -r rc took < "$RUNNER_TEMP/setup/$name.rc"
+            echo "$name finished in ${took} s with status $rc"
+            if [ "$rc" != 0 ]; then
               cat "$RUNNER_TEMP/setup/$name.log"
               # gdb only serves a hung server's diagnosis, so the tests still run without it
               if [ "$name" = gdb ]; then echo "::warning::gdb did not install"; else echo "$name failed"; exit 1; fi
