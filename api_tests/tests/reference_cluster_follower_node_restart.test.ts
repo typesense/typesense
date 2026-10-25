@@ -34,12 +34,15 @@ const VEHICLE_COUNT_PER_MARKET = parsePositiveInt("JOIN_SNAPSHOT_VEHICLE_COUNT_P
 const NON_TARGET_FITMENTS_PER_PRODUCT = parsePositiveInt("JOIN_SNAPSHOT_NON_TARGET_FITMENTS_PER_PRODUCT", 4);
 const TARGET_PRODUCT_MATCH_COUNT = parsePositiveInt("JOIN_SNAPSHOT_TARGET_PRODUCT_MATCH_COUNT", 200);
 const QUERY_PAGE_SIZE = parsePositiveInt("JOIN_SNAPSHOT_QUERY_PAGE_SIZE", 5);
-// Tail fitments per market: an import held open after its first piece, and a complete one that arrives while the
-// first is open. The held one's first part spans one to two STREAM_WINDOW_BYTES and the complete one less than one,
-// so each is one raft entry.
-const HELD_IMPORT_FIRST_PART_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_FIRST_PART_DOC_COUNT", 3_000);
+// Tail fitments per market: an import held open once a piece of it is applied, and a complete one that arrives while
+// the first is open. The held body is a lead, then parts of more than one STREAM_WINDOW_BYTES each, then the rest.
+const HELD_IMPORT_LEAD_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_LEAD_DOC_COUNT", 10);
+const HELD_IMPORT_PART_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_PART_DOC_COUNT", 2_500);
+const HELD_IMPORT_PART_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_PART_COUNT", 3);
 const HELD_IMPORT_REST_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_HELD_IMPORT_REST_DOC_COUNT", 1_000);
 const OVERLAPPING_IMPORT_DOC_COUNT = parsePositiveInt("JOIN_SNAPSHOT_OVERLAPPING_IMPORT_DOC_COUNT", 1_000);
+// how long one part may take to become a raft entry before the next is sent
+const HELD_IMPORT_PART_WAIT_MS = 3_000;
 const TARGET_PRODUCT_INDEX = Math.min(
   PRODUCT_COUNT_PER_MARKET - 1,
   Math.max(0, Math.floor(PRODUCT_COUNT_PER_MARKET / 2)),
@@ -96,8 +99,12 @@ function getFitmentCountPerMarket(): number {
   return ((PRODUCT_COUNT_PER_MARKET - 1) * NON_TARGET_FITMENTS_PER_PRODUCT) + TARGET_PRODUCT_MATCH_COUNT;
 }
 
+function getHeldImportDocCount(): number {
+  return HELD_IMPORT_LEAD_DOC_COUNT + HELD_IMPORT_PART_COUNT * HELD_IMPORT_PART_DOC_COUNT + HELD_IMPORT_REST_DOC_COUNT;
+}
+
 function getTailFitmentCountPerMarket(): number {
-  return HELD_IMPORT_FIRST_PART_DOC_COUNT + HELD_IMPORT_REST_DOC_COUNT + OVERLAPPING_IMPORT_DOC_COUNT;
+  return getHeldImportDocCount() + OVERLAPPING_IMPORT_DOC_COUNT;
 }
 
 function getExpectedProductCountPerMarket(): number {
@@ -743,6 +750,8 @@ function buildTailFitmentDocument(market: MarketConfig, fitmentSequence: number)
 }
 
 type HeldImport = {
+  // sends more of the body without finishing it
+  send: (text: string) => void;
   // sends the rest of the body and resolves with the raw HTTP response
   finish: () => Promise<string>;
   // the connection's state, for a failure message
@@ -755,9 +764,9 @@ function chunked(text: string): string {
   return `${Buffer.byteLength(text).toString(16)}\r\n${text}\r\n`;
 }
 
-// Starts an import whose body is sent as chunked HTTP, and stops after the first part: the server replicates the
-// request piece by piece, so until finish() it is an incomplete in-flight request.
-async function startHeldImport(port: number, collection: string, firstPart: string, rest: string): Promise<HeldImport> {
+// Starts an import whose body is sent as chunked HTTP, part by part: the server replicates the request piece by
+// piece, so until finish() it is an incomplete in-flight request.
+async function startHeldImport(port: number, collection: string, rest: () => string): Promise<HeldImport> {
   const socket = connect(port, "127.0.0.1");
   let response = "";
   socket.setEncoding("utf8");
@@ -773,7 +782,7 @@ async function startHeldImport(port: number, collection: string, firstPart: stri
   socket.write(
     `POST /collections/${collection}/documents/import?action=create HTTP/1.1\r\n` +
     `Host: localhost:${port}\r\nX-TYPESENSE-API-KEY: xyz\r\nContent-Type: text/plain\r\n` +
-    `Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n` + chunked(firstPart),
+    `Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n`,
   );
 
   let isClosed = false;
@@ -785,8 +794,11 @@ async function startHeldImport(port: number, collection: string, firstPart: stri
       return `${collection} held import: ${socket.bytesWritten} bytes written, ${socket.writableLength} buffered, ` +
         `closed=${isClosed}, response so far=${JSON.stringify(response.slice(0, 300))}`;
     },
+    send(text: string) {
+      socket.write(chunked(text));
+    },
     async finish() {
-      socket.write(chunked(rest) + "0\r\n\r\n");
+      socket.write(chunked(rest()) + "0\r\n\r\n");
       let timer: Timer | undefined;
       await Promise.race([
         closed,
@@ -800,49 +812,55 @@ async function startHeldImport(port: number, collection: string, firstPart: stri
   };
 }
 
-type OverlappingImports = {
-  heldImports: HeldImport[];
-  overlappingImports: Promise<void>[];
-};
-
-// The shape 3671101c fixed: per market, an import is held open after its first piece is applied, then a complete
-// import into the same collection is applied. The earlier-started request is incomplete and will finish last. The
-// complete one isn't awaited: a server that waits on the held request never answers it until that one finishes.
-async function startOverlappingReferenceImports(leader: MultiNodeConfig): Promise<OverlappingImports> {
-  let appliedIndex = getAppliedIndex(await getStatus(leader));
+// Per market, an import is held open once a piece of it is applied, then a complete import into the same collection
+// lands while it is open, so a snapshot taken next holds an incomplete request that finishes after it.
+//
+// The server dispatches a streamed request on its first body read and counts toward its first piece only the bytes
+// after that read, so how much body it needs before replicating depends on how reads split. Parts of more than one
+// piece are sent one at a time until the leader applies an entry; unsent parts go with the rest at finish().
+async function startOverlappingReferenceImports(leader: MultiNodeConfig): Promise<HeldImport[]> {
   const heldImports: HeldImport[] = [];
   for (const market of MARKETS) {
     const lines = (start: number, count: number) => Array.from({ length: count }, (_, index) =>
-      JSON.stringify(buildTailFitmentDocument(market, start + index))).join("\n");
-    const firstPart = `${lines(0, HELD_IMPORT_FIRST_PART_DOC_COUNT)}\n`;
-    // between one and two windows, so the first part is exactly one raft entry
-    expect(Buffer.byteLength(firstPart)).toBeGreaterThan(STREAM_WINDOW_BYTES);
-    expect(Buffer.byteLength(firstPart)).toBeLessThan(2 * STREAM_WINDOW_BYTES);
-    const rest = lines(HELD_IMPORT_FIRST_PART_DOC_COUNT, HELD_IMPORT_REST_DOC_COUNT);
-    const held = await startHeldImport(leader.port, market.collections.fitments, firstPart, rest);
+      JSON.stringify(buildTailFitmentDocument(market, start + index))).join("\n") + "\n";
+    const parts = Array.from({ length: HELD_IMPORT_PART_COUNT }, (_, index) =>
+      lines(HELD_IMPORT_LEAD_DOC_COUNT + index * HELD_IMPORT_PART_DOC_COUNT, HELD_IMPORT_PART_DOC_COUNT));
+    parts.forEach((part) => expect(Buffer.byteLength(part)).toBeGreaterThan(STREAM_WINDOW_BYTES));
+    const restStart = HELD_IMPORT_LEAD_DOC_COUNT + HELD_IMPORT_PART_COUNT * HELD_IMPORT_PART_DOC_COUNT;
+    const rest = lines(restStart, HELD_IMPORT_REST_DOC_COUNT).trimEnd();
+
+    const appliedBefore = getAppliedIndex(await getStatus(leader));
+    let sentParts = 0;
+    const held = await startHeldImport(leader.port, market.collections.fitments,
+      () => parts.slice(sentParts).join("") + rest);
     heldImports.push(held);
-    appliedIndex += 1;
-    await Promise.race([
-      waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS),
-      held.closed.then(() => { throw new Error("the server answered before the body was finished"); }),
-    ]).catch((error) => {
-      throw new Error(`${error.message}; ${held.describe()}`);
-    });
+    held.send(lines(0, HELD_IMPORT_LEAD_DOC_COUNT));
+
+    let applied = false;
+    while (!applied && sentParts < parts.length) {
+      held.send(parts[sentParts]!);
+      sentParts++;
+      applied = await Promise.race([
+        waitForAppliedIndexAtLeast(leader, appliedBefore + 1, HELD_IMPORT_PART_WAIT_MS).then(() => true, () => false),
+        held.closed.then(() => { throw new Error("the server answered before the body was finished"); }),
+      ]).catch((error) => {
+        throw new Error(`${error.message}; ${held.describe()}`);
+      });
+    }
+    if (!applied) {
+      throw new Error(`no part of the held import was applied after ${sentParts} parts; ${held.describe()}`);
+    }
   }
 
-  const overlappingImports: Promise<void>[] = [];
+  // complete imports into the same collections, applied while the held ones are still open
   for (const market of MARKETS) {
-    const start = HELD_IMPORT_FIRST_PART_DOC_COUNT + HELD_IMPORT_REST_DOC_COUNT;
+    const start = getHeldImportDocCount();
     const lines = Array.from({ length: OVERLAPPING_IMPORT_DOC_COUNT }, (_, index) =>
       JSON.stringify(buildTailFitmentDocument(market, start + index)));
-    expect(Buffer.byteLength(lines.join("\n"))).toBeLessThan(STREAM_WINDOW_BYTES);
-    overlappingImports.push(importJsonlBatch(leader.port, market.collections.fitments, lines,
-      `${market.collections.fitments} overlapping`));
-    appliedIndex += 1;
-    await waitForAppliedIndexAtLeast(leader, appliedIndex, WAIT_TIMEOUT_MS);
+    await importJsonlBatch(leader.port, market.collections.fitments, lines, `${market.collections.fitments} overlapping`);
   }
 
-  return { heldImports, overlappingImports };
+  return heldImports;
 }
 
 function assertHeldImportSucceeded(response: string, label: string) {
@@ -1078,7 +1096,7 @@ describe(Phases.NO_PHASE, () => {
     await waitForRaftIndexParity(remainingNodes, WAIT_TIMEOUT_MS);
 
     const leaderAfterRemoval = await waitForLeader(remainingNodes);
-    const { heldImports, overlappingImports } = await startOverlappingReferenceImports(leaderAfterRemoval);
+    const heldImports = await startOverlappingReferenceImports(leaderAfterRemoval);
 
     const leaderLogSizeBeforeSnapshot = getLogSize(leaderAfterRemoval);
     const snapshotRes = await fetchNode(leaderAfterRemoval.port, "/operations/snapshot", {
@@ -1094,7 +1112,6 @@ describe(Phases.NO_PHASE, () => {
     await waitForDrainedWrites(remainingNodes, WAIT_TIMEOUT_MS);
     heldResponses.forEach((response, index) =>
       assertHeldImportSucceeded(response, `${MARKETS[index]!.collections.fitments} held`));
-    await Promise.all(overlappingImports);
 
     rmSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true, force: true });
     mkdirSync(join(BASE_DIR, followerToRestore.dataDir), { recursive: true });
