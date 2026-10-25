@@ -88,8 +88,7 @@ export async function waitForSingleAnalyticsFlush() {
     const status: any = await res.json();
     if (isAnalyticsDrained(status)) return;
     if (Date.now() >= deadline) {
-      console.error(`Analytics did not drain within ${FLUSH_TIMEOUT_MS} ms: ${JSON.stringify(status)}`);
-      return;
+      throw new Error(`Analytics did not drain within ${FLUSH_TIMEOUT_MS} ms: ${JSON.stringify(status)}`);
     }
     await Bun.sleep(POLL_INTERVAL_MS);
   }
@@ -112,8 +111,7 @@ export async function waitForMultiAnalyticsFlush() {
     const statuses: any[] = await Promise.all(res.map(r => r.json()));
     if (statuses.every(isAnalyticsDrained)) return;
     if (Date.now() >= deadline) {
-      console.error(`Analytics did not drain within ${FLUSH_TIMEOUT_MS} ms: ${JSON.stringify(statuses)}`);
-      return;
+      throw new Error(`Analytics did not drain within ${FLUSH_TIMEOUT_MS} ms: ${JSON.stringify(statuses)}`);
     }
     await Bun.sleep(POLL_INTERVAL_MS);
   }
