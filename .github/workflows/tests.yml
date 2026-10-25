@@ -44,6 +44,38 @@ jobs:
             ${{ env.SAVES_CACHE != 'true' && format('bazel-disk-{0}-{1}-', env.BAZEL_DISK_CACHE, steps.week.outputs.last_week) || '' }}
           lookup-only: true
 
+  # builds only the server, so the API tests start without waiting for the C++ suite
+  build:
+    needs: cache-probe
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository) }}
+    runs-on: ${{ needs.cache-probe.outputs.warm == 'true' && (vars.TEST_RUNNER || 'ubuntu-22.04') || (vars.COLD_RUNNER || vars.TEST_RUNNER || 'ubuntu-22.04') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/bazel-setup
+        with:
+          cache-name: ${{ env.BAZEL_DISK_CACHE }}
+          saves-cache: ${{ env.SAVES_CACHE }}
+          week: ${{ needs.cache-probe.outputs.week }}
+          last-week: ${{ needs.cache-probe.outputs.last_week }}
+
+      - name: Build Typesense
+        run: bazel build //:typesense-server
+
+      # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
+      - name: Set BAZEL_BIN_FULL_PATH
+        run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+
+      - name: Save build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: typesense-server
+          path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
+
   test:
     needs: cache-probe
     # a same-repo PR is already tested by its branch's push run
@@ -56,75 +88,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install dependencies
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-
-          sudo apt-get install -y g++-10 make git zlib1g-dev m4
-
-          # Define the compiler
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
-
-          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
-          sudo update-alternatives --set cc /usr/bin/gcc
-
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
-          sudo update-alternatives --set c++ /usr/bin/g++
-
-      - name: Setup lld
-        run: |
-          sudo apt-get install -y lld
-
-      - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
+      - id: setup
+        uses: ./.github/actions/bazel-setup
         with:
-          bazelisk-cache: true
-          # .bazelrc's --jobs=6 suits a laptop; a CI runner gives each Bazel job a core
-          bazelrc: |
-            build --disk_cache=/home/runner/.cache/bazel-disk
-            build --jobs=HOST_CPUS
-            test --jobs=HOST_CPUS
-          repository-cache: |
-            WORKSPACE
-            .bazelrc
-            .bazelversion
-            bazel/**
-          # onnx_runtime is refetched when its build file or patch changes, so they key its copy too
-          external-cache: |
-            manifest:
-              onnx_runtime:
-                - WORKSPACE
-                - bazel/onnxruntime.BUILD
-                - bazel/onnx.patch
-
-      # setup-bazel saves its disk cache only when the exact key missed, and that key changes only with the build
-      # files, so it stopped refreshing; this one is keyed per commit and restores the week's newest entry. A run
-      # that only reads may start from last week's newest one; the saves still start each week empty.
-      - id: week
-        env:
-          PROBE_WEEK: ${{ needs.cache-probe.outputs.week }}
-          PROBE_LAST_WEEK: ${{ needs.cache-probe.outputs.last_week }}
-        run: |
-          echo "week=${PROBE_WEEK:-$(date -u +%G-W%V)}" >> "$GITHUB_OUTPUT"
-          echo "last_week=${PROBE_LAST_WEEK:-$(date -u -d '7 days ago' +%G-W%V)}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the Bazel disk cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: /home/runner/.cache/bazel-disk
-          key: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-${{ github.sha }}
-          restore-keys: |
-            bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-
-            ${{ env.SAVES_CACHE != 'true' && format('bazel-disk-{0}-{1}-', env.BAZEL_DISK_CACHE, steps.week.outputs.last_week) || '' }}
-
-      - name: Build protobuf deps
-        run: |
-          bazel build @com_google_protobuf//:protobuf_headers
-          bazel build @com_google_protobuf//:protobuf_lite
-          bazel build @com_google_protobuf//:protobuf
-          bazel build @com_google_protobuf//:protoc
+          cache-name: ${{ env.BAZEL_DISK_CACHE }}
+          saves-cache: ${{ env.SAVES_CACHE }}
+          week: ${{ needs.cache-probe.outputs.week }}
+          last-week: ${{ needs.cache-probe.outputs.last_week }}
 
       - name: Build Typesense
         run: bazel build //:typesense-server
@@ -141,21 +111,11 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: /home/runner/.cache/bazel-disk
-          key: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.week.outputs.week }}-${{ github.sha }}
-
-      # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
-      - name: Set BAZEL_BIN_FULL_PATH
-        run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+          key: bazel-disk-${{ env.BAZEL_DISK_CACHE }}-${{ steps.setup.outputs.week }}-${{ github.sha }}
 
       - name: Set BAZEL_TESTLOGS_FULL_PATH
         run: echo "BAZEL_TESTLOGS_FULL_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_ENV
         if: failure()
-
-      - name: Save build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: typesense-server
-          path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
 
       - name: Save test logs on failure
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -165,8 +125,8 @@ jobs:
         if: failure()
 
   api-tests:
-    needs: test
-    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-22.04
     env:
       HAS_API_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_API_KEY != '' && secrets.AZURE_OPENAI_URL != '' }}
