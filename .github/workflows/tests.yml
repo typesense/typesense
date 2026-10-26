@@ -242,9 +242,27 @@ jobs:
           OPEN_AI_API_KEY: ""
         run: typesense-api-tests --no-secrets
 
+      # the server logs request payloads, provider api_keys included, and readers can download artifacts
+      - name: Remove secrets from API test logs
+        id: scrub
+        if: failure() && env.HAS_API_SECRETS == 'true'
+        env:
+          SECRET_1: ${{ secrets.OPENAI_API_KEY }}
+          SECRET_2: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          SECRET_3: ${{ secrets.AZURE_OPENAI_URL }}
+        run: |
+          dirs=$(find tmp/test api_tests/data "$RUNNER_TEMP/setup" -type d -name logs 2>/dev/null; echo "$RUNNER_TEMP/setup")
+          for var in SECRET_1 SECRET_2 SECRET_3; do
+            [ -n "${!var}" ] || continue
+            grep -rlF -- "${!var}" $dirs | while read -r f; do
+              S="$var" perl -pi -e 's/\Q$ENV{$ENV{S}}\E/***/g' "$f"
+            done
+            if grep -rqF -- "${!var}" $dirs; then echo "$var is still in the logs"; exit 1; fi
+          done
+
       # every server's log and stdout/stderr, and the stacks of one that didn't stop
       - name: Save API test logs on failure
-        if: failure()
+        if: failure() && steps.scrub.outcome != 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: api-test-logs
