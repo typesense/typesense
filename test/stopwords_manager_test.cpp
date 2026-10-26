@@ -4,6 +4,7 @@
 #include <collection_manager.h>
 #include <core_api.h>
 #include "stopwords_manager.h"
+#include "test_tmp_path.h"
 
 class StopwordsManagerTest : public ::testing::Test {
 protected:
@@ -13,7 +14,7 @@ protected:
     std::atomic<bool> quit = false;
 
     virtual void SetUp() {
-        std::string state_dir_path = "/tmp/typesense_test/stopwords_manager";
+        std::string state_dir_path = test_tmp_path("/stopwords_manager");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
         store = new Store(state_dir_path);
@@ -460,7 +461,7 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     delete store;
     stopword_config.clear();
 
-    std::string state_dir_path = "/tmp/typesense_test/stopwords_manager";
+    std::string state_dir_path = test_tmp_path("/stopwords_manager");
     store = new Store(state_dir_path);
 
     stopwordsManager.init(store);

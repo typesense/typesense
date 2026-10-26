@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   benchmark-testing:
+    if: github.repository == 'typesense/typesense'
     runs-on: ubuntu-22.04
 
     steps:

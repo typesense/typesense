@@ -1,4 +1,4 @@
-import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync, existsSync, writeFileSync, openSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "bun";
 import { networkInterfaces } from "node:os";
@@ -8,7 +8,11 @@ type ServerInstance = {
   process: Bun.Subprocess;
   name: string;
   port: number;
+  logDir: string;
 };
+
+// a graceful stop takes under 2 s; one still running after this is hung
+const STOP_TIMEOUT_MS = 30_000;
 
 export type MultiNodeConfig = {
   name: string;
@@ -68,15 +72,22 @@ export class TypesenseProcessManager {
     }
   }
 
-  private spawnServer(name: string, args: string[], port: number) {
-    const proc = Bun.spawn([this.binaryPath, ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: process.env,
-      killSignal: "SIGINT",
-    });
-
-    this.processes.set(name, { process: proc, name, port });
+  private spawnServer(name: string, args: string[], port: number, logDir: string) {
+    // appended, so a restarted server keeps the earlier output next to its log
+    const stdout = openSync(join(logDir, `${name}.stdout`), "a");
+    const stderr = openSync(join(logDir, `${name}.stderr`), "a");
+    try {
+      const proc = Bun.spawn([this.binaryPath, ...args], {
+        stdout,
+        stderr,
+        env: process.env,
+        killSignal: "SIGINT",
+      });
+      this.processes.set(name, { process: proc, name, port, logDir });
+    } finally {
+      closeSync(stdout);
+      closeSync(stderr);
+    }
   }
 
   async startSingleNode(dataDir: string = "typesense-data", port: number = 8108, peeringPort: number = 8107, name: string = "single-node") {
@@ -96,8 +107,9 @@ export class TypesenseProcessManager {
       `--peering-port=${peeringPort}`,
       ...TypesenseProcessManager.additionalConfigs,
     ];
-    this.spawnServer(name, args, port);
-    return this.waitForHealth(port);
+    this.spawnServer(name, args, port, logDir);
+    await this.waitForHealth(port);
+    await this.waitForReplay([port]);
   }
 
   getNodesConfigString(configs: MultiNodeConfig[] = TypesenseProcessManager.multiNodeConfigs) {
@@ -131,9 +143,10 @@ export class TypesenseProcessManager {
       ...TypesenseProcessManager.additionalConfigs,
     ];
 
-    this.spawnServer(node.name, args, node.port);
+    this.spawnServer(node.name, args, node.port, logDir);
     if (waitForHealth) {
       await this.waitForHealth(node.port);
+      await this.waitForReplay([node.port]);
     }
   }
 
@@ -149,20 +162,79 @@ export class TypesenseProcessManager {
       await this.startClusterNode(node, nodesFile, false);
     }
 
-    await this.waitForHealth(firstNode.port);
     await this.electLeader(firstNode.port);
+    await this.waitForLeader(configs, firstNode);
 
     for (const node of configs) {
       await this.waitForHealth(node.port);
     }
+    await this.waitForReplay(configs.map((node) => node.port));
+  }
+
+  // /health turns ok while a restarted node still replays its raft log through the batched indexer (it allows up to
+  // healthy-read-lag queued writes), so tests would read a half-loaded node. Waits until every node has applied its
+  // whole log and indexed it.
+  async waitForReplay(ports: number[], timeout = 60000) {
+    const deadline = Date.now() + timeout;
+    let statuses: any[] = [];
+    while (Date.now() < deadline) {
+      statuses = await Promise.all(ports.map(async (port) => {
+        try {
+          return await (await this.fetchNode(port, "/status")).json();
+        } catch (err) {
+          return { error: `${err}` };
+        }
+      }));
+      const replayed = statuses.every((status) => {
+        // older servers (the v29 binary in migrate.test.ts) report only committed_index and queued_writes
+        const last = status.last_index ?? status.committed_index;
+        const applied = status.known_applied_index === undefined ? status.committed_index :
+          (status.applying_index === 0 ? status.known_applied_index : status.applying_index);
+        return status.queued_writes === 0 && last === status.committed_index && status.committed_index === applied;
+      });
+      if (replayed) return;
+      await Bun.sleep(100);
+    }
+    throw new Error(`Ports ${ports.join(", ")} did not finish replaying within ${timeout} ms: ${JSON.stringify(statuses)}`);
   }
 
   async stopServer(name: string) {
     const instance = this.processes.get(name);
     if (!instance) return;
-    instance.process.kill("SIGINT");
-    await instance.process.exited;
     this.processes.delete(name);
+    await this.stopProcess(instance, "SIGINT");
+  }
+
+  // Sends the signal and waits for exit. A server still running after STOP_TIMEOUT_MS gets every thread's stack
+  // written next to its log, is killed, and fails the caller.
+  private async stopProcess(instance: ServerInstance, signal: "SIGINT" | "SIGTERM") {
+    instance.process.kill(signal);
+    let timer: Timer | undefined;
+    const exited = await Promise.race([
+      instance.process.exited.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), STOP_TIMEOUT_MS); }),
+    ]);
+    clearTimeout(timer);
+    if (exited) return;
+
+    const pid = instance.process.pid;
+    const stackFile = join(instance.logDir, `${instance.name}-${pid}.stacks`);
+    let stacks: string;
+    try {
+      const gdb = Bun.spawnSync({
+        cmd: ["sudo", "-n", "gdb", "-p", `${pid}`, "-batch", "-ex", "set pagination off", "-ex", "thread apply all bt"],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      stacks = `${gdb.stdout.toString()}${gdb.stderr.toString()}`;
+    } catch (err) {
+      stacks = `gdb could not run: ${err}`;
+    }
+    writeFileSync(stackFile, stacks);
+    instance.process.kill("SIGKILL");
+    await instance.process.exited;
+    throw new Error(`${instance.name} (pid ${pid}, port ${instance.port}) did not exit within ${STOP_TIMEOUT_MS} ms ` +
+      `of ${signal}; thread stacks are in ${stackFile}`);
   }
 
   async restartSingleNode() {
@@ -178,15 +250,56 @@ export class TypesenseProcessManager {
     await this.startMultiNode(configs, nodesFile);
   }
 
-  async electLeader(port: number = 5108) {
-    const res = await fetch(`http://localhost:${port}/operations/vote`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-TYPESENSE-API-KEY": "xyz",
-      },
+  // Asks the node to campaign as soon as its API answers. The node campaigns one election timeout (5 s) after the
+  // vote, and refuses a vote while it already leads, so a node that already leads needs none.
+  async electLeader(port: number = 5108, timeout = 20000) {
+    const deadline = Date.now() + timeout;
+    let lastResult = "no response";
+    while (Date.now() < deadline) {
+      try {
+        const status: any = await (await this.fetchNode(port, "/status")).json();
+        if (status.state === "LEADER") return;
+        const res = await this.fetchNode(port, "/operations/vote", { method: "POST" });
+        const body: any = await res.json();
+        if (res.ok && body.success === true) return;
+        lastResult = `${res.status} ${JSON.stringify(body)}`;
+      } catch (err) {
+        lastResult = `${err}`;
+      }
+      await Bun.sleep(250);
+    }
+    throw new Error(`Elect leader on port ${port} failed within ${timeout} ms: ${lastResult}`);
+  }
+
+  // Waits until `leader` leads and every other node follows. The takeover a vote starts lands an election timeout
+  // later; a test running by then would have its writes on the old leader rejected.
+  private async waitForLeader(configs: MultiNodeConfig[], leader: MultiNodeConfig, timeout = 20000) {
+    const deadline = Date.now() + timeout;
+    let states: string[] = [];
+    while (Date.now() < deadline) {
+      states = await Promise.all(configs.map(async (node) => {
+        try {
+          const status: any = await (await this.fetchNode(node.port, "/status")).json();
+          return `${status.state}`;
+        } catch (err) {
+          return `${err}`;
+        }
+      }));
+      if (configs.every((node, index) => states[index] === (node.name === leader.name ? "LEADER" : "FOLLOWER"))) {
+        return;
+      }
+      await Bun.sleep(100);
+    }
+    throw new Error(`${leader.name} did not become the only leader within ${timeout} ms: ` +
+      configs.map((node, index) => `${node.name}=${states[index]}`).join(", "));
+  }
+
+  private fetchNode(port: number, path: string, init: RequestInit = {}) {
+    return fetch(`http://localhost:${port}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", "X-TYPESENSE-API-KEY": "xyz" },
+      signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) throw new Error(`Elect leader failed: ${res.statusText}`);
   }
 
   async createSnapshot(port: number, snapshot_path: string = "") {
@@ -205,24 +318,35 @@ export class TypesenseProcessManager {
 
   private async waitForHealth(port: number, timeout = 20000) {
     const start = Date.now();
+    let lastResult = "no response";
     while (Date.now() - start < timeout) {
       try {
         const res = await fetch(`http://localhost:${port}/health`);
         if (res.ok) return;
-      } catch {}
+        lastResult = `${res.status} ${await res.text()}`;
+      } catch (err) {
+        lastResult = `${err}`;
+      }
       await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error(`Timed out waiting for /health on port ${port}`);
+    throw new Error(`Timed out after ${timeout} ms waiting for /health on port ${port}: ${lastResult}`);
   }
 
   async shutdown() {
     console.log("🔻 Cleaning up Typesense processes...");
-    for (const [name, instance] of this.processes.entries()) {
-      console.log(`➡️ Gracefully stopping ${name} (port ${instance.port})`);
-      instance.process.kill("SIGTERM");
-      await instance.process.exited;
-    }
+    const instances = [...this.processes.values()];
     this.processes.clear();
+    let firstError: unknown;
+    for (const instance of instances) {
+      console.log(`➡️ Gracefully stopping ${instance.name} (port ${instance.port})`);
+      try {
+        await this.stopProcess(instance, "SIGTERM");
+      } catch (err) {
+        console.error(err);
+        firstError ??= err;
+      }
+    }
+    if (firstError) throw firstError;
   };
 
   private installSignalHandlers() {

@@ -7,6 +7,7 @@
 #include "collection.h"
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
+#include "test_tmp_path.h"
 
 class CollectionSpecificTest : public ::testing::Test {
 protected:
@@ -18,7 +19,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_specific";
+        std::string state_dir_path = test_tmp_path("/collection_specific");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 

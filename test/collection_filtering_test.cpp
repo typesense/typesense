@@ -5,10 +5,11 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 
 class CollectionFilteringTest : public ::testing::Test {
 protected:
-    std::string state_dir_path = "/tmp/typesense_test/collection_filtering";
+    std::string state_dir_path = test_tmp_path("/collection_filtering");
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
@@ -3688,7 +3689,7 @@ TEST_F(CollectionFilteringTest, FilterOnObjectFields) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());

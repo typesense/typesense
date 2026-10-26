@@ -10,6 +10,7 @@
 
 #define private public
 #include "raft_server.h"
+#include "test_tmp_path.h"
 #undef private
 
 namespace {
@@ -298,7 +299,7 @@ TEST(RaftServerTest, ResolveNodesConfigFailsWhenAnyHostIsUnresolved) {
 }
 
 TEST(RaftServerTest, PersistedRaftState) {
-    const std::string raft_dir = "/tmp/typesense_test/raft_persisted_state";
+    const std::string raft_dir = test_tmp_path("/raft_persisted_state");
     const std::string snapshot_dir = raft_dir + "/snapshot";
     std::filesystem::remove_all(raft_dir);
 
@@ -325,7 +326,7 @@ TEST(RaftServerTest, PersistedRaftState) {
 }
 
 TEST(RaftServerTest, LogBackedMembershipIsRecoveredWithoutInitialConf) {
-    const std::string raft_dir = "/tmp/typesense_test/raft_log_membership";
+    const std::string raft_dir = test_tmp_path("/raft_log_membership");
     const std::string peer = "127.0.0.1:18107:18108";
     std::filesystem::remove_all(raft_dir);
 
@@ -345,7 +346,7 @@ TEST(RaftServerTest, LogBackedMembershipIsRecoveredWithoutInitialConf) {
 }
 
 TEST(RaftServerTest, SnapshotBackedMembershipIsRecoveredWithoutInitialConf) {
-    const std::string raft_dir = "/tmp/typesense_test/raft_snapshot_membership";
+    const std::string raft_dir = test_tmp_path("/raft_snapshot_membership");
     const std::string peer = "127.0.0.1:18117:18118";
     std::filesystem::remove_all(raft_dir);
 
@@ -363,7 +364,7 @@ TEST(RaftServerTest, SnapshotBackedMembershipIsRecoveredWithoutInitialConf) {
 }
 
 TEST(RaftServerTest, FailedPeerRefreshPreservesLiveMembership) {
-    const std::string raft_dir = "/tmp/typesense_test/raft_refresh_membership";
+    const std::string raft_dir = test_tmp_path("/raft_refresh_membership");
     const std::string peer = "127.0.0.1:18127:18128";
     std::filesystem::remove_all(raft_dir);
 
@@ -395,7 +396,7 @@ TEST(RaftServerTest, FailedPeerRefreshPreservesLiveMembership) {
 }
 
 TEST(RaftServerTest, FreshNodeWaitsForUnresolvedHostsUntilQuit) {
-    const std::string raft_dir = "/tmp/typesense_test/raft_fresh_node";
+    const std::string raft_dir = test_tmp_path("/raft_fresh_node");
     std::filesystem::remove_all(raft_dir);
 
     auto& config = Config::get_instance();

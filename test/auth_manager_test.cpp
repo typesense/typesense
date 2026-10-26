@@ -5,6 +5,7 @@
 #include "auth_manager.h"
 #include "core_api.h"
 #include <collection_manager.h>
+#include "test_tmp_path.h"
 
 static const size_t FUTURE_TS = 64723363199;
 
@@ -16,7 +17,7 @@ protected:
     std::atomic<bool> quit = false;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/auth_manager_test_db";
+        std::string state_dir_path = test_tmp_path("/auth_manager_test_db");
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
