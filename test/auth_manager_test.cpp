@@ -308,6 +308,62 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     ASSERT_STREQ("conversations/models:list", rpath_conv_models_list._get_action().c_str());
 }
 
+TEST_F(AuthManagerTest, SingleDocumentUpsertAuthorization) {
+    auto& manager = collectionManager.getAuthManager();
+    for(const auto& permission : {"upsert", "create", "*", "import"}) {
+        api_key_t key(std::string("key-") + permission, "document key",
+                      {std::string("documents:") + permission}, {"books"}, FUTURE_TS);
+        ASSERT_TRUE(manager.create_key(key).ok());
+    }
+    api_key_t expired("expired-key", "expired key", {"documents:upsert"}, {"books"}, 1);
+    ASSERT_TRUE(manager.create_key(expired).ok());
+
+    route_path document_route("POST", {"collections", ":collection", "documents"},
+                              post_add_document, false, false);
+    route_path import_route("POST", {"collections", ":collection", "documents", "import"},
+                            post_import_documents, true, true);
+    ASSERT_EQ("documents:create", document_route.action);
+    auto authenticate = [&](const std::string& key, const std::string& action,
+                            const std::string& collection, const route_path& route, bool expected) {
+        SCOPED_TRACE(key + " / " + action + " / " + collection);
+        std::map<std::string, std::string> params = {{"collection", collection}};
+        if(!action.empty()) {
+            params["action"] = action;
+        }
+        const auto original_params = params;
+        std::vector<nlohmann::json> embedded_params;
+        std::string prefix;
+        EXPECT_EQ(expected, handle_authentication(params, embedded_params, "{}", route, key, &prefix));
+        EXPECT_EQ(original_params, params);
+        if(expected) {
+            ASSERT_EQ(1, embedded_params.size());
+            EXPECT_EQ(collection, embedded_params[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+            EXPECT_EQ(key.substr(0, api_key_t::PREFIX_LEN), prefix);
+        }
+        EXPECT_EQ("documents:create", document_route.action);
+    };
+
+    authenticate("key-upsert", "upsert", "books", document_route, true);
+    for(const auto& action : {"", "create", "update", "emplace", "invalid"}) {
+        authenticate("key-upsert", action, "books", document_route, false);
+        authenticate("key-create", action, "books", document_route, true);
+    }
+    authenticate("key-upsert", "upsert", "other", document_route, false);
+    authenticate("key-create", "upsert", "books", document_route, true);
+    authenticate("key-*", "upsert", "books", document_route, true);
+    authenticate("auth_key", "upsert", "books", document_route, true);
+    authenticate("expired-key", "upsert", "books", document_route, false);
+    authenticate("invalid-key", "upsert", "books", document_route, false);
+    authenticate("key-upsert", "upsert", "books", import_route, false);
+    authenticate("key-import", "upsert", "books", import_route, true);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params = {{"collection", "books"}, {"action", "invalid"}};
+    EXPECT_FALSE(post_add_document(req, res));
+    EXPECT_EQ(400, res->status_code);
+}
+
 TEST_F(AuthManagerTest, HandleAuthenticationWithNonStringNestedMultiSearchPreset) {
     std::map<std::string, std::string> params;
     std::vector<nlohmann::json> embedded_params_vec;
