@@ -15,6 +15,7 @@
 #include <field.h>
 #include <option.h>
 #include <set>
+#include <bitset>
 #include "string_utils.h"
 #include "num_tree.h"
 #include "magic_enum.hpp"
@@ -76,6 +77,7 @@ struct tok_candidates {
     size_t cost;
     bool prefix_search;
     std::vector<std::string> candidates;
+    std::vector<std::bitset<100>> candidate_fields;
 };
 
 struct query_tokens_t {
@@ -548,7 +550,8 @@ private:
     static inline uint32_t next_suggestion2(const std::vector<tok_candidates>& token_candidates_vec,
                                             long long int n,
                                             std::vector<token_t>& query_suggestion,
-                                            uint64& qhash);
+                                            uint64& qhash,
+                                            std::vector<std::bitset<100>>* suggestion_fields = nullptr);
 
     static inline uint32_t next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                        long long int n,
@@ -628,7 +631,9 @@ private:
                                        const std::vector<size_t>& geopoint_indices,
                                        std::set<uint64>& query_hashes,
                                        std::vector<uint32_t>& id_buff,
-                                       bool is_group_by_first_pass) const;
+                                       bool is_group_by_first_pass,
+                                       const std::vector<std::vector<token_t>>* field_tokens = nullptr,
+                                       const std::vector<std::vector<token_t>>* field_dropped_tokens = nullptr) const;
 
     static void popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
                                         const std::string& previous_token,
@@ -1076,7 +1081,8 @@ public:
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const std::vector<size_t>& geopoint_indices,
                                                  tsl::htrie_map<char, token_leaf>& qtoken_set,
-                                                 bool is_group_by_first_pass) const;
+                                                 bool is_group_by_first_pass,
+                                                 const std::vector<std::vector<std::vector<token_t>>>* field_synonyms = nullptr) const;
 
     Option<bool> do_phrase_search(const size_t num_search_fields, const std::vector<search_field_t>& search_fields,
                                   std::vector<query_tokens_t>& field_query_tokens,
@@ -1131,7 +1137,10 @@ public:
                                                    const std::vector<size_t>& geopoint_indices,
                                                    bool is_group_by_first_pass,
                                                    bool enable_typos_for_numerical_tokens = true,
-                                                   bool enable_typos_for_alpha_numerical_tokens = true) const;
+                                                   bool enable_typos_for_alpha_numerical_tokens = true,
+                                                   const std::vector<std::vector<token_t>>* field_tokens = nullptr,
+                                                   const std::vector<std::vector<token_t>>* field_dropped_tokens = nullptr,
+                                                   const std::bitset<100>* allowed_fields = nullptr) const;
 
     Option<bool> search_across_fields(const std::vector<token_t>& query_tokens,
                                       const std::vector<uint32_t>& num_typos,
@@ -1165,7 +1174,10 @@ public:
                                       std::vector<uint32_t>& id_buff,
                                       size_t& num_keyword_matches,
                                       uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                                      bool is_group_by_first_pass) const;
+                                      bool is_group_by_first_pass,
+                                      const std::vector<std::bitset<100>>* suggestion_fields = nullptr,
+                                      const std::vector<std::vector<token_t>>* field_dropped_tokens = nullptr,
+                                      const std::vector<std::vector<token_t>>* field_tokens = nullptr) const;
 
     static int64_t compute_aggregated_score(const std::vector<or_iterator_t>& its,
                                      std::vector<or_iterator_t>& dropped_token_its,
@@ -1186,7 +1198,8 @@ public:
                                      const std::vector<sort_by>& sort_fields,
                                      const tsl::htrie_map<char, field>& search_schema,
                                      const int* sort_order,
-                                     int64_t& out_best_field_match_score);
+                                     int64_t& out_best_field_match_score,
+                                     const std::vector<std::vector<token_t>>* field_tokens = nullptr);
 
     void process_filter_sort_curations(const std::vector<const curation_t*>& filter_curations,
                                   const std::set<const curation_t*>& matched_filter_curations,
@@ -1256,14 +1269,17 @@ public:
                             const std::vector<sort_by>& sort_fields_std, const int* sort_order,
                             const vector_query_t& vector_query, const text_match_type_t match_type,
                             bool prioritize_exact_match, const bool prioritize_token_position,
-                            const bool prioritize_num_matching_fields) const;
+                            const bool prioritize_num_matching_fields,
+                            const std::vector<std::vector<token_t>>* field_tokens = nullptr) const;
 
     float compute_decay_function_score(const sort_by& sort_field, uint32_t seq_id) const;
 
     void get_field_token_its(const size_t num_search_fields,
                              std::vector<or_iterator_t>& token_its, std::vector<posting_list_t*>& expanded_plists,
                              const std::vector<token_t>& query_tokens,
-                             const std::vector<search_field_t>& the_fields) const;
+                             const std::vector<search_field_t>& the_fields,
+                             const std::vector<std::bitset<100>>* suggestion_fields = nullptr,
+                             const std::vector<std::vector<token_t>>* field_tokens = nullptr) const;
 
     static Option<bool> populate_result_kvs(Topster<KV>* topster, std::vector<std::vector<KV *>> &result_kvs,
                                             const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
