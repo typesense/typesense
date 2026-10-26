@@ -355,6 +355,115 @@ TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionCanSupplyMissingMultiSearchC
     ASSERT_EQ("scoped doc", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
 }
 
+TEST_F(CoreAPIUtilsTest, ScopedKeyPresetCanSupplyMissingMultiSearchCollection) {
+    nlohmann::json schema = R"({
+        "name": "scoped_coll",
+        "fields": [
+          {"name": "title", "type": "string" }
+        ]
+    })"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* scoped_coll = op.get();
+    scoped_coll->add(R"({"id":"1","title":"scoped doc"})", CREATE);
+
+    api_key_t parent_key("ScopedPresetMissingCollection1", "scoped search parent", {"documents:search"}, {"scoped_coll"},
+                         api_key_t::FAR_FUTURE_TIMESTAMP);
+    auto key_op = collectionManager.getAuthManager().create_key(parent_key);
+    ASSERT_TRUE(key_op.ok());
+
+    ASSERT_TRUE(collectionManager.upsert_preset("scoped_preset", R"({"collection":"scoped_coll","per_page":1})"_json).ok());
+    const std::string custom_params = R"({"preset":"scoped_preset"})";
+    const std::string scoped_key_payload = StringUtils::hmac(parent_key.value, custom_params) +
+                                           parent_key.value.substr(0, api_key_t::PREFIX_LEN) + custom_params;
+    const std::string scoped_key = StringUtils::base64_encode(scoped_key_payload);
+
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    nlohmann::json body;
+    nlohmann::json search = {
+        {"q", "scoped"},
+        {"query_by", "title"}
+    };
+    body["searches"] = nlohmann::json::array();
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_EQ("scoped_coll",
+              req->embedded_params_vec[0]["__typesense_authorized_collection"].get<std::string>());
+
+    ASSERT_TRUE(post_multi_search(req, res));
+
+    auto response = nlohmann::json::parse(res->body);
+    ASSERT_EQ("scoped_coll", response["results"][0]["request_params"]["collection_name"].get<std::string>());
+    ASSERT_EQ(1, response["results"][0]["found"].get<size_t>());
+    ASSERT_EQ("scoped doc", response["results"][0]["hits"][0]["document"]["title"].get<std::string>());
+
+    auto other_schema = R"({"name":"other_scoped_coll","fields":[{"name":"title","type":"string"}]})"_json;
+    auto other_op = collectionManager.create_collection(other_schema);
+    ASSERT_TRUE(other_op.ok()) << other_op.error();
+    ASSERT_TRUE(other_op.get()->add(R"({"id":"2","title":"other scoped doc"})", CREATE).ok());
+    ASSERT_TRUE(collectionManager.upsert_preset("other_scoped_preset",
+                R"({"collection":"other_scoped_coll"})"_json).ok());
+    api_key_t other_parent("OtherScopedPresetParent", "other scoped parent", {"documents:search"},
+                           {"other_scoped_coll"}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    ASSERT_TRUE(collectionManager.getAuthManager().create_key(other_parent).ok());
+    const std::string other_payload = R"({"preset":"other_scoped_preset"})";
+    const auto other_key = StringUtils::base64_encode(StringUtils::hmac(other_parent.value, other_payload) +
+                          other_parent.value.substr(0, api_key_t::PREFIX_LEN) + other_payload);
+
+    // A per-search key resolves independently, and the embedded preset wins over a caller preset.
+    ASSERT_TRUE(collectionManager.upsert_preset("caller_preset", R"({"per_page":0})"_json).ok());
+    body["searches"] = nlohmann::json::array({
+        {{"x-typesense-api-key", scoped_key}, {"preset", "caller_preset"}, {"q", "scoped"}, {"query_by", "title"}},
+        {{"x-typesense-api-key", other_key}, {"q", "scoped"}, {"query_by", "title"}}
+    });
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->body = body.dump();
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search,
+                                      parent_key.value));
+    ASSERT_TRUE(post_multi_search(req, res));
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, response["results"].size());
+    ASSERT_EQ(1, response["results"][0]["found"]);
+    ASSERT_EQ(1, response["results"][0]["hits"].size());
+    ASSERT_EQ(1, response["results"][1]["found"]);
+    ASSERT_EQ("scoped_coll", response["results"][0]["request_params"]["collection_name"]);
+    ASSERT_EQ("other_scoped_coll", response["results"][1]["request_params"]["collection_name"]);
+    ASSERT_EQ("other scoped doc", response["results"][1]["hits"][0]["document"]["title"]);
+
+    // Union follows the same signed-key authentication and collection pin.
+    body["union"] = true;
+    body["searches"] = nlohmann::json::array({search});
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->body = body.dump();
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_TRUE(post_multi_search(req, res));
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(1, response["found"]);
+    ASSERT_EQ("scoped doc", response["hits"][0]["document"]["title"]);
+
+    // Updating a preset after authentication cannot change the authorized execution target.
+    body.erase("union");
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->body = body.dump();
+    ASSERT_TRUE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+    ASSERT_TRUE(collectionManager.upsert_preset("scoped_preset", R"({"collection":"blocked_coll"})"_json).ok());
+    ASSERT_TRUE(post_multi_search(req, res));
+    response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(1, response["results"][0]["found"]);
+    ASSERT_EQ("scoped_coll", response["results"][0]["request_params"]["collection_name"]);
+
+    req = std::make_shared<http_req>();
+    req->body = body.dump();
+    ASSERT_FALSE(handle_authentication(req->params, req->embedded_params_vec, req->body, rpath_multi_search, scoped_key));
+}
+
 TEST_F(CoreAPIUtilsTest, ScopedKeyEmbeddedCollectionConflictFailsAuthentication) {
     nlohmann::json schema = R"({
         "name": "allowed_coll",
