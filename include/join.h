@@ -132,7 +132,7 @@ public:
 
     template <typename F>
     static Option<bool> negate_left_join(const std::string& ref_collection_name, const bool& is_reference_array_field,
-                                         F&& get_related_child_ids, const bool& is_match_all_ids_filter,
+                                         F&& get_related_child_ids,
                                          std::set<uint32_t>& unique_doc_ids,
                                          negate_left_join_t& negate_left_join_info,
                                          filter_result_t& filter_result);
@@ -140,16 +140,13 @@ public:
 
 template <typename F>
 Option<bool> Join::negate_left_join(const std::string& ref_collection_name, const bool& is_reference_array_field,
-                                    F&& get_related_child_ids, const bool& is_match_all_ids_filter,
+                                    F&& get_related_child_ids,
                                     std::set<uint32_t>& unique_doc_ids,
                                     negate_left_join_t& negate_left_join_info,
                                     filter_result_t& filter_result) {
     std::vector<uint32_t> doc_ids;
     std::copy(unique_doc_ids.begin(), unique_doc_ids.end(), std::back_inserter(doc_ids));
     unique_doc_ids.clear();
-
-    uint32_t* negated_doc_ids = nullptr;
-    size_t negated_doc_ids_len = 0;
 
     // If we have 3 products: product_a, product_b, product_c
     // and products_viewed like:
@@ -158,41 +155,32 @@ Option<bool> Join::negate_left_join(const std::string& ref_collection_name, cons
     // We should return product_b and product_c for "Products not seen by user_a".
     // `unique_doc_ids` has the list of products viewed by user_a, `seq_ids - unique_doc_ids` will be the products not viewed.
     uint32_t* all_doc_ids = negate_left_join_info.seq_ids->uncompress();
-    negated_doc_ids_len = ArrayUtils::exclude_scalar(all_doc_ids, negate_left_join_info.seq_ids->num_ids(), doc_ids.data(),
-                                                     doc_ids.size(), &negated_doc_ids);
+    filter_result.count = ArrayUtils::exclude_scalar(all_doc_ids, negate_left_join_info.seq_ids->num_ids(), doc_ids.data(),
+                                                     doc_ids.size(), &filter_result.docs);
     delete[] all_doc_ids;
 
-    std::vector<std::pair<uint32_t, reference_filter_result_t>> id_ref_pairs;
-    for (size_t i = 0; i < negated_doc_ids_len; i++) {
-        const auto& doc_id= negated_doc_ids[i];
+    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[filter_result.count] {};
+    for (size_t i = 0; i < filter_result.count; i++) {
+        const auto& doc_id = filter_result.docs[i];
+
         std::vector<uint32_t> related_doc_ids;
         Option<bool> op = get_related_child_ids(doc_id, related_doc_ids);
-        if (!op.ok() && op.code() == 400) {
+        if (!op.ok()) {
             return op;
         }
 
         // product_c will not have any references.
         if (related_doc_ids.empty()) {
-            id_ref_pairs.emplace_back(doc_id, reference_filter_result_t());
+            auto references = reference_filter_result_t(1, new uint32_t[1]{Join::reference_helper_sentinel_value},
+                                                        is_reference_array_field);
+            filter_result.coll_to_references[i][ref_collection_name] = std::move(references);
             continue;
         }
 
         auto related_docs = new uint32_t[related_doc_ids.size()];
         std::copy(related_doc_ids.begin(), related_doc_ids.end(), related_docs);
-        auto r = reference_filter_result_t(related_doc_ids.size(), related_docs, is_reference_array_field);
-        id_ref_pairs.emplace_back(doc_id, std::move(r));
-    }
-    delete [] negated_doc_ids;
-
-    filter_result.count = id_ref_pairs.size();
-    filter_result.docs = new uint32_t[id_ref_pairs.size()];
-    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[id_ref_pairs.size()] {};
-
-    uint32_t filter_result_index = 0;
-    for (auto& [doc_id, references]: id_ref_pairs) {
-        filter_result.docs[filter_result_index] = doc_id;
-        filter_result.coll_to_references[filter_result_index][ref_collection_name] = std::move(references);
-        filter_result_index++;
+        auto references = reference_filter_result_t(related_doc_ids.size(), related_docs, is_reference_array_field);
+        filter_result.coll_to_references[i][ref_collection_name] = std::move(references);
     }
 
     return Option<bool>(true);

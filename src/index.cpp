@@ -1980,7 +1980,6 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     std::shared_lock lock(mutex);
 
     const auto& is_normal_join = !negate_left_join_info.is_negate_join;
-    const auto& is_match_all_ids_filter = filter_tree_root->is_match_all_ids_filter();
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
                                                                DEFAULT_FILTER_BY_CANDIDATES,
                                                                search_begin_us, search_stop_us, validate_field_names);
@@ -2095,7 +2094,6 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         // Collect all the doc ids from the reference ids.
         std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
         std::set<uint32_t> unique_doc_ids;
-        std::set<uint32_t> excluded_references;
 
         for (uint32_t i = 0; i < count; i++) {
             auto& reference_doc_id = reference_docs[i];
@@ -2115,12 +2113,17 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         }
 
         if (negate_left_join_info.is_negate_join) {
+            const auto numerical_index_it = numerical_index.find(reference_helper_field_name);
+            if (numerical_index_it == numerical_index.end() || numerical_index_it->second == nullptr) {
+                return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                         get_collection_name() + "`.");
+            }
+            auto num_tree = numerical_index_it->second;
+
             return Join::negate_left_join(ref_collection_name, false,
                                            [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> Option<bool> {
-                                               return get_related_child_ids(field_name, seq_id, related_doc_ids);
-                                           },
-                                           is_match_all_ids_filter, unique_doc_ids, negate_left_join_info,
-                                           filter_result);
+                                               return get_related_child_ids(num_tree, seq_id, related_doc_ids);
+                                           }, unique_doc_ids, negate_left_join_info, filter_result);
         }
 
         if (id_pairs.empty()) {
@@ -2272,12 +2275,17 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     if (negate_left_join_info.is_negate_join) {
+        const auto numerical_index_it = numerical_index.find(reference_helper_field_name);
+        if (numerical_index_it == numerical_index.end() || numerical_index_it->second == nullptr) {
+            return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                     get_collection_name() + "`.");
+        }
+        auto num_tree = numerical_index_it->second;
+
         return Join::negate_left_join(ref_collection_name, true,
                                          [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> Option<bool> {
-                                             return get_related_child_ids(field_name, seq_id, related_doc_ids);
-                                         },
-                                         is_match_all_ids_filter, unique_doc_ids, negate_left_join_info,
-                                         filter_result);
+                                             return get_related_child_ids(num_tree, seq_id, related_doc_ids);
+                                         }, unique_doc_ids, negate_left_join_info, filter_result);
     }
 
     if (id_pairs.empty()) {
@@ -8584,18 +8592,15 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_child_ids(const std::string& field_name, const uint32_t& parent_id,
-                                           std::vector<uint32_t>& child_ids) const {
-    const auto reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-    const auto it = numerical_index.find(reference_helper_field_name);
-    if (it == numerical_index.end() || it->second == nullptr) {
-        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
-                                 get_collection_name() + "`.");
+Option<bool> Index::get_related_child_ids(num_tree_t* const num_tree, const uint32_t& parent_id,
+                                          std::vector<uint32_t>& child_ids) const {
+    if (num_tree == nullptr) {
+        return Option<bool>(400, "num_tree is null.");
     }
 
     uint32_t* ids = nullptr;
     size_t count = 0;
-    it->second->search(NUM_COMPARATOR::EQUALS, parent_id, &ids, count);
+    num_tree->search(NUM_COMPARATOR::EQUALS, parent_id, &ids, count);
     std::unique_ptr<uint32_t[]> ids_guard(ids);
     child_ids.clear();
     if (count != 0) {

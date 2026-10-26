@@ -687,7 +687,7 @@ private:
                                    const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
     // On the referencing collection: parent ID -> child IDs referencing that parent.
-    Option<bool> get_related_child_ids(const std::string& field_name, const uint32_t& parent_id,
+    Option<bool> get_related_child_ids(num_tree_t* const num_tree, const uint32_t& parent_id,
                                        std::vector<uint32_t>& child_ids) const;
 
     // On the referencing collection: child IDs -> referenced parent IDs.

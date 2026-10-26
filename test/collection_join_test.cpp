@@ -14169,6 +14169,54 @@ TEST_F(CollectionJoinTest, NegateLeftJoinScrambledReferences) {
     }
 }
 
+TEST_F(CollectionJoinTest, NegatedJoinsAndPreservesProductsWithoutReferences) {
+    auto product_schema = R"({"name": "products", "fields": [{"name": "key", "type": "string"}]})"_json;
+    auto product_op = collectionManager.create_collection(product_schema);
+    ASSERT_TRUE(product_op.ok());
+    for (const auto& key : {"A", "B", "C", "D"}) {
+        ASSERT_TRUE(product_op.get()->add(nlohmann::json{{"id", key}, {"key", key}}.dump()).ok());
+    }
+
+    auto view_schema = R"({"name": "products_viewed", "fields": [
+        {"name": "product_id", "type": "string", "reference": "products.key"}
+    ]})"_json;
+    auto view_op = collectionManager.create_collection(view_schema);
+    ASSERT_TRUE(view_op.ok());
+    size_t i = 0;
+    for (const auto& key : {"B", "C", "A", "B"}) {
+        ASSERT_TRUE(view_op.get()->add(nlohmann::json{
+            {"id", "view" + std::to_string(i++)}, {"product_id", key}
+        }.dump()).ok());
+    }
+
+    // D has no references and must survive the intersection of both negated joins.
+    const std::vector<std::pair<std::string, std::vector<std::string>>> cases = {
+        {"!$products_viewed(id:=view2) && !$products_viewed(id:=view1)", {"B", "D"}},
+        {"!$products_viewed(id:*) && !$products_viewed(id:=view1)", {"D"}}
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.first);
+        std::map<std::string, std::string> params = {
+            {"collection", "products"}, {"q", "*"},
+            {"filter_by", test_case.first}, {"include_fields", "id"}
+        };
+        nlohmann::json embedded_params;
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        EXPECT_EQ(test_case.second.size(), result["found"]);
+        std::vector<std::string> ids;
+        for (const auto& hit : result["hits"]) {
+            ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+        std::sort(ids.begin(), ids.end());
+        EXPECT_EQ(test_case.second, ids);
+    }
+}
+
 TEST_F(CollectionJoinTest, FacetByReference) {
     auto schema_json =
             R"({
