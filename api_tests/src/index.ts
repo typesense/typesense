@@ -138,9 +138,11 @@ export class TypesenseTestRunner {
 
   private async findFilesWith(text: string): Promise<string[]> {
     const files: string[] = [];
-    for await (const file of new Bun.Glob("tests/*.test.ts").scan(".")) {
+    // relative to the harness, not the caller's working directory
+    for await (const file of new Bun.Glob("tests/*.test.ts").scan({ cwd: `${import.meta.dir}/..`, absolute: true })) {
       if ((await Bun.file(file).text()).includes(text)) files.push(file);
     }
+    if (files.length === 0) throw new Error(`no test file under ${import.meta.dir}/../tests contains ${text}`);
     return files.sort();
   }
 
