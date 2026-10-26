@@ -162,11 +162,9 @@ Option<bool> Join::negate_left_join(const std::string& ref_collection_name, cons
                                                      doc_ids.size(), &negated_doc_ids);
     delete[] all_doc_ids;
 
-    std::vector<uint32_t> negated_docs_vector(negated_doc_ids, negated_doc_ids + negated_doc_ids_len);
-    delete [] negated_doc_ids;
-
     std::vector<std::pair<uint32_t, reference_filter_result_t>> id_ref_pairs;
-    for (const auto& doc_id: negated_docs_vector) {
+    for (size_t i = 0; i < negated_doc_ids_len; i++) {
+        const auto& doc_id= negated_doc_ids[i];
         std::vector<uint32_t> related_doc_ids;
         Option<bool> op = get_related_child_ids(doc_id, related_doc_ids);
         if (!op.ok() && op.code() == 400) {
@@ -184,6 +182,7 @@ Option<bool> Join::negate_left_join(const std::string& ref_collection_name, cons
         auto r = reference_filter_result_t(related_doc_ids.size(), related_docs, is_reference_array_field);
         id_ref_pairs.emplace_back(doc_id, std::move(r));
     }
+    delete [] negated_doc_ids;
 
     filter_result.count = id_ref_pairs.size();
     filter_result.docs = new uint32_t[id_ref_pairs.size()];
