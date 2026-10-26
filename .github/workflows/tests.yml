@@ -164,7 +164,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/setup"
           start() {
             name=$1; shift
-            ( start_s=$SECONDS; "$@" > "$RUNNER_TEMP/setup/$name.log" 2>&1; echo "$? $((SECONDS - start_s))" > "$RUNNER_TEMP/setup/$name.tmp"
+            # the || keeps the step's errexit from ending the subshell before it writes the status
+            ( start_s=$SECONDS; rc=0; "$@" > "$RUNNER_TEMP/setup/$name.log" 2>&1 || rc=$?; echo "$rc $((SECONDS - start_s))" > "$RUNNER_TEMP/setup/$name.tmp"
               mv "$RUNNER_TEMP/setup/$name.tmp" "$RUNNER_TEMP/setup/$name.rc" ) &
           }
           start tei docker run -d --name tei-container --runtime=runc -p 8080:80 \
