@@ -4,11 +4,12 @@
 #include <fstream>
 #include <cstdio>
 #include <filesystem>
+#include "test_tmp_path.h"
 
 class ArchiveUtilsTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        temp_dir = std::filesystem::temp_directory_path() / "archive_utils_test";
+        temp_dir = test_tmp_path("/archive_utils_test");
         std::filesystem::create_directory(temp_dir);
         Config::get_instance().set_data_dir(temp_dir.string());
     }

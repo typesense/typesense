@@ -4,6 +4,7 @@
 #include "ratelimit_manager.h"
 #include "logger.h"
 #include "core_api.h"
+#include "test_tmp_path.h"
 
 // Google test for RateLimitManager
 class RateLimitManagerTest : public ::testing::Test
@@ -33,7 +34,7 @@ protected:
     // and cleaning up each test, you can define the following methods:
 
     virtual void SetUp() {
-        std::string state_dir_path = "/tmp/typesense_test/rate_limit_manager_test_db";
+        std::string state_dir_path = test_tmp_path("/rate_limit_manager_test_db");
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);

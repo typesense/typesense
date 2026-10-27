@@ -5,6 +5,7 @@
 #include <collection_manager.h>
 #include "collection.h"
 #include "curation_index_manager.h"
+#include "test_tmp_path.h"
 
 class CollectionCurationSetsTest : public ::testing::Test {
 protected:
@@ -15,7 +16,7 @@ protected:
     Collection *coll;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_curation_sets";
+        std::string state_dir_path = test_tmp_path("/collection_curation_sets");
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);

@@ -572,7 +572,7 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 
     std::unordered_set<std::string> dummy_set;
     {
-        std::unique_lock index_lock(referencing_coll->mutex);
+        auto index_lock = referencing_coll->lock_for_write();
         Index::batch_memory_index(referencing_coll->index, index_records, referencing_coll->default_sorting_field,
                                   referencing_coll->search_schema, referencing_coll->embedding_fields,
                                   referencing_coll->fallback_field_type, referencing_coll->token_separators,
@@ -1152,7 +1152,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         }
 
         if(!new_fields.empty()) {
-            std::unique_lock lock(mutex);
+            auto lock = lock_for_write();
 
             bool found_new_field = false;
             for(auto& new_field: new_fields) {
@@ -1460,7 +1460,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     Index::batch_validate_and_preprocess(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                            fallback_field_type, token_separators, symbols_to_index, true);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                               fallback_field_type, token_separators, symbols_to_index, dummy);
 
@@ -1477,7 +1477,7 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
                     remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     const auto collection_name = name;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
@@ -1487,6 +1487,21 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     num_documents += num_indexed;
 
     return num_indexed;
+}
+
+static std::string normalize_curation_rule_query(const std::string& rule_query, const std::string& locale,
+                                                 const std::vector<char>& symbols_to_index,
+                                                 const std::vector<char>& token_separators,
+                                                 std::shared_ptr<Stemmer> stemmer) {
+    std::vector<char> symbols = symbols_to_index;
+    symbols.push_back('{');
+    symbols.push_back('}');
+    symbols.push_back('*');
+    symbols.push_back('.');
+
+    std::vector<std::string> tokens;
+    Tokenizer(rule_query, true, false, locale, symbols, token_separators, stemmer, true).tokenize(tokens);
+    return StringUtils::join(tokens, " ");
 }
 
 bool Collection::does_curation_match(const curation_t& curation, std::string& query,
@@ -1500,6 +1515,7 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                      std::vector<uint32_t>& excluded_ids,
                                      std::vector<const curation_t*>& filter_sort_curations,
+                                     std::set<const curation_t*>& matched_filter_curations,
                                      bool& filter_curated_hits,
                                      std::string& curated_sort_by,
                                      nlohmann::json& curation_metadata,
@@ -1604,6 +1620,11 @@ bool Collection::does_curation_match(const curation_t& curation, std::string& qu
     if(curation_metadata.empty()) {
         curation_metadata = curation.metadata;
     }
+
+    if(!curation.rule.dynamic_query && !curation.rule.dynamic_filter && !curation.filter_by.empty()) {
+        matched_filter_curations.insert(&curation);
+    }
+
     return true;
 }
 
@@ -1615,6 +1636,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const curation_t*>& filter_sort_curations,
+                                std::set<const curation_t*>& matched_filter_curations,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
@@ -1694,7 +1716,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                                 ov->rule.normalized_query,
                                                                 filter_query, already_segmented, true, false,
                                                                 pinned_hits, hidden_hits, included_ids,
-                                                                excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                                excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                                 curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                                 synonym_prefix, synonym_num_typos);
                           if(match_found) {
@@ -1724,7 +1746,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                                              ov->rule.normalized_query,
                                                             filter_query, already_segmented, true, false,
                                                             pinned_hits, hidden_hits, included_ids,
-                                                            excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                            excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                             curated_sort_by, curation_metadata, ov->rule.synonyms,
                                                             synonym_prefix, synonym_num_typos);
                       if(match_found) {
@@ -1763,7 +1785,7 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                   bool match_found = does_curation_match(*ov, query, excluded_set, actual_query, ov->rule.normalized_query, filter_query,
                                                         already_segmented, false, wildcard_tag,
                                                         pinned_hits, hidden_hits, included_ids,
-                                                        excluded_ids, filter_sort_curations, filter_curated_hits,
+                                                        excluded_ids, filter_sort_curations, matched_filter_curations, filter_curated_hits,
                                                         curated_sort_by, curation_metadata, ov->rule.synonyms, synonym_prefix,
                                                         synonym_num_typos);
                   if(match_found) {
@@ -2605,6 +2627,8 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                                           nlohmann::json& curation_metadata,
                                                           const bool& is_union_search,
                                                           const uint32_t& union_search_index) const {
+    // Only this top-level lock is gated: gating nested join locks could deadlock joins across collections.
+    { std::lock_guard turnstile_lock(write_turnstile); }
     std::shared_lock lock(mutex);
     return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
                                   conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
@@ -3182,6 +3206,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
     std::vector<const curation_t*> filter_sort_curations;
+    std::set<const curation_t*> matched_filter_curations;
     std::string curated_sort_by;
     std::set<std::string> curation_tag_set;
 
@@ -3195,7 +3220,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
     diversity_t diversity{};
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, filter_curated_hits_curations,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, matched_filter_curations,
+                   filter_curated_hits_curations,
                    curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
     if(!curate_results_op.ok()) {
         return curate_results_op;
@@ -3251,7 +3277,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
                                field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                                false, stopwords_set);
 
-            process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
+            process_filter_sort_curations(filter_sort_curations, matched_filter_curations, stopwords_set, q_include_tokens, token_order, filter_tree_root_guard,
                                      included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                      enable_typos_for_alpha_numerical_tokens, validate_field_names);
 
@@ -3289,7 +3315,7 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         // process filter curations first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_sort_curations(filter_sort_curations, q_include_tokens, token_order, filter_tree_root_guard,
+        process_filter_sort_curations(filter_sort_curations, matched_filter_curations, stopwords_set, q_include_tokens, token_order, filter_tree_root_guard,
                                  included_ids, excluded_ids, curation_metadata, curated_sort_by, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens, validate_field_names, field_locale,
                                  most_weighted_field.get_stemmer(), most_weighted_field.symbols_to_index,
@@ -4167,6 +4193,51 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
     //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
+}
+
+static int64_t steady_clock_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
+    std::unique_lock lock(mutex, std::try_to_lock);
+    while(!lock.owns_lock()) {
+        // Read once per pass: a /config change to 0 between two reads would divide by zero below.
+        const int64_t write_priority = Config::get_instance().get_write_priority_max_percentage();
+        if(write_priority == 0) {
+            lock.lock();
+            break;
+        }
+
+        if(steady_clock_ms() >= write_turnstile_closable_at) {
+            std::lock_guard turnstile_lock(write_turnstile);
+            if(steady_clock_ms() >= write_turnstile_closable_at) {
+                const int64_t closed_at = steady_clock_ms();
+                const auto hold = std::clamp(write_priority * WRITE_TURNSTILE_HOLD_PER_PERCENT,
+                                             WRITE_TURNSTILE_MIN_HOLD, WRITE_TURNSTILE_MAX_HOLD);
+                const auto give_up_at = std::chrono::steady_clock::now() + hold;
+                while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                // Set before releasing the turnstile, so that a writer queued on it can't close the gate again.
+                const int64_t now = steady_clock_ms();
+                write_turnstile_closable_at = now + (now - closed_at) * (100 - write_priority) / write_priority;
+                if(lock.owns_lock()) {
+                    break;
+                }
+                if(now >= write_turnstile_next_warning_at) {
+                    write_turnstile_next_warning_at = now + WRITE_TURNSTILE_WARNING_INTERVAL_MS;
+                    LOG(WARNING) << "`" << name << "` collection: write waited " << hold.count()
+                                 << " ms for the collection lock; no longer holding new searches back while it waits. "
+                                 << "Logged at most once a minute.";
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lock.try_lock();
+    }
+    return lock;
 }
 
 Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
@@ -5133,7 +5204,47 @@ void Collection::build_highlight_snapshots(
     }
 }
 
+static void substitute_rule_stemmed_query_tokens(const curation_t& curation, const std::vector<std::string>& query_tokens,
+                                                 const std::string& locale, const std::vector<char>& symbols,
+                                                 const std::vector<char>& separators,
+                                                 std::vector<std::string>& rule_tokens) {
+    std::vector<size_t> missing_positions;
+    for(size_t j = 0; j < rule_tokens.size(); j++) {
+        if(std::find(query_tokens.begin(), query_tokens.end(), rule_tokens[j]) == query_tokens.end()) {
+            missing_positions.push_back(j);
+        }
+    }
+
+    if(missing_positions.empty()) {
+        return;
+    }
+
+    auto rule_stemmer = StemmerManager::get_instance().get_stemmer(curation.rule.locale,
+                                                                   curation.rule.stemming_dictionary);
+    if(rule_stemmer == nullptr) {
+        return;
+    }
+
+    std::vector<std::string> stemmed_rule_tokens;
+    StringUtils::split(normalize_curation_rule_query(curation.rule.query, locale, symbols, separators, rule_stemmer),
+                       stemmed_rule_tokens, " ");
+    if(stemmed_rule_tokens.size() != rule_tokens.size()) {
+        return;
+    }
+
+    for(const auto j: missing_positions) {
+        for(const auto& query_token: query_tokens) {
+            if(rule_stemmer->stem(query_token) == stemmed_rule_tokens[j]) {
+                rule_tokens[j] = query_token;
+                break;
+            }
+        }
+    }
+}
+
 void Collection::process_filter_sort_curations(std::vector<const curation_t*>& filter_sort_curations,
+                                          const std::set<const curation_t*>& matched_filter_curations,
+                                          const std::string& stopwords_set,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
                                           std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -5150,21 +5261,13 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
                                           const std::vector<char>& query_token_separators) const {
 
     std::vector<const curation_t*> matched_dynamic_curations;
+    const auto& symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
+    const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
     auto compute_normalized_query = [&](const curation_t& curation) {
-      auto symbols = query_symbols_to_index.empty() ? symbols_to_index : query_symbols_to_index;
-      symbols.push_back('{');
-      symbols.push_back('}');
-      symbols.push_back('*');
-      symbols.push_back('.');
-
-      const auto& separators = query_token_separators.empty() ? token_separators : query_token_separators;
       const bool use_search_field_stemmer = !curation.rule.dynamic_query && !curation.rule.dynamic_filter;
 
-      std::vector<std::string> tokens;
-      Tokenizer tokenizer(curation.rule.query, true, false, query_locale, symbols, separators,
-                          use_search_field_stemmer ? stemmer : nullptr, true);
-      tokenizer.tokenize(tokens);
-      auto query_normalized = StringUtils::join(tokens, " ");
+      auto query_normalized = normalize_curation_rule_query(curation.rule.query, query_locale, symbols, separators,
+                                                            use_search_field_stemmer ? stemmer : nullptr);
       size_t i = 0;
       while(i < query_normalized.size()) {
           if(query_normalized[i] == '{') {
@@ -5182,17 +5285,46 @@ void Collection::process_filter_sort_curations(std::vector<const curation_t*>& f
       }
       return query_normalized;
     };
+
+    stopword_struct_t stopword_struct;
+    if(!stopwords_set.empty() && !matched_filter_curations.empty()) {
+        StopwordsManager::get_instance().get_stopword(stopwords_set, stopword_struct);
+    }
+
     std::vector<std::string> curation_normalized_queries;
     std::vector<std::set<std::string>> curation_rule_token_sets;
     for(const auto* ov : filter_sort_curations) {
       auto query_normalized = compute_normalized_query(*ov);
-      curation_normalized_queries.push_back(query_normalized);
 
       std::vector<std::string> rule_tokens;
       StringUtils::split(query_normalized, rule_tokens, " ");
+
+      if(matched_filter_curations.count(ov) != 0) {
+          if(ov->rule.stem) {
+              substitute_rule_stemmed_query_tokens(*ov, q_include_tokens, query_locale, symbols, separators, rule_tokens);
+          }
+
+          if(!stopword_struct.stopwords.empty()) {
+              std::vector<std::string> non_stopword_tokens;
+              for(const auto& rule_token: rule_tokens) {
+                  if(stopword_struct.stopwords.count(rule_token) == 0) {
+                      non_stopword_tokens.push_back(rule_token);
+                  }
+              }
+
+              if(!non_stopword_tokens.empty()) {
+                  rule_tokens = std::move(non_stopword_tokens);
+              }
+          }
+
+          query_normalized = StringUtils::join(rule_tokens, " ");
+      }
+
+      curation_normalized_queries.push_back(query_normalized);
       curation_rule_token_sets.emplace_back(rule_tokens.begin(), rule_tokens.end());
     }
-    index->process_filter_sort_curations(filter_sort_curations, curation_normalized_queries, curation_rule_token_sets,
+    index->process_filter_sort_curations(filter_sort_curations, matched_filter_curations, curation_normalized_queries,
+                                    curation_rule_token_sets,
                                     q_include_tokens, token_order, filter_tree_root, matched_dynamic_curations,
                                     curation_metadata, sort_by_clause, enable_typos_for_numerical_tokens,
                                     enable_typos_for_alpha_numerical_tokens, validate_field_names);
@@ -6532,7 +6664,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
                                  const bool& cascade_remove) {
     spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
     {
-        std::unique_lock lock(mutex);
+        std::shared_lock lock(mutex);
         referenced_in_copy = referenced_in;
     }
 
@@ -6543,7 +6675,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     }
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
 
         index->remove(seq_id, document, {}, false);
         if (num_documents != 0) {
@@ -6834,7 +6966,7 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     Collection::cascade_remove(name, records, remove_from_store);
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
         for(auto& record: records) {
             index->remove(record.seq_id, record.doc, {}, false);
             if (num_documents != 0) {
@@ -8523,7 +8655,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         return Option<bool>(true);
     }
 
-    for (int i = 0; i < facet_field.size();) {
+    size_t i = 0;
+    while (i < facet_field.size()) {
         if (facet_field[i] == '(') {
             //facet field name complete, check validity
             if (search_schema.count(facet_field_name) == 0 || !search_schema.at(facet_field_name).facet) {
@@ -8581,12 +8714,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
             if (param_str == "sort_by") { //sort_by params
                 sort_found = true;
-                for (i; facet_field.size(); i++) {
-                    if (facet_field[i] == ',' || facet_field[i] == ')') {
-                        break;
-                    } else {
-                        param_str += facet_field[i];
-                    }
+                while (i < facet_field.size() && facet_field[i] != ',' && facet_field[i] != ')') {
+                    param_str += facet_field[i];
+                    i++;
                 }
 
                 std::vector<std::string> tokens;
@@ -8633,11 +8763,9 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 top_k_found = true;
                 param_str.clear();
                 i++; //skip :
-                for (i; i < facet_field.size(); i++) {
-                    if (facet_field[i] == ',' || facet_field[i] == ')') {
-                        break;
-                    }
+                while (i < facet_field.size() && facet_field[i] != ',' && facet_field[i] != ')') {
                     param_str += facet_field[i];
+                    i++;
                 }
 
                 if (param_str.empty() || (param_str != "true" && param_str != "false")) {

@@ -11,6 +11,7 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "search_analytics.h"
+#include "test_tmp_path.h"
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
@@ -24,7 +25,7 @@ protected:
     nlohmann::json schema;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
+        std::string state_dir_path = test_tmp_path("/coll_manager_test_db");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -641,7 +642,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collectionManager.dispose();
     delete store;
 
-    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    store = new Store(test_tmp_path("/coll_manager_test_db"));
     collectionManager.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager.load(8, 1000);
 
@@ -1188,7 +1189,7 @@ TEST_F(CollectionManagerTest, RestoreRemoteEmbeddingFieldWithoutEndpointValidati
 
     collectionManager.dispose();
     delete store;
-    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    store = new Store(test_tmp_path("/coll_manager_test_db"));
     collectionManager.init(store, 1.0, "auth_key", quit);
 
     auto load_op = collectionManager.load(8, 1000);
@@ -1429,7 +1430,7 @@ TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
 
 TEST_F(CollectionManagerTest, Symlinking) {
     CollectionManager & cmanager = CollectionManager::get_instance();
-    std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
+    std::string state_dir_path = test_tmp_path("/cmanager_test_db");
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
     cmanager.init(new_store, 1.0, "auth_key", quit);
@@ -1532,7 +1533,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     store = nullptr;
 
     CollectionManager & cmanager = CollectionManager::get_instance();
-    std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
+    std::string state_dir_path = test_tmp_path("/cmanager_test_db");
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
     cmanager.init(new_store, 1.0, "auth_key", quit);
@@ -1906,7 +1907,7 @@ TEST_F(CollectionManagerTest, Presets) {
     collectionManager.dispose();
     delete store;
 
-    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    store = new Store(test_tmp_path("/coll_manager_test_db"));
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
 
