@@ -2057,6 +2057,78 @@ TEST_F(CollectionSchemaChangeTest, AlterAddSameFieldTwice) {
     ASSERT_TRUE(schema_change_op.ok());
 }
 
+TEST_F(CollectionSchemaChangeTest, RejectInvalidNestedReplacementWithoutMutation) {
+    for(bool populated : {false, true}) {
+        for(bool mixed : {false, true}) {
+            const std::string name = std::string("nested_") + (populated ? "populated" : "empty") + (mixed ? "_mixed" : "");
+            auto schema = R"({"name":"placeholder", "enable_nested_fields":true,
+                "fields":[{"name":"title","type":"string"},
+                          {"name":"tags","type":"object[]"},
+                          {"name":"tags.updated_at","type":"int64[]","optional":true,"sort":false,"range_index":false}]})"_json;
+            schema["name"] = name;
+            auto create = collectionManager.create_collection(schema);
+            ASSERT_TRUE(create.ok()) << create.error();
+            auto* coll = create.get();
+            if(populated) {
+                ASSERT_TRUE(coll->add(R"({"title":"hello","tags":[{"updated_at":123}]})").ok());
+            }
+
+            auto serialize_fields = [](const auto& fields) {
+                nlohmann::json result = nlohmann::json::array();
+                for(const auto& f : fields) result.push_back(field::field_to_json_field(f));
+                return result;
+            };
+            const auto before_fields = serialize_fields(coll->get_fields());
+            nlohmann::json before_schema = nlohmann::json::object();
+            for(const auto& entry : coll->get_schema()) before_schema[entry.name] = field::field_to_json_field(entry);
+            const auto before_sort = coll->get_default_sorting_field();
+            const auto before_fallback = coll->get_fallback_field_type();
+            std::string before_meta;
+            ASSERT_EQ(StoreStatus::FOUND, store->get(Collection::get_meta_key(name), before_meta));
+            if(populated) {
+                auto search = coll->search("hello", {"title"}, "tags.updated_at:=123", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+                ASSERT_TRUE(search.ok()) << search.error();
+                ASSERT_EQ(1, search.get()["found"].get<size_t>());
+            }
+
+            auto change = R"({"fields":[{"name":"tags.updated_at","drop":true},
+                {"name":"tags.updated_at","type":"int64[]","optional":true,"sort":true,"range_index":true}]})"_json;
+            if(mixed) change["fields"].push_back(R"({"name":"extra","type":"string","optional":true})"_json);
+            auto result = coll->alter(change);
+            ASSERT_FALSE(result.ok());
+            ASSERT_EQ(400, result.code());
+            ASSERT_EQ("Field `tags.updated_at` cannot be a sortable field.", result.error());
+            EXPECT_EQ(before_fields, serialize_fields(coll->get_fields()));
+            nlohmann::json after_schema = nlohmann::json::object();
+            for(const auto& entry : coll->get_schema()) after_schema[entry.name] = field::field_to_json_field(entry);
+            EXPECT_EQ(before_schema, after_schema);
+            EXPECT_EQ(before_sort, coll->get_default_sorting_field());
+            EXPECT_EQ(before_fallback, coll->get_fallback_field_type());
+            std::string after_meta;
+            ASSERT_EQ(StoreStatus::FOUND, store->get(Collection::get_meta_key(name), after_meta));
+            EXPECT_EQ(before_meta, after_meta);
+            if(populated) {
+                auto search = coll->search("hello", {"title"}, "tags.updated_at:=123", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+                ASSERT_TRUE(search.ok()) << search.error();
+                EXPECT_EQ(1, search.get()["found"].get<size_t>());
+            }
+            auto valid = R"({"fields":[{"name":"extra","type":"string","optional":true}]})"_json;
+            ASSERT_TRUE(coll->alter(valid).ok());
+            EXPECT_EQ(1, coll->get_schema().count("extra"));
+            EXPECT_FALSE(coll->get_schema().at("tags.updated_at").sort);
+            auto replacement = R"({"fields":[{"name":"tags.updated_at","drop":true},
+                {"name":"tags.updated_at","type":"int64[]","optional":true,"sort":false,"range_index":true}]})"_json;
+            auto replace_result = coll->alter(replacement);
+            ASSERT_TRUE(replace_result.ok()) << replace_result.error();
+            if(populated) {
+                auto search = coll->search("hello", {"title"}, "tags.updated_at:=123", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+                ASSERT_TRUE(search.ok()) << search.error();
+                EXPECT_EQ(1, search.get()["found"].get<size_t>());
+            }
+        }
+    }
+}
+
 TEST_F(CollectionSchemaChangeTest, AlterUnsortableFieldWithSortEnabled) {
     nlohmann::json schema = R"({
             "name": "objects",

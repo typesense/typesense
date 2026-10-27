@@ -7654,6 +7654,36 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
 
+    // Validate both schemas that the two batches will persist before mutating live state.
+    auto candidate_fields = fields;
+    auto candidate_default_sorting_field = default_sorting_field;
+    candidate_fields.insert(candidate_fields.end(), addition_fields.begin(), addition_fields.end());
+    std::unordered_set<std::string> deleted_names;
+    for(const auto& del_field : del_fields) {
+        deleted_names.insert(del_field.name);
+        if(del_field.name == candidate_default_sorting_field) {
+            candidate_default_sorting_field.clear();
+        }
+    }
+    candidate_fields.erase(std::remove_if(candidate_fields.begin(), candidate_fields.end(),
+                                          [&deleted_names](const field& f) { return deleted_names.count(f.name) != 0; }),
+                           candidate_fields.end());
+
+    nlohmann::json candidate_json = nlohmann::json::array();
+    auto candidate_op = field::fields_to_json_fields(candidate_fields, candidate_default_sorting_field, candidate_json);
+    if(candidate_op.ok() && !reindex_fields.empty()) {
+        candidate_fields.insert(candidate_fields.end(), reindex_fields.begin(), reindex_fields.end());
+        candidate_json = nlohmann::json::array();
+        candidate_op = field::fields_to_json_fields(candidate_fields, candidate_default_sorting_field, candidate_json);
+    }
+    if(!candidate_op.ok()) {
+        auto error = "Alter failed validation: " + candidate_op.error();
+        LOG(INFO) << error;
+        check_store_alter_status_msg(false, error);
+        reset_alter_status_counters();
+        return candidate_op;
+    }
+
     shlock.unlock();
 
     if(!this_fallback_field_type.empty() && fallback_field_type.empty()) {
