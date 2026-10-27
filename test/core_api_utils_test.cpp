@@ -700,7 +700,84 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldRespectScopedEmbeddedFilters) {
     ASSERT_EQ(2, response2["hits"][0]["document"]["user_id"].get<int32_t>());
 }
 
-TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbeddedParams) {
+TEST_F(CoreAPIUtilsTest, ScopedPresetCacheIsolatesAuthorizedCollections) {
+    const std::string suffix = StringUtils::randstring(8);
+    const std::string collection_a = "preset_cache_a_" + suffix;
+    const std::string collection_b = "preset_cache_b_" + suffix;
+    const std::string preset_name = "preset_cache_" + suffix;
+    for(const auto& name: {collection_a, collection_b}) {
+        nlohmann::json schema = {{"name", name}, {"fields", {{{"name", "title"}, {"type", "string"}}}}};
+        auto op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(op.ok()) << op.error();
+        ASSERT_TRUE(op.get()->add(nlohmann::json({{"id", "1"}, {"title", name}}).dump(), CREATE).ok());
+    }
+    api_key_t parent_a("PresetCacheParentA" + suffix, "cache parent A", {"documents:search"},
+                       {collection_a}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    api_key_t parent_b("PresetCacheParentB" + suffix, "cache parent B", {"documents:search"},
+                       {collection_b}, api_key_t::FAR_FUTURE_TIMESTAMP);
+    ASSERT_TRUE(collectionManager.getAuthManager().create_key(parent_a).ok());
+    ASSERT_TRUE(collectionManager.getAuthManager().create_key(parent_b).ok());
+    const std::string payload = nlohmann::json({{"preset", preset_name}}).dump();
+    const auto sign = [&](const api_key_t& parent) {
+        return StringUtils::base64_encode(StringUtils::hmac(parent.value, payload) +
+                                         parent.value.substr(0, api_key_t::PREFIX_LEN) + payload);
+    };
+    const auto key_a = sign(parent_a);
+    const auto key_b = sign(parent_b);
+    route_path route("POST", {"multi_search"}, post_multi_search, false, false);
+
+    for(const bool is_union: {false, true}) {
+        SCOPED_TRACE(is_union);
+        const nlohmann::json body = {{"union", is_union}, {"searches", {{{"q", "*"}, {"query_by", "title"}}}}};
+        auto make_request = [&](const std::string& key, bool cached = true) {
+            auto req = std::make_shared<http_req>();
+            req->route_hash = route.route_hash();
+            req->body = body.dump();
+            req->params["use_cache"] = cached ? "1" : "0";
+            req->params["cache_ttl"] = "3600";
+            const bool authenticated = handle_authentication(req->params, req->embedded_params_vec, req->body, route, key);
+            EXPECT_TRUE(authenticated);
+            return req;
+        };
+        auto execute = [&](const std::shared_ptr<http_req>& req) {
+            auto res = std::make_shared<http_res>(nullptr);
+            EXPECT_TRUE(post_multi_search(req, res));
+            return nlohmann::json::parse(res->body);
+        };
+        auto result = [&](const nlohmann::json& response) {
+            return is_union ? response : response["results"][0];
+        };
+        ASSERT_TRUE(collectionManager.upsert_preset(preset_name, {{"collection", collection_a}}).ok());
+        const auto warm_a = result(execute(make_request(key_a)));
+        ASSERT_EQ(collection_a, warm_a["hits"][0]["document"]["title"]);
+
+        ASSERT_TRUE(collectionManager.upsert_preset(preset_name, {{"collection", collection_b}}).ok());
+        auto request_b = make_request(key_b);
+        ASSERT_EQ(collection_b, request_b->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+        const auto cached_b = result(execute(request_b));
+        ASSERT_EQ(collection_b, cached_b["hits"][0]["document"]["title"]);
+        const auto cold_b = result(execute(make_request(key_b, false)));
+        ASSERT_EQ(cold_b["hits"][0]["document"], cached_b["hits"][0]["document"]);
+        if(!is_union) {
+            ASSERT_EQ(collection_b, cached_b["request_params"]["collection_name"]);
+        }
+
+        // A corpus change makes a cache hit observable, independently of identical responses.
+        auto collection_b_view = collectionManager.get_collection(collection_b);
+        ASSERT_TRUE(collection_b_view->add(nlohmann::json({{"id", "1"}, {"title", "changed"}}).dump(), UPSERT).ok());
+        const auto repeated_b = result(execute(make_request(key_b)));
+        ASSERT_EQ(collection_b, repeated_b["hits"][0]["document"]["title"]);
+        ASSERT_EQ("changed", result(execute(make_request(key_b, false)))["hits"][0]["document"]["title"]);
+        ASSERT_TRUE(collection_b_view->add(nlohmann::json({{"id", "1"}, {"title", collection_b}}).dump(), UPSERT).ok());
+
+        auto denied_req = std::make_shared<http_req>();
+        denied_req->body = body.dump();
+        ASSERT_FALSE(handle_authentication(denied_req->params, denied_req->embedded_params_vec,
+                                           denied_req->body, route, key_a));
+    }
+}
+
+TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndAuthorizedCollections) {
     const std::string coll_name = "cache_collision_" + StringUtils::randstring(8);
 
     nlohmann::json schema = {
@@ -759,10 +836,16 @@ TEST_F(CoreAPIUtilsTest, SearchCacheShouldIncludeParamNamesAndIgnoreInternalEmbe
     hash_req_variant->embedded_params_vec.push_back({
         {"filter_by", "user_id:1"},
         {"expires_at", 999999},
-        {"__typesense_authorized_collection", "beta"}
+        {"__typesense_authorized_collection", "alpha"}
     });
 
+    // Expiry does not affect response identity, but a later search's target does.
     ASSERT_EQ(hash_request(hash_req_base), hash_request(hash_req_variant));
+    hash_req_variant->embedded_params_vec[1][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM] = "beta";
+    ASSERT_NE(hash_request(hash_req_base), hash_request(hash_req_variant));
+    hash_req_base->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM] = "beta";
+    hash_req_variant->embedded_params_vec[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM] = "alpha";
+    ASSERT_NE(hash_request(hash_req_base), hash_request(hash_req_variant));
 }
 
 TEST_F(CoreAPIUtilsTest, ConversationSearchShouldBypassHttpResponseCache) {

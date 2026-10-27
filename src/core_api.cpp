@@ -624,7 +624,7 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     for(const auto& embedded_params_item : req->embedded_params_vec) {
         req_str.push_back(';');
         for(const auto& item : embedded_params_item.items()) {
-            if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
+            if(item.key() == "expires_at") {
                 continue;
             }
 
