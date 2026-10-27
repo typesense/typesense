@@ -520,7 +520,14 @@ Option<bool> Join::prune_ref_doc(nlohmann::json& doc,
 
     // One-to-many relation.
     if(!ref_include_exclude.related_docs_field.empty()) {
-        doc[ref_include_exclude.related_docs_field] = references.count;
+        size_t related_docs_count = 0;
+        for (size_t i = 0; i < references.count; i++) {
+            // Negated joins use a sentinel to preserve parents without references.
+            if (references.docs[i] != Join::reference_helper_sentinel_value) {
+                related_docs_count++;
+            }
+        }
+        doc[ref_include_exclude.related_docs_field] = related_docs_count;
     }
 
     std::vector<uint32_t> doc_ids(references.docs, references.docs + references.count);

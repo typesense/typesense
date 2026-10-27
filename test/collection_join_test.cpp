@@ -14151,7 +14151,7 @@ TEST_F(CollectionJoinTest, NegateLeftJoinScrambledReferences) {
         std::map<std::string, std::string> params = {
             {"collection", "Parents"}, {"q", "*"},
             {"filter_by", "!$" + children + "(id:=child2)"},
-            {"include_fields", "id,$" + children + "(id,strategy:nest_array) as children"}
+            {"include_fields", "id,$" + children + "(id,strategy:nest_array,related_docs_count:child_count) as children"}
         };
         nlohmann::json embedded_params;
         std::string response;
@@ -14162,9 +14162,10 @@ TEST_F(CollectionJoinTest, NegateLeftJoinScrambledReferences) {
         auto result = nlohmann::json::parse(response);
         ASSERT_EQ(3, result["found"]);
         ASSERT_EQ(3, result["hits"].size());
-        ASSERT_EQ(R"({"id": "D"})"_json, result["hits"][0]["document"]);
-        ASSERT_EQ(R"({"id": "C", "children": [{"id": "child1"}]})"_json, result["hits"][1]["document"]);
-        ASSERT_EQ(R"({"id": "B", "children": [{"id": "child0"}, {"id": "child3"}]})"_json,
+        ASSERT_EQ(R"({"id": "D", "child_count": 0})"_json, result["hits"][0]["document"]);
+        ASSERT_EQ(R"({"id": "C", "child_count": 1, "children": [{"id": "child1"}]})"_json,
+                  result["hits"][1]["document"]);
+        ASSERT_EQ(R"({"id": "B", "child_count": 2, "children": [{"id": "child0"}, {"id": "child3"}]})"_json,
                   result["hits"][2]["document"]);
     }
 }
