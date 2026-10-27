@@ -3590,6 +3590,113 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, FirstNullObjectArrayRemoval) {
+    auto schema = R"({"name":"null_array", "enable_nested_fields":true, "fields":[
+        {"name":"items", "type":"object[]", "optional":true},
+        {"name":"items.userId", "type":"int64[]", "optional":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok());
+    auto coll = created.get();
+    int user_id = 30;
+    for(auto operation : {UPDATE, UPSERT}) {
+        for(const auto& replacement : {nlohmann::json::array(), nlohmann::json(nullptr)}) {
+            SCOPED_TRACE(std::to_string(operation) + replacement.dump());
+            ++user_id;
+            nlohmann::json doc = {{"id", "0"}, {"items", {nullptr, {{"userId", user_id}}}}};
+            const auto filter = "items.userId:=" + std::to_string(user_id);
+            ASSERT_TRUE(coll->add(doc.dump(), CREATE).ok());
+            auto before = coll->search("*", {}, filter, {}, {}, {0});
+            ASSERT_TRUE(before.ok());
+            ASSERT_EQ(1, before.get()["found"].get<size_t>());
+            nlohmann::json patch = {{"id", "0"}, {"items", replacement}};
+            ASSERT_TRUE(coll->add(patch.dump(), operation).ok());
+            auto after = coll->search("*", {}, filter, {}, {}, {0});
+            ASSERT_TRUE(after.ok());
+            EXPECT_EQ(0, after.get()["found"].get<size_t>());
+            ASSERT_TRUE(coll->remove("0").ok());
+        }
+    }
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedArrayRemovalTracksMissingImmediately) {
+    auto schema = R"({"name":"nested_missing", "enable_nested_fields":true, "fields":[
+        {"name":"items", "type":"object[]", "optional":true},
+        {"name":"items.userId", "type":"int64[]", "optional":true, "track_missing_values":true},
+        {"name":"wrapper", "type":"object", "optional":true},
+        {"name":"wrapper.items", "type":"object[]", "optional":true},
+        {"name":"wrapper.items.userId", "type":"int64[]", "optional":true, "track_missing_values":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok());
+    auto coll = created.get();
+    for(auto operation : {UPDATE, UPSERT}) {
+        for(const auto& replacement : {nlohmann::json::array(), nlohmann::json(nullptr)}) {
+            SCOPED_TRACE(std::to_string(operation) + replacement.dump());
+            auto doc = R"({"id":"0","items":[{"userId":31}],"wrapper":{"items":[{"userId":32}]}})"_json;
+            ASSERT_TRUE(coll->add(doc.dump(), CREATE).ok());
+            nlohmann::json patch = {{"id", "0"}, {"items", replacement}, {"wrapper", {{"items", replacement}}}};
+            ASSERT_TRUE(coll->add(patch.dump(), operation).ok());
+            for(const auto& name : {"items.userId", "wrapper.items.userId"}) {
+                auto missing = coll->search("*", {}, std::string(name) + ": _missing", {}, {}, {0});
+                ASSERT_TRUE(missing.ok());
+                EXPECT_EQ(1, missing.get()["found"].get<size_t>()) << name;
+                auto present = coll->search("*", {}, std::string(name) + ": !_missing", {}, {}, {0});
+                ASSERT_TRUE(present.ok());
+                EXPECT_EQ(0, present.get()["found"].get<size_t>()) << name;
+            }
+            ASSERT_TRUE(coll->remove("0").ok());
+        }
+    }
+}
+
+TEST_F(CollectionNestedFieldsTest, IndependentDottedFieldSurvivesParentArrayReplacement) {
+    auto schema = R"({"name":"independent_dotted", "enable_nested_fields":true, "fields":[
+        {"name":"items", "type":"object[]", "optional":true},
+        {"name":"items.userId", "type":"int64[]", "optional":true},
+        {"name":"items.taskIds", "type":"int64[]", "optional":true},
+        {"name":"itemsExtra", "type":"object[]", "optional":true},
+        {"name":"itemsExtra.taskIds", "type":"int64[]", "optional":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok());
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"0","items":[{"taskIds":[11]}],"items.userId":[31],"itemsExtra":[{"taskIds":[55]}]})"_json.dump(), CREATE).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"0","items":[{"taskIds":[22]}]})"_json.dump(), UPDATE).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"0","items":[]})"_json.dump(), UPDATE).ok());
+    auto result = coll->search("*", {}, "items.userId:=31", {}, {}, {0});
+    ASSERT_TRUE(result.ok());
+    EXPECT_EQ(1, result.get()["found"].get<size_t>());
+    auto removed = coll->search("*", {}, "items.taskIds:=11", {}, {}, {0});
+    ASSERT_TRUE(removed.ok());
+    EXPECT_EQ(0, removed.get()["found"].get<size_t>());
+    removed = coll->search("*", {}, "items.taskIds:=22", {}, {}, {0});
+    ASSERT_TRUE(removed.ok());
+    EXPECT_EQ(0, removed.get()["found"].get<size_t>());
+    auto neighbor = coll->search("*", {}, "itemsExtra.taskIds:=55", {}, {}, {0});
+    ASSERT_TRUE(neighbor.ok());
+    EXPECT_EQ(1, neighbor.get()["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, NullObjectParentTracksMissingImmediately) {
+    auto schema = R"({"name":"null_object_missing", "enable_nested_fields":true, "fields":[
+        {"name":"wrapper", "type":"object", "optional":true},
+        {"name":"wrapper.items", "type":"object[]", "optional":true},
+        {"name":"wrapper.items.userId", "type":"int64[]", "optional":true, "track_missing_values":true}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok());
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"0","wrapper":{"items":[{"userId":31}]}})"_json.dump(), CREATE).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"0","wrapper":null})"_json.dump(), UPDATE).ok());
+    auto missing = coll->search("*", {}, "wrapper.items.userId: _missing", {}, {}, {0});
+    ASSERT_TRUE(missing.ok());
+    EXPECT_EQ(1, missing.get()["found"].get<size_t>());
+    auto old_value = coll->search("*", {}, "wrapper.items.userId:=31", {}, {}, {0});
+    ASSERT_TRUE(old_value.ok());
+    EXPECT_EQ(0, old_value.get()["found"].get<size_t>());
+}
+
 TEST_F(CollectionNestedFieldsTest, UpdateNestedObjectArrayRemovesChildIndexes) {
     nlohmann::json schema = R"({
         "name": "review_tasks",

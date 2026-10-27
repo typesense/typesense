@@ -1,6 +1,7 @@
 #include "index.h"
 
 #include <memory>
+#include <algorithm>
 #include <numeric>
 #include <chrono>
 #include <set>
@@ -14,6 +15,7 @@
 #include <posting.h>
 #include <thread_local_vars.h>
 #include <unordered_set>
+#include <string_view>
 #include <or_iterator.h>
 #include <timsort.hpp>
 #include "logger.h"
@@ -8006,6 +8008,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
     // Supplied flattened children are diffed separately, including unchanged values.
     // Only missing children of a replaced/deleted parent need additional removals.
     const bool has_flat_fields = old_doc.contains(".flat") && !old_doc[".flat"].empty();
+    std::vector<std::string_view> flat_fields;
+    bool flat_fields_loaded = false;
     const auto add_nested_child_deletions = [&](const std::string& key, const std::string& parent_path,
                                                 const nlohmann::json& old) {
         if(!has_flat_fields) {
@@ -8013,15 +8017,35 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
         }
 
         const auto& old_value = old[key];
-        if(!(old_value.is_object() || (old_value.is_array() && !old_value.empty() && old_value[0].is_object()))) {
+        if(!(old_value.is_object() || (old_value.is_array() &&
+             std::any_of(old_value.begin(), old_value.end(), [](const auto& value) { return value.is_object(); })))) {
             return;
         }
 
         const std::string prefix = parent_path.empty() ? key + "." : parent_path + "." + key + ".";
-        for(const auto& flat_key_json: old_doc[".flat"]) {
-            const auto& flat_key = flat_key_json.get_ref<const std::string&>();
-            if(flat_key.rfind(prefix, 0) == 0 && old_doc.contains(flat_key) && !update_doc.contains(flat_key)) {
-                del_doc[flat_key] = old_doc[flat_key];
+        // Search only this document's flattened fields, avoiding repeated schema prefix scans.
+        if(!flat_fields_loaded) {
+            flat_fields.reserve(old_doc[".flat"].size());
+            for(const auto& flat_key: old_doc[".flat"]) {
+                const auto& name = flat_key.get_ref<const std::string&>();
+                if(search_schema.count(name)) {
+                    flat_fields.emplace_back(name);
+                }
+            }
+            std::sort(flat_fields.begin(), flat_fields.end());
+            flat_fields.erase(std::unique(flat_fields.begin(), flat_fields.end()), flat_fields.end());
+            flat_fields_loaded = true;
+        }
+        auto it = std::lower_bound(flat_fields.begin(), flat_fields.end(), std::string_view(prefix));
+        for(; it != flat_fields.end() && it->size() >= prefix.size() &&
+              it->substr(0, prefix.size()) == prefix; ++it) {
+            auto old_it = old_doc.find(*it);
+            if(old_it != old_doc.end() && !update_doc.contains(*it)) {
+                del_doc[old_it.key()] = *old_it;
+                auto new_it = new_doc.find(*it);
+                if(new_it != new_doc.end()) {
+                    new_doc.erase(new_it);
+                }
             }
         }
     };
@@ -8052,18 +8076,6 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                     if (value.is_null()) {
                         // Null value indicates deletion
                         if (old.contains(key)) {
-                            // if the old value is an object, we have to delete all child keys
-                            if(old[key].is_object()) {
-                                std::string nested_field_name;
-                                auto prefix_it = search_schema.equal_prefix_range(key + ".");
-                                for(auto kv = prefix_it.first; kv != prefix_it.second; kv++) {
-                                    kv.key(nested_field_name);
-                                    if(old.count(nested_field_name) != 0) {
-                                        del[nested_field_name] = old[nested_field_name];
-                                    }
-                                }
-                            }
-
                             del[key] = old[key];
                             add_nested_child_deletions(key, parent_path, old);
                         }
