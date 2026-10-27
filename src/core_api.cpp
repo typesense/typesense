@@ -1455,6 +1455,14 @@ Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std:
         return initialize_op;
     }
 
+    if(!req->embedded_params_vec.empty()) {
+        auto policy_op = CollectionManager::enforce_join_policy(req->embedded_params_vec[0], collection, filter_query,
+                                                                 ref_include_exclude_fields_vec);
+        if(!policy_op.ok()) {
+            return policy_op;
+        }
+    }
+
     spp::sparse_hash_set<std::string> includes;
     spp::sparse_hash_set<std::string> excludes;
     includes.insert(include_fields_vec.begin(), include_fields_vec.end());
@@ -2410,7 +2418,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
         req_json["expires_at"].get<uint64_t>(),
-        req_json["autodelete"].get<bool>()
+        req_json["autodelete"].get<bool>(),
+        req_json.count("joins") != 0 ? req_json["joins"] : nlohmann::json(nullptr)
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);
@@ -2448,8 +2457,18 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     const api_key_t& existing_key = get_key_op.get();
 
+    // `joins: null` is PATCH-only deletion syntax. Remove it before applying
+    // standard API key validation, where a present `joins` value must be an object.
+    const bool remove_joins = req_json.contains("joins") && req_json["joins"].is_null();
+    if(remove_joins) {
+        req_json.erase("joins");
+    }
+
     // Merge: start from existing key's JSON representation, then overlay request fields
     nlohmann::json merged_json = existing_key.to_json();
+    if(remove_joins) {
+        merged_json.erase("joins");
+    }
     for(auto it = req_json.begin(); it != req_json.end(); ++it) {
         merged_json[it.key()] = it.value();
     }
@@ -2474,7 +2493,8 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
         merged_json["actions"].get<std::vector<std::string>>(),
         merged_json["collections"].get<std::vector<std::string>>(),
         merged_json["expires_at"].get<uint64_t>(),
-        merged_json["autodelete"].get<bool>()
+        merged_json["autodelete"].get<bool>(),
+        merged_json.count("joins") != 0 ? merged_json["joins"] : nlohmann::json(nullptr)
     );
     api_key.id = existing_key.id; // ensure the id remains the same
 

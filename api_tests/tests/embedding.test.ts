@@ -478,7 +478,6 @@ describe(Phases.SINGLE_FRESH, () => {
       });
 
       expect(addRes.ok).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const getDocRes = await fetchSingleNode(`/collections/${name}/documents/1`);
       expect(getDocRes.ok).toBe(true);
@@ -537,7 +536,6 @@ describe(Phases.SINGLE_FRESH, () => {
       expect(addData.data.id).toBe("1");
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const searchRes = await fetchSingleNode(
       `/collections/matryoshka_search_512/documents/search?q=*&vector_query=${encodeURIComponent(
@@ -604,7 +602,6 @@ describe(Phases.SINGLE_FRESH, () => {
       expect(addData2.data.id).toBe("1");
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const searchRes2 = await fetchSingleNode(
       `/collections/matryoshka_search_1024/documents/search?q=*&vector_query=${encodeURIComponent(
@@ -966,7 +963,6 @@ describe(Phases.MULTI_FRESH, () => {
       });
 
       expect(addRes.ok).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const getDocRes = await fetchMultiNode(1, `/collections/${collectionName}/documents/1`);
       expect(getDocRes.ok).toBe(true);

@@ -18,6 +18,9 @@ struct api_key_t {
     std::vector<std::string> collections;
     uint64_t expires_at;
     bool autodelete;
+    // null means that join access is unrestricted for backwards compatibility.
+    // An object (including an empty object) is an explicit join policy.
+    nlohmann::json joins = nullptr;
 
     static constexpr const size_t PREFIX_LEN = 4;
     static constexpr const uint64_t FAR_FUTURE_TIMESTAMP = 64723363199;  // year 4020
@@ -27,9 +30,10 @@ struct api_key_t {
     }
 
     api_key_t(const std::string &value, const std::string &description, const std::vector<std::string> &actions,
-              const std::vector<std::string> &collections, uint64_t expires_at, bool autodel=false) :
+              const std::vector<std::string> &collections, uint64_t expires_at, bool autodel=false,
+              nlohmann::json joins = nullptr) :
             value(value), description(description), actions(actions), collections(collections), expires_at(expires_at),
-            autodelete(autodel) {
+            autodelete(autodel), joins(std::move(joins)) {
 
     }
 
@@ -62,6 +66,8 @@ struct api_key_t {
             autodelete = false;
         }
 
+        joins = key_obj.count("joins") != 0 ? key_obj["joins"] : nlohmann::json(nullptr);
+
         return Option<bool>(true);
     }
 
@@ -76,6 +82,9 @@ struct api_key_t {
         obj["collections"] = collections;
         obj["expires_at"] = expires_at;
         obj["autodelete"] = autodelete;
+        if(!joins.is_null()) {
+            obj["joins"] = joins;
+        }
 
         return obj;
     }
@@ -117,6 +126,8 @@ private:
     uint32_t get_next_api_key_id();
 
     static constexpr const char* DOCUMENTS_SEARCH_ACTION = "documents:search";
+    static constexpr const char* DOCUMENTS_GET_ACTION = "documents:get";
+    static constexpr const char* DOCUMENTS_EXPORT_ACTION = "documents:export";
 
     static std::string fmt_error(std::string&& error, const std::string& key);
 
@@ -134,6 +145,7 @@ public:
     static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
     static constexpr const char* AUTH_RESOLVED_COLLECTION_PARAM = "__typesense_authorized_collection";
+    static constexpr const char* AUTH_JOIN_POLICY_PARAM = "__typesense_join_policy";
 
     AuthManager() = default;
 

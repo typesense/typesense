@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <map>
 #include <thread>
+#include <chrono>
+#include <limits>
 #include <memory>
 #include <atomic>
 #include <mutex>
@@ -80,6 +82,9 @@ public:
 
     explicit union_global_params_t(const std::map<std::string, std::string>& req_params);
 };
+
+class Collection;
+struct join_policy_context_t;
 
 struct collection_search_args_t {
     static constexpr auto NUM_TYPOS = "num_typos";
@@ -297,6 +302,11 @@ struct collection_search_args_t {
     size_t group_max_candidates;
     size_t diversity_limit;
 
+    std::shared_ptr<join_policy_context_t> join_policy;
+    std::shared_ptr<Collection> join_policy_collection;
+    bool apply_join_policy_to_facet_parent = true;
+    bool apply_join_policy_to_facets = true;
+
     std::vector<std::vector<KV*>> result_group_kvs{};
 
     collection_search_args_t(std::string raw_query, std::vector<std::string> search_fields, std::string filter_query,
@@ -376,6 +386,14 @@ struct collection_search_args_t {
                              collection_search_args_t& args);
 
     void curation_union_global_params(union_global_params_t& global_params);
+
+    Option<bool> validate_post_curation_filter_sort(const filter_node_t* filter_root,
+                                                    const std::vector<sort_by>& effective_sort_fields,
+                                                    const filter_node_t* pre_curation_filter_root) const;
+
+    void prune_reference_facet_parent(const std::string& collection_name, nlohmann::json& parent) const;
+
+    Option<bool> filter_reference_facets(std::vector<facet>& facets) const;
 };
 
 class Collection: std::enable_shared_from_this<Collection> {
@@ -383,6 +401,24 @@ private:
 
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex alter_mutex;
+
+    // Held by a waiting document writer, so that new searches queue behind it (std::shared_mutex prefers readers).
+    // Lock order: alter_mutex -> write_turnstile -> mutex.
+    mutable std::mutex write_turnstile;
+
+    // A writer holds the turnstile for p * HOLD_PER_PERCENT, within [MIN_HOLD, MAX_HOLD]; after a hold of T, it stays
+    // open for T * (100 - p) / p, where p is the write-priority-max-percentage setting (0: no turnstile).
+    // MIN_HOLD: a hold shorter than the searches already running always gives up.
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_HOLD_PER_PERCENT{20};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MIN_HOLD{500};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
+    std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
+
+    // Earliest steady-clock ms at which a writer that gave up logs again. Guarded by write_turnstile.
+    int64_t write_turnstile_next_warning_at = std::numeric_limits<int64_t>::min();
+    static constexpr int64_t WRITE_TURNSTILE_WARNING_INTERVAL_MS = 60 * 1000;
+
+    std::unique_lock<std::shared_mutex> lock_for_write();
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -616,6 +652,7 @@ private:
                              std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              std::vector<uint32_t>& excluded_ids,
                              std::vector<const curation_t*>& filter_curations,
+                             std::set<const curation_t*>& matched_filter_curations,
                              bool& filter_curated_hits,
                              std::string& curated_sort_by,
                              nlohmann::json& curation_metadata,
@@ -627,6 +664,7 @@ private:
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const curation_t*>& filter_curations,
+                        std::set<const curation_t*>& matched_filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
                         diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
@@ -717,6 +755,8 @@ private:
                                         std::string& fallback_field_type);
 
     void process_filter_sort_curations(std::vector<const curation_t*>& filter_curations,
+                                  const std::set<const curation_t*>& matched_filter_curations,
+                                  const std::string& stopwords_set,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
                                   std::unique_ptr<filter_node_t>& filter_tree_root,
@@ -831,7 +871,8 @@ private:
                                         const facet_query_t& facet_query, size_t highlight_affix_num_tokens,
                                         size_t snippet_threshold, const std::string& highlight_start_tag,
                                         const std::string& highlight_end_tag, const std::string& raw_query,
-                                        nlohmann::json& results, bool is_union = false) const;
+                                        nlohmann::json& results, bool is_union = false,
+                                        const collection_search_args_t* search_args = nullptr) const;
 
     static Option<bool> merge_facet_results(nlohmann::json& result);
     static Option<bool> filter_dynamic_facets_by_occurrence(nlohmann::json& facet_counts, size_t found_docs,

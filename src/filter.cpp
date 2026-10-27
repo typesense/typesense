@@ -415,7 +415,8 @@ Option<bool> toFilter(const std::string& expression,
                       const Store* store,
                       const std::string& doc_id_prefix,
                       const bool& validate_field_names,
-                      const std::string& object_field_prefix) {
+                      const std::string& object_field_prefix,
+                      const bool& resolve_ids) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
     if (found_index == std::string::npos) {
@@ -468,6 +469,10 @@ Option<bool> toFilter(const std::string& expression,
                     break;
                 }
 
+                if (!resolve_ids) {
+                    continue;
+                }
+
                 // we have to convert the doc_id to seq id
                 std::string seq_id_str;
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_id, seq_id_str);
@@ -487,7 +492,7 @@ Option<bool> toFilter(const std::string& expression,
             if (doc_ids[0] == "*") {
                 filter_exp.values.emplace_back("*");
                 filter_exp.comparators.push_back(id_comparator);
-            } else {
+            } else if (resolve_ids) {
                 std::string seq_id_str;
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
                 if (seq_id_status == StoreStatus::FOUND) {
@@ -772,14 +777,15 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const Store* store,
                          const std::string& doc_id_prefix,
                          const bool& validate_field_names,
-                         const std::string& object_field_prefix) {
+                         const std::string& object_field_prefix,
+                         const bool& resolve_ids) {
     std::stack<filter_node_t*> nodeStack;
     bool is_successful = true;
+    uint32_t error_code = 400;
     std::string error_message;
 
-    filter_node_t *filter_node = nullptr;
-
     while (!postfix.empty()) {
+        filter_node_t* filter_node = nullptr;
         const std::string expression = postfix.front();
         postfix.pop();
 
@@ -844,9 +850,12 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 Option<bool> parse_filter_op = filter::parse_filter_query(object_filter_query, search_schema,
                                                                           store, doc_id_prefix, filter_node,
                                                                           validate_field_names,
-                                                                          object_prefix);
-                if (!parse_filter_op.ok()) {
-                    return parse_filter_op;
+                                                                          object_prefix, true, resolve_ids);
+                if (!parse_filter_op.ok() || filter_node == nullptr) {
+                    is_successful = false;
+                    error_code = parse_filter_op.ok() ? 400 : parse_filter_op.code();
+                    error_message = parse_filter_op.ok() ? "Object filter cannot be empty." : parse_filter_op.error();
+                    break;
                 }
 
                 // Only root node of the object filter needs to be marked. Prevents redundant calls to
@@ -856,7 +865,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 filter_node->filter_query = object_expression;
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix,
-                                                    validate_field_names, object_field_prefix);
+                                                    validate_field_names, object_field_prefix, resolve_ids);
                 if (!toFilter_op.ok()) {
                     is_successful = false;
                     error_message = toFilter_op.error();
@@ -878,7 +887,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             nodeStack.pop();
         }
 
-        return Option<bool>(400, error_message);
+        return Option<bool>(error_code, error_message);
     }
 
     if (nodeStack.empty()) {
@@ -896,7 +905,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                         filter_node_t*& root,
                                         const bool& validate_field_names,
                                         const std::string& object_field_prefix,
-                                        const bool& validate_max_ops) {
+                                        const bool& validate_max_ops,
+                                        const bool& resolve_ids) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
     if (_filter_query.empty()) {
@@ -930,7 +940,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
                                               store,
                                               doc_id_prefix,
                                               validate_field_names,
-                                              object_field_prefix);
+                                              object_field_prefix,
+                                              resolve_ids);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }

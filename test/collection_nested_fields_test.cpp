@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 
 class CollectionNestedFieldsTest : public ::testing::Test {
 protected:
@@ -16,7 +17,7 @@ protected:
     std::vector <sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_nested";
+        std::string state_dir_path = test_tmp_path("/collection_nested");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf " + state_dir_path + " && mkdir -p " + state_dir_path).c_str());
 
@@ -3502,7 +3503,7 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) 
     collectionManager.dispose();
     delete store;
 
-    store = new Store("/tmp/typesense_test/collection_nested");
+    store = new Store(test_tmp_path("/collection_nested"));
     collectionManager.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager.load(8, 1000);
 
