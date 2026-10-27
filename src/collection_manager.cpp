@@ -864,7 +864,9 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
     }
 
     // finally, check managed auth keys
-    return auth_manager.authenticate(action, collection_keys, params, embedded_params_vec);
+    // Authentication reads presets synchronously under this manager lock; do not use get_preset,
+    // which would reacquire the same mutex.
+    return auth_manager.authenticate(action, collection_keys, params, embedded_params_vec, &preset_configs);
 }
 
 struct referenced_in_replay_t {

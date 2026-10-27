@@ -6,6 +6,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <tsl/htrie_map.h>
+#include <sparsepp.h>
 #include "json.hpp"
 #include "option.h"
 #include "store.h"
@@ -132,7 +133,8 @@ private:
     static std::string fmt_error(std::string&& error, const std::string& key);
 
     Option<bool> authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
-                                           nlohmann::json& embedded_params) const ;
+                                           nlohmann::json& embedded_params,
+                                           const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) const;
 
     bool auth_against_key(const std::string& req_collection, const std::string& action,
                           const api_key_t &api_key, const bool search_only) const;
@@ -161,10 +163,13 @@ public:
 
     Option<api_key_t> update_key(uint32_t id, api_key_t&& api_key);
 
+    // Optional presets are read synchronously; the caller must keep the map alive and
+    // protect it against writes for the duration of this call.
     bool authenticate(const std::string& action,
                       const std::vector<collection_key_t>& collection_keys,
                       std::map<std::string, std::string>& params,
-                      std::vector<nlohmann::json>& embedded_params_vec) const;
+                      std::vector<nlohmann::json>& embedded_params_vec,
+                      const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs = nullptr) const;
 
     static bool add_item_to_params(std::map<std::string, std::string> &req_params,
                                    const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
