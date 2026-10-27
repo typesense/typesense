@@ -2869,6 +2869,10 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
         for(const auto& expanded_search_field: expanded_search_fields) {
             if (search_schema.count(expanded_search_field) == 0) {
+                if(!validate_field_names) {
+                    ignored_missing_fields = true;
+                    continue;
+                }
                 return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
             }
             auto search_field = search_schema.at(expanded_search_field);
