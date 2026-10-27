@@ -1049,6 +1049,127 @@ TEST_F(AnalyticsManagerTest, NoHitsQueries) {
   }
 }
 
+TEST_F(AnalyticsManagerTest, NoHitsExpansionPreservesQueries) {
+  const std::vector<std::vector<bool>> expansion_settings = {{false}, {true}, {false, true}, {true, false}};
+  for (size_t case_index = 0; case_index < expansion_settings.size(); ++case_index) {
+    SCOPED_TRACE(case_index);
+    const auto source = "source_" + std::to_string(case_index);
+    nlohmann::json schema = {{"name", source}, {"fields", {{{"name", "name"}, {"type", "string"}}}}};
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    ASSERT_TRUE(coll_op.get()->add(R"({"name":"phone"})").ok());
+    const auto alias = source + "_alias";
+    ASSERT_TRUE(collectionManager.upsert_symlink(alias, source).ok());
+
+    std::vector<std::string> rule_names;
+    for (size_t i = 0; i < expansion_settings[case_index].size(); ++i) {
+      const auto rule_name = source + "_rule_" + std::to_string(i);
+      schema = {{"name", rule_name}, {"fields", {
+          {{"name", "q"}, {"type", "string"}}, {{"name", "count"}, {"type", "int32"}}
+      }}};
+      ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+      nlohmann::json rule = {
+          {"name", rule_name}, {"type", "nohits_queries"}, {"collection", alias}, {"event_type", "search"},
+          {"params", {{"destination_collection", rule_name}, {"expand_query", expansion_settings[case_index][i]},
+                      {"capture_search_requests", true}, {"limit", 100u}}}
+      };
+      ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+      rule_names.push_back(rule_name);
+    }
+    const auto log_name = source + "_log";
+    nlohmann::json log_rule = {
+        {"name", log_name}, {"type", "log"}, {"collection", alias}, {"event_type", "search"},
+        {"params", {{"expand_query", true}, {"capture_search_requests", true}}}
+    };
+    ASSERT_TRUE(analyticsManager.create_rule(log_rule, false, true, true).ok());
+
+    // Separate users avoid consolidating distinct queries into a single typing session.
+    const std::vector<std::string> queries = {"zxqv", "wxyz", "zxqv"};
+    for (size_t i = 0; i < queries.size(); ++i) {
+      std::map<std::string, std::string> params = {
+          {"collection", alias}, {"q", queries[i]}, {"query_by", "name"},
+          {"x-typesense-user-id", source + "_user_" + std::to_string(i)}
+      };
+      nlohmann::json embedded_params;
+      std::string response;
+      ASSERT_TRUE(CollectionManager::do_search(params, embedded_params, response, 0).ok());
+      ASSERT_EQ(0, nlohmann::json::parse(response)["found"]);
+    }
+    const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    search_analytics.compact_all_user_queries(now_us + SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS * 2);
+
+    auto counters = search_analytics.get_search_counter_events();
+    for (const auto& rule_name : rule_names) {
+      SCOPED_TRACE(rule_name);
+      auto& counter = counters.at(rule_name);
+      ASSERT_EQ(2, counter.query_counts.size());
+      std::string docs;
+      counter.serialize_as_docs(docs);
+      std::vector<std::string> lines;
+      StringUtils::split(docs, lines, "\n");
+      ASSERT_EQ(2, lines.size());
+      std::map<std::string, uint64_t> counts;
+      std::set<std::string> ids;
+      for (const auto& line : lines) {
+        const auto doc = nlohmann::json::parse(line);
+        counts[doc["q"].get<std::string>()] = doc["$operations"]["increment"]["count"].get<uint64_t>();
+        ids.insert(doc["id"].get<std::string>());
+      }
+      const std::map<std::string, uint64_t> expected = {{"zxqv", 2}, {"wxyz", 1}};
+      EXPECT_EQ(expected, counts);
+      EXPECT_EQ(2, ids.size());
+    }
+    const auto logs = search_analytics.get_search_log_events();
+    ASSERT_EQ(queries.size(), logs.at(log_name).size());
+    std::map<std::string, std::string> logged_queries;
+    for (const auto& event : logs.at(log_name)) {
+      logged_queries[event.user_id] = event.query;
+    }
+    for (size_t i = 0; i < queries.size(); ++i) {
+      EXPECT_EQ(queries[i], logged_queries.at(source + "_user_" + std::to_string(i)));
+    }
+  }
+}
+
+TEST_F(AnalyticsManagerTest, PopularQueryExpansionPreservesPrefixBehavior) {
+  // Isolate rules so the shared prefix buffer cannot mask their expansion setting.
+  for (const bool expand : {false, true}) {
+    SCOPED_TRACE(expand);
+    const std::string source = expand ? "expanded" : "original";
+    nlohmann::json schema = {{"name", source}, {"fields", {{{"name", "name"}, {"type", "string"}}}}};
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    ASSERT_TRUE(coll_op.get()->add(R"({"name":"phone"})").ok());
+    const auto destination = source + "_queries";
+    schema = {{"name", destination}, {"fields", {
+        {{"name", "q"}, {"type", "string"}}, {{"name", "count"}, {"type", "int32"}}
+    }}};
+    ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+    nlohmann::json rule = {
+        {"name", source}, {"type", "popular_queries"}, {"collection", source}, {"event_type", "search"},
+        {"params", {{"destination_collection", destination}, {"expand_query", expand},
+                    {"capture_search_requests", true}, {"limit", 100u}}}
+    };
+    ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+    std::map<std::string, std::string> params = {
+        {"collection", source}, {"q", "pho"}, {"query_by", "name"}, {"x-typesense-user-id", "user"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    ASSERT_TRUE(CollectionManager::do_search(params, embedded_params, response, 0).ok());
+    ASSERT_EQ(1, nlohmann::json::parse(response)["found"]);
+    const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    search_analytics.compact_all_user_queries(now_us + SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS * 2);
+    const auto counters = search_analytics.get_search_counter_events();
+    const auto& counts = counters.at(source).query_counts;
+    ASSERT_EQ(1, counts.size());
+    EXPECT_EQ(expand ? "phone" : "pho", counts.begin()->first.query);
+    EXPECT_EQ(1, counts.begin()->second);
+  }
+}
+
 TEST_F(AnalyticsManagerTest, MigrateOldPopularQueriesRule) {
   nlohmann::json products_schema = R"({
         "name": "products",
