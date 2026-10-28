@@ -2278,7 +2278,8 @@ TEST_F(NaturalLanguageSearchModelManagerTest, NonStringGeneratedParamValues) {
     ASSERT_TRUE(coll->add(R"({"title":"Foundation", "points":50})").ok());
 
     add_search_params_mock_response({{"q", "*"}, {"filter_by", "points:>100"}, {"per_page", 5},
-                                     {"prioritize_exact_match", false}, {"sort_by", nullptr}});
+                                     {"prioritize_exact_match", false}, {"sort_by", nullptr},
+                                     {"query_by", nlohmann::json::array({"title"})}});
     std::map<std::string, std::string> params = {
         {"collection", "books"}, {"query_by", "title"}, {"nl_query", "true"},
         {"q", "top five books with more than 100 points"}
@@ -2290,6 +2291,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, NonStringGeneratedParamValues) {
     ASSERT_EQ("5", params["per_page"]);
     ASSERT_EQ("false", params["prioritize_exact_match"]);
     ASSERT_EQ(0, params.count("sort_by"));
+    ASSERT_EQ("title", params["query_by"]);
 
     std::string response;
     nlohmann::json embedded;

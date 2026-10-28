@@ -551,7 +551,8 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     nlohmann::json _llm_generated_params = nlohmann::json::array();
 
     for(auto& param : generated_params.items()) {
-        if(param.key() == "llm_response" || param.value().is_null()) {
+        // No search parameter takes an array or object, so skip them the same way as null.
+        if(param.key() == "llm_response" || param.value().is_null() || param.value().is_structured()) {
             continue;
         }
 
