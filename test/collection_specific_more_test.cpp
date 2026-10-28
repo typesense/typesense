@@ -2831,6 +2831,86 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, MixedFieldUnicodeHighlight) {
+    nlohmann::json schema = R"({
+        "name": "mixed_highlight",
+        "fields": [
+            {"name": "field1", "type": "string", "stem": true},
+            {"name": "field2", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto collection = create_op.get();
+    ASSERT_TRUE(collection->add(R"({"field1":"Something","field2":"Küche"})").ok());
+
+    std::map<std::string, std::string> params = {
+        {"collection", "mixed_highlight"}, {"q", "Küche"},
+        {"query_by", "field1,field2"}, {"highlight_full_fields", "field2"}
+    };
+    const std::vector<std::pair<std::string, std::string>> orders = {
+        {"field1,field2", "true"}, {"field2,field1", "true"},
+        {"field2", "true"}, {"field1,field2", "false"}
+    };
+    for(const auto& order: orders) {
+        SCOPED_TRACE(order.first + " prefix=" + order.second);
+        params["query_by"] = order.first;
+        params["prefix"] = order.second;
+        nlohmann::json embedded_params = nlohmann::json::object();
+        std::string result_json;
+        auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& highlight = result["hits"][0]["highlight"]["field2"];
+        EXPECT_EQ(nlohmann::json::array({"Küche"}), highlight["matched_tokens"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["snippet"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["value"]);
+    }
+
+    params["q"] = "Küc";
+    params["query_by"] = "field1,field2";
+    params["prefix"] = "true";
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string result_json;
+    auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& highlight = result["hits"][0]["highlight"]["field2"];
+    EXPECT_EQ(nlohmann::json::array({"Küc"}), highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["snippet"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["value"]);
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldUnicodeHighlightWithSkippedCharacter) {
+    nlohmann::json schema = R"({
+        "name": "mixed_highlight_skipped",
+        "fields": [
+            {"name": "field1", "type": "string", "stem": true},
+            {"name": "field2", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    ASSERT_TRUE(create_op.get()->add(R"({"field1":"Something","field2":"Kü-che, next"})").ok());
+    std::map<std::string, std::string> params = {
+        {"collection", "mixed_highlight_skipped"}, {"q", "Küche"},
+        {"query_by", "field1,field2"}, {"highlight_full_fields", "field2"}
+    };
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string result_json;
+    auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& highlight = result["hits"][0]["highlight"]["field2"];
+    // Preserve existing skipped-character behavior; the trailing letter is not yet highlighted.
+    EXPECT_EQ(nlohmann::json::array({"Kü-ch"}), highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Kü-ch</mark>e, next", highlight["snippet"]);
+    EXPECT_EQ("<mark>Kü-ch</mark>e, next", highlight["value"]);
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingEnglish) {
     nlohmann::json schema = R"({
         "name": "test",

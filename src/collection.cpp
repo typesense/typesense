@@ -6458,7 +6458,7 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
 
                 if(num_letters < prefix_token_num_chars) {
                     // can happen in the case of stemming
-                    prefix_end = tok_start + num_letters;
+                    prefix_end = tok_end;
                 }
 
                 size_t char_diff = num_letters - prefix_letters;
