@@ -14162,7 +14162,7 @@ TEST_F(CollectionJoinTest, NegateLeftJoinScrambledReferences) {
         auto result = nlohmann::json::parse(response);
         ASSERT_EQ(3, result["found"]);
         ASSERT_EQ(3, result["hits"].size());
-        ASSERT_EQ(R"({"id": "D", "child_count": 0})"_json, result["hits"][0]["document"]);
+        ASSERT_EQ(R"({"id": "D"})"_json, result["hits"][0]["document"]);
         ASSERT_EQ(R"({"id": "C", "child_count": 1, "children": [{"id": "child1"}]})"_json,
                   result["hits"][1]["document"]);
         ASSERT_EQ(R"({"id": "B", "child_count": 2, "children": [{"id": "child0"}, {"id": "child3"}]})"_json,

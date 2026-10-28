@@ -171,9 +171,6 @@ Option<bool> Join::negate_left_join(const std::string& ref_collection_name, cons
 
         // product_c will not have any references.
         if (related_doc_ids.empty()) {
-            auto references = reference_filter_result_t(1, new uint32_t[1]{Join::reference_helper_sentinel_value},
-                                                        is_reference_array_field);
-            filter_result.coll_to_references[i][ref_collection_name] = std::move(references);
             continue;
         }
 
