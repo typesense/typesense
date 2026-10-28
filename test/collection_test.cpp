@@ -5553,6 +5553,106 @@ TEST_F(CollectionTest, TokenSeparatorHighlightingIssue) {
     collectionManager.drop_collection("users");
 }
 
+TEST_F(CollectionTest, HighlightUsesEffectiveFieldTokenization) {
+    const std::string text = "J'adore la Supply Chain, entre autres choses";
+    const std::string snippet = "J'adore la <mark>Supply</mark> <mark>Chain</mark>, entre autres choses";
+    const auto expected_tokens = nlohmann::json::array({"Supply", "Chain"});
+
+    for (int mode = 0; mode < 4; mode++) {
+        SCOPED_TRACE(mode);
+        nlohmann::json description = {{"name", "description"}, {"type", mode == 3 ? "string[]" : "string"}};
+        nlohmann::json schema = {{"name", "field_highlight"}, {"fields", nlohmann::json::array({description})}};
+        if (mode == 0) {
+            schema["token_separators"] = {"'", ","};
+        } else {
+            schema["fields"][0]["token_separators"] = {"'", ","};
+            if (mode == 2) {
+                schema["token_separators"] = {"-"};
+            }
+        }
+        auto created = collectionManager.create_collection(schema);
+        ASSERT_TRUE(created.ok()) << created.error();
+        auto coll = created.get();
+        nlohmann::json doc = {{"description", text}};
+        if (mode == 3) {
+            doc["description"] = nlohmann::json::array({"unrelated text", text});
+        }
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+        auto searched = coll->search("supply cHaIn", {"description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(searched.ok()) << searched.error();
+        const auto results = searched.get();
+        const auto& hits = results["hits"];
+        ASSERT_EQ(1, hits.size());
+        const auto& hit = hits[0];
+        const auto& structured = mode == 3 ? hit["highlight"]["description"][1] : hit["highlight"]["description"];
+        EXPECT_EQ(expected_tokens, structured["matched_tokens"]);
+        EXPECT_EQ(snippet, structured["snippet"]);
+        ASSERT_EQ(1, hit["highlights"].size());
+        const auto& legacy = hit["highlights"][0];
+        if (mode == 3) {
+            EXPECT_EQ(expected_tokens, legacy["matched_tokens"][0]);
+            EXPECT_EQ(snippet, legacy["snippets"][0]);
+            EXPECT_EQ(nlohmann::json::array({1}), legacy["indices"]);
+            EXPECT_EQ(nlohmann::json::array(), hit["highlight"]["description"][0]["matched_tokens"]);
+        } else {
+            EXPECT_EQ(expected_tokens, legacy["matched_tokens"]);
+            EXPECT_EQ(snippet, legacy["snippet"]);
+        }
+        collectionManager.drop_collection("field_highlight");
+    }
+}
+
+TEST_F(CollectionTest, HighlightPrefixUsesFieldQueryTokenization) {
+    for (bool field_override : {false, true}) {
+        SCOPED_TRACE(field_override);
+        nlohmann::json schema = {{"name", "prefix_highlight"}, {"fields", {{{"name", "title"}, {"type", "string"}}}}};
+        if (field_override) {
+            schema["fields"][0]["token_separators"] = {"-"};
+        } else {
+            schema["token_separators"] = {"-"};
+        }
+        auto created = collectionManager.create_collection(schema);
+        ASSERT_TRUE(created.ok()) << created.error();
+        auto coll = created.get();
+        ASSERT_TRUE(coll->add(R"({"title":"alpha betamax"})").ok());
+        auto searched = coll->search("alpha-bet", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true});
+        ASSERT_TRUE(searched.ok()) << searched.error();
+        const auto results = searched.get();
+        const auto& hits = results["hits"];
+        ASSERT_EQ(1, hits.size());
+        for (const auto& highlight : {hits[0]["highlight"]["title"], hits[0]["highlights"][0]}) {
+            EXPECT_EQ("<mark>alpha</mark> <mark>bet</mark>amax", highlight["snippet"]);
+            EXPECT_EQ(nlohmann::json::array({"alpha", "bet"}), highlight["matched_tokens"]);
+        }
+        collectionManager.drop_collection("prefix_highlight");
+    }
+}
+
+TEST_F(CollectionTest, HighlightPreservesInternalFieldSymbolsAndDefaultFallback) {
+    for (bool field_override : {false, true}) {
+        SCOPED_TRACE(field_override);
+        nlohmann::json schema = {{"name", "symbol_highlight"}, {"fields", {{{"name", "title"}, {"type", "string"}}}}};
+        if (field_override) {
+            schema["symbols_to_index"] = {"+"};
+            schema["fields"][0]["symbols_to_index"] = {"-"};
+        }
+        auto created = collectionManager.create_collection(schema);
+        ASSERT_TRUE(created.ok()) << created.error();
+        auto coll = created.get();
+        ASSERT_TRUE(coll->add(R"({"title":"alpha-beta gamma"})").ok());
+        auto searched = coll->search("alpha-beta", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(searched.ok()) << searched.error();
+        const auto results = searched.get();
+        const auto& hits = results["hits"];
+        ASSERT_EQ(1, hits.size());
+        for (const auto& highlight : {hits[0]["highlight"]["title"], hits[0]["highlights"][0]}) {
+            EXPECT_EQ("<mark>alpha-beta</mark> gamma", highlight["snippet"]);
+            EXPECT_EQ(nlohmann::json::array({"alpha-beta"}), highlight["matched_tokens"]);
+        }
+        collectionManager.drop_collection("symbol_highlight");
+    }
+}
+
 TEST_F(CollectionTest, PerFieldTokenSeparatorsAndSymbolsToIndex) {
     // collection-level token_separators
     nlohmann::json coll1_fields_json = nlohmann::json::array();
