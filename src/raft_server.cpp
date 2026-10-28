@@ -293,7 +293,6 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
     std::array<char, 64 * 1024> chunk;
     int ret = 0;
     do {
-        const auto previous_avail_in = request->zs.avail_in;
         request->zs.avail_out = chunk.size();
         request->zs.next_out = reinterpret_cast<Bytef *>(chunk.data());
         ret = inflate(&request->zs, Z_NO_FLUSH);
@@ -304,11 +303,7 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
             return Option<bool>(400, error_msg);
         }
         outbuffer.append(chunk.data(), chunk.size() - request->zs.avail_out);
-        if(ret == Z_BUF_ERROR && request->zs.avail_in == previous_avail_in &&
-           request->zs.avail_out == chunk.size()) {
-            break;
-        }
-    } while (ret != Z_STREAM_END && (request->zs.avail_in > 0 || request->zs.avail_out == 0));
+    } while (ret != Z_STREAM_END && request->zs.avail_out == 0);
 
     if(request->last_chunk_aggregate && ret != Z_STREAM_END) {
         inflateEnd(&request->zs);
@@ -321,8 +316,8 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
         inflateEnd(&request->zs);
     }
 
-    request->body = outbuffer;
-    request->chunk_len = outbuffer.size();
+    request->body = std::move(outbuffer);
+    request->chunk_len = request->body.size();
 
     return Option<bool>(true);
 }

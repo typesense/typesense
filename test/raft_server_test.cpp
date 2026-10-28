@@ -147,35 +147,77 @@ namespace {
         ASSERT_EQ(0, writer->save_meta(meta));
         ASSERT_EQ(0, snapshot_storage.close(writer));
     }
+
+    void gzip_compress(const std::string& payload, std::string& compressed) {
+        z_stream compressor{};
+        ASSERT_EQ(Z_OK, deflateInit2(&compressor, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+                                     16 + MAX_WBITS, 8, Z_DEFAULT_STRATEGY));
+        compressed.assign(compressBound(payload.size()) + 32, '\0');
+        compressor.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(payload.data()));
+        compressor.avail_in = payload.size();
+        compressor.next_out = reinterpret_cast<Bytef *>(compressed.data());
+        compressor.avail_out = compressed.size();
+        ASSERT_EQ(Z_STREAM_END, deflate(&compressor, Z_FINISH));
+        compressed.resize(compressor.total_out);
+        deflateEnd(&compressor);
+    }
 }
 
 TEST(RaftServerTest, DecompressesHighlyCompressibleGzipAcrossChunks) {
-    auto& config = Config::get_instance();
-    ReplicationState replication_state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false,
-                                       &config, 1, 1);
     const std::string payload(1024 * 1024, 'a');
-    z_stream compressor{};
-    ASSERT_EQ(Z_OK, deflateInit2(&compressor, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
-                                 16 + MAX_WBITS, 8, Z_DEFAULT_STRATEGY));
-    std::string compressed(compressBound(payload.size()) + 32, '\0');
-    compressor.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(payload.data()));
-    compressor.avail_in = payload.size();
-    compressor.next_out = reinterpret_cast<Bytef *>(compressed.data());
-    compressor.avail_out = compressed.size();
-    ASSERT_EQ(Z_STREAM_END, deflate(&compressor, Z_FINISH));
-    compressed.resize(compressor.total_out);
-    deflateEnd(&compressor);
+    std::string compressed;
+    ASSERT_NO_FATAL_FAILURE(gzip_compress(payload, compressed));
 
     auto req = std::make_shared<http_req>();
     req->body = compressed.substr(0, compressed.size() / 2);
     req->last_chunk_aggregate = false;
-    ASSERT_TRUE(replication_state.handle_gzip(req).ok());
+    ASSERT_TRUE(ReplicationState::handle_gzip(req).ok());
     std::string result = req->body;
     req->body = compressed.substr(compressed.size() / 2);
     req->last_chunk_aggregate = true;
-    ASSERT_TRUE(replication_state.handle_gzip(req).ok());
+    ASSERT_TRUE(ReplicationState::handle_gzip(req).ok());
     result += req->body;
     EXPECT_EQ(payload, result);
+}
+
+TEST(RaftServerTest, RejectsTruncatedGzipStreamWhenLastChunkCarriesRemainingBytes) {
+    std::string compressed;
+    ASSERT_NO_FATAL_FAILURE(gzip_compress(std::string(1024 * 1024, 'a'), compressed));
+    // drop the 8-byte gzip trailer (CRC32 + ISIZE), so the stream never reaches Z_STREAM_END
+    const std::string truncated = compressed.substr(0, compressed.size() - 8);
+
+    auto req = std::make_shared<http_req>();
+    req->body = truncated.substr(0, truncated.size() / 2);
+    req->last_chunk_aggregate = false;
+    ASSERT_TRUE(ReplicationState::handle_gzip(req).ok());
+    ASSERT_TRUE(req->zstream_initialized);
+
+    req->body = truncated.substr(truncated.size() / 2);
+    req->last_chunk_aggregate = true;
+    auto res = ReplicationState::handle_gzip(req);
+    ASSERT_FALSE(res.ok());
+    ASSERT_EQ(400, res.code());
+    ASSERT_EQ("Incomplete gzip stream.", res.error());
+    ASSERT_FALSE(req->zstream_initialized);
+}
+
+TEST(RaftServerTest, RejectsTruncatedGzipStreamWhenLastChunkIsEmpty) {
+    std::string compressed;
+    ASSERT_NO_FATAL_FAILURE(gzip_compress(std::string(1024 * 1024, 'a'), compressed));
+
+    auto req = std::make_shared<http_req>();
+    req->body = compressed.substr(0, compressed.size() / 2);
+    req->last_chunk_aggregate = false;
+    ASSERT_TRUE(ReplicationState::handle_gzip(req).ok());
+    ASSERT_TRUE(req->zstream_initialized);
+
+    req->body = "";
+    req->last_chunk_aggregate = true;
+    auto res = ReplicationState::handle_gzip(req);
+    ASSERT_FALSE(res.ok());
+    ASSERT_EQ(400, res.code());
+    ASSERT_EQ("Incomplete gzip stream.", res.error());
+    ASSERT_FALSE(req->zstream_initialized);
 }
 
 TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
