@@ -7223,8 +7223,13 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
 
 
             if (is_synonym_query && num_query_tokens == posting_lists.size()) {
-                unique_words = syn_orig_num_tokens;
-                this_words_present = syn_orig_num_tokens;
+                // Normalize only complete coverage; posting-list matches can fall outside the proximity window.
+                if (unique_words == posting_lists.size()) {
+                    unique_words = syn_orig_num_tokens;
+                }
+                if (this_words_present == posting_lists.size()) {
+                    this_words_present = syn_orig_num_tokens;
+                }
             }
 
             if (is_synonym_query && syn_orig_num_tokens > 0 && orig_num_tokens > 0) {
