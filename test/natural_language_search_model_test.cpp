@@ -1605,6 +1605,7 @@ TEST_F(NaturalLanguageSearchModelTest, ReasoningModelNameRule) {
                             "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra", "gpt-6-sol",
                             "gpt-7", "my-gpt-6-deployment", "gpt-eastus-gpt-5-mini", "o1", "o1-2024-12-17", "o3", "o3-mini", "o3mini",
                             "o4-mini-2025-04-16", "prod-o3-mini", "ft:o4-mini-2025-04-16:org::abc", "team/o1-deployment",
+                            "openai/o3:online", "prod-o3/eastus",
                             "ft:gpt-5-mini-2025-08-07:acme::abc123"}) {
         ASSERT_TRUE(NaturalLanguageSearchModel::is_reasoning_model_name(name)) << name;
     }
@@ -1668,7 +1669,7 @@ TEST_F(NaturalLanguageSearchModelTest, OpenAIGpt6RequestUsesMaxCompletionTokens)
     ASSERT_FALSE(body.contains("temperature"));
 }
 
-TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelSendsConfiguredTemperature) {
+TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelValidationTemperature) {
     NaturalLanguageSearchModel::add_mock_response(R"({
       "object": "chat.completion",
       "model": "gpt-5.1",
@@ -1679,7 +1680,7 @@ TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelSendsConfiguredTemper
         "model_name": "openai/gpt-5.1",
         "api_key": "sk-test",
         "max_bytes": 1024,
-        "temperature": 0
+        "temperature": 0.7
     })"_json;
 
     auto result = NaturalLanguageSearchModel::validate_model(model_config);
@@ -1688,7 +1689,7 @@ TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelSendsConfiguredTemper
     auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
     ASSERT_EQ(body["max_completion_tokens"], 10);
     ASSERT_FALSE(body.contains("max_tokens"));
-    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.7f);
 
     NaturalLanguageSearchModel::add_mock_response(R"({
       "error": {
@@ -1714,6 +1715,27 @@ TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelSendsConfiguredTemper
     body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
     ASSERT_EQ(body["max_completion_tokens"], 10);
     ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.5f);
+
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "openai/o3-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    model_config = R"({
+        "model_name": "openai/openai/o3-mini",
+        "api_key": "sk-test",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "max_bytes": 1024,
+        "temperature": 0.7
+    })"_json;
+
+    result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 3);
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(2).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
 }
 
 TEST_F(NaturalLanguageSearchModelTest, OpenAIHostAlwaysUsesMaxCompletionTokens) {

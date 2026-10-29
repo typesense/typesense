@@ -126,7 +126,7 @@ bool NaturalLanguageSearchModel::is_reasoning_model_name(const std::string& mode
     }
     for(size_t i = 0; i + 1 < name.size(); i++) {
         if(name[i] == 'o' && is_model_name_digit(name, i + 1, '0') && is_model_name_boundary(name, i) &&
-           (i == 0 || i + 2 == name.size() || name[i + 2] == '-')) {
+           (i == 0 || i + 2 == name.size() || is_model_name_boundary(name, i + 3))) {
             return true;
         }
     }
@@ -160,6 +160,10 @@ bool NaturalLanguageSearchModel::is_openai_api_host(const std::string& api_url) 
     return host.size() > suffix.size() && host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
+static bool is_o_series_or_gpt5_model_name(const std::string& name) {
+    return (name.size() >= 2 && name[0] == 'o' && isdigit(name[1])) || name.find("gpt-5") != std::string::npos;
+}
+
 static void set_chat_completion_params(nlohmann::json& request_body, const nlohmann::json& model_config,
                                        size_t max_tokens, bool validation) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
@@ -181,7 +185,8 @@ static void set_chat_completion_params(nlohmann::json& request_body, const nlohm
     if(!reasoning_model) {
         request_body["temperature"] = validation ? 0.0f : model_config.value("temperature", 0.0f);
     } else if(model_config.count("temperature") != 0) {
-        request_body["temperature"] = model_config["temperature"].get<float>();
+        bool send_configured = !validation || openai_host || is_o_series_or_gpt5_model_name(model_name_without_namespace);
+        request_body["temperature"] = send_configured ? model_config["temperature"].get<float>() : 0.0f;
     }
 }
 
