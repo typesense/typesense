@@ -110,27 +110,79 @@ Option<nlohmann::json> NaturalLanguageSearchModel::generate_search_params(
     return Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
-bool NaturalLanguageSearchModel::uses_max_completion_tokens(const std::string& model_name_without_namespace) {
+static bool is_model_name_boundary(const std::string& name, size_t pos) {
+    return pos == 0 || name[pos - 1] == '-' || name[pos - 1] == '/' || name[pos - 1] == ':';
+}
+
+static bool is_model_name_digit(const std::string& name, size_t pos, char low) {
+    return pos < name.size() && name[pos] >= low && name[pos] <= '9';
+}
+
+bool NaturalLanguageSearchModel::is_reasoning_model_name(const std::string& model_name_without_namespace) {
     const std::string& name = model_name_without_namespace;
-    if(name.size() >= 2 && name[0] == 'o' && isdigit(name[1])) {
+    if(name.rfind("ft:", 0) == 0) {
+        size_t base_end = name.find(':', 3);
+        return is_reasoning_model_name(name.substr(3, base_end == std::string::npos ? std::string::npos : base_end - 3));
+    }
+    for(size_t i = 0; i + 1 < name.size(); i++) {
+        if(name[i] == 'o' && is_model_name_digit(name, i + 1, '0') && is_model_name_boundary(name, i) &&
+           (i == 0 || i + 2 == name.size() || name[i + 2] == '-')) {
+            return true;
+        }
+    }
+    for(size_t pos = name.find("gpt-"); pos != std::string::npos; pos = name.find("gpt-", pos + 1)) {
+        if(is_model_name_digit(name, pos + 4, '5')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool NaturalLanguageSearchModel::is_openai_api_host(const std::string& api_url) {
+    size_t start = api_url.find("://");
+    start = (start == std::string::npos) ? 0 : start + 3;
+    size_t end = api_url.find_first_of("/?#", start);
+    std::string host = api_url.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    size_t at = host.rfind('@');
+    if(at != std::string::npos) {
+        host = host.substr(at + 1);
+    }
+    size_t colon = host.find(':');
+    if(colon != std::string::npos) {
+        host = host.substr(0, colon);
+    }
+    StringUtils::tolowercase(host);
+    const std::string openai_host = "api.openai.com";
+    if(host == openai_host) {
         return true;
     }
-    const std::string prefix = "gpt-";
-    size_t pos = name.find(prefix);
-    if(pos == std::string::npos) {
-        return false;
+    const std::string suffix = "." + openai_host;
+    return host.size() > suffix.size() && host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+static void set_chat_completion_params(nlohmann::json& request_body, const nlohmann::json& model_config,
+                                       size_t max_tokens, bool validation) {
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    const std::string& model_namespace = get_model_namespace(model_name);
+    const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
+
+    bool reasoning_model = model_namespace != "vllm" &&
+                           NaturalLanguageSearchModel::is_reasoning_model_name(model_name_without_namespace);
+    bool openai_host = model_namespace == "openai" &&
+                       (model_config.count("api_url") == 0 ||
+                        NaturalLanguageSearchModel::is_openai_api_host(model_config["api_url"].get<std::string>()));
+
+    if(reasoning_model || openai_host) {
+        request_body["max_completion_tokens"] = max_tokens;
+    } else {
+        request_body["max_tokens"] = max_tokens;
     }
-    size_t i = pos + prefix.size();
-    if(i >= name.size() || !isdigit(name[i])) {
-        return false;
+
+    if(!reasoning_model) {
+        request_body["temperature"] = validation ? 0.0f : model_config.value("temperature", 0.0f);
+    } else if(model_config.count("temperature") != 0) {
+        request_body["temperature"] = model_config["temperature"].get<float>();
     }
-    size_t major = 0;
-    while(i < name.size() && isdigit(name[i])) {
-        major = major * 10 + (name[i] - '0');
-        i++;
-    }
-    // azure names gpt-3.5-turbo as gpt-35-turbo
-    return major >= 5 && major != 35;
 }
 
 Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::json& model_config) {
@@ -141,29 +193,18 @@ Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::j
     // Validate API key by making a test API call
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
-    if(model_config.count("temperature") != 0) {
-        if(is_reasoning_model) {
-            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 and newer models.");
-        }
-        if(!model_config["temperature"].is_number() || 
-           model_config["temperature"].get<float>() < 0 || 
-           model_config["temperature"].get<float>() > 2) {
-            return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
-        }
+    if(model_config.count("temperature") != 0 &&
+       (!model_config["temperature"].is_number() ||
+        model_config["temperature"].get<float>() < 0 ||
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
     }
-
 
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    if(is_reasoning_model) {
-        test_request["max_completion_tokens"] = 10;
-    } else {
-        test_request["max_tokens"] = 10;
-        test_request["temperature"] = 0;
-    }
+    set_chat_completion_params(test_request, model_config, 10, true);
     
     auto result = call_openai_api(test_request, model_config, VALIDATION_TIMEOUT_MS);
     if(!result.ok()) {
@@ -181,20 +222,12 @@ Option<nlohmann::json> NaturalLanguageSearchModel::openai_vllm_generate_search_p
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
     const std::string& api_key = model_config.contains("api_key") ? model_config["api_key"].get<std::string>() : "";
-    float temperature = model_config.value("temperature", 0.0f);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
     std::string api_url = model_config.value("api_url", std::string("https://api.openai.com/v1/chat/completions"));
 
-    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
-
     nlohmann::json request_body;
     request_body["model"] = model_name_without_namespace;
-    if(is_reasoning_model) {
-        request_body["max_completion_tokens"] = max_bytes;
-    } else {
-        request_body["max_tokens"] = max_bytes;
-        request_body["temperature"] = temperature;
-    }
+    set_chat_completion_params(request_body, model_config, max_bytes, false);
     request_body["messages"] = {
         {{"role", "system"}, {"content", system_prompt}},
         {{"role", "user"}, {"content", query}}
@@ -321,8 +354,7 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    test_request["max_tokens"] = 10;
-    test_request["temperature"] = 0;
+    set_chat_completion_params(test_request, model_config, 10, true);
 
     auto result = call_openai_api(test_request, model_config, VALIDATION_TIMEOUT_MS);
     if(!result.ok()) {
@@ -1136,28 +1168,18 @@ Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::js
 
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
-    if(model_config.count("temperature") != 0) {
-        if(is_reasoning_model) {
-            return Option<bool>(400, "Property `temperature` is not supported for the o-series and gpt-5 and newer models.");
-        }
-        if(!model_config["temperature"].is_number() || 
-           model_config["temperature"].get<float>() < 0 || 
-           model_config["temperature"].get<float>() > 2) {
-            return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
-        }
+    if(model_config.count("temperature") != 0 &&
+       (!model_config["temperature"].is_number() ||
+        model_config["temperature"].get<float>() < 0 ||
+        model_config["temperature"].get<float>() > 2)) {
+        return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
     }
 
     nlohmann::json test_request;
     test_request["model"] = model_name_without_namespace;
     test_request["messages"] = R"([{"role":"user","content":"hello"}])"_json;
-    if(is_reasoning_model) {
-        test_request["max_completion_tokens"] = 10;
-    } else {
-        test_request["max_tokens"] = 10;
-        test_request["temperature"] = 0;
-    }
+    set_chat_completion_params(test_request, model_config, 10, true);
 
     auto result = call_azure_api(test_request, model_config, VALIDATION_TIMEOUT_MS);
     if(!result.ok()) {
@@ -1174,19 +1196,11 @@ Option<nlohmann::json> NaturalLanguageSearchModel::azure_generate_search_params(
 
     const std::string& model_name = model_config["model_name"].get<std::string>();
     const std::string& model_name_without_namespace = model_name.substr(model_name.find('/') + 1);
-    float temperature = model_config.value("temperature", 0.0f);
     size_t max_bytes = model_config["max_bytes"].get<size_t>();
-
-    bool is_reasoning_model = uses_max_completion_tokens(model_name_without_namespace);
 
     nlohmann::json request_body;
     request_body["model"] = model_name_without_namespace;
-    if(is_reasoning_model) {
-        request_body["max_completion_tokens"] = max_bytes;
-    } else {
-        request_body["max_tokens"] = max_bytes;
-        request_body["temperature"] = temperature;
-    }
+    set_chat_completion_params(request_body, model_config, max_bytes, false);
     request_body["messages"] = {
         {{"role", "system"}, {"content", system_prompt}},
         {{"role", "user"}, {"content", query}}

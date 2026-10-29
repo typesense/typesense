@@ -2088,3 +2088,81 @@ TEST_F(NaturalLanguageSearchModelManagerTest, WildcardGeneratedQueryReturnsFilte
         ASSERT_TRUE(hit["highlights"].empty());
     }
 }
+
+TEST_F(NaturalLanguageSearchModelManagerTest, InitReloadsStoredModelsWithProviderParams) {
+    NaturalLanguageSearchModel::enable_request_capture();
+
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    nlohmann::json gpt6_config = R"({
+      "model_name": "openai/gpt-6-luna",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+    })"_json;
+    auto add_result = NaturalLanguageSearchModelManager::add_model(gpt6_config, "gpt6_model", true);
+    ASSERT_TRUE(add_result.ok()) << add_result.error();
+
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-41-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    nlohmann::json azure_config = R"({
+      "model_name": "azure/gpt-41-mini",
+      "api_key": "test-azure-key",
+      "url": "https://test.openai.azure.com/openai/deployments/gpt-41-mini/chat/completions?api-version=2024-02-15-preview",
+      "max_bytes": 1024,
+      "temperature": 0.4
+    })"_json;
+    add_result = NaturalLanguageSearchModelManager::add_model(azure_config, "azure41_model", true);
+    ASSERT_TRUE(add_result.ok()) << add_result.error();
+
+    NaturalLanguageSearchModelManager::dispose();
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_all_models().get().empty());
+
+    NaturalLanguageSearchModel::disable_request_capture();
+    NaturalLanguageSearchModel::enable_request_capture();
+    NaturalLanguageSearchModel::clear_mock_responses();
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "reload",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "reload",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    auto init_result = NaturalLanguageSearchModelManager::init(store);
+    ASSERT_TRUE(init_result.ok());
+    ASSERT_EQ(init_result.get(), 2);
+    ASSERT_EQ(NaturalLanguageSearchModelManager::get_all_models().get().size(), 2);
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("gpt6_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("azure41_model").ok());
+
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 2);
+    nlohmann::json gpt6_body;
+    nlohmann::json azure_body;
+    for(size_t i = 0; i < 2; i++) {
+        auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(i).body);
+        if(body["model"] == "gpt-6-luna") {
+            gpt6_body = body;
+        } else {
+            azure_body = body;
+        }
+    }
+    ASSERT_EQ(gpt6_body["model"], "gpt-6-luna");
+    ASSERT_EQ(gpt6_body["max_completion_tokens"], 10);
+    ASSERT_FALSE(gpt6_body.contains("max_tokens"));
+    ASSERT_FALSE(gpt6_body.contains("temperature"));
+    ASSERT_EQ(azure_body["model"], "gpt-41-mini");
+    ASSERT_EQ(azure_body["max_tokens"], 10);
+    ASSERT_EQ(azure_body["temperature"], 0);
+    ASSERT_FALSE(azure_body.contains("max_completion_tokens"));
+
+    NaturalLanguageSearchModel::disable_request_capture();
+}
