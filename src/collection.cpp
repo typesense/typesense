@@ -1641,7 +1641,8 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
                                 std::string& curated_sort_by,
                                 nlohmann::json& curation_metadata,
                                 diversity_t& diversity, bool synonym_prefix,
-                                uint32_t synonym_num_typos) const {
+                                uint32_t synonym_num_typos,
+                                const std::vector<std::string>& param_curation_sets) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1662,7 +1663,13 @@ Option<bool> Collection::curate_results(string& actual_query, const string& filt
         // Build curations list from curation sets only
         std::vector<const curation_t*> curation_set_curations;
         std::shared_lock s_lock(mutex);
-        const auto local_curation_sets = curation_sets;
+        // merge collection curation sets and search parameter curation sets
+        auto local_curation_sets = curation_sets;
+        for(const auto& set_name : param_curation_sets) {
+            if(std::find(local_curation_sets.begin(), local_curation_sets.end(), set_name) == local_curation_sets.end()) {
+                local_curation_sets.push_back(set_name);
+            }
+        }
         for(const auto& set_name : local_curation_sets) {
             auto get_index_op = CurationIndexManager::get_instance().get_curation_index(set_name);
             if(!get_index_op.ok()) { 
@@ -3234,7 +3241,8 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
     auto curate_results_op = curate_results(query, filter_query, enable_curations, pre_segmented_query, curation_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_sort_curations, matched_filter_curations,
                    filter_curated_hits_curations,
-                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos);
+                   curated_sort_by, curation_metadata, diversity, synonym_prefix, synonyms_num_typos,
+                   coll_args.curation_sets);
     if(!curate_results_op.ok()) {
         return curate_results_op;
     }
@@ -9790,6 +9798,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
     bool synonym_prefix = false;
     size_t synonym_num_typos = 0;
     std::vector<std::string> synonym_sets;
+    std::vector<std::string> curation_sets;
 
     bool filter_curated_hits_option = false;
     std::string highlight_fields;
@@ -9926,7 +9935,8 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
             {INCLUDE_FIELDS, &include_fields_vec},
             {EXCLUDE_FIELDS, &exclude_fields_vec},
             {FACET_RETURN_PARENT, &facet_return_parent},
-            {SYNONYM_SETS, &synonym_sets}
+            {SYNONYM_SETS, &synonym_sets},
+            {CURATION_SETS, &curation_sets}
     };
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
@@ -10133,6 +10143,7 @@ Option<bool> collection_search_args_t::init(std::map<std::string, std::string>& 
                                     personalization_user_id, personalization_model_id, personalization_type,
                                     personalization_user_field, personalization_item_field, personalization_event_name,
                                     personalization_n_events, synonym_sets, diversity_lamda, group_max_candidates, diversity_limit);
+    args.curation_sets = curation_sets;
     if(auto it = req_params.find("_original_nl_query"); it != req_params.end()) {
         args.original_nl_query = it->second;
     }
