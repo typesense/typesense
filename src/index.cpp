@@ -2121,7 +2121,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
         if (negate_left_join_info.is_negate_join) {
             return Join::negate_left_join(ref_collection_name, false,
-                                           [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> Option<bool> {
+                                           [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> void {
                                                return get_related_child_ids(num_tree, seq_id, related_doc_ids);
                                            }, unique_doc_ids, negate_left_join_info, filter_result);
         }
@@ -2276,7 +2276,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
     if (negate_left_join_info.is_negate_join) {
         return Join::negate_left_join(ref_collection_name, true,
-                                         [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> Option<bool> {
+                                         [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> void {
                                              return get_related_child_ids(num_tree, seq_id, related_doc_ids);
                                          }, unique_doc_ids, negate_left_join_info, filter_result);
     }
@@ -8585,8 +8585,9 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_child_ids(num_tree_t* const num_tree, const uint32_t& parent_id,
-                                          std::vector<uint32_t>& child_ids) const {uint32_t* ids = nullptr;
+void Index::get_related_child_ids(num_tree_t* const num_tree, const uint32_t& parent_id,
+                                  std::vector<uint32_t>& child_ids) const {
+    uint32_t* ids = nullptr;
     size_t count = 0;
     num_tree->search(NUM_COMPARATOR::EQUALS, parent_id, &ids, count);
     std::unique_ptr<uint32_t[]> ids_guard(ids);
@@ -8594,7 +8595,6 @@ Option<bool> Index::get_related_child_ids(num_tree_t* const num_tree, const uint
     if (count != 0) {
         child_ids.assign(ids, ids + count);
     }
-    return Option<bool>(true);
 }
 
 Option<bool> Index::get_related_parent_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,

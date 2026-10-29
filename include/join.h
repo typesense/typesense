@@ -164,10 +164,7 @@ Option<bool> Join::negate_left_join(const std::string& ref_collection_name, cons
         const auto& doc_id = filter_result.docs[i];
 
         std::vector<uint32_t> related_doc_ids;
-        Option<bool> op = get_related_child_ids(doc_id, related_doc_ids);
-        if (!op.ok()) {
-            return op;
-        }
+        get_related_child_ids(doc_id, related_doc_ids);
 
         // product_c will not have any references.
         if (related_doc_ids.empty()) {
