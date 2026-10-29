@@ -432,6 +432,8 @@ Option<std::string> NaturalLanguageSearchModelManager::generate_schema_prompt(co
     return Option<std::string>(schema_prompt);
 }
 void NaturalLanguageSearchModelManager::clear_schema_prompt(const std::string& collection_name) {
+    JevSearchParams::clear_catalogs(collection_name);
+
     std::unique_lock lock(schema_prompts_mutex);
 
     // a collection can have one cached prompt per distinct set of prompt params
@@ -448,6 +450,8 @@ void NaturalLanguageSearchModelManager::clear_schema_prompt(const std::string& c
 }
 
 void NaturalLanguageSearchModelManager::clear_all_schema_prompts() {
+    JevSearchParams::clear_all_catalogs();
+
     std::unique_lock lock(schema_prompts_mutex);
     schema_prompts.clear();
 }
@@ -500,7 +504,8 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::process_natural_langua
         if(!jev_params.max_facet_values_set && jev_params.max_facet_values < jev_params.schema_sample_values) {
             jev_params.max_facet_values = jev_params.schema_sample_values;
         }
-        return JevSearchParams::generate(nl_query, collection_name, model_config, jev_params, scope_filter);
+        return JevSearchParams::generate(nl_query, collection_name, model_config, jev_params, scope_filter,
+                                         jev_options_t(), prompt_cache_ttl_seconds);
     }
 
     auto schema_prompt_op = get_schema_prompt(collection_name, prompt_cache_ttl_seconds, prompt_params);
@@ -801,6 +806,8 @@ void NaturalLanguageSearchModelManager::add_nl_query_data_to_results(nlohmann::j
 }
 
 void NaturalLanguageSearchModelManager::dispose() {
+    JevSearchParams::clear_all_catalogs();
+
     std::unique_lock lock(models_mutex);
     models.clear();
     schema_prompts.clear();

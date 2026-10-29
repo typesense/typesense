@@ -352,6 +352,57 @@ Option<jev_catalog_t> JevSearchParams::build_catalog(const std::string& collecti
     return Option<jev_catalog_t>(catalog);
 }
 
+Option<jev_catalog_t> JevSearchParams::get_catalog(const std::string& collection_name, uint64_t ttl_seconds,
+                                                   const schema_prompt_params_t& prompt_params,
+                                                   const std::string& scope_filter) {
+    if(ttl_seconds == 0) {
+        return build_catalog(collection_name, prompt_params, scope_filter);
+    }
+
+    const std::string cache_key = prompt_params.cache_key(collection_name) + "\x1f" + scope_filter;
+
+    {
+        std::unique_lock lock(catalogs_mutex);
+        auto it = catalogs.find(cache_key);
+        if(it != catalogs.end()) {
+            const auto age_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                    NaturalLanguageSearchModelManager::now() - it.value().created_at).count();
+            if(age_seconds <= static_cast<int64_t>(ttl_seconds)) {
+                return Option<jev_catalog_t>(it.value().catalog);
+            }
+        }
+    }
+
+    auto catalog_op = build_catalog(collection_name, prompt_params, scope_filter);
+
+    if(catalog_op.ok() && !catalog_op.get().facet_fields.empty()) {
+        std::unique_lock lock(catalogs_mutex);
+        catalogs.insert(cache_key, catalog_entry_t{catalog_op.get(), NaturalLanguageSearchModelManager::now()});
+    }
+
+    return catalog_op;
+}
+
+void JevSearchParams::clear_catalogs(const std::string& collection_name) {
+    std::unique_lock lock(catalogs_mutex);
+
+    std::vector<std::string> stale_keys;
+    for(auto it = catalogs.begin(); it != catalogs.end(); ++it) {
+        if(it.value().catalog.collection_name == collection_name) {
+            stale_keys.push_back(it.key());
+        }
+    }
+
+    for(const auto& stale_key : stale_keys) {
+        catalogs.erase(stale_key);
+    }
+}
+
+void JevSearchParams::clear_all_catalogs() {
+    std::unique_lock lock(catalogs_mutex);
+    catalogs.clear();
+}
+
 static constexpr int TIER_EXACT = 0;
 static constexpr int TIER_STEM = 1;
 static constexpr int TIER_PREFIX = 2;
@@ -2136,7 +2187,8 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
                                                  const nlohmann::json& model_config,
                                                  const schema_prompt_params_t& prompt_params,
                                                  const std::string& scope_filter,
-                                                 const jev_options_t& base_opts) {
+                                                 const jev_options_t& base_opts,
+                                                 uint64_t catalog_ttl_seconds) {
     const auto t_start = std::chrono::steady_clock::now();
 
     jev_options_t opts = base_opts;
@@ -2145,7 +2197,7 @@ Option<nlohmann::json> JevSearchParams::generate(const std::string& query,
         return Option<nlohmann::json>(opts_op.code(), opts_op.error());
     }
 
-    auto catalog_op = build_catalog(collection_name, prompt_params, scope_filter);
+    auto catalog_op = get_catalog(collection_name, catalog_ttl_seconds, prompt_params, scope_filter);
     if(!catalog_op.ok()) {
         return Option<nlohmann::json>(catalog_op.code(), catalog_op.error());
     }

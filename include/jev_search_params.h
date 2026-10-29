@@ -6,6 +6,9 @@
 #include <option.h>
 #include "json.hpp"
 #include "natural_language_search_model_manager.h"
+#include "lru/lru.hpp"
+#include <chrono>
+#include <mutex>
 
 struct jev_facet_field_t {
     std::string name;
@@ -86,13 +89,20 @@ public:
                                            const nlohmann::json& model_config,
                                            const schema_prompt_params_t& prompt_params,
                                            const std::string& scope_filter = "",
-                                           const jev_options_t& opts = jev_options_t());
+                                           const jev_options_t& opts = jev_options_t(),
+                                           uint64_t catalog_ttl_seconds = 0);
 
     static Option<bool> options_from_config(const nlohmann::json& model_config, jev_options_t& opts);
 
     static Option<jev_catalog_t> build_catalog(const std::string& collection_name,
                                                const schema_prompt_params_t& prompt_params,
                                                const std::string& scope_filter = "");
+
+    static Option<jev_catalog_t> get_catalog(const std::string& collection_name, uint64_t ttl_seconds,
+                                             const schema_prompt_params_t& prompt_params,
+                                             const std::string& scope_filter = "");
+    static void clear_catalogs(const std::string& collection_name);
+    static void clear_all_catalogs();
 
     static jev_query_facts_t pre_parse(const std::string& query);
 
@@ -140,4 +150,21 @@ public:
     static std::string token_number_id(size_t i);
     static constexpr const char* SORT_FIELD_ID = "sort__field";
     static std::string sort_dir_id(size_t i);
+
+private:
+    struct catalog_entry_t {
+        jev_catalog_t catalog;
+        std::chrono::time_point<std::chrono::system_clock> created_at;
+
+        bool operator==(const catalog_entry_t& other) const {
+            return catalog.collection_name == other.catalog.collection_name && created_at == other.created_at;
+        }
+
+        bool operator!=(const catalog_entry_t& other) const {
+            return !(*this == other);
+        }
+    };
+
+    static inline LRU::Cache<std::string, catalog_entry_t> catalogs{1000};
+    static inline std::mutex catalogs_mutex;
 };

@@ -5,6 +5,7 @@
 #include "natural_language_search_model_manager.h"
 #include "natural_language_search_model.h"
 #include "jev_client.h"
+#include "jev_search_params.h"
 #include "collection_manager.h"
 #include "field.h"
 #include "raft_server.h"
@@ -2377,6 +2378,54 @@ TEST_F(NaturalLanguageSearchModelManagerTest, JevScopedSamplingHonorsEmbeddedFil
 
   JevClient::disable_request_capture();
   JevClient::clear_mock_responses();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, JevCatalogIsCachedForThePromptTTL) {
+  NaturalLanguageSearchModelManager::set_mock_time_for_testing(std::chrono::system_clock::now());
+
+  nlohmann::json schema = R"({
+    "name": "jev_catalog_coll",
+    "fields": [
+      {"name": "title", "type": "string"},
+      {"name": "category", "type": "string", "facet": true}
+    ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+  ASSERT_TRUE(coll->add(R"({"title": "A", "category": "First"})").ok());
+
+  const schema_prompt_params_t params;
+  auto has_value = [&](uint64_t ttl_seconds, const std::string& value, const std::string& scope_filter = "") {
+    auto catalog_op = JevSearchParams::get_catalog("jev_catalog_coll", ttl_seconds, params, scope_filter);
+    EXPECT_TRUE(catalog_op.ok());
+    for(const auto& facet_field : catalog_op.get().facet_fields) {
+      if(facet_field.name == "category") {
+        return std::find(facet_field.values.begin(), facet_field.values.end(), value) != facet_field.values.end();
+      }
+    }
+    return false;
+  };
+
+  ASSERT_TRUE(has_value(60, "First"));
+
+  ASSERT_TRUE(coll->add(R"({"title": "B", "category": "Second"})").ok());
+  ASSERT_FALSE(has_value(60, "Second"));
+  ASSERT_TRUE(has_value(0, "Second"));
+
+  NaturalLanguageSearchModelManager::advance_mock_time_for_testing(61);
+  ASSERT_TRUE(has_value(60, "Second"));
+
+  ASSERT_TRUE(coll->add(R"({"title": "C", "category": "Third"})").ok());
+  ASSERT_FALSE(has_value(60, "Third"));
+  NaturalLanguageSearchModelManager::clear_schema_prompt("jev_catalog_coll");
+  ASSERT_TRUE(has_value(60, "Third"));
+
+  ASSERT_TRUE(has_value(60, "First", "category:=First"));
+  ASSERT_FALSE(has_value(60, "Third", "category:=First"));
+
+  NaturalLanguageSearchModelManager::reset_mock_time();
 }
 
 TEST_F(NaturalLanguageSearchModelManagerTest, JevRerankReordersHitsThroughSearch) {
