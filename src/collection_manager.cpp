@@ -3275,7 +3275,8 @@ void update_app_metrics(const uint64_t& timeMillis) {
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
                                           std::string& results_json_str,
-                                          uint64_t start_ts) {
+                                          uint64_t start_ts,
+                                          std::vector<search_internal_event_t>* analytics_events) {
 
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -3368,17 +3369,26 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 args.filter_query,
                 args.analytics_tag
             };
+            // events are also handed back to the caller so that they can be replayed when the response is
+            // later served from the search cache
+            auto emit_event = [&](const search_internal_event_t& event) {
+                AnalyticsManager::get_instance().add_internal_event(event);
+                if(analytics_events != nullptr) {
+                    analytics_events->push_back(event);
+                }
+            };
+
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
                         result["request_params"]["first_q"].get<std::string>());
                 internal_event.expanded_q = expanded_query;
-                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                emit_event(internal_event);
                 internal_event.type = SearchAnalytics::POPULAR_QUERIES_TYPE;
-                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                emit_event(internal_event);
             } else {
-                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                emit_event(internal_event);
                 internal_event.type = SearchAnalytics::NO_HIT_QUERIES_TYPE;
-                AnalyticsManager::get_instance().add_internal_event(internal_event);
+                emit_event(internal_event);
             }
         }
     }

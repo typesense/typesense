@@ -13,6 +13,7 @@
 #include "app_metrics.h"
 #include "tsconfig.h"
 #include "zlib.h"
+#include "search_analytics.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -184,6 +185,9 @@ struct cached_res_t {
     TimePoint created_at;
     uint32_t ttl;
     uint64_t hash;
+
+    // search analytics events produced by the original (uncached) search; replayed on every cache hit
+    std::vector<search_internal_event_t> analytics_events;
 
     bool operator == (const cached_res_t& res) const {
         return hash == res.hash;
