@@ -1,6 +1,7 @@
 #include "index.h"
 
 #include <memory>
+#include <algorithm>
 #include <numeric>
 #include <chrono>
 #include <set>
@@ -14,6 +15,7 @@
 #include <posting.h>
 #include <thread_local_vars.h>
 #include <unordered_set>
+#include <string_view>
 #include <or_iterator.h>
 #include <timsort.hpp>
 #include "logger.h"
@@ -8003,11 +8005,56 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
     del_doc = nlohmann::json::object();   // For fields to remove from index
     nlohmann::json final_update_doc = nlohmann::json::object(); // Temporary for changed fields
 
+    // Supplied flattened children are diffed separately, including unchanged values.
+    // Only missing children of a replaced/deleted parent need additional removals.
+    const bool has_flat_fields = old_doc.contains(".flat") && !old_doc[".flat"].empty();
+    std::vector<std::string_view> flat_fields;
+    bool flat_fields_loaded = false;
+    const auto add_nested_child_deletions = [&](const std::string& key, const std::string& parent_path,
+                                                const nlohmann::json& old) {
+        if(!has_flat_fields) {
+            return;
+        }
+
+        const auto& old_value = old[key];
+        if(!(old_value.is_object() || (old_value.is_array() &&
+             std::any_of(old_value.begin(), old_value.end(), [](const auto& value) { return value.is_object(); })))) {
+            return;
+        }
+
+        const std::string prefix = parent_path.empty() ? key + "." : parent_path + "." + key + ".";
+        // Search only this document's flattened fields, avoiding repeated schema prefix scans.
+        if(!flat_fields_loaded) {
+            flat_fields.reserve(old_doc[".flat"].size());
+            for(const auto& flat_key: old_doc[".flat"]) {
+                const auto& name = flat_key.get_ref<const std::string&>();
+                if(search_schema.count(name)) {
+                    flat_fields.emplace_back(name);
+                }
+            }
+            std::sort(flat_fields.begin(), flat_fields.end());
+            flat_fields.erase(std::unique(flat_fields.begin(), flat_fields.end()), flat_fields.end());
+            flat_fields_loaded = true;
+        }
+        auto it = std::lower_bound(flat_fields.begin(), flat_fields.end(), std::string_view(prefix));
+        for(; it != flat_fields.end() && it->size() >= prefix.size() &&
+              it->substr(0, prefix.size()) == prefix; ++it) {
+            auto old_it = old_doc.find(*it);
+            if(old_it != old_doc.end() && !update_doc.contains(*it)) {
+                del_doc[old_it.key()] = *old_it;
+                auto new_it = new_doc.find(*it);
+                if(new_it != new_doc.end()) {
+                    new_doc.erase(new_it);
+                }
+            }
+        }
+    };
+
     // Recursive function to apply merge patch and track changes
     std::function<void(nlohmann::json&, nlohmann::json&, const nlohmann::json&,
-                       nlohmann::json&, nlohmann::json&)> apply_merge_patch =
+                       nlohmann::json&, nlohmann::json&, const std::string&)> apply_merge_patch =
             [&](nlohmann::json& target, nlohmann::json& patch, const nlohmann::json& old,
-                nlohmann::json& del, nlohmann::json& upd) {
+                nlohmann::json& del, nlohmann::json& upd, const std::string& parent_path) {
                 // If patch is not an object, treat it as a full replacement
                 if (!patch.is_object()) {
                     if (patch != old) {
@@ -8029,19 +8076,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                     if (value.is_null()) {
                         // Null value indicates deletion
                         if (old.contains(key)) {
-                            // if the old value is an object, we have to delete all child keys
-                            if(old[key].is_object()) {
-                                std::string nested_field_name;
-                                auto prefix_it = search_schema.equal_prefix_range(key + ".");
-                                for(auto kv = prefix_it.first; kv != prefix_it.second; kv++) {
-                                    kv.key(nested_field_name);
-                                    if(old.count(nested_field_name) != 0) {
-                                        del[nested_field_name] = old[nested_field_name];
-                                    }
-                                }
-                            }
-
                             del[key] = old[key];
+                            add_nested_child_deletions(key, parent_path, old);
                         }
                         target.erase(key);
                         // Do not add to upd (ensures no nulls in final_update_doc)
@@ -8050,7 +8086,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Recursive merge for nested objects
                         nlohmann::json sub_del = nlohmann::json::object();
                         nlohmann::json sub_upd = nlohmann::json::object();
-                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd);
+                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd,
+                                          parent_path.empty() ? key : parent_path + "." + key);
                         if (!sub_del.empty()) del[key] = std::move(sub_del);
                         if (!sub_upd.empty()) upd[key] = std::move(sub_upd);
                         // sub_upd is empty if no changes, ensuring no unchanged values
@@ -8058,7 +8095,10 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Replacement or new field
                         nlohmann::json processed_value = process_value(value);
                         if (!old.contains(key) || processed_value != old[key]) {
-                            if (old.contains(key)) del[key] = old[key];
+                            if (old.contains(key)) {
+                                del[key] = old[key];
+                                add_nested_child_deletions(key, parent_path, old);
+                            }
                             upd[key] = processed_value;
                             target[key] = processed_value;
                         }
@@ -8069,7 +8109,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
             };
 
     // Apply the merge patch and compute changes
-    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc);
+    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc, "");
 
     if(op != UPSERT) {
         if(old_doc.contains(".flat")) {

@@ -2869,6 +2869,10 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
         for(const auto& expanded_search_field: expanded_search_fields) {
             if (search_schema.count(expanded_search_field) == 0) {
+                if(!validate_field_names) {
+                    ignored_missing_fields = true;
+                    continue;
+                }
                 return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
             }
             auto search_field = search_schema.at(expanded_search_field);
@@ -3005,7 +3009,9 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
-    for(const std::string& field_name: group_by_fields) {
+    size_t valid_group_fields = 0;
+    for(size_t i = 0; i < group_by_fields.size(); i++) {
+        const std::string& field_name = group_by_fields[i];
         if(field_name == "id") {
             std::string error = "Cannot use `id` as a group by field.";
             return Option<bool>(400, error);
@@ -3027,7 +3033,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             std::string error = "Group by field `" + field_name + "` should be a facet field.";
             return Option<bool>(400, error);
         }
+
+        if(valid_group_fields != i) {
+            group_by_fields[valid_group_fields] = std::move(group_by_fields[i]);
+        }
+        valid_group_fields++;
     }
+    group_by_fields.resize(valid_group_fields);
 
     if(group_by_fields.empty() && skipped_invalid_group_field) {
         // this ensures that Index::search() will return empty results, instead of an error

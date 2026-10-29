@@ -3480,6 +3480,139 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
     ASSERT_EQ(0, res["found"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, IgnoreUnresolvedDollarQueryByFields) {
+    auto schema = R"({"name":"query_fields","fields":[
+        {"name":"title","type":"string","infix":true},
+        {"name":"description","type":"string","infix":true},
+        {"name":"$present","type":"string"},
+        {"name":"number","type":"int32"},
+        {"name":"hidden","type":"string","index":false}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"hello","description":"other","$present":"hello","number":1,"hidden":"hello"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"other","description":"hello","$present":"other","number":2,"hidden":"other"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","title":"helloworld","description":"xhello","$present":"other","number":3,"hidden":"other"})").ok());
+
+    auto search = [&](std::map<std::string, std::string> params, nlohmann::json& result) {
+        params["collection"] = "query_fields";
+        nlohmann::json embedded;
+        std::string output;
+        auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, output, now);
+        if(op.ok()) result = nlohmann::json::parse(output);
+        return op;
+    };
+    auto ids = [](const nlohmann::json& result) {
+        std::vector<std::string> values;
+        for(const auto& hit : result["hits"]) values.push_back(hit["document"]["id"].get<std::string>());
+        return values;
+    };
+    for(const auto& q : {"hello", "*"}) {
+        nlohmann::json ordinary;
+        auto control = search({{"q",q}, {"query_by","missing"}, {"validate_field_names","false"}}, ordinary);
+        ASSERT_TRUE(control.ok()) << control.error();
+        for(const auto& fields : {"$foo", "missing,$foo", "$foo,missing"}) {
+            nlohmann::json result;
+            auto op = search({{"q",q}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+            EXPECT_TRUE(op.ok()) << fields << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ordinary["found"], result["found"]);
+                EXPECT_EQ(ids(ordinary), ids(result));
+            }
+        }
+    }
+    for(const auto& q : {"hello", "*"}) {
+        nlohmann::json control;
+        ASSERT_TRUE(search({{"q",q}, {"query_by","title"}, {"validate_field_names","false"}}, control).ok());
+        for(const auto& fields : {"title,$foo", "$foo,title"}) {
+            nlohmann::json result;
+            auto op = search({{"q",q}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+            EXPECT_TRUE(op.ok()) << fields << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ids(control), ids(result));
+            }
+        }
+    }
+    // Distinct options ensure each surviving field retains its original position.
+    for(const auto& q : {"hello", "hell", "helo", "ello"}) {
+        std::map<std::string, std::string> base = {{"q",q}, {"query_by","title,description"},
+            {"query_by_weights","10,1"}, {"num_typos","0,1"}, {"prefix","false,true"},
+            {"infix","off,always"}, {"validate_field_names","false"}};
+        nlohmann::json control;
+        auto control_op = search(base, control);
+        ASSERT_TRUE(control_op.ok()) << control_op.error();
+        for(int position = 0; position < 3; position++) {
+            auto params = base;
+            if(position == 0) {
+                params["query_by"] = "$foo,title,description"; params["query_by_weights"] = "3,10,1";
+                params["num_typos"] = "2,0,1"; params["prefix"] = "true,false,true"; params["infix"] = "always,off,always";
+            } else if(position == 1) {
+                params["query_by"] = "title,$foo,description"; params["query_by_weights"] = "10,3,1";
+                params["num_typos"] = "0,2,1"; params["prefix"] = "false,true,true"; params["infix"] = "off,always,always";
+            } else {
+                params["query_by"] = "title,description,$foo"; params["query_by_weights"] = "10,1,3";
+                params["num_typos"] = "0,1,2"; params["prefix"] = "false,true,true"; params["infix"] = "off,always,always";
+            }
+            nlohmann::json result;
+            auto op = search(params, result);
+            EXPECT_TRUE(op.ok()) << q << " position " << position << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ids(control), ids(result)) << q << " position " << position;
+            }
+        }
+    }
+    // Isolate prefix matching from infix and typo matching.
+    std::map<std::string, std::string> prefix_params = {{"q","hell"}, {"query_by","title,description"},
+        {"num_typos","0,0"}, {"prefix","false,true"}, {"infix","off,off"},
+        {"validate_field_names","false"}};
+    nlohmann::json prefix_control, no_prefix;
+    auto prefix_op = search(prefix_params, prefix_control);
+    ASSERT_TRUE(prefix_op.ok()) << prefix_op.error();
+    prefix_params["prefix"] = "false,false";
+    auto no_prefix_op = search(prefix_params, no_prefix);
+    ASSERT_TRUE(no_prefix_op.ok()) << no_prefix_op.error();
+    EXPECT_EQ((std::vector<std::string>{"2"}), ids(prefix_control));
+    EXPECT_TRUE(ids(no_prefix).empty());
+    for(int position = 0; position < 3; position++) {
+        auto params = prefix_params;
+        if(position == 0) {
+            params["query_by"] = "$foo,title,description"; params["prefix"] = "false,false,true";
+        } else if(position == 1) {
+            params["query_by"] = "title,$foo,description"; params["prefix"] = "false,false,true";
+        } else {
+            params["query_by"] = "title,description,$foo"; params["prefix"] = "false,true,false";
+        }
+        params["num_typos"] = "0,0,0";
+        params["infix"] = "off,off,off";
+        nlohmann::json result;
+        auto op = search(params, result);
+        EXPECT_TRUE(op.ok()) << position << ": " << op.error();
+        if(op.ok()) {
+            EXPECT_EQ(ids(prefix_control), ids(result)) << position;
+        }
+    }
+    nlohmann::json result;
+    auto present = search({{"q","hello"}, {"query_by","$present"}, {"validate_field_names","false"}}, result);
+    ASSERT_TRUE(present.ok()) << present.error();
+    EXPECT_EQ((std::vector<std::string>{"1"}), ids(result));
+    for(const auto& validation : {"true", "default"}) {
+        std::map<std::string, std::string> params = {{"q","hello"}, {"query_by","$foo"}};
+        if(std::string(validation) != "default") params["validate_field_names"] = validation;
+        auto op = search(params, result);
+        EXPECT_FALSE(op.ok()); EXPECT_EQ(404, op.code());
+    }
+    for(const auto& fields : {"id", "number", "hidden", "$Customers(customer_name)"}) {
+        auto op = search({{"q","hello"}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+        EXPECT_FALSE(op.ok()) << fields; EXPECT_EQ(400, op.code()) << fields;
+        if(std::string(fields) == "$Customers(customer_name)") {
+            EXPECT_EQ("Query by reference is not yet supported.", op.error());
+        }
+    }
+}
+
 TEST_F(CollectionSpecificMoreTest, CheckForSchemaAlterStatus) {
     nlohmann::json schema = R"({
                 "name": "test",
