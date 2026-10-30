@@ -725,6 +725,219 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   }
 }
 
+TEST_F(AnalyticsManagerTest, PopularQueriesCompactionReleasesUserEntries) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json rule = R"({
+    "name": "popular_queries_products",
+    "type": "popular_queries",
+    "collection": "products",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "queries",
+      "limit": 1000
+    }
+  })"_json;
+
+  ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+
+  std::string results_json_str;
+  nlohmann::json embedded_params;
+  std::map<std::string, std::string> req_params = {
+    {"q", "typesense"},
+    {"query_by", "company_name"},
+    {"collection", "products"}
+  };
+
+  for(const auto& user_id : {"user1", "user2", "user3"}) {
+    req_params["x-typesense-user-id"] = user_id;
+    ASSERT_TRUE(CollectionManager::do_search(req_params, embedded_params, results_json_str, 0).ok());
+    ASSERT_EQ(1, nlohmann::json::parse(results_json_str)["hits"].size());
+  }
+
+  ASSERT_EQ(3, search_analytics.get_popular_prefix_queries_user_count());
+
+  auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+
+  search_analytics.compact_all_user_queries(future_ts_us);
+
+  auto counter_events = search_analytics.get_search_counter_events();
+  ASSERT_EQ(1, counter_events["popular_queries_products"].query_counts.size());
+  ASSERT_EQ(3, counter_events["popular_queries_products"].query_counts.begin()->second);
+  ASSERT_EQ(0, search_analytics.get_popular_prefix_queries_size());
+  ASSERT_EQ(0, search_analytics.get_popular_prefix_queries_user_count());
+
+  // events still buffered when the rule is deleted can never be consolidated and must be released too
+  for(const auto& user_id : {"user4", "user5"}) {
+    req_params["x-typesense-user-id"] = user_id;
+    ASSERT_TRUE(CollectionManager::do_search(req_params, embedded_params, results_json_str, 0).ok());
+  }
+
+  ASSERT_EQ(2, search_analytics.get_popular_prefix_queries_user_count());
+  ASSERT_TRUE(analyticsManager.remove_rule("popular_queries_products").ok());
+
+  search_analytics.compact_all_user_queries(future_ts_us);
+
+  ASSERT_EQ(0, search_analytics.get_popular_prefix_queries_size());
+  ASSERT_EQ(0, search_analytics.get_popular_prefix_queries_user_count());
+}
+
+TEST_F(AnalyticsManagerTest, NoHitsQueriesCompactionReleasesUserEntries) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  nlohmann::json queries_schema = R"({
+      "name": "queries",
+      "fields": [
+          {"name": "q", "type": "string"},
+          {"name": "count", "type": "int32"}
+      ]
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  auto queries_coll_create_op = collectionManager.create_collection(queries_schema);
+  ASSERT_TRUE(queries_coll_create_op.ok());
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json rule = R"({
+    "name": "nohits_queries_products",
+    "type": "nohits_queries",
+    "collection": "products",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "queries",
+      "limit": 1000
+    }
+  })"_json;
+
+  ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+
+  std::string results_json_str;
+  nlohmann::json embedded_params;
+  std::map<std::string, std::string> req_params = {
+    {"q", "zzzz"},
+    {"query_by", "company_name"},
+    {"collection", "products"}
+  };
+
+  for(const auto& user_id : {"user1", "user2", "user3"}) {
+    req_params["x-typesense-user-id"] = user_id;
+    ASSERT_TRUE(CollectionManager::do_search(req_params, embedded_params, results_json_str, 0).ok());
+    ASSERT_EQ(0, nlohmann::json::parse(results_json_str)["hits"].size());
+  }
+
+  ASSERT_EQ(3, search_analytics.get_nohits_prefix_queries_user_count());
+
+  auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+
+  search_analytics.compact_all_user_queries(future_ts_us);
+
+  auto counter_events = search_analytics.get_search_counter_events();
+  ASSERT_EQ(1, counter_events["nohits_queries_products"].query_counts.size());
+  ASSERT_EQ(3, counter_events["nohits_queries_products"].query_counts.begin()->second);
+  ASSERT_EQ(0, search_analytics.get_nohits_prefix_queries_size());
+  ASSERT_EQ(0, search_analytics.get_nohits_prefix_queries_user_count());
+}
+
+TEST_F(AnalyticsManagerTest, QueryLogCompactionReleasesUserEntries) {
+  nlohmann::json products_schema = R"({
+      "name": "products",
+      "fields": [
+        {"name": "company_name", "type": "string" },
+        {"name": "num_employees", "type": "int32" }
+      ],
+      "default_sorting_field": "num_employees"
+  })"_json;
+
+  auto coll_create_op = collectionManager.create_collection(products_schema);
+  ASSERT_TRUE(coll_create_op.ok());
+  auto coll = coll_create_op.get();
+
+  nlohmann::json doc;
+  doc["company_name"] = "Typesense";
+  doc["num_employees"] = 10;
+  ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+  nlohmann::json rule = R"({
+    "name": "log_queries_products",
+    "type": "log",
+    "collection": "products",
+    "event_type": "search",
+    "params": {
+      "destination_collection": "ignored",
+      "capture_search_requests": true
+    }
+  })"_json;
+
+  ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+
+  std::string results_json_str;
+  nlohmann::json embedded_params;
+  std::map<std::string, std::string> req_params = {
+    {"q", "typesense"},
+    {"query_by", "company_name"},
+    {"collection", "products"}
+  };
+
+  for(const auto& user_id : {"user1", "user2", "user3"}) {
+    req_params["x-typesense-user-id"] = user_id;
+    ASSERT_TRUE(CollectionManager::do_search(req_params, embedded_params, results_json_str, 0).ok());
+  }
+
+  ASSERT_EQ(3, search_analytics.get_log_prefix_queries_user_count());
+
+  auto future_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + uint64_t(SearchAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS) * 2;
+
+  search_analytics.compact_all_user_queries(future_ts_us);
+
+  ASSERT_EQ(3, search_analytics.get_search_log_events()["log_queries_products"].size());
+  ASSERT_EQ(0, search_analytics.get_log_prefix_queries_size());
+  ASSERT_EQ(0, search_analytics.get_log_prefix_queries_user_count());
+}
+
 TEST_F(AnalyticsManagerTest, MetaFieldsGenerateUniqueIDs) {
   nlohmann::json products_schema = R"({
       "name": "products_meta_id",
