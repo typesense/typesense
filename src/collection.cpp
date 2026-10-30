@@ -6438,7 +6438,7 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
                qtoken_it.value().root_len < raw_token.size()) {
                 // need to ensure that only the prefix portion is highlighted
-                // if length diff is within 2, we still might not want to highlight partially in some cases
+                // if length diff is within 3, we still might not want to highlight partially in some cases
                 // e.g. "samsng" vs "samsung" -> full highlight is preferred, unless it's a full prefix match
 
                 size_t k = tok_start, num_letters = 0, prefix_end = tok_end;
@@ -6450,27 +6450,11 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
                     }
                     if(!skip && ++num_letters == prefix_token_num_chars) {
                         prefix_end = k - 1;
-                        break;
                     }
                 }
 
-                bool highlight_whole_typo = false;
-                if(qtoken_it.value().num_typos != 0) {
-                    // Preserve the old lookahead count for the typo policy, independently of the endpoint.
-                    size_t legacy_count = 0;
-                    k = tok_start;
-                    while(k <= tok_end && k < text.size()) {
-                        ++k;
-                        if(k >= text.size() || tokenizer.should_skip_char(text[k])) {
-                            continue;
-                        }
-                        for(size_t i = 0; i < 3 && k < text.size() && (text[k] & 0xC0) == 0x80; ++i) {
-                            ++k;
-                        }
-                        ++legacy_count;
-                    }
-                    highlight_whole_typo = legacy_count - std::min(legacy_count, prefix_token_num_chars) <= 2;
-                }
+                bool highlight_whole_typo = qtoken_it.value().num_typos != 0 &&
+                    num_letters - std::min(num_letters, prefix_token_num_chars) <= 3;
                 auto new_tok_end = highlight_whole_typo ? tok_end : prefix_end;
                 token_offsets.emplace(tok_start, new_tok_end);
             } else {

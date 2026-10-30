@@ -2912,9 +2912,9 @@ TEST_F(CollectionSpecificMoreTest, HighlightSkippedSymbolsAndTypoBoundaries) {
         {"samsun", "smsu", "samsun", "<mark>samsun</mark>"},
         {"samsung", "smsu", "samsung", "<mark>samsung</mark>"},
         {"samsungx", "smsu", "sams", "<mark>sams</mark>ungx"},
-        {"samsuné", "smsu", "sams", "<mark>sams</mark>uné"},
-        {"samsun中", "smsu", "sams", "<mark>sams</mark>un中"},
-        {"samsun😀", "smsu", "sams", "<mark>sams</mark>un😀"},
+        {"samsuné", "smsu", "samsuné", "<mark>samsuné</mark>"},
+        {"samsun中", "smsu", "samsun中", "<mark>samsun中</mark>"},
+        {"samsun😀", "smsu", "samsun😀", "<mark>samsun😀</mark>"},
     };
     for(size_t i = 0; i < cases.size(); i++) {
         const auto& c = cases[i];
