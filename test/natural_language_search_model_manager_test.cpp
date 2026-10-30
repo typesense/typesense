@@ -1,4 +1,7 @@
 #include <gtest/gtest.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
 #include <string>
 #include "json.hpp"
 #include "store.h"
@@ -296,8 +299,6 @@ TEST_F(NaturalLanguageSearchModelManagerTest, ReplicationInitDbReloadsNaturalLan
     auto models_after_dispose = NaturalLanguageSearchModelManager::get_all_models();
     ASSERT_TRUE(models_after_dispose.ok());
     ASSERT_TRUE(models_after_dispose.get().empty());
-
-    add_valid_model_mock_response();
 
     Config::get_instance().set_data_dir(state_dir_path);
     ReplicationState replication_state(nullptr, nullptr, store, nullptr, nullptr, nullptr, false,
@@ -2090,80 +2091,173 @@ TEST_F(NaturalLanguageSearchModelManagerTest, WildcardGeneratedQueryReturnsFilte
     }
 }
 
-TEST_F(NaturalLanguageSearchModelManagerTest, InitReloadsStoredModelsWithProviderParams) {
-    NaturalLanguageSearchModel::enable_request_capture();
+static std::string generate_rsa_private_key_pem() {
+    EVP_PKEY_CTX* key_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    EVP_PKEY* pkey = nullptr;
+    bool key_ok = key_ctx != nullptr &&
+                  EVP_PKEY_keygen_init(key_ctx) > 0 &&
+                  EVP_PKEY_CTX_set_rsa_keygen_bits(key_ctx, 2048) > 0 &&
+                  EVP_PKEY_keygen(key_ctx, &pkey) > 0;
+    EVP_PKEY_CTX_free(key_ctx);
+    std::string pem;
+    BIO* bio = BIO_new(BIO_s_mem());
+    if(key_ok && bio != nullptr && PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1) {
+        char* data = nullptr;
+        long len = BIO_get_mem_data(bio, &data);
+        pem.assign(data, len);
+    }
+    BIO_free(bio);
+    EVP_PKEY_free(pkey);
+    return pem;
+}
 
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-6-luna",
-      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
-    })", 200, {});
-    nlohmann::json gpt6_config = R"({
+TEST_F(NaturalLanguageSearchModelManagerTest, InitLoadsStoredModelsWithoutApiCall) {
+    nlohmann::json openai_model = R"({
+      "id": "openai_model",
       "model_name": "openai/gpt-6-luna",
       "api_key": "sk-test",
       "max_bytes": 1024
     })"_json;
-    auto add_result = NaturalLanguageSearchModelManager::add_model(gpt6_config, "gpt6_model", true);
-    ASSERT_TRUE(add_result.ok()) << add_result.error();
+    ASSERT_TRUE(store->insert("$NLSP_openai_model", openai_model.dump()));
 
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "gpt-41-mini",
-      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
-    })", 200, {});
-    nlohmann::json azure_config = R"({
+    nlohmann::json azure_model = R"({
+      "id": "azure_model",
       "model_name": "azure/gpt-41-mini",
       "api_key": "test-azure-key",
       "url": "https://test.openai.azure.com/openai/deployments/gpt-41-mini/chat/completions?api-version=2024-02-15-preview",
       "max_bytes": 1024,
       "temperature": 0.4
     })"_json;
-    add_result = NaturalLanguageSearchModelManager::add_model(azure_config, "azure41_model", true);
-    ASSERT_TRUE(add_result.ok()) << add_result.error();
+    ASSERT_TRUE(store->insert("$NLSP_azure_model", azure_model.dump()));
+
+    nlohmann::json vllm_model = R"({
+      "id": "vllm_model",
+      "model_name": "vllm/qwen2.5-7b",
+      "api_url": "http://localhost:8000/v1/chat/completions",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_vllm_model", vllm_model.dump()));
+
+    nlohmann::json cloudflare_model = R"({
+      "id": "cloudflare_model",
+      "model_name": "cloudflare/@cf/meta/llama-2-7b-chat-int8",
+      "api_key": "cf-test",
+      "account_id": "test-account",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_cloudflare_model", cloudflare_model.dump()));
+
+    nlohmann::json google_model = R"({
+      "id": "google_model",
+      "model_name": "google/gemini-2.5-flash",
+      "api_key": "google-test",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_google_model", google_model.dump()));
+
+    nlohmann::json gcp_model = R"({
+      "id": "gcp_model",
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "test-project",
+      "access_token": "test-access-token",
+      "refresh_token": "test-refresh-token",
+      "client_id": "test-client-id",
+      "client_secret": "test-client-secret",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_gcp_model", gcp_model.dump()));
+
+    nlohmann::json gcp_sa_model = R"({
+      "id": "gcp_sa_model",
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "test-project",
+      "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com"},
+      "max_bytes": 1024
+    })"_json;
+    gcp_sa_model["service_account"]["private_key"] = generate_rsa_private_key_pem();
+    ASSERT_FALSE(gcp_sa_model["service_account"]["private_key"].get<std::string>().empty());
+    ASSERT_TRUE(store->insert("$NLSP_gcp_sa_model", gcp_sa_model.dump()));
 
     NaturalLanguageSearchModelManager::dispose();
-    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_all_models().get().empty());
-
-    NaturalLanguageSearchModel::disable_request_capture();
-    NaturalLanguageSearchModel::enable_request_capture();
     NaturalLanguageSearchModel::clear_mock_responses();
     NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "reload",
-      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
-    })", 200, {});
-    NaturalLanguageSearchModel::add_mock_response(R"({
-      "object": "chat.completion",
-      "model": "reload",
-      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
-    })", 200, {});
+      "error": {"message": "Incorrect API key provided.", "type": "invalid_request_error", "code": "invalid_api_key"}
+    })", 401, {});
+    NaturalLanguageSearchModel::enable_request_capture();
 
     auto init_result = NaturalLanguageSearchModelManager::init(store);
     ASSERT_TRUE(init_result.ok());
-    ASSERT_EQ(init_result.get(), 2);
-    ASSERT_EQ(NaturalLanguageSearchModelManager::get_all_models().get().size(), 2);
-    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("gpt6_model").ok());
-    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("azure41_model").ok());
+    ASSERT_EQ(init_result.get(), 7);
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 0);
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("openai_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("azure_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("vllm_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("cloudflare_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("google_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("gcp_model").ok());
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("gcp_sa_model").ok());
 
-    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 2);
-    nlohmann::json gpt6_body;
-    nlohmann::json azure_body;
-    for(size_t i = 0; i < 2; i++) {
-        auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(i).body);
-        if(body["model"] == "gpt-6-luna") {
-            gpt6_body = body;
-        } else {
-            azure_body = body;
-        }
-    }
-    ASSERT_EQ(gpt6_body["model"], "gpt-6-luna");
-    ASSERT_EQ(gpt6_body["max_completion_tokens"], 10);
-    ASSERT_FALSE(gpt6_body.contains("max_tokens"));
-    ASSERT_FALSE(gpt6_body.contains("temperature"));
-    ASSERT_EQ(azure_body["model"], "gpt-41-mini");
-    ASSERT_EQ(azure_body["max_tokens"], 10);
-    ASSERT_EQ(azure_body["temperature"], 0);
-    ASSERT_FALSE(azure_body.contains("max_completion_tokens"));
+    nlohmann::json new_model = R"({
+      "model_name": "openai/gpt-6-luna",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+    })"_json;
+    auto add_result = NaturalLanguageSearchModelManager::add_model(new_model, "new_model", true);
+    ASSERT_FALSE(add_result.ok());
+    ASSERT_EQ(add_result.error(), "OpenAI API error: Incorrect API key provided.");
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    ASSERT_FALSE(NaturalLanguageSearchModelManager::get_model("new_model").ok());
+
+    NaturalLanguageSearchModel::disable_request_capture();
+}
+
+TEST_F(NaturalLanguageSearchModelManagerTest, InitSkipsStoredModelWithInvalidConfig) {
+    nlohmann::json valid_model = R"({
+      "id": "valid_model",
+      "model_name": "openai/gpt-4.1",
+      "api_key": "sk-test",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_valid_model", valid_model.dump()));
+
+    nlohmann::json missing_url_model = R"({
+      "id": "missing_url_model",
+      "model_name": "azure/gpt-41-mini",
+      "api_key": "test-azure-key",
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_missing_url_model", missing_url_model.dump()));
+
+    nlohmann::json bad_temperature_model = R"({
+      "id": "bad_temperature_model",
+      "model_name": "openai/gpt-4.1",
+      "api_key": "sk-test",
+      "max_bytes": 1024,
+      "temperature": 3
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_bad_temperature_model", bad_temperature_model.dump()));
+
+    nlohmann::json bad_private_key_model = R"({
+      "id": "bad_private_key_model",
+      "model_name": "gcp/gemini-2.5-flash",
+      "project_id": "test-project",
+      "service_account": {"client_email": "sa@test-project.iam.gserviceaccount.com", "private_key": "test-private-key"},
+      "max_bytes": 1024
+    })"_json;
+    ASSERT_TRUE(store->insert("$NLSP_bad_private_key_model", bad_private_key_model.dump()));
+
+    NaturalLanguageSearchModelManager::dispose();
+    NaturalLanguageSearchModel::clear_mock_responses();
+    NaturalLanguageSearchModel::enable_request_capture();
+
+    auto init_result = NaturalLanguageSearchModelManager::init(store);
+    ASSERT_TRUE(init_result.ok());
+    ASSERT_EQ(init_result.get(), 1);
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 0);
+    ASSERT_TRUE(NaturalLanguageSearchModelManager::get_model("valid_model").ok());
+    ASSERT_EQ(NaturalLanguageSearchModelManager::get_model("missing_url_model").code(), 404);
+    ASSERT_EQ(NaturalLanguageSearchModelManager::get_model("bad_temperature_model").code(), 404);
+    ASSERT_EQ(NaturalLanguageSearchModelManager::get_model("bad_private_key_model").code(), 404);
 
     NaturalLanguageSearchModel::disable_request_capture();
 }

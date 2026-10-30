@@ -43,7 +43,7 @@ static const std::string get_model_namespace(const std::string& model_name) {
     }
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("model_name") == 0 || !model_config["model_name"].is_string()) {
         return Option<bool>(400, "Property `model_name` is not provided or not a string.");
     }
@@ -59,17 +59,17 @@ Option<bool> NaturalLanguageSearchModel::validate_model(const nlohmann::json& mo
 
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
-        return validate_openai_model(model_config);
+        return validate_openai_model(model_config, skip_api_call);
     } else if(model_namespace == "cloudflare") {
-        return validate_cloudflare_model(model_config);
+        return validate_cloudflare_model(model_config, skip_api_call);
     } else if(model_namespace == "vllm") {
-        return validate_vllm_model(model_config);
+        return validate_vllm_model(model_config, skip_api_call);
     } else if(model_namespace == "google") {
-        return validate_google_model(model_config);
+        return validate_google_model(model_config, skip_api_call);
     } else if(model_namespace == "gcp") {
-        return validate_gcp_model(model_config);
+        return validate_gcp_model(model_config, skip_api_call);
     } else if(model_namespace == "azure") {
-        return validate_azure_model(model_config);
+        return validate_azure_model(model_config, skip_api_call);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
@@ -190,7 +190,7 @@ static void set_chat_completion_params(nlohmann::json& request_body, const nlohm
     }
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
        model_config["api_key"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
@@ -204,6 +204,10 @@ Option<bool> NaturalLanguageSearchModel::validate_openai_model(const nlohmann::j
         model_config["temperature"].get<float>() < 0 ||
         model_config["temperature"].get<float>() > 2)) {
         return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     nlohmann::json test_request;
@@ -274,7 +278,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::openai_vllm_generate_search_p
     return extract_search_params_from_content(content, model_name_without_namespace);
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_cloudflare_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_cloudflare_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
        model_config["api_key"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
@@ -283,6 +287,10 @@ Option<bool> NaturalLanguageSearchModel::validate_cloudflare_model(const nlohman
     if(model_config.count("account_id") == 0 || !model_config["account_id"].is_string() || 
        model_config["account_id"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `account_id` is missing or is not a non-empty string.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     // Validate API key and account ID by making a test API call
@@ -334,7 +342,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::cloudflare_generate_search_pa
 
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("api_url") == 0 || !model_config["api_url"].is_string() || 
        model_config["api_url"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `api_url` is missing or is not a non-empty string.");
@@ -350,6 +358,10 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
         model_config["temperature"].get<float>() < 0 || 
         model_config["temperature"].get<float>() > 2)) {
         return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     // Validate API URL and model by making a test API call
@@ -375,7 +387,7 @@ Option<bool> NaturalLanguageSearchModel::validate_vllm_model(const nlohmann::jso
     return Option<bool>(true);
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_google_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_google_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
        model_config["api_key"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
@@ -407,6 +419,10 @@ Option<bool> NaturalLanguageSearchModel::validate_google_model(const nlohmann::j
 
     if(model_config.count("api_version") != 0 && !model_config["api_version"].is_string()) {
         return Option<bool>(400, "Property `api_version` must be a string.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     // Validate API key by making a test API call
@@ -630,7 +646,7 @@ static Option<std::string> ensure_gcp_access_token(const nlohmann::json& model_c
     return NaturalLanguageSearchModel::generate_gcp_access_token(refresh_token, client_id, client_secret);
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("service_account") > 0 && model_config["service_account"].is_object()) {
         if(model_config.count("project_id") == 0 || !model_config["project_id"].is_string() || 
            model_config["project_id"].get<std::string>().empty()) {
@@ -651,10 +667,19 @@ Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json
            sa.count("private_key") == 0 || !sa["private_key"].is_string()) {
             return Option<bool>(400, "Property `service_account.client_email/private_key` missing or not a string.");
         }
-        
+
         const std::string client_email = sa["client_email"].get<std::string>();
         std::string private_key = sa["private_key"].get<std::string>();
         normalize_pem_newlines(private_key);
+
+        if(skip_api_call) {
+            auto sign_op = sign_jwt_rs256("", private_key);
+            if(!sign_op.ok()) {
+                return Option<bool>(sign_op.code(), sign_op.error());
+            }
+            return Option<bool>(true);
+        }
+
         const std::string token_uri = sa.count("token_uri") > 0 && sa["token_uri"].is_string() ? 
                                        sa["token_uri"].get<std::string>() : "https://oauth2.googleapis.com/token";
         
@@ -756,6 +781,10 @@ Option<bool> NaturalLanguageSearchModel::validate_gcp_model(const nlohmann::json
        (!model_config["max_output_tokens"].is_number_integer() || 
         model_config["max_output_tokens"].get<int>() <= 0)) {
         return Option<bool>(400, "Property `max_output_tokens` must be a positive integer.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     // Validate credentials by making a test API call
@@ -1160,7 +1189,7 @@ Option<nlohmann::json> NaturalLanguageSearchModel::call_gcp_api(
     }
 }
 
-Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::json& model_config) {
+Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::json& model_config, const bool skip_api_call) {
     if(model_config.count("api_key") == 0 || !model_config["api_key"].is_string() || 
        model_config["api_key"].get<std::string>().empty()) {
         return Option<bool>(400, "Property `api_key` is missing or is not a non-empty string.");
@@ -1179,6 +1208,10 @@ Option<bool> NaturalLanguageSearchModel::validate_azure_model(const nlohmann::js
         model_config["temperature"].get<float>() < 0 ||
         model_config["temperature"].get<float>() > 2)) {
         return Option<bool>(400, "Property `temperature` must be a number between 0 and 2.");
+    }
+
+    if(skip_api_call) {
+        return Option<bool>(true);
     }
 
     nlohmann::json test_request;

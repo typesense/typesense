@@ -25,31 +25,31 @@ private:
 
 public:
     static Option<nlohmann::json> extract_search_params_from_content(const std::string& content, const std::string& model_name_without_namespace);
-    static Option<bool> validate_model(const nlohmann::json& model_config);
+    static Option<bool> validate_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> generate_search_params(const std::string& query, 
                                                         const std::string& collection_schema_prompt,
                                                         const nlohmann::json& model_config);
 
     static bool is_reasoning_model_name(const std::string& model_name_without_namespace);
     static bool is_openai_api_host(const std::string& api_url);
-    static Option<bool> validate_openai_model(const nlohmann::json& model_config);
+    static Option<bool> validate_openai_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> openai_vllm_generate_search_params(const std::string& query, 
                                                                const std::string& collection_schema_prompt,
                                                                const nlohmann::json& model_config);
 
-    static Option<bool> validate_cloudflare_model(const nlohmann::json& model_config);
+    static Option<bool> validate_cloudflare_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> cloudflare_generate_search_params(const std::string& query, 
                                                                   const std::string& collection_schema_prompt,
                                                                   const nlohmann::json& model_config);
 
-    static Option<bool> validate_vllm_model(const nlohmann::json& model_config);
+    static Option<bool> validate_vllm_model(const nlohmann::json& model_config, const bool skip_api_call = false);
 
-    static Option<bool> validate_google_model(const nlohmann::json& model_config);
+    static Option<bool> validate_google_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> google_generate_search_params(const std::string& query, 
                                                               const std::string& collection_schema_prompt,
                                                               const nlohmann::json& model_config);
 
-    static Option<bool> validate_gcp_model(const nlohmann::json& model_config);
+    static Option<bool> validate_gcp_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> gcp_generate_search_params(const std::string& query, 
                                                            const std::string& collection_schema_prompt,
                                                            const nlohmann::json& model_config);
@@ -57,7 +57,7 @@ public:
                                                         const std::string& client_id, 
                                                         const std::string& client_secret);
 
-    static Option<bool> validate_azure_model(const nlohmann::json& model_config);
+    static Option<bool> validate_azure_model(const nlohmann::json& model_config, const bool skip_api_call = false);
     static Option<nlohmann::json> azure_generate_search_params(const std::string& query, 
                                                              const std::string& collection_schema_prompt,
                                                              const nlohmann::json& model_config);

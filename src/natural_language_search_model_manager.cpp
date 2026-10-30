@@ -17,7 +17,8 @@ Option<nlohmann::json> NaturalLanguageSearchModelManager::get_model(const std::s
     return Option<nlohmann::json>(it->second);
 }
 
-Option<bool> NaturalLanguageSearchModelManager::add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk) {
+Option<bool> NaturalLanguageSearchModelManager::add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk,
+                                                          const bool skip_api_call) {
     std::unique_lock lock(models_mutex);
 
     if (models.find(model_id) != models.end()) {
@@ -26,7 +27,7 @@ Option<bool> NaturalLanguageSearchModelManager::add_model(nlohmann::json& model,
 
     model["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
 
-    auto validate_res = NaturalLanguageSearchModel::validate_model(model);
+    auto validate_res = NaturalLanguageSearchModel::validate_model(model, skip_api_call);
     if (!validate_res.ok()) {
         return Option<bool>(validate_res.code(), validate_res.error());
     }
@@ -154,7 +155,7 @@ Option<int> NaturalLanguageSearchModelManager::init(Store* store) {
         const std::string& model_id = model_json["id"];
 
         auto has_migration = migrate_model(model_json);
-        auto add_op = add_model(model_json, model_id, has_migration);
+        auto add_op = add_model(model_json, model_id, has_migration, true);
         if(!add_op.ok()) {
             LOG(ERROR) << "Error while loading natural language search model: " << model_id 
                       << ", error: " << add_op.error();
