@@ -30,6 +30,8 @@ public:
                                                         const std::string& collection_schema_prompt,
                                                         const nlohmann::json& model_config);
 
+    static bool is_reasoning_model_name(const std::string& model_name_without_namespace);
+    static bool is_openai_api_host(const std::string& api_url);
     static Option<bool> validate_openai_model(const nlohmann::json& model_config);
     static Option<nlohmann::json> openai_vllm_generate_search_params(const std::string& query, 
                                                                const std::string& collection_schema_prompt,
