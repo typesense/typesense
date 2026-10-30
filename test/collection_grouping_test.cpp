@@ -320,6 +320,106 @@ TEST_F(CollectionGroupingTest, UnresolvedReferenceStyleGroupByShouldReturnError)
     ASSERT_EQ("Could not find a field named `$foo` in the schema.", search_op.error());
 }
 
+TEST_F(CollectionGroupingTest, SkipMissingReferenceStyleGroupFields) {
+    std::vector<field> fields = {
+        field("brand", field_types::STRING, true),
+        field("category", field_types::STRING, true),
+        field("title", field_types::STRING, false),
+        field("$facet", field_types::STRING, true)
+    };
+    auto create_op = collectionManager.create_collection("missing_group_fields", 1, fields);
+    ASSERT_TRUE(create_op.ok());
+    auto collection = create_op.get();
+    for(const auto& doc: std::vector<nlohmann::json>{
+            {{"id", "0"}, {"brand", "Omega"}, {"category", "Shoes"}, {"title", "First"}, {"$facet", "A"}},
+            {{"id", "1"}, {"brand", "Alpha"}, {"category", "Electronics"}, {"title", "Second"}, {"$facet", "B"}},
+            {{"id", "2"}, {"brand", "Omega"}, {"category", "Accessories"}, {"title", "Third"}, {"$facet", "A"}}}) {
+        ASSERT_TRUE(collection->add(doc.dump()).ok());
+    }
+
+    auto search = [&](const std::string& group_by, const std::string& validation, nlohmann::json& result) {
+        std::map<std::string, std::string> params = {
+            {"collection", "missing_group_fields"}, {"q", "*"}, {"group_limit", "2"}
+        };
+        if(!group_by.empty()) {
+            params["group_by"] = group_by;
+        }
+        if(!validation.empty()) {
+            params["validate_field_names"] = validation;
+        }
+        nlohmann::json embedded_params;
+        std::string response;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now_ts);
+        if(op.ok()) {
+            result = nlohmann::json::parse(response);
+        }
+        return op;
+    };
+
+    nlohmann::json result;
+    for(const auto& group_by: {"missing", "$foo", "$foo,missing", "missing,$foo", "$foo,$bar"}) {
+        SCOPED_TRACE(group_by);
+        auto op = search(group_by, "false", result);
+        ASSERT_TRUE(op.ok()) << op.error();
+        EXPECT_EQ(0, result["found"]);
+        EXPECT_EQ(0, result["found_docs"]);
+        EXPECT_TRUE(result["grouped_hits"].empty());
+    }
+
+    for(const auto& valid_fields: {"brand", "brand,category", "category,brand", "$facet"}) {
+        SCOPED_TRACE(valid_fields);
+        nlohmann::json baseline;
+        ASSERT_TRUE(search(valid_fields, "false", baseline).ok());
+        EXPECT_GT(baseline["found"].get<size_t>(), 1);
+        EXPECT_EQ(3, baseline["found_docs"]);
+        for(const auto& group_by: {"$foo," + std::string(valid_fields), std::string(valid_fields) + ",$foo"}) {
+            SCOPED_TRACE(group_by);
+            auto op = search(group_by, "false", result);
+            ASSERT_TRUE(op.ok()) << op.error();
+            EXPECT_EQ(baseline["found"], result["found"]);
+            EXPECT_EQ(baseline["found_docs"], result["found_docs"]);
+            EXPECT_EQ(baseline["grouped_hits"], result["grouped_hits"]);
+        }
+    }
+
+    for(const auto& validation: {"", "true"}) {
+        for(const auto& group_by: {"$foo", "$foo,brand", "brand,$foo"}) {
+            SCOPED_TRACE(group_by);
+            auto op = search(group_by, validation, result);
+            ASSERT_FALSE(op.ok());
+            EXPECT_EQ(404, op.code());
+            EXPECT_EQ("Could not find a field named `$foo` in the schema.", op.error());
+        }
+    }
+
+    nlohmann::json compound_baseline;
+    ASSERT_TRUE(search("brand,category", "false", compound_baseline).ok());
+    ASSERT_TRUE(search("brand,$foo,category", "false", result).ok());
+    EXPECT_EQ(compound_baseline["grouped_hits"], result["grouped_hits"]);
+    EXPECT_EQ(compound_baseline["found"], result["found"]);
+    EXPECT_EQ(compound_baseline["found_docs"], result["found_docs"]);
+
+    for(const auto& invalid: std::vector<std::pair<std::string, std::string>>{
+            {"id", "Cannot use `id` as a group by field."},
+            {"title", "Group by field `title` should be a facet field."},
+            {"brand*", "Pattern `brand*` is not allowed."}}) {
+        for(const auto& group_by: {invalid.first, "$foo," + invalid.first, invalid.first + ",$foo"}) {
+            SCOPED_TRACE(group_by);
+            auto op = search(group_by, "false", result);
+            ASSERT_FALSE(op.ok());
+            EXPECT_EQ(400, op.code());
+            EXPECT_EQ(invalid.second, op.error());
+        }
+    }
+
+    ASSERT_TRUE(search("", "false", result).ok());
+    EXPECT_EQ(3, result["found"]);
+    EXPECT_EQ(3, result["hits"].size());
+    EXPECT_FALSE(result.contains("grouped_hits"));
+}
+
 TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     Collection *coll1;
 
