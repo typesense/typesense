@@ -3361,6 +3361,29 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
     }
 }
 
+// A brute-force pass returns every filtered document. Drop the ones the HNSW pass of a hybrid search does not return,
+// those beyond `distance_threshold` or excluded, and order the rest nearest first as that pass does, so that the rank
+// fusion below gets the same input from either pass.
+void sort_nearest_hybrid_results(std::vector<std::pair<float, single_filter_result_t>>& dist_results,
+                                 const vector_query_t& vector_query, const hnsw_index_t* field_vector_index,
+                                 const uint32_t* excluded_ids, uint32_t excluded_ids_length) {
+    auto is_dropped = [&](const std::pair<float, single_filter_result_t>& dist_result) {
+        auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_result.first) :
+                              dist_result.first;
+        if (vec_dist_score > vector_query.distance_threshold) {
+            return true;
+        }
+
+        return excluded_ids_length > 0 && excluded_ids != nullptr &&
+               std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, dist_result.second.seq_id);
+    };
+
+    dist_results.erase(std::remove_if(dist_results.begin(), dist_results.end(), is_dropped), dist_results.end());
+    std::stable_sort(dist_results.begin(), dist_results.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+}
+
 void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator, const vector_query_t& vector_query,
                                hnsw_index_t* field_vector_index, VectorFilterFunctor& filterFunctor, size_t k,
                                 std::vector<std::pair<float, single_filter_result_t>>& dist_results, bool is_wildcard_non_phrase_query = false) {
@@ -3452,8 +3475,24 @@ void Index::process_grouped_vector_results_hnsw(
                                    filter_functor, current_k, dist_results, is_wildcard_non_phrase_query);
     };
 
+    grow_vector_k_for_groups(run_hnsw, dist_results, filter_result_iterator_no_groups, vector_query, field_vector_index,
+                             initial_k, fetch_size, group_max_candidates, group_limit, group_by_fields,
+                             group_missing_values);
+}
+
+void Index::grow_vector_k_for_groups(const std::function<void(size_t)>& search_k,
+                                     const std::vector<std::pair<float, single_filter_result_t>>& dist_results,
+                                     filter_result_iterator_t* filter_result_iterator_no_groups,
+                                     const vector_query_t& vector_query,
+                                     const hnsw_index_t* field_vector_index,
+                                     size_t initial_k,
+                                     size_t fetch_size,
+                                     size_t group_max_candidates,
+                                     size_t group_limit,
+                                     const std::vector<std::string>& group_by_fields,
+                                     bool group_missing_values) const {
     if (group_limit == 0 || vector_query.k != 0) {
-        run_hnsw(initial_k);
+        search_k(initial_k);
         return;
     }
 
@@ -3514,7 +3553,7 @@ void Index::process_grouped_vector_results_hnsw(
     const size_t max_k = no_group_filter_provided ? std::max<size_t>(filter_id_count, current_k) : num_seq_ids();
 
     while (true) {
-        run_hnsw(current_k);
+        search_k(current_k);
         auto group_discovery = analyze_group_discovery(dist_results);
 
         if (group_discovery.docs_seen == 0 ||
@@ -4176,17 +4215,29 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             auto no_group_filter_provided = filter_result_iterator_no_groups->is_filter_provided();
 
+            // use k as 100 by default for ensuring results stability in pagination
+            size_t default_k = 100;
+            auto k = vector_query.k;
+            if (k == 0) {
+                k = std::max<size_t>(fetch_size, default_k);
+            }
+
             if (no_group_filter_provided && filter_id_count < vector_query.flat_search_cutoff) {
-                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, dist_results);
+                std::vector<std::pair<float, single_filter_result_t>> nearest;
+                process_results_bruteforce(filter_result_iterator_no_groups, vector_query, field_vector_index, nearest);
+                sort_nearest_hybrid_results(nearest, vector_query, field_vector_index, excluded_result_ids,
+                                            excluded_result_ids_size);
+
+                // Keep as many of the nearest as the HNSW pass below would return for the same k.
+                auto keep_nearest = [&](size_t current_k) {
+                    dist_results.assign(nearest.begin(), nearest.begin() + std::min(current_k, nearest.size()));
+                };
+                grow_vector_k_for_groups(keep_nearest, dist_results, filter_result_iterator_no_groups, vector_query,
+                                         field_vector_index, k, fetch_size, group_max_candidates, group_limit,
+                                         group_by_fields, group_missing_values);
             } else if (!no_group_filter_provided || (filter_id_count >= vector_query.flat_search_cutoff &&
                         filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
-                // use k as 100 by default for ensuring results stability in pagination
-                size_t default_k = 100;
-                auto k = vector_query.k;
-                if (k == 0) {
-                    k = std::max<size_t>(fetch_size, default_k);
-                }
 
                 process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
                                                     filterFunctor, k, fetch_size, group_max_candidates, group_limit, group_by_fields,
