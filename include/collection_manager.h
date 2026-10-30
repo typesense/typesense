@@ -282,7 +282,7 @@ public:
                                              const nlohmann::json& original_doc,
                                              const ref_include_exclude_fields& ref_include_exclude);
 
-    static Option<bool> get_related_ids(const std::string& collection_name,
+    static Option<bool> get_related_parent_ids(const std::string& collection_name,
                                         const std::string& field_name,
                                         const std::vector<uint32_t>& seq_id_vec,
                                         std::vector<uint32_t>& related_ids);
