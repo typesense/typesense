@@ -61,6 +61,7 @@ This is a selection of sites and apps using Typesense.
 | [Squire](https://getsquire.com/)                                                         | Barbershop management system |
 | [Syracuse University](https://syracuse.edu)                                              | A private research university in Syracuse, New York. [Visit our live typesense demo!](https://typesense-demo.dev3.digitalservices.syr.edu) |
 | [TableCheck](https://www.tablecheck.com)                                                 | AI-powered restaurant discovery, search, and booking ("Omakase lunch in Ginza for 2 on Friday") |
+| [TastyFans](https://tastyfans.com)                                                       | Search engine for creators on OnlyFans, Fansly and other subscription platforms; Typesense powers the profile search, 50+ facets, price sorting and location (geopoint) search |
 | [Trading Strategy](https://tradingstrategy.ai/blog/world-fastest-token-search)           | Algorithmic trading protocol for decentralised markets |
 | [Ultrahuman](https://www.ultrahuman.com)                                                 | Health and wellness platform that focuses on metabolic fitness and real-time health tracking through advanced wearable technology |
 | [Upnext](https://www.getupnext.com)                                                      | Save, organize and focus on your personal content library |
