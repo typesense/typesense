@@ -3594,3 +3594,52 @@ TEST_F(CollectionSpecificTest, TruncationEdgeCasesTest) {
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("3", result["hits"][0]["document"]["id"]);
 }
+
+TEST_F(CollectionSpecificTest, PhraseConjunctionRequiredInEachField) {
+    nlohmann::json schema = R"({"name":"phrase_conjunction","fields":[
+        {"name":"title","type":"string"}, {"name":"other","type":"string"},
+        {"name":"parts","type":"string[]"}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    for(const auto& doc : {
+            R"({"id":"1","title":"full stack javascript developer alpha beta", "other":"full stack javascript developer", "parts":["full stack", "javascript developer"]})",
+            R"({"id":"2","title":"full stack developer gamma delta", "other":"nothing", "parts":["full stack javascript developer"]})",
+            R"({"id":"3","title":"javascript extra developer epsilon zeta", "other":"nothing", "parts":["unrelated"]})"}) {
+        ASSERT_TRUE(collection->add(doc).ok());
+    }
+    auto check = [&](const std::string& q, const std::string& fields, const std::set<std::string>& expected) {
+        SCOPED_TRACE(q + " / " + fields);
+        std::map<std::string, std::string> params = {{"collection", "phrase_conjunction"}, {"q", q},
+            {"query_by", fields}, {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"},
+            {"num_typos", "0"}, {"prefix", "false"}};
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result;
+        auto op = CollectionManager::do_search(params, embedded, result, 0);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto json = nlohmann::json::parse(result);
+        std::set<std::string> actual;
+        for(const auto& hit : json["hits"]) actual.insert(hit["document"]["id"].get<std::string>());
+        EXPECT_EQ(expected.size(), json["found"].get<size_t>());
+        EXPECT_EQ(expected, actual);
+    };
+    for(const auto& q : {"\"full stack\" \"foobar\"", "\"foobar\" \"full stack\"",
+                          "\"full stack\" \"javascript foobar developer\"", "\"javascript foobar developer\" \"full stack\"",
+                          "\"full stack\" \"developer javascript\"", "\"developer javascript\" \"full stack\"",
+                          "\"full stack\" \"javascript epsilon\"", "\"javascript epsilon\" \"full stack\"",
+                          "\"full stack\" \"alpha gamma\"", "\"alpha gamma\" \"full stack\"",
+                          "\"alpha beta\" \"gamma delta\" \"full stack\"", "\"gamma delta\" \"alpha beta\" \"full stack\"",
+                          "\"alpha beta\" \"full stack\" \"gamma delta\""}) {
+        check(q, "title", {});
+    }
+    check("\"full stack\" \"javascript developer\"", "title", {"1"});
+    check("\"full stack\" \"javascript developer\" \"alpha beta\"", "title", {"1"});
+    check("\"full stack\"", "title", {"1", "2"});
+    check("alpha beta", "title", {"1"});
+    check("\"full stack\" alpha", "title", {"1"});
+    check("\"full stack\" \"alpha beta\"", "other,title", {"1"});
+    check("\"full stack\" \"alpha beta\"", "title,other", {"1"});
+    check("\"full stack\" \"javascript developer\"", "other,title", {"1"});
+    check("\"full stack\" \"javascript developer\"", "title,other", {"1"});
+    check("\"full stack javascript\"", "parts", {"2"});
+}

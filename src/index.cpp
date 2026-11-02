@@ -6097,8 +6097,11 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
             }
 
             if(posting_lists.size() != phrase.size()) {
-                // unmatched length means no matches will be found for this phrase, so skip to next phrase
-                continue;
+                // Every phrase must match within this field.
+                delete [] field_phrase_match_ids;
+                field_phrase_match_ids = nullptr;
+                field_phrase_match_ids_size = 0;
+                break;
             }
 
             std::vector<uint32_t> contains_ids;
@@ -6110,9 +6113,12 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                                           this_phrase_ids, this_phrase_ids_size);
 
             if(this_phrase_ids_size == 0) {
-                // no results found for this phrase, but other phrases can find results
+                // An unmatched phrase makes the field conjunction empty.
                 delete [] this_phrase_ids;
-                continue;
+                delete [] field_phrase_match_ids;
+                field_phrase_match_ids = nullptr;
+                field_phrase_match_ids_size = 0;
+                break;
             }
 
             // results of multiple phrases must be ANDed
@@ -6127,6 +6133,11 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                 delete [] field_phrase_match_ids;
                 delete [] this_phrase_ids;
                 field_phrase_match_ids = phrase_ids_merged;
+                if(field_phrase_match_ids_size == 0) {
+                    delete [] field_phrase_match_ids;
+                    field_phrase_match_ids = nullptr;
+                    break;
+                }
             }
         }
 
