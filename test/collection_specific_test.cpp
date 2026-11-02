@@ -3643,3 +3643,33 @@ TEST_F(CollectionSpecificTest, PhraseConjunctionRequiredInEachField) {
     check("\"full stack\" \"javascript developer\"", "title,other", {"1"});
     check("\"full stack javascript\"", "parts", {"2"});
 }
+
+TEST_F(CollectionSpecificTest, PhraseConjunctionContinuesAcrossFieldsAfterEmptyMatches) {
+    nlohmann::json schema = R"({"name":"phrase_fields","fields":[
+        {"name":"title","type":"string"}, {"name":"other","type":"string"}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    for(const auto& doc : {
+            R"({"id":"1","title":"red blue", "other":"red blue green gold blue red"})",
+            R"({"id":"2","title":"green gold", "other":"nothing"})",
+            R"({"id":"3","title":"red blue", "other":"nothing"})"}) {
+        ASSERT_TRUE(collection->add(doc).ok());
+    }
+    for(const auto& q : {"\"green gold\" \"blue red\"", "\"red blue\" \"green gold\" \"red blue\""}) {
+        for(const auto& fields : {"title,other", "other,title"}) {
+            SCOPED_TRACE(std::string(q) + " / " + fields);
+            std::map<std::string, std::string> params = {{"collection", "phrase_fields"}, {"q", q},
+                {"query_by", fields}, {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"},
+                {"num_typos", "0"}, {"prefix", "false"}};
+            nlohmann::json embedded = nlohmann::json::object();
+            std::string result;
+            auto op = CollectionManager::do_search(params, embedded, result, 0);
+            ASSERT_TRUE(op.ok()) << op.error();
+            auto json = nlohmann::json::parse(result);
+            ASSERT_EQ(1, json["found"].get<size_t>());
+            ASSERT_EQ(1, json["hits"].size());
+            EXPECT_EQ("1", json["hits"][0]["document"]["id"].get<std::string>());
+        }
+    }
+}
