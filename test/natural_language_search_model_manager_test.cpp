@@ -2260,6 +2260,7 @@ TEST_F(NaturalLanguageSearchModelManagerTest, InitSkipsStoredModelWithInvalidCon
     ASSERT_EQ(NaturalLanguageSearchModelManager::get_model("bad_private_key_model").code(), 404);
 
     NaturalLanguageSearchModel::disable_request_capture();
+}
 
 TEST_F(NaturalLanguageSearchModelManagerTest, NonStringGeneratedParamValues) {
     add_valid_model_mock_response();
