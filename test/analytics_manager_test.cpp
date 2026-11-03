@@ -629,6 +629,20 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
   auto create_op = analyticsManager.create_rule(with_no_capture, false, true, true);
   ASSERT_TRUE(create_op.ok());
 
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture", "data": {"q": "hola"}
+  })"_json);
+  ASSERT_FALSE(missing_user.ok());
+  ASSERT_EQ(missing_user.code(), 400);
+  ASSERT_EQ(missing_user.error(), "user_id is required");
+
+  auto invalid_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture", "data": {"q": "hola", "user_id": 42}
+  })"_json);
+  ASSERT_FALSE(invalid_user.ok());
+  ASSERT_EQ(invalid_user.code(), 400);
+  ASSERT_EQ(invalid_user.error(), "user_id should be a string");
+
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture",
     "data": {
@@ -1284,6 +1298,11 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   auto create_op = analyticsManager.create_rule(counter_rule, false, true, true);
   ASSERT_TRUE(create_op.ok());
 
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_popularity", "data": {"doc_id": "2"}
+  })"_json);
+  ASSERT_TRUE(missing_user.ok());
+
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "product_popularity",
     "data": {
@@ -1310,7 +1329,7 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   ASSERT_EQ(counter.destination_collection, "products");
   ASSERT_EQ(counter.docid_counts.size(), 2);
   ASSERT_EQ(counter.docid_counts.at("1"), 4);
-  ASSERT_EQ(counter.docid_counts.at("2"), 2);
+  ASSERT_EQ(counter.docid_counts.at("2"), 4);
 }
 
 TEST_F(AnalyticsManagerTest, SearchWithNoRule) {
@@ -1380,6 +1399,13 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
 
   auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
   ASSERT_TRUE(create_op.ok());
+
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries", "data": {"q": "alpha"}
+  })"_json);
+  ASSERT_FALSE(missing_user.ok());
+  ASSERT_EQ(missing_user.code(), 400);
+  ASSERT_EQ(missing_user.error(), "user_id is required");
 
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "log_queries",
