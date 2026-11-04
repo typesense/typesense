@@ -176,6 +176,13 @@ __ONNXRUNTIME_WITH_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'OCOS_ENABLE_BLINGFIRE': 'OFF'
 }
 
+__ONNXRUNTIME_MACOS = dict(__ONNXRUNTIME_WITHOUT_CUDA.items() + {
+    # opencv's bundled libpng includes <fp.h> under TARGET_OS_MAC unless math.h came first
+    'CMAKE_C_FLAGS': '-include math.h',
+    # FindPythonInterp never searches for a bare python3
+    'PYTHON_EXECUTABLE': '/usr/bin/python3',
+}.items())
+
 config_setting(
     name = "with_cuda",
     define_values = { "use_cuda": "on" }
@@ -188,7 +195,13 @@ cmake(
     lib_source = "//:all_srcs",
     cache_entries = select({
         ":with_cuda":   __ONNXRUNTIME_WITH_CUDA,
+        "@platforms//os:macos": __ONNXRUNTIME_MACOS,
         "//conditions:default": __ONNXRUNTIME_WITHOUT_CUDA
+    }),
+    # newer apple clang warns on 1.14 sources that set COMPILE_WARNING_AS_ERROR
+    generate_args = select({
+        "@platforms//os:macos": ["--compile-no-warning-as-error"],
+        "//conditions:default": [],
     }),
     working_directory="cmake",
     build_args= [
