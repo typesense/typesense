@@ -2782,6 +2782,9 @@ TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {
 }
 
 TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "TODO: expected order assumes libstdc++ std::hash";
+#endif
     //remove all collections first
     auto collections = collectionManager.get_collections().get();
     for(auto collection : collections) {
