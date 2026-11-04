@@ -576,6 +576,17 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
+    const bool collection_route = rpath->path_parts.size() > 1 &&
+                                  rpath->path_parts[0] == "collections" &&
+                                  rpath->path_parts[1] == ":collection";
+    const auto collection_param = query_map.find("collection");
+    if(collection_route && collection_param != query_map.end() &&
+       CollectionManager::get_instance().collection_failed_to_load(collection_param->second)) {
+        nlohmann::json error = {{"message", "Collection `" + collection_param->second +
+            "` is unavailable because it failed to load."}};
+        return send_response(req, 503, error.dump());
+    }
+
     ssize_t content_type_header_cursor = h2o_find_header_by_str(&req->headers, http_req::CONTENT_TYPE_HEADER, strlen(http_req::CONTENT_TYPE_HEADER), -1);
     bool is_binary_body = false;
     if (content_type_header_cursor != -1) {
