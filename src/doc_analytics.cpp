@@ -66,6 +66,14 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
       return Option<bool>(400, "doc_ids should be an array");
     }
 
+    if (data.contains("doc_ids")) {
+      for (const auto& doc_id : data["doc_ids"]) {
+        if (!doc_id.is_string()) {
+          return Option<bool>(400, "doc_ids should contain only strings");
+        }
+      }
+    }
+
     if (data.contains("doc_id") && !data["doc_id"].is_string()) {
       return Option<bool>(400, "doc_id should be a string");
     }
@@ -86,6 +94,9 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
         counter_event_it->second.docid_counts[data["doc_id"].get<std::string>()] += inc_val;
       }
     } else if(type == LOG_TYPE) {
+      if (!data.contains("user_id")) {
+        return Option<bool>(400, "user_id is required");
+      }
       const auto& log_event_it = doc_log_events.find(event_name);
       if (log_event_it == doc_log_events.end()) {
         return Option<bool>(400, "Rule does not exist");

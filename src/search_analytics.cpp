@@ -92,6 +92,9 @@ Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nloh
   if(data.contains("analytics_tag") && !data["analytics_tag"].is_string()) {
     return Option<bool>(400, "'analytics_tag' should be a string");
   }
+  if(data.contains("timestamp") && !data["timestamp"].is_number()) {
+    return Option<bool>(400, "'timestamp' should be a number");
+  }
   if(!data.contains("user_id")) {
     return Option<bool>(400, "user_id is required");
   }

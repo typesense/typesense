@@ -1330,6 +1330,14 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   ASSERT_EQ(counter.docid_counts.size(), 2);
   ASSERT_EQ(counter.docid_counts.at("1"), 4);
   ASSERT_EQ(counter.docid_counts.at("2"), 4);
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "product_popularity", "data": {"doc_ids": ["1", 2]}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+  });
 }
 
 TEST_F(AnalyticsManagerTest, SearchWithNoRule) {
@@ -1460,6 +1468,19 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
   ASSERT_EQ(events[1]["query"], "alpha");
   ASSERT_EQ(events[1]["filter_by"], "country:US");
   ASSERT_EQ(events[1]["analytics_tag"], "tag1");
+
+  auto float_timestamp = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries", "data": {"q": "gamma", "user_id": "user4", "timestamp": 123.5}
+  })"_json);
+  EXPECT_TRUE(float_timestamp.ok());
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "log_queries", "data": {"q": "gamma", "user_id": "user4", "timestamp": "invalid"}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+  });
 }
 
 TEST_F(AnalyticsManagerTest, DocLogEventsGetInMemory) {
@@ -1549,6 +1570,22 @@ TEST_F(AnalyticsManagerTest, DocLogEventsGetInMemory) {
   ASSERT_EQ(events[1]["query"], "type");
   ASSERT_TRUE(events[1].contains("doc_id"));
   ASSERT_EQ(events[1]["doc_id"], "1");
+
+  EXPECT_NO_THROW({
+    auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "doc_click_logs", "data": {"doc_id": "1"}
+    })"_json);
+    EXPECT_FALSE(missing_user.ok());
+    EXPECT_EQ(missing_user.code(), 400);
+  });
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "doc_click_logs", "data": {"user_id": "user2", "doc_ids": ["1", 2]}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+  });
 }
 
 TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
