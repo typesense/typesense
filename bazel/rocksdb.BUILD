@@ -37,7 +37,7 @@ cmake(
         "-DWITH_TOOLS=OFF",
         "-DUSE_RTTI=1",
     ] + select({
-         "@platforms//os:macos": ["-DCMAKE_CXX_FLAGS=-Wno-error=uninitialized"],
+         "@platforms//os:macos": ["-DCMAKE_CXX_FLAGS=-Wno-error=uninitialized", "-DFAIL_ON_WARNINGS=OFF"],
          "//conditions:default": ["-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized"],
     }),
     lib_source = "//:all_srcs",
