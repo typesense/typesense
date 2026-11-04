@@ -23,6 +23,11 @@ cc_library(
         "include/**/*.h",
         "include/**/*.hpp",
     ]),
+    # sparsepp.h derives from std::unary_function, which libc++ drops in c++17
+    defines = select({
+        "@platforms//os:macos": ["_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION"],
+        "//conditions:default": [],
+    }),
     includes = ["include"],
 )
 
