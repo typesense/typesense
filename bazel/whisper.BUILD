@@ -1,4 +1,5 @@
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -19,14 +20,19 @@ print("CUDA: " + str(select({
 
 load("@cuda_home_repo//:cuda_home.bzl", "CUDA_HOME")
 
+CMAKE_CACHE_ENTRIES = {
+    'BUILD_SHARED_LIBS': 'OFF',
+    'WHISPER_BUILD_EXAMPLES': 'OFF',
+    'WHISPER_BUILD_TESTS': 'OFF',
+    'CMAKE_POSITION_INDEPENDENT_CODE': 'ON',
+}
+
 cmake(
     name = "whisper",
-    cache_entries= {
-        'BUILD_SHARED_LIBS': 'OFF',
-        'WHISPER_BUILD_EXAMPLES': 'OFF',
-        'WHISPER_BUILD_TESTS': 'OFF',
-        'CMAKE_POSITION_INDEPENDENT_CODE': 'ON',
-    }, 
+    cache_entries = select({
+        "@platforms//os:macos": dict(CMAKE_CACHE_ENTRIES.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items()),
+        "//conditions:default": CMAKE_CACHE_ENTRIES,
+    }),
     build_args = [
         "--", "-j8"
     ],

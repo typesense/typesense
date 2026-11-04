@@ -12,6 +12,7 @@ cc_library(
 )
 
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 __POSTFIX = """
 mkdir -p $INSTALLDIR/lib
@@ -176,7 +177,7 @@ __ONNXRUNTIME_WITH_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'OCOS_ENABLE_BLINGFIRE': 'OFF'
 }
 
-__ONNXRUNTIME_MACOS = dict(__ONNXRUNTIME_WITHOUT_CUDA.items() + {
+__ONNXRUNTIME_MACOS = dict(__ONNXRUNTIME_WITHOUT_CUDA.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items() + {
     # opencv's bundled libpng includes <fp.h> under TARGET_OS_MAC unless math.h came first
     'CMAKE_C_FLAGS': '-include math.h',
     # FindPythonInterp never searches for a bare python3

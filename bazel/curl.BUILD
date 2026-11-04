@@ -1,4 +1,5 @@
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -23,7 +24,10 @@ CMAKE_CACHE_ENTRIES = {
     "CURL_ZSTD": "OFF"
 }
 
-CMAKE_MACOS_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + {}.items())
+CMAKE_MACOS_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items() + {
+    # cmake otherwise finds a homebrew nghttp2 that the final link does not carry
+    "USE_NGHTTP2": "OFF",
+}.items())
 
 CMAKE_LINUX_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + {
     "CMAKE_C_FLAGS": "-fPIC",
