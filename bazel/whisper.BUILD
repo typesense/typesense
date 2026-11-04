@@ -32,6 +32,10 @@ cmake(
     ],
     lib_source = "//:whisper_srcs",
     out_static_libs = ["static/libwhisper.a"],
+    linkopts = select({
+        "@platforms//os:macos": ["-Wl,-framework,Accelerate", "-Wl,-framework,Foundation", "-Wl,-framework,Metal"],
+        "//conditions:default": [],
+    }),
     tags=["requires-network","no-sandbox"],
 )
 
