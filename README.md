@@ -406,5 +406,15 @@ bazel build //:typesense-server
 
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
+### macOS
+
+Install Xcode, then build through the Nix flake, which runs Bazel 6.6.0 since the version pinned in `.bazelversion` does not work on macOS 26 or later:
+
+```shell
+nix develop --command bazel build //:typesense-server
+```
+
+Without Nix, run Bazelisk with `USE_BAZEL_VERSION=6.6.0` set.
+
 ---
 &copy; 2016-present Typesense Inc.
