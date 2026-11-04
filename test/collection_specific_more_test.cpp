@@ -2831,6 +2831,168 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, MixedFieldUnicodeHighlight) {
+    nlohmann::json schema = R"({
+        "name": "mixed_highlight",
+        "fields": [
+            {"name": "field1", "type": "string", "stem": true},
+            {"name": "field2", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto collection = create_op.get();
+    ASSERT_TRUE(collection->add(R"({"field1":"Something","field2":"Küche"})").ok());
+
+    std::map<std::string, std::string> params = {
+        {"collection", "mixed_highlight"}, {"q", "Küche"},
+        {"query_by", "field1,field2"}, {"highlight_full_fields", "field2"}
+    };
+    const std::vector<std::pair<std::string, std::string>> orders = {
+        {"field1,field2", "true"}, {"field2,field1", "true"},
+        {"field2", "true"}, {"field1,field2", "false"}
+    };
+    for(const auto& order: orders) {
+        SCOPED_TRACE(order.first + " prefix=" + order.second);
+        params["query_by"] = order.first;
+        params["prefix"] = order.second;
+        nlohmann::json embedded_params = nlohmann::json::object();
+        std::string result_json;
+        auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& highlight = result["hits"][0]["highlight"]["field2"];
+        EXPECT_EQ(nlohmann::json::array({"Küche"}), highlight["matched_tokens"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["snippet"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["value"]);
+    }
+
+    params["q"] = "Küc";
+    params["query_by"] = "field1,field2";
+    params["prefix"] = "true";
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string result_json;
+    auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& highlight = result["hits"][0]["highlight"]["field2"];
+    EXPECT_EQ(nlohmann::json::array({"Küc"}), highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["snippet"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["value"]);
+
+    ASSERT_TRUE(collection->add(R"({"field1":"Something","field2":"Pre-orders"})").ok());
+    params["q"] = "Pre-orders";
+    search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& ascii_highlight = result["hits"][0]["highlight"]["field2"];
+    EXPECT_EQ(nlohmann::json::array({"Pre-orders"}), ascii_highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Pre-orders</mark>", ascii_highlight["snippet"]);
+    EXPECT_EQ("<mark>Pre-orders</mark>", ascii_highlight["value"]);
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightSkippedSymbolsAndTypoBoundaries) {
+    nlohmann::json schema = R"({"name":"highlight_boundaries","fields":[
+        {"name":"field1","type":"string","stem":true},
+        {"name":"text","type":"string","facet":true}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    struct Case { const char* text; const char* query; const char* token; const char* marked; };
+    const std::vector<Case> cases = {
+        {"Kü-che, next", "Küche", "Kü-che", "<mark>Kü-che</mark>, next"},
+        {"hello Kü---che, next", "Küche", "Kü---che", "hello <mark>Kü---che</mark>, next"},
+        {"K-üche", "Küche", "K-üche", "<mark>K-üche</mark>"},
+        {"Kü-che", "Kü", "Kü", "<mark>Kü</mark>-che"},
+        {"a中-che", "a中", "a中", "<mark>a中</mark>-che"},
+        {"a𐐀-che", "a𐐀", "a𐐀", "<mark>a𐐀</mark>-che"},
+        {"samsun", "smsu", "samsun", "<mark>samsun</mark>"},
+        {"samsung", "smsu", "samsung", "<mark>samsung</mark>"},
+        {"samsungx", "smsu", "sams", "<mark>sams</mark>ungx"},
+        {"samsuné", "smsu", "samsuné", "<mark>samsuné</mark>"},
+        {"samsun中", "smsu", "samsun中", "<mark>samsun中</mark>"},
+        {"samsun😀", "smsu", "samsun😀", "<mark>samsun😀</mark>"},
+    };
+    for(size_t i = 0; i < cases.size(); i++) {
+        const auto& c = cases[i];
+        SCOPED_TRACE(c.text);
+        nlohmann::json doc = {{"id", std::to_string(i)}, {"field1", "Something"}, {"text", c.text}};
+        ASSERT_TRUE(collection->add(doc.dump()).ok());
+        std::map<std::string, std::string> params = {
+            {"collection", "highlight_boundaries"}, {"q", c.query}, {"query_by", "field1,text"},
+            {"filter_by", "id:=" + std::to_string(i)}, {"highlight_full_fields", "text"}, {"num_typos", "2"}
+        };
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result_json;
+        auto search = CollectionManager::do_search(params, embedded, result_json, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& hit = result["hits"][0];
+        ASSERT_EQ(1, hit["highlights"].size());
+        for(const auto& highlight: {hit["highlight"]["text"], hit["highlights"][0]}) {
+            EXPECT_EQ(nlohmann::json::array({c.token}), highlight["matched_tokens"]);
+            EXPECT_EQ(c.marked, highlight["snippet"]);
+            EXPECT_EQ(c.marked, highlight["value"]);
+        }
+    }
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightTokenSettingsAndFacetPrefixes) {
+    for(const auto& mode: {std::string("skip"), std::string("indexed"), std::string("separator"),
+                           std::string("collection_indexed"), std::string("collection_separator")}) {
+        SCOPED_TRACE(mode);
+        nlohmann::json text_field = {{"name", "text"}, {"type", "string"}, {"facet", true}};
+        if(mode == "indexed") text_field["symbols_to_index"] = nlohmann::json::array({"-"});
+        if(mode == "separator") text_field["token_separators"] = nlohmann::json::array({"-"});
+        nlohmann::json schema = {{"name", "highlight_" + mode}, {"fields", nlohmann::json::array({
+            {{"name", "field1"}, {"type", "string"}, {"stem", true}}, text_field})}};
+        if(mode == "collection_indexed") schema["symbols_to_index"] = nlohmann::json::array({"-"});
+        if(mode == "collection_separator") schema["token_separators"] = nlohmann::json::array({"-"});
+        auto created = collectionManager.create_collection(schema);
+        ASSERT_TRUE(created.ok()) << created.error();
+        ASSERT_TRUE(created.get()->add(R"({"field1":"Something","text":"Kü-che"})").ok());
+        std::map<std::string, std::string> params = {{"collection", "highlight_" + mode},
+            {"q", "Kü"}, {"query_by", "field1,text"}, {"highlight_full_fields", "text"}};
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result_json;
+        auto search = CollectionManager::do_search(params, embedded, result_json, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& legacy = result["hits"][0]["highlights"][0];
+        EXPECT_EQ(nlohmann::json::array({"Kü"}), legacy["matched_tokens"]);
+        EXPECT_EQ("<mark>Kü</mark>-che", legacy["snippet"]);
+        EXPECT_EQ(legacy["snippet"], legacy["value"]);
+        if(mode == "skip" || mode == "collection_indexed" || mode == "collection_separator") {
+            const auto& structured = result["hits"][0]["highlight"]["text"];
+            EXPECT_EQ(nlohmann::json::array({"Kü"}), structured["matched_tokens"]);
+            EXPECT_EQ("<mark>Kü</mark>-che", structured["snippet"]);
+            EXPECT_EQ(structured["snippet"], structured["value"]);
+        }
+        if(mode == "skip") {
+            params["q"] = "*";
+            params["facet_by"] = "text";
+            params["facet_query"] = "text:Küche";
+            search = CollectionManager::do_search(params, embedded, result_json, 0);
+            ASSERT_TRUE(search.ok()) << search.error();
+            result = nlohmann::json::parse(result_json);
+            ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+            EXPECT_EQ("<mark>Kü-che</mark>", result["facet_counts"][0]["counts"][0]["highlighted"]);
+            ASSERT_TRUE(created.get()->add(R"({"field1":"Something","text":"samsung"})").ok());
+            params["facet_query"] = "text:smsu";
+            search = CollectionManager::do_search(params, embedded, result_json, 0);
+            ASSERT_TRUE(search.ok()) << search.error();
+            result = nlohmann::json::parse(result_json);
+            ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+            EXPECT_EQ("<mark>sams</mark>ung", result["facet_counts"][0]["counts"][0]["highlighted"]);
+        }
+    }
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingEnglish) {
     nlohmann::json schema = R"({
         "name": "test",

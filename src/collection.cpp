@@ -6438,43 +6438,24 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
                qtoken_it.value().root_len < raw_token.size()) {
                 // need to ensure that only the prefix portion is highlighted
-                // if length diff is within 2, we still might not want to highlight partially in some cases
+                // if length diff is within 3, we still might not want to highlight partially in some cases
                 // e.g. "samsng" vs "samsung" -> full highlight is preferred, unless it's a full prefix match
 
-                size_t k = tok_start;
-                size_t num_letters = 0, prefix_letters = 0, prefix_end = tok_start;
-
-                // group unicode code points and calculate number of actual characters
-                while(k <= tok_end) {
-                    k++;
-
-                    if(tokenizer.should_skip_char(text[k])) {
-                        // used to handle special characters inside a tokenized word, e.g. `foo-bar`
-                        continue;
+                size_t k = tok_start, num_letters = 0, prefix_end = tok_end;
+                while(k <= tok_end && k < text.size()) {
+                    const bool skip = tokenizer.should_skip_char(text[k]);
+                    ++k;
+                    while(k <= tok_end && k < text.size() && (text[k] & 0xC0) == 0x80) {
+                        ++k;
                     }
-
-                    if ((text[k] & 0xC0) == 0x80) k++;
-                    if ((text[k] & 0xC0) == 0x80) k++;
-                    if ((text[k] & 0xC0) == 0x80) k++;
-
-                    num_letters++;
-
-                    if(num_letters <= prefix_token_num_chars) {
-                        prefix_letters++;
-                    }
-
-                    if(num_letters == prefix_token_num_chars) {
+                    if(!skip && ++num_letters == prefix_token_num_chars) {
                         prefix_end = k - 1;
                     }
                 }
 
-                if(num_letters < prefix_token_num_chars) {
-                    // can happen in the case of stemming
-                    prefix_end = tok_start + num_letters;
-                }
-
-                size_t char_diff = num_letters - prefix_letters;
-                auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ? tok_end : prefix_end;
+                bool highlight_whole_typo = qtoken_it.value().num_typos != 0 &&
+                    num_letters - std::min(num_letters, prefix_token_num_chars) <= 3;
+                auto new_tok_end = highlight_whole_typo ? tok_end : prefix_end;
                 token_offsets.emplace(tok_start, new_tok_end);
             } else {
                 token_offsets.emplace(tok_start, tok_end);
