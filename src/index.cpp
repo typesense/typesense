@@ -3404,9 +3404,23 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
     }
 }
 
+#ifdef TEST_BUILD
+    thread_local size_t testing_hnsw_filter_entries = 0;
+    thread_local size_t testing_hnsw_unmaterialized_filter_entries = 0;
+#endif
+
 void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator, const vector_query_t& vector_query,
                                hnsw_index_t* field_vector_index, VectorFilterFunctor& filterFunctor, size_t k,
                                 std::vector<std::pair<float, single_filter_result_t>>& dist_results, bool is_wildcard_non_phrase_query = false) {
+
+#ifdef TEST_BUILD
+    if (filter_result_iterator->is_filter_provided()) {
+        ++testing_hnsw_filter_entries;
+        if (!filter_result_iterator->_get_is_filter_result_initialized()) {
+            ++testing_hnsw_unmaterialized_filter_entries;
+        }
+    }
+#endif
 
     std::vector<std::pair<float, size_t>> pairs;
     if(field_vector_index->distance_type == cosine) {
@@ -4106,7 +4120,29 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k)
                                              : vector_query.k;
 
-                process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results);
+                if (no_group_filter_provided) {
+                    // HNSW visits ids out of order and its filter functor resets the
+                    // iterator for every candidate. Materialize the tree once, as
+                    // the wildcard vector path does, instead of re-evaluating it
+                    // on each reset. Keep this inside the selected HNSW branch:
+                    // its approximate cardinality must still choose the same path.
+                    filter_result_iterator_no_groups->reset();
+                    filter_result_iterator_no_groups->compute_iterators();
+                    auto filter_status = filter_result_iterator_no_groups->init_status();
+                    if (!filter_status.ok()) {
+                        return filter_status;
+                    }
+                    search_cutoff = search_cutoff ||
+                        filter_result_iterator_no_groups->validity == filter_result_iterator_t::timed_out;
+                }
+
+                // An empty materialized filter must not reach VectorFilterFunctor:
+                // a zero filter count there denotes an unfiltered search.
+                if (!no_group_filter_provided ||
+                    (filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid &&
+                     filter_result_iterator_no_groups->approx_filter_ids_length > 0)) {
+                    process_results_hnsw_index(filter_result_iterator_no_groups, vector_query, field_vector_index, filterFunctor, k, dist_results);
+                }
             }
 
             filter_result_iterator_no_groups->reset();
