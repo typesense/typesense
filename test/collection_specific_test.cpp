@@ -3632,6 +3632,12 @@ TEST_F(CollectionSpecificTest, PhraseConjunctionRequiredForEachPhrase) {
                           "\"alpha beta\" \"full stack\" \"gamma delta\""}) {
         check(q, "title", {});
     }
+    for(const auto& q : {"\"full stack\" \"!!!\"", "\"!!!\" \"full stack\"",
+                          "\"full stack\" \"\"", "\"\" \"full stack\""}) {
+        check(q, "title", {"1", "2"});
+    }
+    check("\"!!!\"", "title", {});
+    check("\"\"", "title", {});
     check("\"full stack\" \"javascript developer\"", "title", {"1"});
     check("\"full stack\" \"javascript developer\" \"alpha beta\"", "title", {"1"});
     check("\"full stack\"", "title", {"1", "2"});
