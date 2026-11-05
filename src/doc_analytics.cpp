@@ -97,6 +97,9 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
       if (!data.contains("user_id")) {
         return Option<bool>(400, "user_id is required");
       }
+      if (data.contains("query") && !data["query"].is_string()) {
+        return Option<bool>(400, "query should be a string");
+      }
       const auto& log_event_it = doc_log_events.find(event_name);
       if (log_event_it == doc_log_events.end()) {
         return Option<bool>(400, "Rule does not exist");
@@ -104,6 +107,14 @@ Option<bool> DocAnalytics::add_event(const std::string& client_ip, const nlohman
       std::vector<std::pair<std::string, std::string>> data_vec;
       if(event_type == CUSTOM_EVENT) {
         for(const auto& kv : data.items()) {
+          // doc_ids is serialized separately; generated metadata is authoritative.
+          if (kv.key() == "doc_ids" || kv.key() == "timestamp" || kv.key() == "name" ||
+              kv.key() == "collection" || kv.key() == "event_type") {
+            continue;
+          }
+          if (!kv.value().is_string()) {
+            return Option<bool>(400, "Custom event field '" + kv.key() + "' should be a string");
+          }
           data_vec.push_back(std::make_pair(kv.key(), kv.value().get<std::string>()));
         }
       }
