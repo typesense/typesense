@@ -65,6 +65,7 @@ cc_library(
         "@snowball",
         "@snowball//:snowball_headers",
         "@archive",
+        "@com_github_jupp0r_prometheus_cpp//core",
         # "@zip",
     ])
 
