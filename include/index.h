@@ -399,6 +399,9 @@ struct group_by_field_it_t {
 
 #ifdef TEST_BUILD
     extern bool testing_not_equals_bug;
+    // Observe the actual iterator entering HNSW, independently of branch setup.
+    extern thread_local size_t testing_hnsw_filter_entries;
+    extern thread_local size_t testing_hnsw_unmaterialized_filter_entries;
 #endif
 
 class Index {
