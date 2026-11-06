@@ -636,6 +636,22 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     return StringUtils::hash_wy(req_str.c_str(), req_str.size());
 }
 
+// A response served from the cache never reaches `do_search`, so the analytics events of the original search
+// are replayed here, attributed to the user making the current request.
+static void replay_cached_analytics_events(const cached_res_t& cached_value, const std::shared_ptr<http_req>& req) {
+    if(cached_value.analytics_events.empty()) {
+        return;
+    }
+
+    const auto user_it = req->params.find(http_req::USER_HEADER);
+    for(auto event : cached_value.analytics_events) {
+        if(user_it != req->params.end()) {
+            event.user_id = user_it->second;
+        }
+        AnalyticsManager::get_instance().add_internal_event(event);
+    }
+}
+
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     bool use_cache = use_response_cache(req->params);
 
@@ -660,6 +676,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
             if(seconds_elapsed < cached_value.ttl) {
+                replay_cached_analytics_events(cached_value, req);
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
                 AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
@@ -761,8 +778,9 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     uint64_t nl_search_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
 
     std::string results_json_str;
+    std::vector<search_internal_event_t> analytics_events;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
-                                                          results_json_str, req->conn_ts);
+                                                          results_json_str, req->conn_ts, &analytics_events);
     if(!search_op.ok()) {
         nlohmann::json error_json;
         NaturalLanguageSearchModelManager::add_nl_query_data_to_results(error_json, &(req->params), nl_search_time_ms, true);
@@ -922,6 +940,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         cached_res_t cached_res;
         cached_res.load(res->status_code, res->content_type_header, results_json_str, now, cache_ttl, req_hash);
+        cached_res.analytics_events = std::move(analytics_events);
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
@@ -955,6 +974,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                     std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
 
             if(seconds_elapsed < cached_value.ttl) {
+                replay_cached_analytics_events(cached_value, req);
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 stream_response(req, res);
                 AppMetrics::get_instance().increment_count(AppMetrics::CACHE_HIT_LABEL, 1);
@@ -1028,6 +1048,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json response;
+    // analytics events of every (uncached) search in this request, replayed on later cache hits
+    std::vector<search_internal_event_t> analytics_events;
 
     nlohmann::json& searches = req_json["searches"];
 
@@ -1183,7 +1205,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
             std::string results_json_str;
             Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
-                                                                  results_json_str, req->conn_ts);
+                                                                  results_json_str, req->conn_ts, &analytics_events);
 
             auto nl_processing_time_ms = nl_search_op.ok() ? nl_search_op.get() : 0;
             if(search_op.ok()) {
@@ -1401,6 +1423,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         cached_res_t cached_res;
         cached_res.load(res->status_code, res->content_type_header, response_str, now, cache_ttl, req_hash);
+        cached_res.analytics_events = std::move(analytics_events);
 
         std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
