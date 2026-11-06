@@ -3805,6 +3805,59 @@ TEST_F(CollectionSpecificMoreTest, StemmingRemoveDocArrayFieldLeavesNoStalePosti
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmingUpsertAndRemoveLeaveNoStaleFilterMatches) {
+    // https://github.com/typesense/typesense/issues/3162
+    nlohmann::json schema = R"({
+        "name": "stem_upsert_filter",
+        "fields": [
+            {"name": "title", "type": "string", "stem": true},
+            {"name": "tags", "type": "string[]", "facet": true, "stem": true}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    Collection* coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Red running shoes", "tags": ["running", "sale"]})"_json.dump(),
+                          UPSERT).ok());
+
+    auto res = coll->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    res = coll->search("*", {}, "tags:=[running]", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    // upsert that changes both stemmed fields: the old words must stop matching
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "Blue hiking boots", "tags": ["hiking"]})"_json.dump(),
+                          UPSERT).ok());
+
+    res = coll->search("shoes", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll->search("*", {}, "tags:=[running]", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll->search("*", {}, "tags:=[hiking]", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // delete: the document must not be counted in `found` for its old words
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "Something edited", "tags": ["created"]})"_json.dump(),
+                          UPSERT).ok());
+    ASSERT_TRUE(coll->remove("2").ok());
+
+    res = coll->search("edited", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll->search("*", {}, "tags:=[created]", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingDictionaryRemoveDocLeavesNoStalePostings) {
     std::vector<std::string> json_lines;
     json_lines.push_back("{\"word\": \"trousers\", \"root\": \"pant\"}");
