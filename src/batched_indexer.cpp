@@ -270,6 +270,7 @@ void BatchedIndexer::run() {
 
                 const std::shared_ptr<http_req>& orig_req = orig_req_res.req;
                 const std::shared_ptr<http_res>& orig_res = orig_req_res.res;
+                orig_res->is_batched_indexer_response = true;
                 bool is_live_req = orig_res->is_alive;
 
                 route_path* found_rpath = nullptr;

@@ -38,6 +38,8 @@ enum class ROUTE_CODES {
 };
 
 struct http_res {
+    static constexpr uint64_t BATCHED_RESPONSE_STALL_TIMEOUT_MS = 60000;
+
     uint32_t status_code;
     std::string content_type_header;
     std::string body;
@@ -46,6 +48,8 @@ struct http_res {
     std::shared_mutex mres;
 
     std::atomic<bool> is_alive;
+    std::atomic<bool> is_batched_indexer_response = false;
+    std::atomic<bool> response_stalled = false;
     std::atomic<void*> generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
@@ -75,6 +79,15 @@ struct http_res {
         auto lk = std::unique_lock<std::mutex>(mcv);
         cv.wait(lk, [&] { return ready; });
         ready = false;
+    }
+
+    bool wait_for(const std::chrono::milliseconds timeout) {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        if (!cv.wait_for(lk, timeout, [&] { return ready; })) {
+            return false;
+        }
+        ready = false;
+        return true;
     }
 
     void notify() {

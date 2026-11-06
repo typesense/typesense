@@ -166,8 +166,29 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return ;
     }
 
+    if (res->response_stalled) {
+        return;
+    }
+
     // wait for previous chunk to finish (if any)
-    res->wait();
+    if (res->is_batched_indexer_response) {
+        if (!res->wait_for(std::chrono::milliseconds(http_res::BATCHED_RESPONSE_STALL_TIMEOUT_MS))) {
+            if (res->is_alive && !res->response_stalled.exchange(true)) {
+                LOG(WARNING) << "Aborting stalled batched response for " << req->http_method << " "
+                             << req->path_without_query << " after "
+                             << http_res::BATCHED_RESPONSE_STALL_TIMEOUT_MS << " ms without response progress.";
+                auto req_res = new async_req_res_t(req, res, true, true);
+                server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+            }
+            return;
+        }
+    } else {
+        res->wait();
+    }
+
+    if (!res->is_alive || res->response_stalled) {
+        return;
+    }
 
     auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);

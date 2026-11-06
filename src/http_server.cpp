@@ -1,5 +1,8 @@
 #include "http_data.h"
 #include "http_server.h"
+extern "C" {
+#include "h2o/http2_internal.h"
+}
 #include "string_utils.h"
 #include <regex>
 #include <thread>
@@ -1150,7 +1153,25 @@ bool HttpServer::on_stream_response_message(void *data) {
     // NOTE: access to `req` and `res` objects must be synchronized and wrapped by `req_res`
 
     if(req_res->is_alive()) {
-        stream_response(req_res->get_res_state());
+        if (req_res->is_response_abort()) {
+            h2o_req_t* req = req_res->get_abort_req();
+            if (req != nullptr) {
+                if (0x200 <= req->version && req->version < 0x300) {
+                    auto* stream = H2O_STRUCT_FROM_MEMBER(h2o_http2_stream_t, req, req);
+                    auto* conn = reinterpret_cast<h2o_http2_conn_t*>(req->conn);
+                    // Reset only cleans local state; also notify the peer and schedule the frame.
+                    h2o_http2_encode_rst_stream_frame(&conn->_write.buf, stream->stream_id, -H2O_HTTP2_ERROR_CANCEL);
+                    h2o_http2_conn_request_write(conn);
+                    h2o_http2_stream_reset(conn, stream);
+                } else {
+                    // This HTTP/1 callback fully disposes the request, timers and socket,
+                    // even for an active request; destroy_connection alone only frees memory.
+                    req->conn->callbacks->close_idle_connection(req->conn);
+                }
+            }
+        } else if (!req_res->is_response_stalled()) {
+            stream_response(req_res->get_res_state());
+        }
     } else {
         // serialized request or generator has been disposed (underlying request is probably dead)
         req_res->req_notify();
