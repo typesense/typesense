@@ -719,6 +719,134 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ("ko", fields[0].locale);
 }
 
+TEST_F(CollectionAllFieldsTest, VectorDistanceValidation) {
+    std::string fallback_field_type;
+    std::vector<field> fields;
+
+    // valid `vec_dist` with zero `num_dim` is accepted
+    // (zero is parsed from JSON so that it is unsigned, like in an API request)
+    auto fields_json = R"([{"name": "value", "type": "string", "num_dim": 0, "vec_dist": "ip"}])"_json;
+    auto parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(0, fields[0].num_dim);
+    ASSERT_EQ(ip, fields[0].vec_dist);
+
+    // invalid `vec_dist` must be rejected even when `num_dim` is 0
+    for(const auto& type: {"string", "float[]"}) {
+        fields_json = R"([{"name": "value", "num_dim": 0, "vec_dist": "invalid"}])"_json;
+        fields_json[0]["type"] = type;
+        fields.clear();
+        parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+        ASSERT_FALSE(parse_op.ok());
+        ASSERT_EQ(400, parse_op.code());
+        ASSERT_EQ("Property `vec_dist` is invalid.", parse_op.error());
+
+        fields_json = R"([{"name": "value", "num_dim": 0, "vec_dist": 123}])"_json;
+        fields_json[0]["type"] = type;
+        fields.clear();
+        parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+        ASSERT_FALSE(parse_op.ok());
+        ASSERT_EQ(400, parse_op.code());
+        ASSERT_EQ("Property `vec_dist` must be a string.", parse_op.error());
+    }
+
+    // without `num_dim`, `vec_dist` is reset to the default as before
+    fields_json = R"([{"name": "value", "type": "string", "vec_dist": "invalid"}])"_json;
+    fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(0, fields[0].num_dim);
+    ASSERT_EQ(cosine, fields[0].vec_dist);
+
+    // vector fields
+    fields_json = R"([{"name": "vec", "type": "float[]", "num_dim": 3, "vec_dist": "invalid"}])"_json;
+    fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("Property `vec_dist` is invalid.", parse_op.error());
+
+    fields_json = R"([{"name": "vec", "type": "float[]", "num_dim": 3, "vec_dist": "ip"}])"_json;
+    fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(3, fields[0].num_dim);
+    ASSERT_EQ(ip, fields[0].vec_dist);
+
+    fields_json = R"([{"name": "vec", "type": "float[]", "num_dim": 3}])"_json;
+    fields.clear();
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(cosine, fields[0].vec_dist);
+}
+
+TEST_F(CollectionAllFieldsTest, InvalidVectorDistanceOnCreateAndAlter) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "value", "type": "string", "num_dim": 0, "vec_dist": "invalid"}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ(400, coll_op.code());
+    ASSERT_EQ("Property `vec_dist` is invalid.", coll_op.error());
+    ASSERT_EQ(nullptr, collectionManager.get_collection("coll1"));
+
+    schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection *coll1 = coll_op.get();
+
+    auto alter_schema = R"({
+        "fields": [
+            {"name": "value", "type": "string", "num_dim": 0, "vec_dist": "invalid"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(alter_schema);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ(400, alter_op.code());
+    ASSERT_EQ("Property `vec_dist` is invalid.", alter_op.error());
+    ASSERT_EQ(1, coll1->get_fields().size());
+
+    alter_schema = R"({
+        "fields": [
+            {"name": "value", "type": "string", "num_dim": 0, "vec_dist": 123}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(alter_schema);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ(400, alter_op.code());
+    ASSERT_EQ("Property `vec_dist` must be a string.", alter_op.error());
+    ASSERT_EQ(1, coll1->get_fields().size());
+
+    alter_schema = R"({
+        "fields": [
+            {"name": "value", "type": "string", "num_dim": 0, "vec_dist": "ip"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(alter_schema);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(2, coll1->get_fields().size());
+}
+
 TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
     Collection *coll1;
 
