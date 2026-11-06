@@ -9621,6 +9621,13 @@ Option<size_t> Collection::remove_all_docs() {
             return Option<size_t>(400, "Bad JSON.");
         }
 
+        if(enable_nested_fields) {
+            // stored documents do not carry the flattened nested fields, but the index was built from them:
+            // flatten again (as `get_document_from_store` does) so that their index entries get removed too
+            std::vector<field> flattened_fields;
+            field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
+        }
+
         remove_document(document, seq_id, true);
         num_docs_removed++;
 

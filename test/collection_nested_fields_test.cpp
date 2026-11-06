@@ -4323,3 +4323,49 @@ TEST_F(CollectionNestedFieldsTest, NestedObjecEnableSortOnString) {
 
     ASSERT_TRUE(coll1->get_schema()["status.1"].sort);
 }
+
+TEST_F(CollectionNestedFieldsTest, TruncateRemovesNestedFieldsFromIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "info", "type": "object"},
+            {"name": "info.tags", "type": "string[]", "facet": true},
+            {"name": "info.price", "type": "float", "sort": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::vector<std::string> docs = {
+        R"({"id": "1", "name": "vase", "info": {"tags": ["a"], "price": 1.5}})",
+        R"({"id": "2", "name": "vase two", "info": {"tags": ["a", "b"], "price": 2.5}})",
+        R"({"id": "3", "name": "lamp", "info": {"tags": ["b"], "price": 3.5}})"
+    };
+
+    for(size_t round = 0; round < 3; round++) {
+        if(round > 0) {
+            auto remove_op = coll1->remove_all_docs();
+            ASSERT_TRUE(remove_op.ok());
+            ASSERT_EQ(3, remove_op.get());
+        }
+
+        for(const auto& doc: docs) {
+            ASSERT_TRUE(coll1->add(doc, UPSERT).ok());
+        }
+
+        auto results = coll1->search("*", {}, "", {"info.tags"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+        ASSERT_EQ(3, results["found"].get<size_t>());
+        ASSERT_EQ(1, results["facet_counts"].size());
+        ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+        // each tag is on exactly two documents, regardless of how many times the collection was truncated
+        ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+        ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    }
+
+    collectionManager.drop_collection("coll1");
+}
