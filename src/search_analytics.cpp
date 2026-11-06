@@ -1,4 +1,5 @@
 #include <mutex>
+#include <cmath>
 #include "search_analytics.h"
 #include "tokenizer.h"
 #include "collection_manager.h"
@@ -91,6 +92,25 @@ Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nloh
 
   if(data.contains("analytics_tag") && !data["analytics_tag"].is_string()) {
     return Option<bool>(400, "'analytics_tag' should be a string");
+  }
+  if(data.contains("timestamp") && !data["timestamp"].is_number()) {
+    return Option<bool>(400, "'timestamp' should be a number");
+  }
+  if(data.contains("timestamp")) {
+    const auto& timestamp = data["timestamp"];
+    bool invalid = timestamp.is_number_integer() && !timestamp.is_number_unsigned() &&
+                   timestamp.get<int64_t>() < 0;
+    if(timestamp.is_number_float()) {
+      const double value = timestamp.get<double>();
+      // 2^64 is the exclusive upper bound for floating-point conversion to uint64_t.
+      invalid = !std::isfinite(value) || value < 0 || value >= 18446744073709551616.0;
+    }
+    if(invalid) {
+      return Option<bool>(400, "'timestamp' must be non-negative and less than 2^64");
+    }
+  }
+  if(!data.contains("user_id")) {
+    return Option<bool>(400, "user_id is required");
   }
   const auto& type = search_rules.find(event_name)->second.type;
   const auto& event_type = search_rules.find(event_name)->second.event_type;
