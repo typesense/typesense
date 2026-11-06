@@ -1960,6 +1960,105 @@ TEST_F(CollectionSynonymsTest, SynonymMatchShouldNotOutrankCloserDirectMatch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSynonymsTest, SynonymWindowCoveragePreservesDirectMatchRanking) {
+    auto schema = R"({
+        "name": "synonym_window", "fields": [{"name": "title", "type": "string"}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    coll->set_synonym_sets({"index"});
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({
+        "id": "potato", "synonyms": ["sweet potato", "sweet potatoes"]
+    })"_json).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "exact", "title": "sweet potato"})").ok());
+
+    for (size_t distance : {1, 9, 10, 11, 20}) {
+        std::string title = "sweet";
+        for (size_t i = 1; i < distance; i++) {
+            title += " filler";
+        }
+        title += " potatoes";
+        ASSERT_TRUE(coll->add(nlohmann::json{{"id", "far"}, {"title", title}}.dump(), UPSERT).ok());
+
+        for (bool demote : {false, true}) {
+            SCOPED_TRACE("distance=" + std::to_string(distance) + ", demote=" + std::to_string(demote));
+            std::map<std::string, std::string> params = {
+                {"collection", "synonym_window"}, {"q", "sweet potato"}, {"query_by", "title"},
+                {"num_typos", "0"}, {"prefix", "false"}, {"drop_tokens_threshold", "0"},
+                {"split_join_tokens", "off"}, {"prioritize_exact_match", "true"},
+                {"prioritize_token_position", "false"}, {"demote_synonym_match", demote ? "true" : "false"}
+            };
+            auto search = [&]() {
+                nlohmann::json embedded_params = nlohmann::json::object();
+                std::string response;
+                auto op = CollectionManager::do_search(params, embedded_params, response, 0);
+                EXPECT_TRUE(op.ok()) << op.error();
+                return op.ok() ? nlohmann::json::parse(response) : nlohmann::json::object();
+            };
+            auto res = search();
+            ASSERT_EQ(2, res["hits"].size());
+            if (distance == 1 && !demote) {
+                // Adjacent synonym expansion preserves the direct match's score.
+                EXPECT_EQ(res["hits"][0]["text_match"], res["hits"][1]["text_match"]);
+            } else {
+                EXPECT_EQ("exact", res["hits"][0]["document"]["id"]);
+            }
+            for (const auto& hit : res["hits"]) {
+                const auto score = std::stoull(hit["text_match_info"]["best_field_score"].get<std::string>());
+                const bool exact = hit["document"]["id"] == "exact";
+                EXPECT_EQ(exact || distance <= 10 ? 2 : 1, (score >> 40) & 0xFF);
+                EXPECT_EQ(2, (score >> 32) & 0xFF);
+                EXPECT_EQ(exact ? 99 : (distance <= 10 ? 100 - distance : 100), (score >> 16) & 0xFF);
+                EXPECT_EQ(exact || !demote ? 1 : 0, score & 0xF);
+            }
+
+            params["enable_synonyms"] = "false";
+            res = search();
+            ASSERT_EQ(1, res["hits"].size());
+            EXPECT_EQ("exact", res["hits"][0]["document"]["id"]);
+
+            params["q"] = "sweet potatoes";
+            res = search();
+            ASSERT_EQ(1, res["hits"].size());
+            EXPECT_EQ("far", res["hits"][0]["document"]["id"]);
+            const auto score = std::stoull(res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+            EXPECT_EQ(distance <= 10 ? 2 : 1, (score >> 40) & 0xFF);
+        }
+    }
+    collectionManager.drop_collection("synonym_window");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymWindowCoveragePreservesArrayElements) {
+    auto schema = R"({
+        "name": "synonym_array_window", "fields": [{"name": "title", "type": "string[]"}]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    coll->set_synonym_sets({"index"});
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({
+        "id": "potato", "synonyms": ["sweet potato", "sweet potatoes"]
+    })"_json).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "adjacent", "title": ["sweet potatoes"]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "far", "title": ["sweet filler filler filler filler filler filler filler filler filler filler potatoes"]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id": "split", "title": ["sweet", "potatoes"]})").ok());
+
+    auto search_op = coll->search("sweet potato", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0);
+    ASSERT_TRUE(search_op.ok());
+    auto res = search_op.get();
+    ASSERT_EQ(3, res["hits"].size());
+    EXPECT_EQ("adjacent", res["hits"][0]["document"]["id"]);
+    for (const auto& hit : res["hits"]) {
+        const auto score = std::stoull(hit["text_match_info"]["best_field_score"].get<std::string>());
+        const bool adjacent = hit["document"]["id"] == "adjacent";
+        EXPECT_EQ(adjacent ? 2 : 1, (score >> 40) & 0xFF);
+        EXPECT_EQ(adjacent ? 2 : 1, (score >> 32) & 0xFF);
+        EXPECT_EQ(adjacent ? 99 : 100, (score >> 16) & 0xFF);
+    }
+    collectionManager.drop_collection("synonym_array_window");
+}
+
 TEST_F(CollectionSynonymsTest, SynonymDirectMatchOutrankDirectMatch) {
     Collection *coll1;
 
