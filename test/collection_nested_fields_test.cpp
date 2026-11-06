@@ -4353,11 +4353,19 @@ TEST_F(CollectionNestedFieldsTest, TruncateRemovesNestedFieldsFromIndex) {
             ASSERT_EQ(3, remove_op.get());
         }
 
-        for(const auto& doc: docs) {
-            ASSERT_TRUE(coll1->add(doc, UPSERT).ok());
-        }
+        // import the documents in one batch, the same way as the import API does
+        std::vector<std::string> json_lines = docs;
+        nlohmann::json import_doc;
+        auto import_summary = coll1->add_many(json_lines, import_doc, UPSERT);
+        ASSERT_TRUE(import_summary["success"].get<bool>());
+        ASSERT_EQ(3, import_summary["num_imported"].get<size_t>());
 
-        auto results = coll1->search("*", {}, "", {"info.tags"}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+        // the value index is used for the counts of a wildcard query, as for the API default `automatic` strategy
+        auto results = coll1->search("*", {}, "", {"info.tags"}, {}, {0}, 10, 1, FREQUENCY, {false}, 1,
+                                     spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10,
+                                     "", 30, 4, "", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                                     true, "", false, 6000 * 1000, 4, 7, fallback, 4, {off}, 3, 3, 2, 2, false, "",
+                                     true, 0, max_score, 100, 0, 0, 4294967295UL, "top_values").get();
         ASSERT_EQ(3, results["found"].get<size_t>());
         ASSERT_EQ(1, results["facet_counts"].size());
         ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
