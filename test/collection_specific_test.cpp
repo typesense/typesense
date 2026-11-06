@@ -3864,3 +3864,140 @@ TEST_F(CollectionSpecificTest, PhraseConjunctionWeightCapUnionAcrossPhrases) {
     EXPECT_GT(scores["19999"], scores["20000"]);
     EXPECT_EQ(0, scores["20000"]);
 }
+
+TEST_F(CollectionSpecificTest, PhraseConjunctionScoresSurviveShrinkingIntersection) {
+    nlohmann::json schema = R"({"name":"phrase_score_shrink","fields":[
+        {"name":"title","type":"string"}, {"name":"description","type":"string"}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    for(const auto& doc : {
+            R"({"id":"1","title":"alpha beta","description":"gamma delta epsilon zeta"})",
+            R"({"id":"2","title":"alpha beta gamma delta","description":"nothing"})",
+            R"({"id":"3","title":"epsilon zeta","description":"gamma delta"})",
+            R"({"id":"4","title":"nothing","description":"alpha beta gamma delta epsilon zeta"})",
+            R"({"id":"5","title":"alpha beta epsilon zeta","description":"gamma delta"})"}) {
+        ASSERT_TRUE(collection->add(doc).ok());
+    }
+    auto search = [&](const std::string& q) {
+        std::map<std::string, std::string> params = {{"collection", "phrase_score_shrink"},
+            {"q", q}, {"query_by", "title,description"}, {"query_by_weights", "10,2"},
+            {"num_typos", "0"}, {"prefix", "false"}, {"drop_tokens_threshold", "0"},
+            {"typo_tokens_threshold", "0"}};
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result;
+        auto op = CollectionManager::do_search(params, embedded, result, 0);
+        EXPECT_TRUE(op.ok()) << op.error();
+        return op.ok() ? nlohmann::json::parse(result) : nlohmann::json::object();
+    };
+    auto two = search("\"alpha beta\" \"gamma delta\"");
+    auto three = search("\"alpha beta\" \"gamma delta\" \"epsilon zeta\"");
+    ASSERT_EQ(4, two["found"].get<size_t>());
+    ASSERT_EQ(3, three["found"].get<size_t>());
+    std::map<std::string, size_t> two_scores, three_scores;
+    for(const auto& hit : two["hits"]) two_scores[hit["document"]["id"].get<std::string>()] = hit["text_match"].get<size_t>();
+    for(const auto& hit : three["hits"]) three_scores[hit["document"]["id"].get<std::string>()] = hit["text_match"].get<size_t>();
+    ASSERT_EQ((std::set<std::string>{"1", "4", "5"}),
+              (std::set<std::string>{three_scores.begin()->first, std::next(three_scores.begin())->first, three_scores.rbegin()->first}));
+    for(const auto& [id, score] : three_scores) EXPECT_EQ(two_scores.at(id), score);
+    EXPECT_GT(three_scores.at("1"), three_scores.at("4"));
+    EXPECT_GT(three_scores.at("5"), three_scores.at("4"));
+}
+
+TEST_F(CollectionSpecificTest, PhraseConjunctionPrefilterPreservesScoringCap) {
+    nlohmann::json schema = R"({"name":"phrase_prefilter_cap","fields":[
+        {"name":"title","type":"string"}, {"name":"description","type":"string"}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    for(size_t i = 0; i <= 10000; i++) {
+        nlohmann::json doc = {{"id", std::to_string(i)}, {"title", "beta"},
+                              {"description", i == 0 || i == 10000 ? "alpha" : "filler"}};
+        ASSERT_TRUE(collection->add(doc.dump()).ok());
+    }
+    std::map<std::string, std::string> params = {{"collection", "phrase_prefilter_cap"},
+        {"q", "\"alpha\" \"beta\""}, {"query_by", "title,description"},
+        {"query_by_weights", "10,2"}, {"num_typos", "0"}, {"prefix", "false"},
+        {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"}};
+    nlohmann::json embedded = nlohmann::json::object();
+    std::string result;
+    auto op = CollectionManager::do_search(params, embedded, result, 0);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto json = nlohmann::json::parse(result);
+    ASSERT_EQ(2, json["found"].get<size_t>());
+    std::map<std::string, size_t> scores;
+    for(const auto& hit : json["hits"]) scores[hit["document"]["id"].get<std::string>()] = hit["text_match"].get<size_t>();
+    ASSERT_EQ(2, scores.size());
+    EXPECT_GT(scores.at("0"), scores.at("10000"));
+    EXPECT_GT(scores.at("10000"), 0);
+    params["filter_by"] = "id:=[0,10000]";
+    auto control_scores = [&](const std::string& query) {
+        params["q"] = query;
+        nlohmann::json control_embedded = nlohmann::json::object();
+        std::string control_result;
+        auto control_op = CollectionManager::do_search(params, control_embedded, control_result, 0);
+        EXPECT_TRUE(control_op.ok()) << control_op.error();
+        std::map<std::string, size_t> result_scores;
+        if(control_op.ok()) {
+            auto control = nlohmann::json::parse(control_result);
+            EXPECT_EQ(2, control["found"].get<size_t>());
+            for(const auto& hit : control["hits"]) {
+                result_scores[hit["document"]["id"].get<std::string>()] = hit["text_match"].get<size_t>();
+            }
+        }
+        return result_scores;
+    };
+    auto alpha_scores = control_scores("\"alpha\"");
+    auto beta_scores = control_scores("\"beta\"");
+    ASSERT_EQ(2, alpha_scores.size());
+    ASSERT_EQ(2, beta_scores.size());
+    EXPECT_EQ(alpha_scores.at("10000"), scores.at("10000"));
+    EXPECT_EQ(beta_scores.at("0"), scores.at("0"));
+}
+
+TEST_F(CollectionSpecificTest, PhraseConjunctionSingleFieldScoreBoundary) {
+    nlohmann::json schema = R"({"name":"phrase_single_boundary","fields":[{"name":"title","type":"string"}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    for(size_t i = 0; i <= 20000; i++) {
+        const std::string title = i == 0 ? "alpha unique" : (i >= 9999 ? "alpha beta" : "alpha");
+        ASSERT_TRUE(collection->add(nlohmann::json({{"id", std::to_string(i)}, {"title", title}}).dump()).ok());
+    }
+    std::map<std::string, std::string> params = {{"collection", "phrase_single_boundary"},
+        {"query_by", "title"}, {"num_typos", "0"}, {"prefix", "false"},
+        {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"},
+        {"filter_by", "id:=[9999,10000,19998,19999,20000]"}};
+    auto search = [&](const std::string& q) {
+        params["q"] = q;
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result;
+        auto op = CollectionManager::do_search(params, embedded, result, 0);
+        EXPECT_TRUE(op.ok()) << op.error();
+        return op.ok() ? nlohmann::json::parse(result) : nlohmann::json::object();
+    };
+    auto alpha = search("\"alpha\"");
+    auto beta = search("\"beta\"");
+    auto both = search("\"alpha\" \"beta\"");
+    auto reversed = search("\"beta\" \"alpha\"");
+    auto scores_for = [](const nlohmann::json& response) {
+        std::map<std::string, size_t> scores;
+        for(const auto& hit : response["hits"]) scores[hit["document"]["id"].get<std::string>()] = hit["text_match"].get<size_t>();
+        return scores;
+    };
+    auto alpha_scores = scores_for(alpha), beta_scores = scores_for(beta), both_scores = scores_for(both);
+    ASSERT_EQ(5, alpha_scores.size());
+    ASSERT_EQ(5, beta_scores.size());
+    ASSERT_EQ(5, both_scores.size());
+    EXPECT_GT(alpha_scores.at("9999"), 0);
+    EXPECT_EQ(0, alpha_scores.at("10000"));
+    EXPECT_GT(beta_scores.at("19998"), 0);
+    EXPECT_EQ(0, beta_scores.at("19999"));
+    EXPECT_EQ(beta_scores, both_scores);
+    EXPECT_EQ(both_scores, scores_for(reversed));
+    params["filter_by"] = "id:=0";
+    auto unique = search("\"unique\"");
+    ASSERT_EQ(1, unique["found"].get<size_t>());
+    EXPECT_GT(unique["hits"][0]["text_match"].get<size_t>(), 0);
+    EXPECT_EQ(0, search("\"unique\" \"absent\"")["found"].get<size_t>());
+}

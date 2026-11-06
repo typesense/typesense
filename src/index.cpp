@@ -6080,8 +6080,12 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         size_t score;
         size_t cursor = 0;
     };
-    std::vector<phrase_score_list_t> phrase_score_lists(is_wildcard_query ? num_search_fields : 0);
+    const bool single_field_phrase_score = is_wildcard_query && num_search_fields == 1;
+    bool has_single_field_score_boundary = false;
+    uint32_t single_field_score_boundary = 0;
+    std::vector<phrase_score_list_t> phrase_score_lists(is_wildcard_query && !single_field_phrase_score ? num_search_fields : 0);
     std::vector<uint32_t> phrase_score_scratch;
+    std::vector<uint32_t> phrase_score_eligible;
 
     // Union matches across fields for each phrase, then intersect the phrase unions.
     const size_t num_phrases = num_search_fields == 0 ? 0 : field_query_tokens[0].q_phrases.size();
@@ -6142,17 +6146,38 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                 continue;
             }
 
-            // Union each capped phrase prefix into the scoring set for this field.
-            if(is_wildcard_query) {
+            // Preserve scoring eligibility from each capped phrase prefix.
+            if(single_field_phrase_score) {
+                // Every final ID matches every phrase in this field, so prefix membership is determined by its last ID.
+                const uint32_t boundary = field_ids[std::min<size_t>(10000, field_ids_size) - 1];
+                if(!has_single_field_score_boundary || boundary > single_field_score_boundary) {
+                    single_field_score_boundary = boundary;
+                    has_single_field_score_boundary = true;
+                }
+            } else if(is_wildcard_query) {
                 const size_t capped_size = std::min<size_t>(10000, field_ids_size);
                 auto& score_list = phrase_score_lists[i];
                 score_list.score = 100000 + search_fields[i].weight;
+                const uint32_t* score_begin = field_ids;
+                const uint32_t* score_end = field_ids + capped_size;
+                if(phrase_index != 0 && phrase_result_count < capped_size) {
+                    phrase_score_eligible.clear();
+                    std::set_intersection(score_begin, score_end, phrase_result_ids,
+                                          phrase_result_ids + phrase_result_count,
+                                          std::back_inserter(phrase_score_eligible));
+                    if(phrase_score_eligible.empty()) {
+                        score_end = score_begin;
+                    } else {
+                        score_begin = phrase_score_eligible.data();
+                        score_end = score_begin + phrase_score_eligible.size();
+                    }
+                }
                 if(score_list.ids.empty()) {
-                    score_list.ids.assign(field_ids, field_ids + capped_size);
+                    score_list.ids.assign(score_begin, score_end);
                 } else {
                     phrase_score_scratch.clear();
-                    phrase_score_scratch.reserve(score_list.ids.size() + capped_size);
-                    std::set_union(score_list.ids.begin(), score_list.ids.end(), field_ids, field_ids + capped_size,
+                    phrase_score_scratch.reserve(score_list.ids.size() + (score_end - score_begin));
+                    std::set_union(score_list.ids.begin(), score_list.ids.end(), score_begin, score_end,
                                    std::back_inserter(phrase_score_scratch));
                     score_list.ids.swap(phrase_score_scratch);
                 }
@@ -6191,6 +6216,15 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                 delete [] phrase_result_ids;
                 phrase_result_ids = nullptr;
                 break;
+            }
+
+            // IDs eliminated by the running intersection cannot contribute to the final score.
+            for(auto& score_list : phrase_score_lists) {
+                phrase_score_scratch.clear();
+                std::set_intersection(score_list.ids.begin(), score_list.ids.end(), phrase_result_ids,
+                                      phrase_result_ids + phrase_result_count,
+                                      std::back_inserter(phrase_score_scratch));
+                score_list.ids.swap(phrase_score_scratch);
             }
         }
     }
@@ -6260,7 +6294,8 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
 
-        int64_t match_score = 0;
+        int64_t match_score = single_field_phrase_score && has_single_field_score_boundary &&
+                              seq_id <= single_field_score_boundary ? 100000 + search_fields[0].weight : 0;
         for(auto& score_list : phrase_score_lists) {
             while(score_list.cursor < score_list.ids.size() && score_list.ids[score_list.cursor] < seq_id) {
                 score_list.cursor++;
