@@ -30,6 +30,9 @@ TEST(SystemMetricsTest, ParsingNetworkStats) {
 
 // 2500Mi limit, 1GiB used — the common Kubernetes container scenario.
 TEST(SystemMetricsTest, CgroupV2FiniteLimitReturnsContainerValues) {
+#ifndef __linux__
+    GTEST_SKIP() << "cgroup memory limits are only read on linux";
+#endif
     const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
@@ -42,6 +45,9 @@ TEST(SystemMetricsTest, CgroupV2FiniteLimitReturnsContainerValues) {
 
 // cgroupsv2 "max" means unlimited — must fall through to v1.
 TEST(SystemMetricsTest, CgroupV2UnlimitedFallsThroughToV1) {
+#ifndef __linux__
+    GTEST_SKIP() << "cgroup memory limits are only read on linux";
+#endif
     const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,
@@ -54,6 +60,9 @@ TEST(SystemMetricsTest, CgroupV2UnlimitedFallsThroughToV1) {
 
 // cgroupsv1 with a real limit.
 TEST(SystemMetricsTest, CgroupV1FiniteLimitReturnsContainerValues) {
+#ifndef __linux__
+    GTEST_SKIP() << "cgroup memory limits are only read on linux";
+#endif
     const std::string res = std::string(ROOT_DIR) + "test/resources/cgroup/";
     uint64_t limit = 0, usage = 0;
     bool ok = SystemMetrics::get_cgroup_memory(limit, usage,

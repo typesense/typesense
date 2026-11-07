@@ -86,7 +86,7 @@ struct query_tokens_t {
     std::vector<std::vector<std::string>> q_synonyms;
 };
 
-enum enable_t {
+enum enable_t : int {
     always,
     fallback,
     off
@@ -105,13 +105,13 @@ struct search_field_t {
             name(name), str_name(str_name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
 };
 
-enum text_match_type_t {
+enum text_match_type_t : int {
     max_score,
     sum_score,
     max_weight
 };
 
-enum drop_tokens_mode_t {
+enum drop_tokens_mode_t : int {
     left_to_right,
     right_to_left,
     both_sides,
@@ -128,7 +128,7 @@ struct drop_tokens_param_t {
     drop_tokens_param_t(drop_tokens_mode_t mode, size_t token_limit) : mode(mode), token_limit(token_limit) {}
 };
 
-enum facet_index_type_t {
+enum facet_index_type_t : int {
     exhaustive,
     top_values,
     automatic,

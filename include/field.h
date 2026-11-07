@@ -92,7 +92,7 @@ namespace fields {
     static const std::string track_missing_values = "track_missing_values";
 }
 
-enum vector_distance_type_t {
+enum vector_distance_type_t : int {
     ip,
     cosine
 };
@@ -600,7 +600,7 @@ struct sort_random_t {
 
 struct sort_by {
     /// Used to make sure different searches sort_by on the same type of field/expression in Union.
-    enum sort_by_type_t {
+    enum sort_by_type_t : int {
         string_field,
         int32_field,
         int64_field,
@@ -615,13 +615,13 @@ struct sort_by {
         union_query_order
     };
 
-    enum missing_values_t {
+    enum missing_values_t : int {
         first,
         last,
         normal,
     };
 
-    enum sort_by_params_t {
+    enum sort_by_params_t : int {
         none,
         diff,
         gauss,

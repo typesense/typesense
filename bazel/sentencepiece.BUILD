@@ -1,4 +1,5 @@
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,6 +19,15 @@ cc_library(
 )
 
 
+CMAKE_CACHE_ENTRIES = {
+    'SPM_USE_BUILTIN_PROTOBUF': 'OFF',
+    'Protobuf_LIBRARY': '$$BUILD_TMPDIR$$/../../com_google_protobuf/libprotobuf.a',
+    'Protobuf_LITE_LIBRARY': '$$BUILD_TMPDIR$$/../../com_google_protobuf/libprotobuf-lite.a',
+    'Protobuf_PROTOC_EXECUTABLE': '$$BUILD_TMPDIR$$/../../com_google_protobuf/protoc',
+    'Protobuf_INCLUDE_DIR': '$EXT_BUILD_ROOT/external/com_google_protobuf/src',
+    'CMAKE_POLICY_DEFAULT_CMP0111':'OLD'
+}
+
 cmake(
     name = "sentencepiece",
     lib_source = "//:sentencepiece_src",
@@ -28,14 +38,10 @@ cmake(
         "--target sentencepiece-static",
     ],
     install = False,
-    cache_entries = {
-        'SPM_USE_BUILTIN_PROTOBUF': 'OFF',
-        'Protobuf_LIBRARY': '$$BUILD_TMPDIR$$/../../com_google_protobuf/libprotobuf.a',
-        'Protobuf_LITE_LIBRARY': '$$BUILD_TMPDIR$$/../../com_google_protobuf/libprotobuf-lite.a',
-        'Protobuf_PROTOC_EXECUTABLE': '$$BUILD_TMPDIR$$/../../com_google_protobuf/protoc',
-        'Protobuf_INCLUDE_DIR': '$EXT_BUILD_ROOT/external/com_google_protobuf/src',
-        'CMAKE_POLICY_DEFAULT_CMP0111':'OLD'
-    },
+    cache_entries = select({
+        "@platforms//os:macos": dict(CMAKE_CACHE_ENTRIES.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items()),
+        "//conditions:default": CMAKE_CACHE_ENTRIES,
+    }),
     deps = [
         "@com_google_protobuf//:protoc",
         "@com_google_protobuf//:protobuf_lite",
