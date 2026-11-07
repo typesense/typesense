@@ -412,18 +412,38 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
             continue;
         }
 
+        auto const id = existing_document["id"].get<std::string>();
+        auto const reference_helper_field_name = referencing_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+
+        if (!referencing_field.is_singular()) {
+            if (!existing_document.contains(referencing_field_name) ||
+                !existing_document[referencing_field_name].is_array()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have `" += referencing_field_name +
+                                         "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
+                                         "` instead.");
+            } else if (!existing_document.contains(reference_helper_field_name) ||
+                       !existing_document[reference_helper_field_name].is_array()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have `" += reference_helper_field_name +
+                                         "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
+                                         "` instead.");
+            } else if (existing_document[referencing_field_name].size() !=
+                       existing_document[reference_helper_field_name].size()) {
+                return Option<bool>(400, "Expected document `id: " + id + "` to have equal count of elements in `" +=
+                                         referencing_field_name + ": " += get_field_value(existing_document, referencing_field_name) +
+                                         "` field and `" += reference_helper_field_name + ": " +=
+                                         get_field_value(existing_document, reference_helper_field_name) + "` field.");
+            }
+        }
+
         if (staged_update_it != staged_updates.end()) {
             for (const auto& helper_field: staged_update_it->second.new_helper_fields) {
                 existing_document[helper_field.first] = helper_field.second;
             }
         }
 
-        auto const id = existing_document["id"].get<std::string>();
-        auto const reference_helper_field_name = referencing_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-
         if (referencing_field.is_singular()) {
             if (staged_update_it == staged_updates.end()) {
-                auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
+                auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}, {}};
                 staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
             }
 
@@ -439,22 +459,6 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
             };
             staged_update_it->second.new_helper_fields[reference_helper_field_name] = ref_seq_id;
             continue;
-        }
-
-        if (!existing_document.contains(referencing_field_name) || !existing_document[referencing_field_name].is_array()) {
-            return Option<bool>(400, "Expected document `id: " + id + "` to have `" += referencing_field_name +
-                                     "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
-                                     "` instead.");
-        } else if (!existing_document.contains(reference_helper_field_name) ||
-                   !existing_document[reference_helper_field_name].is_array()) {
-            return Option<bool>(400, "Expected document `id: " + id + "` to have `" += reference_helper_field_name +
-                                     "` array field that is `" += get_field_value(existing_document, referencing_field_name) +
-                                     "` instead.");
-        } else if (existing_document[referencing_field_name].size() != existing_document[reference_helper_field_name].size()) {
-            return Option<bool>(400, "Expected document `id: " + id + "` to have equal count of elements in `" +=
-                                     referencing_field_name + ": " += get_field_value(existing_document, referencing_field_name) +
-                                     "` field and `" += reference_helper_field_name + ": " +=
-                                     get_field_value(existing_document, reference_helper_field_name) + "` field.");
         }
 
         auto should_update = false;
@@ -474,7 +478,7 @@ Option<bool> Collection::stage_async_reference_update(Collection* referencing_co
         }
 
         if (staged_update_it == staged_updates.end()) {
-            auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}};
+            auto update = async_reference_backfill_update_t{referencing_seq_id, {}, {}, {}};
             staged_update_it = staged_updates.emplace(referencing_seq_id, std::move(update)).first;
         }
 
@@ -667,6 +671,72 @@ Option<bool> Collection::async_reference_helper_backfill(const std::string& refe
 
     async_reference_backfill_update_map_t local_staged_updates;
     auto& pending_staged_updates = staged_updates == nullptr ? local_staged_updates : *staged_updates;
+
+    if (apply_updates) {
+        // A recreated collection reuses sequence IDs from zero. Invalidate the old helpers before overlaying matches
+        // from the new collection so that an unmatched reference cannot silently point at an unrelated document.
+        field referencing_field;
+        {
+            std::shared_lock lock(referencing_coll->mutex);
+            auto it = referencing_coll->search_schema.find(referencing_field_name);
+            if (it == referencing_coll->search_schema.end()) {
+                return Option<bool>(400, "Could not find field `" + referencing_field_name + "` in the schema.");
+            }
+            referencing_field = it.value();
+        }
+
+        const auto reference_helper_field_name = referencing_field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+        const auto referencing_seq_id_prefix = referencing_coll->get_seq_id_collection_prefix();
+        std::string referencing_iter_upper_bound_key = referencing_seq_id_prefix + "`";
+        auto referencing_iter_upper_bound = std::make_unique<rocksdb::Slice>(referencing_iter_upper_bound_key);
+        std::unique_ptr<rocksdb::Iterator> referencing_it(
+                referencing_coll->store->scan(referencing_seq_id_prefix, referencing_iter_upper_bound.get()));
+
+        while (referencing_it->Valid() && referencing_it->key().starts_with(referencing_seq_id_prefix)) {
+            const auto referencing_seq_id = get_seq_id_from_key(referencing_it->key().ToString());
+            const auto json_doc_str = referencing_it->value().ToString();
+            referencing_it->Next();
+
+            nlohmann::json document;
+            try {
+                document = nlohmann::json::parse(json_doc_str);
+            } catch (...) {
+                continue;
+            }
+
+            if (!document.contains(reference_helper_field_name)) {
+                continue;
+            }
+
+            const auto& old_helper_field = document[reference_helper_field_name];
+            nlohmann::json reset_helper_field;
+            if (referencing_field.is_singular()) {
+                reset_helper_field = Join::reference_helper_sentinel_value;
+            } else {
+                if (!old_helper_field.is_array()) {
+                    continue;
+                }
+                reset_helper_field = nlohmann::json::array();
+                for (size_t i = 0; i < old_helper_field.size(); i++) {
+                    reset_helper_field.push_back(Join::reference_helper_sentinel_value);
+                }
+            }
+
+            if (old_helper_field == reset_helper_field) {
+                continue;
+            }
+
+            async_reference_backfill_update_t update{referencing_seq_id, {}, {}, {}};
+            update.old_helper_fields[reference_helper_field_name] = old_helper_field;
+            update.new_helper_fields[reference_helper_field_name] = std::move(reset_helper_field);
+            update.expected_reference_fields[reference_helper_field_name] = {
+                    referencing_field_name,
+                    document.contains(referencing_field_name) ?
+                    document[referencing_field_name] : nlohmann::json(nullptr)
+            };
+            pending_staged_updates.emplace(referencing_seq_id, std::move(update));
+        }
+    }
 
     const auto seq_id_prefix = get_seq_id_collection_prefix();
     std::string iter_upper_bound_key = seq_id_prefix + "`";
