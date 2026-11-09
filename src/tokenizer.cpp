@@ -253,7 +253,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 }
 
                 if(stemmer && !phrase_search_op_prior) {
-                    token = stemmer->stem(out);
+                    token = stemmer->stem(out, normalize);
                 } else {
                     token = out;
                 }
@@ -301,57 +301,11 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             start_index = i;
         }
 
-        char inbuf[5];
-        char *p = inbuf;
-
-        // group bytes to form a unicode representation
-        *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        if ((text[i] & 0xC0) == 0x80) *p++ = text[i++];
-        *p = 0;
-        size_t insize = (p - &inbuf[0]);
-
-        if(!normalize) {
-            out += inbuf;
-            continue;
-        }
-
-        char outbuf[5] = {};
-        size_t outsize = sizeof(outbuf);
-        char *outptr = outbuf;
-        char *inptr = inbuf;
-
-        //printf("[%s]\n", inbuf);
-
-        errno = 0;
-        iconv(cd, &inptr, &insize, &outptr, &outsize);  // this can be handled by ICU via "Latin-ASCII"
-
-        if(errno == EILSEQ) {
-            // symbol cannot be represented as ASCII, so write the original symbol
-            out += inbuf;
-        } else {
-            for(size_t out_index=0; out_index<5; out_index++) {
-                if(!normalize) {
-                    out += outbuf[out_index];
-                    continue;
-                }
-
-                bool unicode_is_ascii = is_ascii_char(outbuf[out_index]);
-                bool keep_char = !unicode_is_ascii || std::isalnum(outbuf[out_index]);
-
-                if(keep_char) {
-                    if(unicode_is_ascii && std::isalnum(outbuf[out_index])) {
-                        outbuf[out_index] = char(std::tolower(outbuf[out_index]));
-                    }
-                    out += outbuf[out_index];
-                }
-            }
-        }
+        i = append_unicode(text, i, out);
     }
 
     if(stemmer && !phrase_search_op_prior) {
-        token = stemmer->stem(out);
+        token = stemmer->stem(out, normalize);
     } else {
         token = out;
     }
@@ -365,6 +319,55 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
 
     token_index = token_counter++;
     return true;
+}
+
+size_t Tokenizer::append_unicode(const std::string& input, size_t offset, std::string& output) {
+    char inbuf[5] = {};
+    size_t length = 0;
+    inbuf[length++] = input[offset++];
+    while (offset < input.size() && length < 4 && (input[offset] & 0xC0) == 0x80) {
+        inbuf[length++] = input[offset++];
+    }
+
+    if (!normalize) {
+        output.append(inbuf, length);
+        return offset;
+    }
+
+    size_t insize = length;
+    char outbuf[5] = {};
+    size_t outsize = sizeof(outbuf);
+    char* outptr = outbuf;
+    char* inptr = inbuf;
+    errno = 0;
+    iconv(cd, &inptr, &insize, &outptr, &outsize);
+
+    if (errno == EILSEQ) {
+        output.append(inbuf, length);
+    } else {
+        for (char c : outbuf) {
+            const bool ascii = is_ascii_char(c);
+            if (!ascii || std::isalnum(c)) {
+                output += ascii ? char(std::tolower(c)) : c;
+            }
+        }
+    }
+    return offset;
+}
+
+std::string Tokenizer::normalize_stemming_dictionary_word(const std::string& word) {
+    std::string result;
+    result.reserve(word.size());
+    size_t offset = 0;
+    while (offset < word.size()) {
+        if (is_ascii_char(word[offset])) {
+            result += normalize ? char(std::tolower(word[offset])) : word[offset];
+            ++offset;
+        } else {
+            offset = append_unicode(word, offset, result);
+        }
+    }
+    return result;
 }
 
 void Tokenizer::tokenize(std::vector<std::string> &tokens) {

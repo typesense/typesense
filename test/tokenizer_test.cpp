@@ -2,6 +2,54 @@
 #include "tokenizer.h"
 #include "logger.h"
 
+TEST(TokenizerTest, StemmingDictionaryNormalizationModesAndOffsets) {
+    auto& manager = StemmerManager::get_instance();
+    ASSERT_TRUE(manager.upsert_stemming_dictionary("accent_tokenizer", {
+        R"({"word":"mjólkina","root":"mjólk"})",
+        R"({"word":"peysum","root":"peysa"})",
+        R"({"word":"pré#fix","root":"rót#"})",
+        R"({"word":"pré-fix","root":"untouched"})",
+        R"({"word":"two words","root":"untouched"})"
+    }, false).ok());
+    auto stemmer = std::make_shared<Stemmer>("english", "accent_tokenizer");
+    // The same spelling must not share a cached result between lookup modes.
+    ASSERT_EQ("mjolkina", stemmer->stem("mjolkina"));
+    ASSERT_EQ("mjolk", stemmer->stem("mjolkina", true));
+    ASSERT_EQ("mjolkina", stemmer->stem("mjolkina"));
+    ASSERT_EQ("mjólk", stemmer->stem("mjólkina"));
+
+    for (const std::string locale : {"", "en", "de_en"}) {
+        Tokenizer tokenizer("mjólkina peysum", true, false, locale, {}, {}, stemmer);
+        std::string token;
+        size_t index, start, end;
+        ASSERT_TRUE(tokenizer.next(token, index, start, end));
+        ASSERT_EQ("mjolk", token);
+        ASSERT_EQ(0, index);
+        ASSERT_EQ(0, start);
+        ASSERT_EQ(8, end);
+        ASSERT_TRUE(tokenizer.next(token, index, start, end));
+        ASSERT_EQ("peysa", token);
+        ASSERT_EQ(1, index);
+        ASSERT_EQ(10, start);
+        ASSERT_EQ(15, end);
+        ASSERT_FALSE(tokenizer.next(token, index, start, end));
+    }
+    std::vector<std::string> tokens;
+    Tokenizer("mjólkina mjolkina", false, false, "", {}, {}, stemmer).tokenize(tokens);
+    ASSERT_EQ((std::vector<std::string>{"mjólk", "mjolkina"}), tokens);
+    tokens.clear();
+    Tokenizer("mjólkina mjolkina", true, false, "is", {}, {}, stemmer).tokenize(tokens);
+    ASSERT_EQ((std::vector<std::string>{"mjólk", "mjolkina"}), tokens);
+    tokens.clear();
+    Tokenizer("pré#fix-pré-fix two words", true, false, "", {'#'}, {'-'}, stemmer).tokenize(tokens);
+    ASSERT_EQ((std::vector<std::string>{"rot#", "pre", "fix", "two", "words"}), tokens);
+    // Punctuation that is skipped by tokenization must not create a merged dictionary alias.
+    tokens.clear();
+    Tokenizer("pré-fix", true, false, "", {}, {}, stemmer).tokenize(tokens);
+    ASSERT_EQ((std::vector<std::string>{"prefix"}), tokens);
+    manager.dispose();
+}
+
 TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     const std::string withaccent = "Mise T.J. à  jour  Timy depuis PC";
     std::vector<std::string> tokens;
