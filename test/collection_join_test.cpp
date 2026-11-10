@@ -14029,16 +14029,16 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
                 "rating": "2"
             })"_json,
             R"({
-                "product_id": "product_b",
-                "product_name": "soap",
-                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
-                "rating": "4"
-            })"_json,
-            R"({
                 "product_id": "product_c",
                 "product_name": "comb",
                 "product_description": "Experience the natural elegance and gentle care of our handcrafted wooden combs – because your hair deserves the best.",
                 "rating": "3"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
             })"_json
     };
     auto collection_create_op = collectionManager.create_collection(schema_json);
@@ -14062,7 +14062,7 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
     documents = {
             R"({
                 "user_id": "user_a",
-                "product_ids": ["product_a"]
+                "product_ids": ["product_b"]
             })"_json,
             R"({
                 "user_id": "user_b",
@@ -14095,12 +14095,12 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res_obj["found"]);
     ASSERT_EQ(2, res_obj["hits"].size());
-    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("comb", res_obj["hits"][0]["document"]["product_name"]);
     ASSERT_EQ(0, res_obj["hits"][0]["document"].count("User_Views"));
 
-    ASSERT_EQ("1", res_obj["hits"][1]["document"]["id"]);
-    ASSERT_EQ("soap", res_obj["hits"][1]["document"]["product_name"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["product_name"]);
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["User_Views"].size());
     ASSERT_EQ("user_b", res_obj["hits"][1]["document"]["User_Views"][0]["user_id"]);
 
@@ -14116,9 +14116,106 @@ TEST_F(CollectionJoinTest, NegateLeftJoinOneToMany) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"]);
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ("2", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
     ASSERT_EQ("comb", res_obj["hits"][0]["document"]["product_name"]);
     ASSERT_EQ(0, res_obj["hits"][0]["document"].count("User_Views"));
+}
+
+TEST_F(CollectionJoinTest, NegateLeftJoinScrambledReferences) {
+    auto parent_schema = R"({"name": "Parents", "fields": [{"name": "key", "type": "string"}]})"_json;
+    auto parent_op = collectionManager.create_collection(parent_schema);
+    ASSERT_TRUE(parent_op.ok());
+    for (const auto& key : {"A", "B", "C", "D"}) {
+        ASSERT_TRUE(parent_op.get()->add(nlohmann::json{{"id", key}, {"key", key}}.dump()).ok());
+    }
+
+    for (const bool is_array : {false, true}) {
+        SCOPED_TRACE(is_array ? "array reference" : "singular reference");
+        const std::string children = is_array ? "ChildrenArray" : "ChildrenScalar";
+        nlohmann::json child_schema = {
+            {"name", children},
+            {"fields", {{{"name", "parent"}, {"type", is_array ? "string[]" : "string"},
+                         {"reference", "Parents.key"}}}}
+        };
+        auto child_op = collectionManager.create_collection(child_schema);
+        ASSERT_TRUE(child_op.ok());
+        // Child IDs 0, 1, 2, 3 reference parent IDs 1, 2, 0, 1 respectively.
+        size_t i = 0;
+        for (const auto& key : {"B", "C", "A", "B"}) {
+            nlohmann::json reference = is_array ? nlohmann::json::array({key}) : nlohmann::json(key);
+            ASSERT_TRUE(child_op.get()->add(nlohmann::json{
+                {"id", "child" + std::to_string(i++)}, {"parent", reference}
+            }.dump()).ok());
+        }
+
+        std::map<std::string, std::string> params = {
+            {"collection", "Parents"}, {"q", "*"},
+            {"filter_by", "!$" + children + "(id:=child2)"},
+            {"include_fields", "id,$" + children + "(id,strategy:nest_array,related_docs_count:child_count) as children"}
+        };
+        nlohmann::json embedded_params;
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        ASSERT_EQ(3, result["found"]);
+        ASSERT_EQ(3, result["hits"].size());
+        ASSERT_EQ(R"({"id": "D"})"_json, result["hits"][0]["document"]);
+        ASSERT_EQ(R"({"id": "C", "child_count": 1, "children": [{"id": "child1"}]})"_json,
+                  result["hits"][1]["document"]);
+        ASSERT_EQ(R"({"id": "B", "child_count": 2, "children": [{"id": "child0"}, {"id": "child3"}]})"_json,
+                  result["hits"][2]["document"]);
+    }
+}
+
+TEST_F(CollectionJoinTest, NegatedJoinsAndPreservesProductsWithoutReferences) {
+    auto product_schema = R"({"name": "products", "fields": [{"name": "key", "type": "string"}]})"_json;
+    auto product_op = collectionManager.create_collection(product_schema);
+    ASSERT_TRUE(product_op.ok());
+    for (const auto& key : {"A", "B", "C", "D"}) {
+        ASSERT_TRUE(product_op.get()->add(nlohmann::json{{"id", key}, {"key", key}}.dump()).ok());
+    }
+
+    auto view_schema = R"({"name": "products_viewed", "fields": [
+        {"name": "product_id", "type": "string", "reference": "products.key"}
+    ]})"_json;
+    auto view_op = collectionManager.create_collection(view_schema);
+    ASSERT_TRUE(view_op.ok());
+    size_t i = 0;
+    for (const auto& key : {"B", "C", "A", "B"}) {
+        ASSERT_TRUE(view_op.get()->add(nlohmann::json{
+            {"id", "view" + std::to_string(i++)}, {"product_id", key}
+        }.dump()).ok());
+    }
+
+    // D has no references and must survive the intersection of both negated joins.
+    const std::vector<std::pair<std::string, std::vector<std::string>>> cases = {
+        {"!$products_viewed(id:=view2) && !$products_viewed(id:=view1)", {"B", "D"}},
+        {"!$products_viewed(id:*) && !$products_viewed(id:=view1)", {"D"}}
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.first);
+        std::map<std::string, std::string> params = {
+            {"collection", "products"}, {"q", "*"},
+            {"filter_by", test_case.first}, {"include_fields", "id"}
+        };
+        nlohmann::json embedded_params;
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        EXPECT_EQ(test_case.second.size(), result["found"]);
+        std::vector<std::string> ids;
+        for (const auto& hit : result["hits"]) {
+            ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+        std::sort(ids.begin(), ids.end());
+        EXPECT_EQ(test_case.second, ids);
+    }
 }
 
 TEST_F(CollectionJoinTest, FacetByReference) {
@@ -15835,7 +15932,7 @@ TEST_F(CollectionJoinTest, AlterArrayReferenceFieldReindexesHelperIndexAcrossBat
         }
 
         std::vector<uint32_t> related_ids;
-        auto related_ids_op = books->get_related_ids_with_lock("author_ids", {seq_id_op.get()}, related_ids);
+        auto related_ids_op = books->get_related_parent_ids_with_lock("author_ids", {seq_id_op.get()}, related_ids);
         if (!related_ids_op.ok()) {
             ADD_FAILURE() << related_ids_op.error();
             return {};

@@ -4742,7 +4742,7 @@ Option<bool> CollectionManager::include_related_docs(const std::string& collecti
                                             original_doc, ref_include_exclude);
 }
 
-Option<bool> CollectionManager::get_related_ids(const std::string& collection_name,
+Option<bool> CollectionManager::get_related_parent_ids(const std::string& collection_name,
                                                 const std::string& field_name,
                                                 const std::vector<uint32_t>& seq_id_vec,
                                                 std::vector<uint32_t>& related_ids) {
@@ -4752,7 +4752,7 @@ Option<bool> CollectionManager::get_related_ids(const std::string& collection_na
         return Option<bool>(400, "Collection `" + collection_name + "` not found.");
     }
 
-    return collection->get_related_ids_with_lock(field_name, seq_id_vec, related_ids);
+    return collection->get_related_parent_ids_with_lock(field_name, seq_id_vec, related_ids);
 }
 
 Option<bool> CollectionManager::process_ref_include_fields_sort(const std::string& collection_name,

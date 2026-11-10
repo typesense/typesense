@@ -7,6 +7,7 @@
 #include <search_analytics.h>
 #include "collection.h"
 #include "test_tmp_path.h"
+#include "core_api.h"
 
 class AnalyticsManagerTest : public ::testing::Test {
 protected:
@@ -628,6 +629,20 @@ TEST_F(AnalyticsManagerTest, PopularQueries) {
 
   auto create_op = analyticsManager.create_rule(with_no_capture, false, true, true);
   ASSERT_TRUE(create_op.ok());
+
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture", "data": {"q": "hola"}
+  })"_json);
+  ASSERT_FALSE(missing_user.ok());
+  ASSERT_EQ(missing_user.code(), 400);
+  ASSERT_EQ(missing_user.error(), "user_id is required");
+
+  auto invalid_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "with_no_capture", "data": {"q": "hola", "user_id": 42}
+  })"_json);
+  ASSERT_FALSE(invalid_user.ok());
+  ASSERT_EQ(invalid_user.code(), 400);
+  ASSERT_EQ(invalid_user.error(), "user_id should be a string");
 
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "with_no_capture",
@@ -1497,6 +1512,11 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   auto create_op = analyticsManager.create_rule(counter_rule, false, true, true);
   ASSERT_TRUE(create_op.ok());
 
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "product_popularity", "data": {"doc_id": "2"}
+  })"_json);
+  ASSERT_TRUE(missing_user.ok());
+
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "product_popularity",
     "data": {
@@ -1523,7 +1543,16 @@ TEST_F(AnalyticsManagerTest, DocCounterEvents) {
   ASSERT_EQ(counter.destination_collection, "products");
   ASSERT_EQ(counter.docid_counts.size(), 2);
   ASSERT_EQ(counter.docid_counts.at("1"), 4);
-  ASSERT_EQ(counter.docid_counts.at("2"), 2);
+  ASSERT_EQ(counter.docid_counts.at("2"), 4);
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "product_popularity", "data": {"doc_ids": ["1", 2]}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+    EXPECT_EQ(invalid.error(), "doc_ids should contain only strings");
+  });
 }
 
 TEST_F(AnalyticsManagerTest, SearchWithNoRule) {
@@ -1594,6 +1623,13 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
   auto create_op = analyticsManager.create_rule(log_rule, false, true, true);
   ASSERT_TRUE(create_op.ok());
 
+  auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries", "data": {"q": "alpha"}
+  })"_json);
+  ASSERT_FALSE(missing_user.ok());
+  ASSERT_EQ(missing_user.code(), 400);
+  ASSERT_EQ(missing_user.error(), "user_id is required");
+
   auto add_event_op = analyticsManager.add_external_event("127.0.0.1", R"({
     "name": "log_queries",
     "data": {
@@ -1647,6 +1683,20 @@ TEST_F(AnalyticsManagerTest, QueryLogEventsGetInMemory) {
   ASSERT_EQ(events[1]["query"], "alpha");
   ASSERT_EQ(events[1]["filter_by"], "country:US");
   ASSERT_EQ(events[1]["analytics_tag"], "tag1");
+
+  auto float_timestamp = analyticsManager.add_external_event("127.0.0.1", R"({
+    "name": "log_queries", "data": {"q": "gamma", "user_id": "user4", "timestamp": 123.5}
+  })"_json);
+  EXPECT_TRUE(float_timestamp.ok());
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "log_queries", "data": {"q": "gamma", "user_id": "user4", "timestamp": "invalid"}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+    EXPECT_EQ(invalid.error(), "'timestamp' should be a number");
+  });
 }
 
 TEST_F(AnalyticsManagerTest, DocLogEventsGetInMemory) {
@@ -1736,6 +1786,24 @@ TEST_F(AnalyticsManagerTest, DocLogEventsGetInMemory) {
   ASSERT_EQ(events[1]["query"], "type");
   ASSERT_TRUE(events[1].contains("doc_id"));
   ASSERT_EQ(events[1]["doc_id"], "1");
+
+  EXPECT_NO_THROW({
+    auto missing_user = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "doc_click_logs", "data": {"doc_id": "1"}
+    })"_json);
+    EXPECT_FALSE(missing_user.ok());
+    EXPECT_EQ(missing_user.code(), 400);
+    EXPECT_EQ(missing_user.error(), "user_id is required");
+  });
+
+  EXPECT_NO_THROW({
+    auto invalid = analyticsManager.add_external_event("127.0.0.1", R"({
+      "name": "doc_click_logs", "data": {"user_id": "user2", "doc_ids": ["1", 2]}
+    })"_json);
+    EXPECT_FALSE(invalid.ok());
+    EXPECT_EQ(invalid.code(), 400);
+    EXPECT_EQ(invalid.error(), "doc_ids should contain only strings");
+  });
 }
 
 TEST_F(AnalyticsManagerTest, QueryLogEventsWithCaptureGetInMemory) {
@@ -1881,4 +1949,117 @@ TEST_F(AnalyticsManagerTest, UninitializedAnalyticsStore) {
     ASSERT_TRUE(get_events_op.ok());
     const auto& events = get_events_op.get()["events"].get<std::vector<nlohmann::json>>();
     ASSERT_TRUE(events.empty());
+}
+
+TEST_F(AnalyticsManagerTest, DocumentLogValidationAndCustomMetadata) {
+  auto schema = R"({"name":"products","fields":[{"name":"title","type":"string"}]})"_json;
+  ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+  for (const std::string type : {"click", "conversion", "visit", "custom"}) {
+    auto rule = nlohmann::json{{"name", type}, {"type", "log"}, {"collection", "products"}, {"event_type", type}};
+    ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+    for (const auto& query : {nlohmann::json(5), nlohmann::json(nullptr), nlohmann::json(false), nlohmann::json::array(), nlohmann::json::object()}) {
+      auto op = analyticsManager.add_external_event("127.0.0.1", {{"name", type}, {"data", {{"doc_id", "1"}, {"user_id", "u"}, {"query", query}}}});
+      ASSERT_FALSE(op.ok());
+      EXPECT_EQ(op.code(), 400);
+      EXPECT_EQ(op.error(), "query should be a string");
+    }
+    EXPECT_TRUE(doc_analytics.get_doc_log_events().at(type).empty());
+  }
+  for (const auto& value : {nlohmann::json(3), nlohmann::json(nullptr), nlohmann::json(false), nlohmann::json::array(), nlohmann::json::object()}) {
+    auto op = analyticsManager.add_external_event("127.0.0.1", {{"name", "custom"}, {"data", {{"doc_id", "1"}, {"user_id", "u"}, {"qty", value}}}});
+    ASSERT_FALSE(op.ok());
+    EXPECT_EQ(op.code(), 400);
+    EXPECT_EQ(op.error(), "Custom event field 'qty' should be a string");
+  }
+  EXPECT_TRUE(doc_analytics.get_doc_log_events().at("custom").empty());
+  for (bool multiple : {false, true}) {
+    nlohmann::json data = {{"user_id", "u"}, {"query", "hello"}, {"qty", "3"},
+                          {"timestamp", "bad"}, {"name", "spoof"}, {"collection", "spoof"}, {"event_type", "spoof"}};
+    if (multiple) data["doc_ids"] = {"1", "2"};
+    else data["doc_id"] = "1";
+    ASSERT_TRUE(analyticsManager.add_external_event("127.0.0.1", {{"name", "custom"}, {"data", data}}).ok());
+    auto logs = doc_analytics.get_doc_log_events();
+    nlohmann::json result;
+    logs.at("custom").back().to_json(result, "products");
+    EXPECT_EQ(result["name"], "custom");
+    EXPECT_EQ(result["event_type"], "custom");
+    EXPECT_EQ(result["collection"], "products");
+    EXPECT_TRUE(result["timestamp"].is_number_unsigned());
+    EXPECT_EQ(result["query"], "hello");
+    EXPECT_EQ(result["qty"], "3");
+    EXPECT_EQ(result["user_id"], "u");
+    if (multiple) EXPECT_EQ(result["doc_ids"], data["doc_ids"]);
+    else EXPECT_EQ(result["doc_id"], "1");
+  }
+}
+
+TEST_F(AnalyticsManagerTest, AnalyticsEventRetrievalLimitValidation) {
+  auto schema = R"({"name":"products","fields":[{"name":"title","type":"string"}]})"_json;
+  ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+  auto rule = R"({"name":"logs","type":"log","collection":"products","event_type":"click"})"_json;
+  ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+  for (const auto& n : std::vector<std::string>{"x", "1x", "-1", "9999999999999999999999", "4294967296",
+                                               std::string("\0", 1), std::string("1\0x", 3)}) {
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params = {{"name", "logs"}, {"user_id", "u"}, {"n", n}};
+    EXPECT_FALSE(get_analytics_events(req, res));
+    EXPECT_EQ(res->status_code, 400);
+    EXPECT_EQ(nlohmann::json::parse(res->body)["message"], "Parameter 'n' must be a non-negative integer within the uint32 range.");
+  }
+  for (const std::string n : {"0", "1", "1000", "+1", " 1"}) {
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->params = {{"name", "logs"}, {"user_id", "u"}, {"n", n}};
+    EXPECT_TRUE(get_analytics_events(req, res));
+    EXPECT_EQ(res->status_code, 200);
+  }
+  auto req = std::make_shared<http_req>();
+  auto res = std::make_shared<http_res>(nullptr);
+  req->params = {{"name", "logs"}, {"user_id", "u"}, {"n", "1001"}};
+  EXPECT_FALSE(get_analytics_events(req, res));
+  EXPECT_EQ(res->status_code, 400);
+  EXPECT_EQ(nlohmann::json::parse(res->body)["message"], "N cannot be greater than 1000");
+}
+
+TEST_F(AnalyticsManagerTest, EventJsonNumericOverflowReturnsBadRequest) {
+  for (const std::string body : {
+      R"({"name":"logs","data":{"timestamp":1e400}})",
+      R"({"name":"logs","data":{"timestamp":-1e400}})",
+      R"({"name":)"}) {
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->body = body;
+    EXPECT_FALSE(post_create_event(req, res));
+    EXPECT_EQ(res->status_code, 400);
+    EXPECT_EQ(nlohmann::json::parse(res->body)["message"], "Bad JSON.");
+  }
+}
+
+TEST_F(AnalyticsManagerTest, SearchTimestampRangeValidation) {
+  auto schema = R"({"name":"products","fields":[{"name":"q","type":"string"},{"name":"count","type":"int32"}]})"_json;
+  ASSERT_TRUE(collectionManager.create_collection(schema).ok());
+  for (const std::string type : {"log", "popular_queries", "nohits_queries"}) {
+    auto rule = nlohmann::json{{"name", type}, {"type", type}, {"collection", "products"},
+                               {"event_type", "search"}, {"params", {{"destination_collection", "products"}, {"limit", 100u}}}};
+    ASSERT_TRUE(analyticsManager.create_rule(rule, false, true, true).ok());
+    for (const auto& timestamp : {"-1", "-1.5", "1e100", "18446744073709551616", "18446744073709551616.0"}) {
+      auto data = nlohmann::json{{"q", "hello"}, {"user_id", "u"}, {"timestamp", nlohmann::json::parse(timestamp)}};
+      auto op = analyticsManager.add_external_event("127.0.0.1", {{"name", type}, {"data", data}});
+      ASSERT_FALSE(op.ok()) << timestamp;
+      EXPECT_EQ(op.code(), 400);
+      EXPECT_EQ(op.error(), "'timestamp' must be non-negative and less than 2^64");
+    }
+    if (type == "log") EXPECT_TRUE(search_analytics.get_search_log_events().at(type).empty());
+    else EXPECT_TRUE(search_analytics.get_search_counter_events().at(type).query_counts.empty());
+    for (const auto& timestamp : {"0", "0.0", "123.5", "18446744073709549568.0", "18446744073709551615"}) {
+      auto value = nlohmann::json::parse(timestamp);
+      auto op = analyticsManager.add_external_event("127.0.0.1", {{"name", type},
+          {"data", {{"q", timestamp}, {"user_id", "u"}, {"timestamp", value}}}});
+      ASSERT_TRUE(op.ok()) << timestamp;
+      if (type == "log") {
+        EXPECT_EQ(search_analytics.get_search_log_events().at(type).back().timestamp, value.get<uint64_t>());
+      }
+    }
+  }
 }
