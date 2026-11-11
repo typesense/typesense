@@ -489,6 +489,14 @@ void SearchAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
   for(auto& user_prefix_queries : log_user_collection_prefix_queries) {
     compact_single_user_queries(now_ts_us, user_prefix_queries.first, LOG_TYPE, user_prefix_queries.second);
   }
+
+  // compaction always consolidates the last event of a queue, and a queue without a capturing rule can never
+  // be flushed, so every queue is drained here. Clearing releases the per-user entries, which would otherwise
+  // be retained until restart. If compaction ever keeps in-window events for a later pass, this must change.
+  std::unique_lock lock(user_compaction_mutex);
+  popular_user_collection_prefix_queries.clear();
+  nohits_user_collection_prefix_queries.clear();
+  log_user_collection_prefix_queries.clear();
 }
 
 void SearchAnalytics::reset_local_counter(const std::string& event_name) {
@@ -553,6 +561,24 @@ size_t SearchAnalytics::get_log_prefix_queries_size() {
     }
   }
   return count;
+}
+
+size_t SearchAnalytics::get_popular_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return popular_user_collection_prefix_queries.size();
+}
+
+size_t SearchAnalytics::get_nohits_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return nohits_user_collection_prefix_queries.size();
+}
+
+size_t SearchAnalytics::get_log_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return log_user_collection_prefix_queries.size();
 }
 
 void SearchAnalytics::remove_all_rules() {
