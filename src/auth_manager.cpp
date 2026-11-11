@@ -174,7 +174,8 @@ uint32_t AuthManager::get_next_api_key_id() {
 bool AuthManager::authenticate(const std::string& action,
                                const std::vector<collection_key_t>& collection_keys,
                                std::map<std::string, std::string>& params,
-                               std::vector<nlohmann::json>& embedded_params_vec) const {
+                               std::vector<nlohmann::json>& embedded_params_vec,
+                               const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) const {
 
     std::shared_lock lock(mutex);
     //LOG(INFO) << "AuthManager::authenticate()";
@@ -204,7 +205,7 @@ bool AuthManager::authenticate(const std::string& action,
             }
         } else {
             // could be a scoped API key
-            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params);
+            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params, preset_configs);
             if(!auth_op.ok()) {
                 return false;
             }
@@ -252,9 +253,25 @@ std::string AuthManager::get_api_key_prefix(const std::string& value) const {
 
 namespace {
 Option<std::string> resolve_scoped_search_collection(const std::string& request_collection,
-                                                     const nlohmann::json& embedded_params) {
+                                                     const nlohmann::json& embedded_params,
+                                                     const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) {
     const auto collection_it = embedded_params.find("collection");
     if(collection_it == embedded_params.end()) {
+        if(!request_collection.empty() || preset_configs == nullptr) {
+            return Option<std::string>(request_collection);
+        }
+        const auto preset_it = embedded_params.find("preset");
+        if(preset_it != embedded_params.end() && preset_it->is_string()) {
+            const auto config_it = preset_configs->find(preset_it->get<std::string>());
+            if(config_it != preset_configs->end() && config_it->second.is_object() &&
+               !config_it->second.contains("searches")) {
+                const auto preset_collection_it = config_it->second.find("collection");
+                if(preset_collection_it != config_it->second.end() && preset_collection_it->is_string() &&
+                   !preset_collection_it->get_ref<const std::string&>().empty()) {
+                    return Option<std::string>(preset_collection_it->get<std::string>());
+                }
+            }
+        }
         return Option<std::string>(request_collection);
     }
 
@@ -348,7 +365,8 @@ bool AuthManager::auth_against_key(const std::string& req_collection, const std:
 }
 
 Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
-                                                    nlohmann::json& embedded_params) const {
+                                                    nlohmann::json& embedded_params,
+                                                    const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) const {
 
     // allow only searches from scoped keys
     if(action != DOCUMENTS_SEARCH_ACTION) {
@@ -394,7 +412,7 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
             // forge or broaden the policy inherited from its parent key.
             embedded_params.erase(AUTH_JOIN_POLICY_PARAM);
 
-            auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params);
+            auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params, preset_configs);
             if(!effective_collection_op.ok()) {
                 LOG(ERROR) << effective_collection_op.error();
                 return Option<bool>(403, "Forbidden.");
