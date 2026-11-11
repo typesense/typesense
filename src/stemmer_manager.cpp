@@ -54,26 +54,41 @@ void StemmerManager::dispose() {
     stem_dictionaries.clear();
 }
 
+static std::string normalize_stemmer_language(const std::string& language) {
+    // use english as default language; treat de_en the same as en
+    if(language.empty() || language == "de_en") {
+        return "english";
+    }
+    return language;
+}
+
+// Stemmers must be cached per (language, dictionary) pair: a plain Snowball stemmer and a
+// dictionary-backed stemmer for the same language behave differently and cannot be shared.
+static std::string get_stemmer_key(const std::string& normalized_language, const std::string& dictionary_name) {
+    return normalized_language + '\x1F' + dictionary_name;
+}
+
 std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, const std::string& dictionary_name) {
     std::unique_lock<std::mutex> lock(mutex);
-    // use english as default language
-    std::string language_ = language.empty() ? "english" : language;
-    
-    // Treat de_en the same as en
-    if (language_ == "de_en") {
-        language_ = "english";
+    const std::string language_ = normalize_stemmer_language(language);
+    const std::string key = get_stemmer_key(language_, dictionary_name);
+
+    auto it = stemmers.find(key);
+    if(it == stemmers.end()) {
+        it = stemmers.emplace(key, std::make_shared<Stemmer>(language_.c_str(), dictionary_name)).first;
     }
-    
-    if (stemmers.find(language_) == stemmers.end()) {
-        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
-    }
-    return stemmers[language];
+    return it->second;
 }
 
 void StemmerManager::delete_stemmer(const std::string& language) {
     std::unique_lock<std::mutex> lock(mutex);
-    if (stemmers.find(language) != stemmers.end()) {
-        stemmers.erase(language);
+    const std::string key_prefix = get_stemmer_key(normalize_stemmer_language(language), "");
+    for(auto it = stemmers.begin(); it != stemmers.end();) {
+        if(it->first.compare(0, key_prefix.size(), key_prefix) == 0) {
+            it = stemmers.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
