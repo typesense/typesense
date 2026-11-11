@@ -442,35 +442,22 @@ search_rule_config_t SearchAnalytics::get_search_rule(const std::string& name) {
 void SearchAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std::string& user_id, const std::string& type, std::unordered_map<std::string, std::vector<search_event_t>>& user_prefix_queries) {
   std::unique_lock lock(user_compaction_mutex);
 
-  for(auto query_events_it = user_prefix_queries.begin(); query_events_it != user_prefix_queries.end();) {
-    const auto& collection = query_events_it->first;
-    auto& prefix_queries = query_events_it->second;
-
-    // if a rule was removed after prefix events were queued, the per-user prefix maps can still contain
-    // that collection while no rule of this type captures it any more: those events can never be flushed.
-    auto rules_it = collection_rules_map.find(collection);
-    bool has_capturing_rule = false;
-    if(rules_it != collection_rules_map.end()) {
-      for(const auto& rule : rules_it->second) {
-        const auto& rule_config = search_rules.find(rule)->second;
-        if(rule_config.type == type && rule_config.capture_search_requests) {
-          has_capturing_rule = true;
-          break;
-        }
-      }
-    }
-
-    if(!has_capturing_rule) {
-      query_events_it = user_prefix_queries.erase(query_events_it);
-      continue;
-    }
-
-    const auto& rules = rules_it->second;
+  for(auto& query_events : user_prefix_queries) {
+    const auto& collection = query_events.first;
+    auto& prefix_queries = query_events.second;
     int64_t last_consolidated_index = -1;
     for(uint32_t i = 0; i < prefix_queries.size(); i++) {
       uint64_t diff_micros = (i == prefix_queries.size() - 1) ? (now_ts_us - prefix_queries[i].timestamp) : 
                               (prefix_queries[i + 1].timestamp - prefix_queries[i].timestamp);
       if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS || i == prefix_queries.size() - 1) {
+        auto rules_it = collection_rules_map.find(collection);
+        // if a rule was removed after prefix events were queued, 
+        // the per-user prefix maps can still contain that collection, but collection_rules_map may no longer have it. 
+        if (rules_it == collection_rules_map.end()) {
+          prefix_queries.clear();
+          break;
+        }
+        const auto& rules = rules_it->second;
         for(const auto& rule : rules) {
           const auto& rule_config = search_rules.find(rule)->second;
           if(rule_config.type == type && rule_config.capture_search_requests) {
@@ -489,12 +476,6 @@ void SearchAnalytics::compact_single_user_queries(uint64_t now_ts_us, const std:
       }
     }
     prefix_queries.erase(prefix_queries.begin(), prefix_queries.begin() + last_consolidated_index + 1);
-
-    if(prefix_queries.empty()) {
-      query_events_it = user_prefix_queries.erase(query_events_it);
-    } else {
-      ++query_events_it;
-    }
   }
 }
 
@@ -509,18 +490,13 @@ void SearchAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
     compact_single_user_queries(now_ts_us, user_prefix_queries.first, LOG_TYPE, user_prefix_queries.second);
   }
 
-  // drop users with no buffered events left, otherwise every distinct user id is retained until restart
+  // compaction always consolidates the last event of a queue, and a queue without a capturing rule can never
+  // be flushed, so every queue is drained here. Clearing releases the per-user entries, which would otherwise
+  // be retained until restart. If compaction ever keeps in-window events for a later pass, this must change.
   std::unique_lock lock(user_compaction_mutex);
-  for(auto* user_queries : {&popular_user_collection_prefix_queries, &nohits_user_collection_prefix_queries,
-                            &log_user_collection_prefix_queries}) {
-    for(auto it = user_queries->begin(); it != user_queries->end();) {
-      if(it->second.empty()) {
-        it = user_queries->erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
+  popular_user_collection_prefix_queries.clear();
+  nohits_user_collection_prefix_queries.clear();
+  log_user_collection_prefix_queries.clear();
 }
 
 void SearchAnalytics::reset_local_counter(const std::string& event_name) {
