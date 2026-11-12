@@ -6080,10 +6080,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         size_t score;
         size_t cursor = 0;
     };
-    const bool single_field_phrase_score = is_wildcard_query && num_search_fields == 1;
-    bool has_single_field_score_boundary = false;
-    uint32_t single_field_score_boundary = 0;
-    std::vector<phrase_score_list_t> phrase_score_lists(is_wildcard_query && !single_field_phrase_score ? num_search_fields : 0);
+    std::vector<phrase_score_list_t> phrase_score_lists(is_wildcard_query ? num_search_fields : 0);
     std::vector<uint32_t> phrase_score_scratch;
     std::vector<uint32_t> phrase_score_eligible;
 
@@ -6147,14 +6144,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
             }
 
             // Preserve scoring eligibility from each capped phrase prefix.
-            if(single_field_phrase_score) {
-                // Every final ID matches every phrase in this field, so prefix membership is determined by its last ID.
-                const uint32_t boundary = field_ids[std::min<size_t>(10000, field_ids_size) - 1];
-                if(!has_single_field_score_boundary || boundary > single_field_score_boundary) {
-                    single_field_score_boundary = boundary;
-                    has_single_field_score_boundary = true;
-                }
-            } else if(is_wildcard_query) {
+            if(is_wildcard_query) {
                 const size_t capped_size = std::min<size_t>(10000, field_ids_size);
                 auto& score_list = phrase_score_lists[i];
                 score_list.score = 100000 + search_fields[i].weight;
@@ -6294,8 +6284,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
 
-        int64_t match_score = single_field_phrase_score && has_single_field_score_boundary &&
-                              seq_id <= single_field_score_boundary ? 100000 + search_fields[0].weight : 0;
+        int64_t match_score = 0;
         for(auto& score_list : phrase_score_lists) {
             while(score_list.cursor < score_list.ids.size() && score_list.ids[score_list.cursor] < seq_id) {
                 score_list.cursor++;
