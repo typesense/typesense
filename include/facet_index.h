@@ -11,6 +11,7 @@
 struct facet_value_id_t {
     std::string facet_value;
     uint32_t facet_id = UINT32_MAX;
+    bool has_explicit_facet_id = false;
 
     bool operator==(const facet_value_id_t& other) const {
         return facet_value == other.facet_value;
@@ -25,11 +26,13 @@ struct facet_value_id_t {
 
     facet_value_id_t() = default;
 
-    facet_value_id_t(const std::string& fvalue, const uint32_t fid): facet_value(fvalue), facet_id(fid) {
+    facet_value_id_t(const std::string& fvalue, const uint32_t fid)
+        : facet_value(fvalue), facet_id(fid), has_explicit_facet_id(true) {
 
     }
 
-    facet_value_id_t(const std::string& fvalue): facet_value(fvalue), facet_id(UINT32_MAX) {
+    facet_value_id_t(const std::string& fvalue)
+        : facet_value(fvalue), facet_id(UINT32_MAX), has_explicit_facet_id(false) {
 
     }
 };
