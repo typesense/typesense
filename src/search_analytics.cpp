@@ -1,4 +1,5 @@
 #include <mutex>
+#include <cmath>
 #include "search_analytics.h"
 #include "tokenizer.h"
 #include "collection_manager.h"
@@ -91,6 +92,25 @@ Option<bool> SearchAnalytics::add_event(const std::string& client_ip, const nloh
 
   if(data.contains("analytics_tag") && !data["analytics_tag"].is_string()) {
     return Option<bool>(400, "'analytics_tag' should be a string");
+  }
+  if(data.contains("timestamp") && !data["timestamp"].is_number()) {
+    return Option<bool>(400, "'timestamp' should be a number");
+  }
+  if(data.contains("timestamp")) {
+    const auto& timestamp = data["timestamp"];
+    bool invalid = timestamp.is_number_integer() && !timestamp.is_number_unsigned() &&
+                   timestamp.get<int64_t>() < 0;
+    if(timestamp.is_number_float()) {
+      const double value = timestamp.get<double>();
+      // 2^64 is the exclusive upper bound for floating-point conversion to uint64_t.
+      invalid = !std::isfinite(value) || value < 0 || value >= 18446744073709551616.0;
+    }
+    if(invalid) {
+      return Option<bool>(400, "'timestamp' must be non-negative and less than 2^64");
+    }
+  }
+  if(!data.contains("user_id")) {
+    return Option<bool>(400, "user_id is required");
   }
   const auto& type = search_rules.find(event_name)->second.type;
   const auto& event_type = search_rules.find(event_name)->second.event_type;
@@ -469,6 +489,14 @@ void SearchAnalytics::compact_all_user_queries(uint64_t now_ts_us) {
   for(auto& user_prefix_queries : log_user_collection_prefix_queries) {
     compact_single_user_queries(now_ts_us, user_prefix_queries.first, LOG_TYPE, user_prefix_queries.second);
   }
+
+  // compaction always consolidates the last event of a queue, and a queue without a capturing rule can never
+  // be flushed, so every queue is drained here. Clearing releases the per-user entries, which would otherwise
+  // be retained until restart. If compaction ever keeps in-window events for a later pass, this must change.
+  std::unique_lock lock(user_compaction_mutex);
+  popular_user_collection_prefix_queries.clear();
+  nohits_user_collection_prefix_queries.clear();
+  log_user_collection_prefix_queries.clear();
 }
 
 void SearchAnalytics::reset_local_counter(const std::string& event_name) {
@@ -533,6 +561,24 @@ size_t SearchAnalytics::get_log_prefix_queries_size() {
     }
   }
   return count;
+}
+
+size_t SearchAnalytics::get_popular_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return popular_user_collection_prefix_queries.size();
+}
+
+size_t SearchAnalytics::get_nohits_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return nohits_user_collection_prefix_queries.size();
+}
+
+size_t SearchAnalytics::get_log_prefix_queries_user_count() {
+  std::shared_lock lock(mutex);
+  std::shared_lock user_lock(user_compaction_mutex);
+  return log_user_collection_prefix_queries.size();
 }
 
 void SearchAnalytics::remove_all_rules() {
