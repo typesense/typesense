@@ -74,6 +74,192 @@ protected:
     }
 };
 
+TEST_F(CollectionVectorTest, FilteredHybridMaterializationPreservesHnswAdmission) {
+    auto schema = R"({
+        "name": "filtered_hybrid",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "canonical", "type": "string", "facet": true},
+            {"name": "market", "type": "bool"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "created", "type": "int32"},
+            {"name": "embedding", "type": "float[]", "num_dim": 4}
+        ],
+        "default_sorting_field": "created"
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    for (size_t i = 0; i < 64; i++) {
+        const bool matched = i >= 60;
+        const float cosine = i == 62 ? 0.4f : (i == 63 ? 0.1f : 0.99f - i * 0.001f);
+        nlohmann::json doc = {
+            {"id", std::to_string(i)}, {"name", i == 60 ? "coat" : "shirt"},
+            {"category", "coat"}, {"canonical", "coat"},
+            {"market", i % 2 == 0 || matched}, {"in_stock", i % 2 == 1 || matched},
+            {"created", i}, {"embedding", {cosine, std::sqrt(1 - cosine * cosine), 0, 0}}
+        };
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    // Both bool postings have 34 ids, their intersection has only four.
+    // TEST_BUILD's materialization threshold is 3. Keep selecting HNSW
+    // using the original estimate (34 >= 30), even after computing four ids.
+    // Moving materialization before branch selection would choose flat search
+    // and admit the two non-lexical vectors beyond distance_threshold.
+    std::map<std::string, std::string> params = {
+        {"collection", "filtered_hybrid"}, {"q", "coat"}, {"query_by", "name"},
+        {"filter_by", "(category:=coat || canonical:=coat) && market:true && in_stock:true"},
+        {"vector_query", "embedding:([1,0,0,0], k:100, ef:3000, flat_search_cutoff:30, distance_threshold:0.5)"},
+        {"sort_by", "_vector_distance:asc,created:desc"}, {"exclude_fields", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    for (const auto& lazy : {"true", "false"}) {
+        params["enable_lazy_filter"] = lazy;
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        ASSERT_FALSE(result["search_cutoff"].get<bool>());
+        ASSERT_EQ(2, result["found"]);
+        ASSERT_EQ(2, result["hits"].size());
+        ASSERT_EQ("60", result["hits"][0]["document"]["id"]);
+        ASSERT_EQ("61", result["hits"][1]["document"]["id"]);
+        for (const auto& hit : result["hits"]) {
+            ASSERT_LE(hit["vector_distance"].get<float>(), 0.5f);
+        }
+    }
+
+    // A materialized explicit-id control must still use HNSW here.
+    params["filter_by"] = "id:=[60,61,62,63]";
+    params["vector_query"] = "embedding:([1,0,0,0], k:100, ef:3000, flat_search_cutoff:0, distance_threshold:0.5)";
+    auto op = collectionManager.do_search(params, embedded_params, response, now);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto result = nlohmann::json::parse(response);
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("60", result["hits"][0]["document"]["id"]);
+    ASSERT_EQ("61", result["hits"][1]["document"]["id"]);
+
+    // An empty filter must not become an unfiltered vector traversal.
+    params["filter_by"] = "market:true && market:false";
+    op = collectionManager.do_search(params, embedded_params, response, now);
+    ASSERT_TRUE(op.ok()) << op.error();
+    result = nlohmann::json::parse(response);
+    ASSERT_EQ(0, result["found"]);
+    ASSERT_TRUE(result["hits"].empty());
+}
+
+TEST_F(CollectionVectorTest, FilteredHybridHnswReceivesMaterializedIterator) {
+    auto schema = R"({
+        "name": "materialized_hybrid",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "market", "type": "bool"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "embedding", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    for (size_t i = 0; i < 64; ++i) {
+        const bool matched = i >= 60;
+        const float cosine = 0.99f - i * 0.001f;
+        nlohmann::json doc = {
+            {"id", std::to_string(i)}, {"name", "coat"},
+            {"market", i % 2 == 0 || matched}, {"in_stock", i % 2 == 1 || matched},
+            {"embedding", {cosine, std::sqrt(1 - cosine * cosine), 0, 0}}
+        };
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    // Each posting is above TEST_BUILD's lazy threshold. The independent
+    // HNSW-entry counters inspect the no-groups iterator, which the lexical
+    // pass does not materialize. Removing the fix must leave it lazy here.
+    std::map<std::string, std::string> params = {
+        {"collection", "materialized_hybrid"}, {"q", "coat"}, {"query_by", "name"},
+        {"filter_by", "market:true && in_stock:true"},
+        {"vector_query", "embedding:([1,0,0,0], k:100, ef:3000, flat_search_cutoff:0)"},
+        {"exclude_fields", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    for (const auto& lazy : {"true", "false"}) {
+        SCOPED_TRACE(lazy);
+        params["enable_lazy_filter"] = lazy;
+        testing_hnsw_filter_entries = 0;
+        testing_hnsw_unmaterialized_filter_entries = 0;
+        auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        ASSERT_FALSE(result["search_cutoff"].get<bool>());
+        ASSERT_EQ(4, result["found"]);
+        ASSERT_GT(testing_hnsw_filter_entries, 0);
+        EXPECT_EQ(0, testing_hnsw_unmaterialized_filter_entries);
+    }
+}
+
+TEST_F(CollectionVectorTest, GroupedFilteredHybridReusesMaterializedIterator) {
+    auto schema = R"({
+        "name": "materialized_grouped_hybrid",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "market", "type": "bool"},
+            {"name": "in_stock", "type": "bool"},
+            {"name": "embedding", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+    for (size_t i = 0; i < 400; ++i) {
+        const bool matched = i >= 200;
+        const float cosine = 0.99f - i * 0.001f;
+        nlohmann::json doc = {
+            {"id", std::to_string(i)}, {"name", "coat"},
+            {"group", i < 380 ? "common" : std::to_string(i)},
+            {"market", i % 2 == 0 || matched}, {"in_stock", i % 2 == 1 || matched},
+            {"embedding", {cosine, std::sqrt(1 - cosine * cosine), 0, 0}}
+        };
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    // Each posting is above TEST_BUILD's lazy threshold. The independent
+    // HNSW-entry counters inspect the no-groups iterator, which the lexical
+    // pass does not materialize. Removing the fix must leave it lazy here.
+    std::map<std::string, std::string> params = {
+        {"collection", "materialized_grouped_hybrid"}, {"q", "coat"}, {"query_by", "name"},
+        {"filter_by", "market:true && in_stock:true"},
+        {"vector_query", "embedding:([1,0,0,0], ef:3000, flat_search_cutoff:0)"},
+        {"group_by", "group"}, {"group_limit", "1"}, {"per_page", "10"},
+        {"exclude_fields", "embedding"}
+    };
+    nlohmann::json embedded_params;
+    std::string response;
+    for (const auto& lazy : {"true", "false"}) {
+        SCOPED_TRACE(lazy);
+        params["enable_lazy_filter"] = lazy;
+        testing_hnsw_filter_entries = 0;
+        testing_hnsw_unmaterialized_filter_entries = 0;
+        auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded_params, response, now);
+        ASSERT_TRUE(op.ok()) << op.error();
+        auto result = nlohmann::json::parse(response);
+        ASSERT_FALSE(result["search_cutoff"].get<bool>());
+        ASSERT_EQ(21, result["found"]);
+        // The first 100 vector candidates share a group, forcing another HNSW pass.
+        EXPECT_GT(testing_hnsw_filter_entries, 1);
+        EXPECT_EQ(0, testing_hnsw_unmaterialized_filter_entries);
+    }
+}
+
 TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     nlohmann::json schema = R"({
         "name": "coll1",
