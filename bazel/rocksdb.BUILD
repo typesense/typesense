@@ -1,4 +1,5 @@
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -13,7 +14,7 @@ CMAKE_CACHE_ENTRIES = {
     "CMAKE_BUILD_TYPE": "Release",
 }
 
-CMAKE_MACOS_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + {}.items())
+CMAKE_MACOS_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items())
 
 CMAKE_LINUX_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + {
     "CMAKE_C_FLAGS": "-fPIC",
@@ -37,7 +38,7 @@ cmake(
         "-DWITH_TOOLS=OFF",
         "-DUSE_RTTI=1",
     ] + select({
-         "@platforms//os:macos": ["-DCMAKE_CXX_FLAGS=-Wno-error=uninitialized"],
+         "@platforms//os:macos": ["-DCMAKE_CXX_FLAGS=-Wno-error=uninitialized", "-DFAIL_ON_WARNINGS=OFF"],
          "//conditions:default": ["-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized"],
     }),
     lib_source = "//:all_srcs",

@@ -5746,6 +5746,9 @@ TEST_F(CollectionVectorTest, TestRestoringImages) {
 }
 
 TEST_F(CollectionVectorTest, TestDistanceThresholdWithIP) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "TODO: expected values assume libstdc++ random distributions";
+#endif
     auto schema_json = R"({
             "name": "products",
             "fields":[
@@ -6030,6 +6033,9 @@ TEST_F(CollectionVectorTest, ThreeSortFieldsWithVectorSearch) {
 }
 
 TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "TODO: exact float comparison assumes x86 results";
+#endif
     nlohmann::json schema = R"({
                 "name": "test",
                 "fields": [

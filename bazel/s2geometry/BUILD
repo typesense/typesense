@@ -1,4 +1,5 @@
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+load("@//bazel:homebrew.bzl", "CMAKE_MACOS_IGNORE_HOMEBREW")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -9,7 +10,7 @@ CMAKE_CACHE_ENTRIES = {
     "OPENSSL_ROOT_DIR": "$$EXT_BUILD_DEPS$$/openssl",
 }
 
-CMAKE_MACOS_CACHE_ENTRIES = CMAKE_CACHE_ENTRIES
+CMAKE_MACOS_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + CMAKE_MACOS_IGNORE_HOMEBREW.items())
 
 CMAKE_LINUX_CACHE_ENTRIES = dict(CMAKE_CACHE_ENTRIES.items() + {
     "CMAKE_C_FLAGS": "-fPIC",
