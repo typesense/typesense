@@ -1259,6 +1259,29 @@ TEST_F(CollectionManagerTest, Symlinking) {
     delete new_store;
 }
 
+TEST_F(CollectionManagerTest, CollectionSummaryExclusionsPreserveMetricsAndSchema) {
+    // Wrong or missing document counts would blind exporter alerts to emptied collections.
+    collection1->update_metadata({{"purpose", "exporter"}});
+    ASSERT_TRUE(collection1->add(R"({"id":"summary-doc","title":"Nested","starring":"Actor","points":1})").ok());
+    auto full_summary = collection1->get_summary_json();
+    ASSERT_TRUE(full_summary["enable_nested_fields"]);
+    ASSERT_FALSE(full_summary["fields"].empty());
+    ASSERT_EQ(1, full_summary["num_documents"]);
+    const std::vector<std::string> exporter_excludes = {
+        "enable_nested_fields", "token_separators", "symbols_to_index", "synonym_sets", "curation_sets",
+        "fields", "default_sorting_field", "metadata", "voice_query_model"};
+    auto projected = collectionManager.get_collection_summaries(0, 0, exporter_excludes);
+    ASSERT_TRUE(projected.ok());
+    const nlohmann::json expected = {{"name", full_summary["name"]},
+                                   {"num_documents", full_summary["num_documents"]},
+                                   {"created_at", full_summary["created_at"]}};
+    EXPECT_EQ(nlohmann::json::array({expected}), projected.get());
+    full_summary.erase("fields");
+    auto without_fields = collectionManager.get_collection_summaries(0, 0, {"fields"});
+    ASSERT_TRUE(without_fields.ok());
+    EXPECT_EQ(nlohmann::json::array({full_summary}), without_fields.get());
+}
+
 TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     // to prevent fixture tear down from running as we are fudging with CollectionManager singleton
     collectionManager.dispose();

@@ -1677,7 +1677,7 @@ Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limi
     auto begin = std::chrono::high_resolution_clock::now();
 
     for(std::shared_ptr<Collection> collection: colls) {
-        nlohmann::json collection_json = collection->get_summary_json();
+        nlohmann::json collection_json = collection->get_summary_json(exclude_fields);
         for(const auto& exclude_field: exclude_fields) {
             collection_json.erase(exclude_field);
         }
