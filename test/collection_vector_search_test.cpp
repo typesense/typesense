@@ -6984,3 +6984,55 @@ TEST_F(CollectionVectorTest, UpdateAPIKeyInSchema) {
     embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ("xyzw", embedding_fields["embedding"].embed[fields::model_config][fields::api_key]);
 }
+
+TEST_F(CollectionVectorTest, HybridPhraseConjunctionFallsBackToVectorSearch) {
+    nlohmann::json schema = R"({"name":"phrase_hybrid","fields":[
+        {"name":"title","type":"string"}, {"name":"vec","type":"float[]","num_dim":4}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"keyword","title":"data structures", "vec":[0,1,0,0]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"vector","title":"unrelated", "vec":[1,0,0,0]})").ok());
+
+    std::map<std::string, std::string> params = {{"collection", "phrase_hybrid"},
+        {"q", "\"data structures\" \"absent\""}, {"query_by", "title"},
+        {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"},
+        {"num_typos", "0"}, {"prefix", "false"}};
+    nlohmann::json embedded = nlohmann::json::object();
+    std::string result;
+    auto op = CollectionManager::do_search(params, embedded, result, 0);
+    ASSERT_TRUE(op.ok()) << op.error();
+    ASSERT_EQ(0, nlohmann::json::parse(result)["found"].get<size_t>());
+
+    params["vector_query"] = "vec:([1,0,0,0], k:1, alpha:0.5)";
+    op = CollectionManager::do_search(params, embedded, result, 0);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto json = nlohmann::json::parse(result);
+    ASSERT_EQ(1, json["found"].get<size_t>());
+    ASSERT_EQ(1, json["hits"].size());
+    EXPECT_EQ("vector", json["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, HybridPhraseConjunctionAcrossFields) {
+    nlohmann::json schema = R"({"name":"phrase_hybrid_fields","fields":[
+        {"name":"title","type":"string"}, {"name":"description","type":"string"},
+        {"name":"vec","type":"float[]","num_dim":4}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"keyword","title":"full stack","description":"javascript developer","vec":[0,1,0,0]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"vector","title":"unrelated","description":"other","vec":[1,0,0,0]})").ok());
+    std::map<std::string, std::string> params = {{"collection", "phrase_hybrid_fields"},
+        {"q", "\"full stack\" \"javascript developer\""}, {"query_by", "title,description"},
+        {"drop_tokens_threshold", "0"}, {"typo_tokens_threshold", "0"}, {"num_typos", "0"},
+        {"prefix", "false"}, {"vector_query", "vec:([1,0,0,0], k:1, alpha:0.5)"}};
+    nlohmann::json embedded = nlohmann::json::object();
+    std::string result;
+    auto op = CollectionManager::do_search(params, embedded, result, 0);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto json = nlohmann::json::parse(result);
+    ASSERT_EQ(2, json["found"].get<size_t>());
+    std::set<std::string> ids;
+    for(const auto& hit : json["hits"]) ids.insert(hit["document"]["id"].get<std::string>());
+    EXPECT_EQ((std::set<std::string>{"keyword", "vector"}), ids);
+}

@@ -5442,7 +5442,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         if(end_of_phrase && phrase_search_op_prior) {
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
-            } else {
+            } else if(!phrase.empty()) {
                 q_phrases.push_back(phrase);
             }
 
