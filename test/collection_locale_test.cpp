@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <collection.h>
 #include <collection_manager.h>
+#include "test_tmp_path.h"
 
 class CollectionLocaleTest : public ::testing::Test {
 protected:
@@ -12,7 +13,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_locale";
+        std::string state_dir_path = test_tmp_path("/collection_locale");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 

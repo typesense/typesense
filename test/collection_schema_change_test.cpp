@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 
 class CollectionSchemaChangeTest : public ::testing::Test {
 protected:
@@ -16,7 +17,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_schema_change";
+        std::string state_dir_path = test_tmp_path("/collection_schema_change");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -244,7 +245,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     collectionManager.dispose();
     delete store;
 
-    store = new Store("/tmp/typesense_test/collection_schema_change");
+    store = new Store(test_tmp_path("/collection_schema_change"));
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();
@@ -336,7 +337,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldsFromCollection) {
     collectionManager.dispose();
     delete store;
 
-    store = new Store("/tmp/typesense_test/collection_schema_change");
+    store = new Store(test_tmp_path("/collection_schema_change"));
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();
@@ -1653,7 +1654,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1702,7 +1703,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1735,7 +1736,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1785,7 +1786,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             ]
         })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1851,7 +1852,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             ]
                         })"_json;
     
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1888,7 +1889,7 @@ TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
         ]
     })"_json;
     
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(create_op.ok());
@@ -1957,7 +1958,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
                 ]
             })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1991,7 +1992,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
             "enable_nested_fields": true
         })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

@@ -193,7 +193,8 @@ cmake(
     working_directory="cmake",
     build_args= [
         "--config Release",
-        "-j3"
+        # nproc is missing on stock macOS, and a bare -j is unbounded under make
+        "-j$$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)"
     ],
     tags=["requires-network","no-sandbox"],
     features=["-default_compile_flags","-fno-canonical-system-headers", "-Wno-builtin-macro-redefined"],

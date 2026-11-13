@@ -1,6 +1,8 @@
 #include "index.h"
 
 #include <memory>
+#include <algorithm>
+#include <iterator>
 #include <numeric>
 #include <chrono>
 #include <set>
@@ -14,6 +16,7 @@
 #include <posting.h>
 #include <thread_local_vars.h>
 #include <unordered_set>
+#include <string_view>
 #include <or_iterator.h>
 #include <timsort.hpp>
 #include "logger.h"
@@ -1978,7 +1981,6 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     std::shared_lock lock(mutex);
 
     const auto& is_normal_join = !negate_left_join_info.is_negate_join;
-    const auto& is_match_all_ids_filter = filter_tree_root->is_match_all_ids_filter();
     auto ref_filter_result_iterator = filter_result_iterator_t(ref_collection_name, this, filter_tree_root, false,
                                                                DEFAULT_FILTER_BY_CANDIDATES,
                                                                search_begin_us, search_stop_us, validate_field_names);
@@ -2013,6 +2015,13 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     if (is_nested_join && negate_left_join_info.is_negate_join) {
         return Option<bool>(400, "Left negate join cannot contain a nested join.");
     }
+
+    const auto numerical_index_it = numerical_index.find(reference_helper_field_name);
+    if (numerical_index_it == numerical_index.end() || numerical_index_it->second == nullptr) {
+        return Option<bool>(400, "Could not find `" + reference_helper_field_name + "` in the collection `" +
+                                 get_collection_name() + "`.");
+    }
+    auto num_tree = numerical_index_it->second;
 
     if (search_schema.at(reference_helper_field_name).is_singular()) { // Only one reference per doc.
         auto it = sort_index.find(reference_helper_field_name);
@@ -2112,15 +2121,10 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         }
 
         if (negate_left_join_info.is_negate_join) {
-            Join::negate_left_join(seq_ids, reference_docs, count,
-                                   [&ref_index](const uint32_t& reference_doc_id) -> std::vector<uint32_t> {
-                                        auto it = ref_index.find(reference_doc_id);
-                                        if (it == ref_index.end()) { // Reference field might be optional.
-                                            return std::vector<uint32_t>(1, Join::reference_helper_sentinel_value);
-                                        }
-                                        return std::vector<uint32_t>(1, it->second);
-                                    },
-                                    is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
+            return Join::negate_left_join(ref_collection_name, false,
+                                           [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> void {
+                                               return get_related_child_ids(num_tree, seq_id, related_doc_ids);
+                                           }, unique_doc_ids, negate_left_join_info, filter_result);
         }
 
         if (id_pairs.empty()) {
@@ -2272,18 +2276,10 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     if (negate_left_join_info.is_negate_join) {
-        Join::negate_left_join(seq_ids, reference_docs, count,
-                               [&ref_index](const uint32_t& reference_doc_id) {
-                                    size_t doc_ids_len = 0;
-                                    uint32_t* doc_ids = nullptr;
-
-                                    ref_index.search(EQUALS, reference_doc_id, &doc_ids, doc_ids_len);
-
-                                    const auto vec = std::vector<uint32_t>(doc_ids, doc_ids + doc_ids_len);
-                                    delete[] doc_ids;
-                                    return vec;
-                                },
-                                is_match_all_ids_filter, id_pairs, unique_doc_ids, negate_left_join_info);
+        return Join::negate_left_join(ref_collection_name, true,
+                                         [&](const uint32_t& seq_id, std::vector<uint32_t>& related_doc_ids) -> void {
+                                             return get_related_child_ids(num_tree, seq_id, related_doc_ids);
+                                         }, unique_doc_ids, negate_left_join_info, filter_result);
     }
 
     if (id_pairs.empty()) {
@@ -4770,7 +4766,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
                 continue;
             }
 
-            get_related_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
+            get_related_parent_ids(reference_field_name, all_result_ids[i], ref_doc_ids);
         } else if (joined_coll_has_reference) {
             auto& cm = CollectionManager::get_instance();
             auto joined_collection = cm.get_collection(joined_coll_having_reference);
@@ -4788,7 +4784,7 @@ void Index::get_reference_facet_ids(const uint32_t* all_result_ids, const size_t
             auto const& reference_field_name = reference_field_name_op.get();
             auto const& ref_result = fit.reference[joined_coll_having_reference];
 
-            joined_collection->get_related_ids_with_lock(reference_field_name,
+            joined_collection->get_related_parent_ids_with_lock(reference_field_name,
                                                          std::vector<uint32_t>(ref_result.docs, ref_result.docs + ref_result.count),
                                                          ref_doc_ids);
         }
@@ -6079,87 +6075,147 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
     uint32_t* phrase_result_ids = nullptr;
     uint32_t phrase_result_count = 0;
-    std::map<uint32_t, size_t> phrase_match_id_scores;
+    struct phrase_score_list_t {
+        std::vector<uint32_t> ids;
+        size_t score;
+        size_t cursor = 0;
+    };
+    std::vector<phrase_score_list_t> phrase_score_lists(is_wildcard_query ? num_search_fields : 0);
+    std::vector<uint32_t> phrase_score_scratch;
+    std::vector<uint32_t> phrase_score_eligible;
 
-    for(size_t i = 0; i < num_search_fields; i++) {
-        const std::string& field_name = search_fields[i].name;
-        const size_t field_weight = search_fields[i].weight;
-        bool is_array = search_schema.at(field_name).is_array();
+    // Union matches across fields for each phrase, then intersect the phrase unions.
+    const size_t num_phrases = num_search_fields == 0 ? 0 : field_query_tokens[0].q_phrases.size();
+    // Resolve posting lists while the index read lock held by search is active.
+    std::vector<std::vector<std::vector<void*>>> phrase_postings(
+        num_phrases, std::vector<std::vector<void*>>(num_search_fields));
+    bool all_phrases_have_postings = true;
+    for(size_t phrase_index = 0; phrase_index < num_phrases; phrase_index++) {
+        bool phrase_has_postings = false;
+        for(size_t i = 0; i < num_search_fields; i++) {
+            if(phrase_index >= field_query_tokens[i].q_phrases.size()) {
+                continue;
+            }
+            const auto& phrase = field_query_tokens[i].q_phrases[phrase_index];
+            if(phrase.empty()) {
+                continue;
+            }
+            auto& posting_lists = phrase_postings[phrase_index][i];
+            for(const auto& token : phrase) {
+                art_leaf* leaf = (art_leaf*) art_search(search_index.at(search_fields[i].name),
+                                                       (const unsigned char*) token.c_str(), token.size() + 1);
+                if(!leaf) {
+                    posting_lists.clear();
+                    break;
+                }
+                posting_lists.push_back(leaf->values);
+            }
+            phrase_has_postings = phrase_has_postings || !posting_lists.empty();
+        }
+        if(!phrase_has_postings) {
+            all_phrases_have_postings = false;
+            break;
+        }
+    }
 
-        uint32_t* field_phrase_match_ids = nullptr;
-        size_t field_phrase_match_ids_size = 0;
+    for(size_t phrase_index = 0; all_phrases_have_postings && phrase_index < num_phrases; phrase_index++) {
+        uint32_t* phrase_union_ids = nullptr;
+        size_t phrase_union_size = 0;
 
-        for(const auto& phrase: field_query_tokens[i].q_phrases) {
-            std::vector<void*> posting_lists;
+        for(size_t i = 0; i < num_search_fields; i++) {
+            const auto& posting_lists = phrase_postings[phrase_index][i];
+            if(posting_lists.empty()) {
+                continue;
+            }
+            const std::string& field_name = search_fields[i].name;
+            std::vector<uint32_t> contains_ids;
+            posting_t::intersect(posting_lists, contains_ids);
+            if(contains_ids.empty()) {
+                continue;
+            }
 
-            for(const std::string& token: phrase) {
-                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
-                                                         (const unsigned char *) token.c_str(),
-                                                         token.size() + 1);
-                if(leaf) {
-                    posting_lists.push_back(leaf->values);
+            uint32_t* field_ids = new uint32_t[contains_ids.size()];
+            size_t field_ids_size = 0;
+            posting_t::get_phrase_matches(posting_lists, search_schema.at(field_name).is_array(),
+                                          contains_ids.data(), contains_ids.size(), field_ids, field_ids_size);
+            if(field_ids_size == 0) {
+                delete [] field_ids;
+                continue;
+            }
+
+            // Preserve scoring eligibility from each capped phrase prefix.
+            if(is_wildcard_query) {
+                const size_t capped_size = std::min<size_t>(10000, field_ids_size);
+                auto& score_list = phrase_score_lists[i];
+                score_list.score = 100000 + search_fields[i].weight;
+                const uint32_t* score_begin = field_ids;
+                const uint32_t* score_end = field_ids + capped_size;
+                if(phrase_index != 0 && phrase_result_count < capped_size) {
+                    phrase_score_eligible.clear();
+                    std::set_intersection(score_begin, score_end, phrase_result_ids,
+                                          phrase_result_ids + phrase_result_count,
+                                          std::back_inserter(phrase_score_eligible));
+                    if(phrase_score_eligible.empty()) {
+                        score_end = score_begin;
+                    } else {
+                        score_begin = phrase_score_eligible.data();
+                        score_end = score_begin + phrase_score_eligible.size();
+                    }
+                }
+                if(score_list.ids.empty()) {
+                    score_list.ids.assign(score_begin, score_end);
+                } else {
+                    phrase_score_scratch.clear();
+                    phrase_score_scratch.reserve(score_list.ids.size() + (score_end - score_begin));
+                    std::set_union(score_list.ids.begin(), score_list.ids.end(), score_begin, score_end,
+                                   std::back_inserter(phrase_score_scratch));
+                    score_list.ids.swap(phrase_score_scratch);
                 }
             }
 
-            if(posting_lists.size() != phrase.size()) {
-                // unmatched length means no matches will be found for this phrase, so skip to next phrase
-                continue;
-            }
-
-            std::vector<uint32_t> contains_ids;
-            posting_t::intersect(posting_lists, contains_ids);
-
-            uint32_t* this_phrase_ids = new uint32_t[contains_ids.size()];
-            size_t this_phrase_ids_size = 0;
-            posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
-                                          this_phrase_ids, this_phrase_ids_size);
-
-            if(this_phrase_ids_size == 0) {
-                // no results found for this phrase, but other phrases can find results
-                delete [] this_phrase_ids;
-                continue;
-            }
-
-            // results of multiple phrases must be ANDed
-
-            if(field_phrase_match_ids_size == 0) {
-                field_phrase_match_ids_size = this_phrase_ids_size;
-                field_phrase_match_ids = this_phrase_ids;
+            if(phrase_union_size == 0) {
+                phrase_union_ids = field_ids;
+                phrase_union_size = field_ids_size;
             } else {
-                uint32_t* phrase_ids_merged = nullptr;
-                field_phrase_match_ids_size = ArrayUtils::and_scalar(this_phrase_ids, this_phrase_ids_size, field_phrase_match_ids,
-                                                                     field_phrase_match_ids_size, &phrase_ids_merged);
-                delete [] field_phrase_match_ids;
-                delete [] this_phrase_ids;
-                field_phrase_match_ids = phrase_ids_merged;
+                uint32_t* merged = nullptr;
+                phrase_union_size = ArrayUtils::or_scalar(phrase_union_ids, phrase_union_size, field_ids,
+                                                          field_ids_size, &merged);
+                delete [] phrase_union_ids;
+                delete [] field_ids;
+                phrase_union_ids = merged;
             }
         }
 
-        if(field_phrase_match_ids_size == 0) {
-            continue;
-        }
-
-        // upto 10K phrase match IDs per field will be weighted so that phrase match against a higher weighted field
-        // is returned earlier in the results
-        const size_t weight_score_base = 100000;  // just to make score be a large number
-        for(size_t pi = 0; pi < std::min<size_t>(10000, field_phrase_match_ids_size); pi++) {
-            auto this_field_score = (weight_score_base + field_weight);
-            auto existing_score = phrase_match_id_scores[field_phrase_match_ids[pi]];
-            phrase_match_id_scores[field_phrase_match_ids[pi]] = std::max(this_field_score, existing_score);
-        }
-
-        // across fields, we have to OR phrase match ids
-        if(phrase_result_count == 0) {
-            phrase_result_ids = field_phrase_match_ids;
-            phrase_result_count = field_phrase_match_ids_size;
-        } else {
-            uint32_t* phrase_ids_merged = nullptr;
-            phrase_result_count = ArrayUtils::or_scalar(phrase_result_ids, phrase_result_count, field_phrase_match_ids,
-                                                          field_phrase_match_ids_size, &phrase_ids_merged);
-
+        if(phrase_union_size == 0) {
             delete [] phrase_result_ids;
-            delete [] field_phrase_match_ids;
-            phrase_result_ids = phrase_ids_merged;
+            phrase_result_ids = nullptr;
+            phrase_result_count = 0;
+            break;
+        }
+        if(phrase_index == 0) {
+            phrase_result_ids = phrase_union_ids;
+            phrase_result_count = phrase_union_size;
+        } else {
+            uint32_t* merged = nullptr;
+            phrase_result_count = ArrayUtils::and_scalar(phrase_result_ids, phrase_result_count, phrase_union_ids,
+                                                         phrase_union_size, &merged);
+            delete [] phrase_result_ids;
+            delete [] phrase_union_ids;
+            phrase_result_ids = merged;
+            if(phrase_result_count == 0) {
+                delete [] phrase_result_ids;
+                phrase_result_ids = nullptr;
+                break;
+            }
+
+            // IDs eliminated by the running intersection cannot contribute to the final score.
+            for(auto& score_list : phrase_score_lists) {
+                phrase_score_scratch.clear();
+                std::set_intersection(score_list.ids.begin(), score_list.ids.end(), phrase_result_ids,
+                                      phrase_result_ids + phrase_result_count,
+                                      std::back_inserter(phrase_score_scratch));
+                score_list.ids.swap(phrase_score_scratch);
+            }
         }
     }
 
@@ -6228,7 +6284,15 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
 
-        int64_t match_score = phrase_match_id_scores[seq_id];
+        int64_t match_score = 0;
+        for(auto& score_list : phrase_score_lists) {
+            while(score_list.cursor < score_list.ids.size() && score_list.ids[score_list.cursor] < seq_id) {
+                score_list.cursor++;
+            }
+            if(score_list.cursor < score_list.ids.size() && score_list.ids[score_list.cursor] == seq_id) {
+                match_score = std::max(match_score, static_cast<int64_t>(score_list.score));
+            }
+        }
         int64_t scores[3] = {0};
         int64_t match_score_index = -1;
 
@@ -8003,11 +8067,56 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
     del_doc = nlohmann::json::object();   // For fields to remove from index
     nlohmann::json final_update_doc = nlohmann::json::object(); // Temporary for changed fields
 
+    // Supplied flattened children are diffed separately, including unchanged values.
+    // Only missing children of a replaced/deleted parent need additional removals.
+    const bool has_flat_fields = old_doc.contains(".flat") && !old_doc[".flat"].empty();
+    std::vector<std::string_view> flat_fields;
+    bool flat_fields_loaded = false;
+    const auto add_nested_child_deletions = [&](const std::string& key, const std::string& parent_path,
+                                                const nlohmann::json& old) {
+        if(!has_flat_fields) {
+            return;
+        }
+
+        const auto& old_value = old[key];
+        if(!(old_value.is_object() || (old_value.is_array() &&
+             std::any_of(old_value.begin(), old_value.end(), [](const auto& value) { return value.is_object(); })))) {
+            return;
+        }
+
+        const std::string prefix = parent_path.empty() ? key + "." : parent_path + "." + key + ".";
+        // Search only this document's flattened fields, avoiding repeated schema prefix scans.
+        if(!flat_fields_loaded) {
+            flat_fields.reserve(old_doc[".flat"].size());
+            for(const auto& flat_key: old_doc[".flat"]) {
+                const auto& name = flat_key.get_ref<const std::string&>();
+                if(search_schema.count(name)) {
+                    flat_fields.emplace_back(name);
+                }
+            }
+            std::sort(flat_fields.begin(), flat_fields.end());
+            flat_fields.erase(std::unique(flat_fields.begin(), flat_fields.end()), flat_fields.end());
+            flat_fields_loaded = true;
+        }
+        auto it = std::lower_bound(flat_fields.begin(), flat_fields.end(), std::string_view(prefix));
+        for(; it != flat_fields.end() && it->size() >= prefix.size() &&
+              it->substr(0, prefix.size()) == prefix; ++it) {
+            auto old_it = old_doc.find(*it);
+            if(old_it != old_doc.end() && !update_doc.contains(*it)) {
+                del_doc[old_it.key()] = *old_it;
+                auto new_it = new_doc.find(*it);
+                if(new_it != new_doc.end()) {
+                    new_doc.erase(new_it);
+                }
+            }
+        }
+    };
+
     // Recursive function to apply merge patch and track changes
     std::function<void(nlohmann::json&, nlohmann::json&, const nlohmann::json&,
-                       nlohmann::json&, nlohmann::json&)> apply_merge_patch =
+                       nlohmann::json&, nlohmann::json&, const std::string&)> apply_merge_patch =
             [&](nlohmann::json& target, nlohmann::json& patch, const nlohmann::json& old,
-                nlohmann::json& del, nlohmann::json& upd) {
+                nlohmann::json& del, nlohmann::json& upd, const std::string& parent_path) {
                 // If patch is not an object, treat it as a full replacement
                 if (!patch.is_object()) {
                     if (patch != old) {
@@ -8029,19 +8138,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                     if (value.is_null()) {
                         // Null value indicates deletion
                         if (old.contains(key)) {
-                            // if the old value is an object, we have to delete all child keys
-                            if(old[key].is_object()) {
-                                std::string nested_field_name;
-                                auto prefix_it = search_schema.equal_prefix_range(key + ".");
-                                for(auto kv = prefix_it.first; kv != prefix_it.second; kv++) {
-                                    kv.key(nested_field_name);
-                                    if(old.count(nested_field_name) != 0) {
-                                        del[nested_field_name] = old[nested_field_name];
-                                    }
-                                }
-                            }
-
                             del[key] = old[key];
+                            add_nested_child_deletions(key, parent_path, old);
                         }
                         target.erase(key);
                         // Do not add to upd (ensures no nulls in final_update_doc)
@@ -8050,7 +8148,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Recursive merge for nested objects
                         nlohmann::json sub_del = nlohmann::json::object();
                         nlohmann::json sub_upd = nlohmann::json::object();
-                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd);
+                        apply_merge_patch(target[key], value, old[key], sub_del, sub_upd,
+                                          parent_path.empty() ? key : parent_path + "." + key);
                         if (!sub_del.empty()) del[key] = std::move(sub_del);
                         if (!sub_upd.empty()) upd[key] = std::move(sub_upd);
                         // sub_upd is empty if no changes, ensuring no unchanged values
@@ -8058,7 +8157,10 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
                         // Replacement or new field
                         nlohmann::json processed_value = process_value(value);
                         if (!old.contains(key) || processed_value != old[key]) {
-                            if (old.contains(key)) del[key] = old[key];
+                            if (old.contains(key)) {
+                                del[key] = old[key];
+                                add_nested_child_deletions(key, parent_path, old);
+                            }
                             upd[key] = processed_value;
                             target[key] = processed_value;
                         }
@@ -8069,7 +8171,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
             };
 
     // Apply the merge patch and compute changes
-    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc);
+    apply_merge_patch(new_doc, update_doc, old_doc, del_doc, final_update_doc, "");
 
     if(op != UPSERT) {
         if(old_doc.contains(".flat")) {
@@ -8552,13 +8654,25 @@ int64_t Index::reference_string_sort_score(const string &field_name,  const std:
     return score;
 }
 
-Option<bool> Index::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
-                                              std::vector<uint32_t>& related_ids) const {
-    std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id_vec, related_ids);
+void Index::get_related_child_ids(num_tree_t* const num_tree, const uint32_t& parent_id,
+                                  std::vector<uint32_t>& child_ids) const {
+    uint32_t* ids = nullptr;
+    size_t count = 0;
+    num_tree->search(NUM_COMPARATOR::EQUALS, parent_id, &ids, count);
+    std::unique_ptr<uint32_t[]> ids_guard(ids);
+    child_ids.clear();
+    if (count != 0) {
+        child_ids.assign(ids, ids + count);
+    }
 }
 
-Option<bool> Index::get_related_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+Option<bool> Index::get_related_parent_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+                                              std::vector<uint32_t>& related_ids) const {
+    std::shared_lock lock(mutex);
+    return get_related_parent_ids(field_name, seq_id_vec, related_ids);
+}
+
+Option<bool> Index::get_related_parent_ids(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                     std::vector<uint32_t>& related_ids) const {
     auto const& collection_name = get_collection_name();
     auto const reference_helper_field_name = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
@@ -8630,10 +8744,10 @@ Option<bool> Index::get_related_ids(const std::string& field_name, const std::ve
     return Option<bool>(true);
 }
 
-Option<bool> Index::get_related_ids(const std::string& field_name, const uint32_t& seq_id,
+Option<bool> Index::get_related_parent_ids(const std::string& field_name, const uint32_t& seq_id,
                                     std::vector<uint32_t>& result) const {
     const std::vector<uint32_t> seq_ids_vec{seq_id};
-    return get_related_ids(field_name, seq_ids_vec, result);
+    return get_related_parent_ids(field_name, seq_ids_vec, result);
 }
 
 Option<bool> Index::get_object_array_related_id(const std::string& collection_name,
@@ -8874,8 +8988,8 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         auto const& field_name = get_reference_field_op.get();
 
         auto related_ids_op = (coll_name == get_collection_name_with_lock()) ?
-                                    get_related_ids(field_name, seq_ids_vec, ref_seq_ids) :
-                                    CollectionManager::get_related_ids(coll_name, field_name, seq_ids_vec, ref_seq_ids);
+                                    get_related_parent_ids(field_name, seq_ids_vec, ref_seq_ids) :
+                                    CollectionManager::get_related_parent_ids(coll_name, field_name, seq_ids_vec, ref_seq_ids);
 
         if (!related_ids_op.ok() && related_ids_op.code() == 400) {
             return Option<std::vector<uint32_t>>(400, related_ids_op.error());
@@ -8910,7 +9024,7 @@ Option<std::vector<uint32_t>> Index::get_ref_seq_ids_helper(const std::vector<ui
         const auto& count = ref_result.count;
         const auto& docs = ref_result.docs;
 
-        auto related_ids_op = joined_collection->get_related_ids(reference_field_name,
+        auto related_ids_op = joined_collection->get_related_parent_ids(reference_field_name,
                                                                  std::vector<uint32_t>(docs, docs + count),
                                                                  ref_seq_ids);
         if (!related_ids_op.ok()) {

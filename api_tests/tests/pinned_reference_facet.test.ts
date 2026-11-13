@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Phases } from "../src/constants";
@@ -101,7 +101,7 @@ function assertSearch(response: SearchResponse, expectedIds: string[], checkHitO
 
 describe(Phases.NO_PHASE, () => {
   beforeAll(async () => {
-    baseDir = mkdtempSync(join(tmpdir(), "typesense-pinned-facet-api-"));
+    baseDir = mkdtempSync(join(process.env.TYPESENSE_DATA_DIR ?? tmpdir(), "typesense-pinned-facet-api-"));
     apiPort = await reservePort();
     peeringPort = await reservePort();
     const binaryPath = process.env.TYPESENSE_BINARY_PATH ?? join(process.cwd(), "bazel-bin", "typesense-server");
@@ -111,7 +111,6 @@ describe(Phases.NO_PHASE, () => {
 
   afterAll(async () => {
     await manager?.shutdown();
-    if (baseDir) rmSync(baseDir, { recursive: true, force: true });
   });
 
   it("returns pinned reference facets through multi-search and direct search", async () => {

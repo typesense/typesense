@@ -3767,6 +3767,10 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
         return false;
+    } catch(const nlohmann::json::out_of_range& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
     }
 
     auto add_event_op = AnalyticsManager::get_instance().add_external_event(req->client_ip, req_json);
@@ -3915,7 +3919,13 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
         res->set_400("Missing required parameter 'n'.");
         return false;
     }
-    const uint32_t n = std::stoi(req->params["n"]);
+    const auto& n_str = req->params["n"];
+    if (n_str.find('-') != std::string::npos || n_str.find('\0') != std::string::npos ||
+        !StringUtils::is_uint32_t(n_str)) {
+        res->set_400("Parameter 'n' must be a non-negative integer within the uint32 range.");
+        return false;
+    }
+    const uint32_t n = std::stoul(n_str);
 
     auto get_events_op = AnalyticsManager::get_instance().get_events(user_id, name, n);
     if(!get_events_op.ok()) {

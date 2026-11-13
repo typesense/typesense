@@ -153,6 +153,9 @@ public:
   size_t get_popular_prefix_queries_size();
   size_t get_nohits_prefix_queries_size();
   size_t get_log_prefix_queries_size();
+  size_t get_popular_prefix_queries_user_count();
+  size_t get_nohits_prefix_queries_user_count();
+  size_t get_log_prefix_queries_user_count();
   void dispose();
 };
 

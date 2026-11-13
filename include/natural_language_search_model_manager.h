@@ -47,7 +47,8 @@ public:
     NaturalLanguageSearchModelManager& operator=(const NaturalLanguageSearchModelManager&) = delete;
 
     static Option<nlohmann::json> get_model(const std::string& model_id);
-    static Option<bool> add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk);
+    static Option<bool> add_model(nlohmann::json& model, const std::string& model_id, const bool write_to_disk,
+                                  const bool skip_api_call = false);
     static Option<nlohmann::json> delete_model(const std::string& model_id);
     static Option<nlohmann::json> get_all_models();
     static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model);

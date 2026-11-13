@@ -2,9 +2,10 @@
 #include <vector>
 #include <store.h>
 #include <string_utils.h>
+#include "test_tmp_path.h"
 
 TEST(StoreTest, GetUpdatesSince) {
-    std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
+    std::string primary_store_path = test_tmp_path("/primary_store_test");
     LOG(INFO) << "Truncating and creating: " << primary_store_path;
     system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
 
@@ -63,7 +64,7 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(1, updates_op.get()->size());
     delete updates_op.get();
 
-    std::string replica_store_path = "/tmp/typesense_test/replica_store_test";
+    std::string replica_store_path = test_tmp_path("/replica_store_test");
     LOG(INFO) << "Truncating and creating: " << replica_store_path;
     system(("rm -rf "+replica_store_path+" && mkdir -p "+replica_store_path).c_str());
 
@@ -119,7 +120,7 @@ TEST(StoreTest, GetUpdatesSince) {
 }
 
 TEST(StoreTest, GetUpdateSinceInvalidIterator) {
-    std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
+    std::string primary_store_path = test_tmp_path("/primary_store_test");
     LOG(INFO) << "Truncating and creating: " << primary_store_path;
     system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
 
@@ -140,7 +141,7 @@ TEST(StoreTest, GetUpdateSinceInvalidIterator) {
 }
 
 TEST(StoreTest, Contains) {
-    std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
+    std::string primary_store_path = test_tmp_path("/primary_store_test");
     LOG(INFO) << "Truncating and creating: " << primary_store_path;
     system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
 

@@ -1032,7 +1032,8 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateOpenAIModelWithValidAPIKey) {
     nlohmann::json request_body = nlohmann::json::parse(request_body_str);
     ASSERT_EQ(request_body["model"], "gpt-3.5-turbo");
     ASSERT_EQ(request_body["messages"], R"([{"role":"user","content":"hello"}])"_json);
-    ASSERT_EQ(request_body["max_tokens"], 10);
+    ASSERT_EQ(request_body["max_completion_tokens"], 10);
+    ASSERT_FALSE(request_body.contains("max_tokens"));
     ASSERT_EQ(request_body["temperature"], 0);
 }
 
@@ -1598,3 +1599,386 @@ TEST_F(NaturalLanguageSearchModelTest, ValidateAzureModelWithOptionalParameters)
     ASSERT_TRUE(result.ok());
 }
 
+
+TEST_F(NaturalLanguageSearchModelTest, ReasoningModelNameRule) {
+    for(const char* name : {"gpt-5", "gpt-5-mini", "gpt-5-nano-2025-08-07", "gpt-5.1", "gpt-5.2-2025-12-11",
+                            "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra", "gpt-6-sol",
+                            "gpt-7", "my-gpt-6-deployment", "gpt-eastus-gpt-5-mini", "o1", "o1-2024-12-17", "o3", "o3-mini", "o3mini",
+                            "o4-mini-2025-04-16", "prod-o3-mini", "ft:o4-mini-2025-04-16:org::abc", "team/o1-deployment",
+                            "openai/o3:online", "prod-o3/eastus",
+                            "ft:gpt-5-mini-2025-08-07:acme::abc123"}) {
+        ASSERT_TRUE(NaturalLanguageSearchModel::is_reasoning_model_name(name)) << name;
+    }
+    for(const char* name : {"gpt-3.5-turbo", "gpt-4", "gpt-4-0613", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini",
+                            "gpt-4o", "gpt-4o-mini-2024-07-18", "gpt-35-turbo", "gpt-35-turbo-16k", "gpt-41-mini",
+                            "gpt-45-preview", "EleutherAI/gpt-j-6b", "gpt-oss-120b", "gpt-", "gpt", "omni", "nemo-12b",
+                            "olmo2:7b", "contoso-o365-gpt4o", "ft:gpt-4o-mini-2024-07-18:acme::o7Gh2kLm",
+                            "ft:gpt-4.1-mini-2025-04-14:acme:o3-distill:Ab12Cd34", "mistral-7b-instruct", "chat-latest", ""}) {
+        ASSERT_FALSE(NaturalLanguageSearchModel::is_reasoning_model_name(name)) << name;
+    }
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIApiHostRule) {
+    for(const char* url : {"https://api.openai.com/v1/chat/completions", "https://eu.api.openai.com/v1/chat/completions",
+                           "https://us.api.openai.com/v1/chat/completions", "HTTPS://API.OPENAI.COM/v1/chat/completions",
+                           "https://api.openai.com:443/v1/chat/completions", "https://user:pass@api.openai.com/v1/chat/completions"}) {
+        ASSERT_TRUE(NaturalLanguageSearchModel::is_openai_api_host(url)) << url;
+    }
+    for(const char* url : {"https://proxy.example.com/api.openai.com/v1", "https://openrouter.ai/api/v1/chat/completions",
+                           "https://api.openai.com.evil.example/v1", "https://notapi.openai.com/v1",
+                           "http://localhost:8000/v1/chat/completions", "https://api.openai.com.proxy.internal/v1", ""}) {
+        ASSERT_FALSE(NaturalLanguageSearchModel::is_openai_api_host(url)) << url;
+    }
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIGpt6RequestUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\", \"filter_by\": \"price:>1000\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-6-luna",
+        "api_key": "sk-test",
+        "max_bytes": 1024
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["model"], "gpt-6-luna");
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(result.get()["q"], "laptop");
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 2);
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["model"], "gpt-6-luna");
+    ASSERT_EQ(body["max_completion_tokens"], 1024);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIReasoningModelValidationTemperature) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-5.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-5.1",
+        "api_key": "sk-test",
+        "max_bytes": 1024,
+        "temperature": 0.7
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.7f);
+
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "error": {
+        "message": "Unsupported value: 'temperature' does not support 0.5 with this model. Only the default (1) value is supported.",
+        "type": "invalid_request_error",
+        "param": "temperature",
+        "code": "unsupported_value"
+      }
+    })", 400, {});
+
+    model_config = R"({
+        "model_name": "openai/gpt-6-luna",
+        "api_key": "sk-test",
+        "max_bytes": 1024,
+        "temperature": 0.5
+    })"_json;
+
+    result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.code(), 400);
+    ASSERT_EQ(result.error(), "OpenAI API error: Unsupported value: 'temperature' does not support 0.5 with this model. Only the default (1) value is supported.");
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 2);
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.5f);
+
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "openai/o3-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    model_config = R"({
+        "model_name": "openai/openai/o3-mini",
+        "api_key": "sk-test",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "max_bytes": 1024,
+        "temperature": 0.7
+    })"_json;
+
+    result = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 3);
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(2).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAIHostAlwaysUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-4.1",
+        "api_key": "sk-test",
+        "api_url": "https://eu.api.openai.com/v1/chat/completions",
+        "max_bytes": 1024,
+        "temperature": 0.3
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_captured_request(0).url, "https://eu.api.openai.com/v1/chat/completions");
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FALSE(body.contains("max_tokens"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_completion_tokens"], 1024);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.3f);
+    ASSERT_FALSE(body.contains("max_tokens"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAICustomUrlKeepsMaxTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-4.1",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-4.1",
+        "api_key": "sk-test",
+        "api_url": "https://proxy.example.com/api.openai.com/v1/chat/completions",
+        "max_bytes": 1024,
+        "temperature": 0.3
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_captured_request(0).url, "https://proxy.example.com/api.openai.com/v1/chat/completions");
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_tokens"], 1024);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.3f);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, OpenAICustomUrlReasoningNameUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-5",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-5",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-5",
+        "api_key": "sk-test",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "max_bytes": 1024
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_completion_tokens"], 1024);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, VllmSearchSendsValidationParams) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "custom-gpt-13b",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "custom-gpt-13b",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "vllm/custom-gpt-13b",
+        "api_url": "http://localhost:8000/v1/chat/completions",
+        "max_bytes": 1024,
+        "temperature": 0.2
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_tokens"], 1024);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.2f);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+
+    model_config["model_name"] = "vllm/o3-mini";
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "o3-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+    result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(2).body);
+    ASSERT_EQ(body["max_tokens"], 1024);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.2f);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, AzureGpt6RequestUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-6-luna",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-6-luna",
+        "api_key": "test-azure-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-6-luna/chat/completions?api-version=2024-12-01-preview",
+        "max_bytes": 2048
+    })"_json;
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(NaturalLanguageSearchModel::get_num_captured_requests(), 1);
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 2048);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, AzureGpt41MiniWithTemperatureKeepsMaxTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-41-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "gpt-41-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "azure/gpt-41-mini",
+        "api_key": "test-azure-key",
+        "url": "https://test.openai.azure.com/openai/deployments/gpt-41-mini/chat/completions?api-version=2024-02-15-preview",
+        "max_bytes": 2048,
+        "temperature": 0.4
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_tokens"], 10);
+    ASSERT_EQ(body["temperature"], 0);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_tokens"], 2048);
+    ASSERT_FLOAT_EQ(body["temperature"].get<float>(), 0.4f);
+    ASSERT_FALSE(body.contains("max_completion_tokens"));
+}
+
+TEST_F(NaturalLanguageSearchModelTest, AzureProdO3MiniUsesMaxCompletionTokens) {
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "prod-o3-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}]
+    })", 200, {});
+    NaturalLanguageSearchModel::add_mock_response(R"({
+      "object": "chat.completion",
+      "model": "prod-o3-mini",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"q\": \"laptop\"}"}, "finish_reason": "stop"}]
+    })", 200, {});
+
+    nlohmann::json model_config = R"({
+        "model_name": "azure/prod-o3-mini",
+        "api_key": "test-azure-key",
+        "url": "https://test.openai.azure.com/openai/deployments/prod-o3-mini/chat/completions?api-version=2024-12-01-preview",
+        "max_bytes": 2048
+    })"_json;
+
+    auto validate = NaturalLanguageSearchModel::validate_model(model_config);
+    ASSERT_TRUE(validate.ok()) << validate.error();
+    auto body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(0).body);
+    ASSERT_EQ(body["max_completion_tokens"], 10);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+
+    auto result = NaturalLanguageSearchModel::generate_search_params("expensive laptops", "Fields: price", model_config);
+    ASSERT_TRUE(result.ok()) << result.error();
+    body = nlohmann::json::parse(NaturalLanguageSearchModel::get_captured_request(1).body);
+    ASSERT_EQ(body["max_completion_tokens"], 2048);
+    ASSERT_FALSE(body.contains("max_tokens"));
+    ASSERT_FALSE(body.contains("temperature"));
+}

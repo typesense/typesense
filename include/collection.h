@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <map>
 #include <thread>
+#include <chrono>
+#include <limits>
 #include <memory>
 #include <atomic>
 #include <mutex>
@@ -399,6 +401,24 @@ private:
 
     mutable std::shared_mutex mutex;
     mutable std::shared_mutex alter_mutex;
+
+    // Held by a waiting document writer, so that new searches queue behind it (std::shared_mutex prefers readers).
+    // Lock order: alter_mutex -> write_turnstile -> mutex.
+    mutable std::mutex write_turnstile;
+
+    // A writer holds the turnstile for p * HOLD_PER_PERCENT, within [MIN_HOLD, MAX_HOLD]; after a hold of T, it stays
+    // open for T * (100 - p) / p, where p is the write-priority-max-percentage setting (0: no turnstile).
+    // MIN_HOLD: a hold shorter than the searches already running always gives up.
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_HOLD_PER_PERCENT{20};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MIN_HOLD{500};
+    static constexpr std::chrono::milliseconds WRITE_TURNSTILE_MAX_HOLD{2000};
+    std::atomic<int64_t> write_turnstile_closable_at{std::numeric_limits<int64_t>::min()};
+
+    // Earliest steady-clock ms at which a writer that gave up logs again. Guarded by write_turnstile.
+    int64_t write_turnstile_next_warning_at = std::numeric_limits<int64_t>::min();
+    static constexpr int64_t WRITE_TURNSTILE_WARNING_INTERVAL_MS = 60 * 1000;
+
+    std::unique_lock<std::shared_mutex> lock_for_write();
 
     static const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -1344,7 +1364,7 @@ public:
 
     Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+    Option<bool> get_related_parent_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                            std::vector<uint32_t>& result) const;
 
     Option<bool> update_async_references_with_lock(const std::string& ref_coll_name, const std::string& filter,
@@ -1376,7 +1396,7 @@ public:
                                              const uint32_t& seq_id, const uint32_t& object_index,
                                              uint32_t& result) const;
 
-    Option<bool> get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
+    Option<bool> get_related_parent_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                  std::vector<uint32_t>& result) const;
 
     Option<int64_t> get_referenced_geo_distance_with_lock(const sort_by& sort_field, const bool& is_asc, const uint32_t& seq_id,

@@ -22,32 +22,3 @@ index 88b46890b7..d090499971 100644
        if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11)
          set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_87,code=sm_87") # AGX Orin, NX Orin
        endif()
-
-
-diff --git a/.gitmodules b/.gitmodules
-index 8e4217162b..bb63b7d9c5 100644
---- .gitmodules
-+++ .gitmodules
-@@ -1,9 +1,11 @@
- [submodule "cmake/external/protobuf"]
- 	path = cmake/external/protobuf
- 	url = https://github.com/protocolbuffers/protobuf.git
-+	branch = 22.x
- [submodule "cmake/external/onnx"]
- 	path = cmake/external/onnx
- 	url = https://github.com/onnx/onnx.git
-+	branch = rel-1.13.0
- [submodule "cmake/external/eigen"]
- 	path = cmake/external/eigen
- 	url = https://gitlab.com/libeigen/eigen.git
-@@ -13,7 +15,8 @@
- [submodule "cmake/external/emsdk"]
- 	path = cmake/external/emsdk
- 	url = https://github.com/emscripten-core/emsdk.git
--	branch = 3.1.19
-+	tag = 3.1.19
- [submodule "cmake/external/onnxruntime-extensions"]
- 	path = cmake/external/onnxruntime-extensions
- 	url = https://github.com/microsoft/onnxruntime-extensions.git
-+	branch = rel-0.7
-

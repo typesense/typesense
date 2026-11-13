@@ -9,6 +9,7 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "stopwords_manager.h"
+#include "test_tmp_path.h"
 
 class CollectionCurationTest : public ::testing::Test {
 protected:
@@ -18,7 +19,7 @@ protected:
     Collection *coll_mul_fields;
     StemmerManager& stemmerManager = StemmerManager::get_instance();
     SynonymIndexManager& manager = SynonymIndexManager::get_instance();
-    std::string state_dir_path = "/tmp/typesense_test/collection_curation";
+    std::string state_dir_path = test_tmp_path("/collection_curation");
 
     void setupCollection() {
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -5107,7 +5108,7 @@ TEST_F(CollectionCurationTest, OverridesWithSemanticSearch) {
             ]
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto coll_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(coll_op.ok());
@@ -6771,7 +6772,7 @@ TEST_F(CollectionCurationTest, OverridesWithRerankHybridSearches) {
             }
         ]
     })"_json;
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -6852,7 +6853,7 @@ TEST_F(CollectionCurationTest, FilterCurationsWithSemanticOnlySearch) {
         ]
     })"_json;
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto coll_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(coll_op.ok());

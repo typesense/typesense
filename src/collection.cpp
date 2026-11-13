@@ -572,7 +572,7 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 
     std::unordered_set<std::string> dummy_set;
     {
-        std::unique_lock index_lock(referencing_coll->mutex);
+        auto index_lock = referencing_coll->lock_for_write();
         Index::batch_memory_index(referencing_coll->index, index_records, referencing_coll->default_sorting_field,
                                   referencing_coll->search_schema, referencing_coll->embedding_fields,
                                   referencing_coll->fallback_field_type, referencing_coll->token_separators,
@@ -1152,7 +1152,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         }
 
         if(!new_fields.empty()) {
-            std::unique_lock lock(mutex);
+            auto lock = lock_for_write();
 
             bool found_new_field = false;
             for(auto& new_field: new_fields) {
@@ -1460,7 +1460,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     Index::batch_validate_and_preprocess(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                            fallback_field_type, token_separators, symbols_to_index, true);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, embedding_fields,
                               fallback_field_type, token_separators, symbols_to_index, dummy);
 
@@ -1477,7 +1477,7 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
                     fallback_field_type, token_separators, symbols_to_index, true, remote_embedding_batch_size,
                     remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
     shlock.unlock();
-    std::unique_lock lock(mutex);
+    auto lock = lock_for_write();
     const auto collection_name = name;
 
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
@@ -2627,6 +2627,8 @@ Option<bool> Collection::init_index_search_args_with_lock(collection_search_args
                                                           nlohmann::json& curation_metadata,
                                                           const bool& is_union_search,
                                                           const uint32_t& union_search_index) const {
+    // Only this top-level lock is gated: gating nested join locks could deadlock joins across collections.
+    { std::lock_guard turnstile_lock(write_turnstile); }
     std::shared_lock lock(mutex);
     return init_index_search_args(coll_args, index_args, query, included_ids, include_fields_full, exclude_fields_full, q_tokens,
                                   conversation_standalone_query, vector_query, facets, per_page, transcribed_query,
@@ -2867,6 +2869,10 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
 
         for(const auto& expanded_search_field: expanded_search_fields) {
             if (search_schema.count(expanded_search_field) == 0) {
+                if(!validate_field_names) {
+                    ignored_missing_fields = true;
+                    continue;
+                }
                 return Option<bool>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
             }
             auto search_field = search_schema.at(expanded_search_field);
@@ -3003,7 +3009,9 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
         }
     }
 
-    for(const std::string& field_name: group_by_fields) {
+    size_t valid_group_fields = 0;
+    for(size_t i = 0; i < group_by_fields.size(); i++) {
+        const std::string& field_name = group_by_fields[i];
         if(field_name == "id") {
             std::string error = "Cannot use `id` as a group by field.";
             return Option<bool>(400, error);
@@ -3025,7 +3033,13 @@ Option<bool> Collection::init_index_search_args(collection_search_args_t& coll_a
             std::string error = "Group by field `" + field_name + "` should be a facet field.";
             return Option<bool>(400, error);
         }
+
+        if(valid_group_fields != i) {
+            group_by_fields[valid_group_fields] = std::move(group_by_fields[i]);
+        }
+        valid_group_fields++;
     }
+    group_by_fields.resize(valid_group_fields);
 
     if(group_by_fields.empty() && skipped_invalid_group_field) {
         // this ensures that Index::search() will return empty results, instead of an error
@@ -4191,6 +4205,51 @@ void Collection::do_highlighting(const tsl::htrie_map<char, field>& search_schem
 
     //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
+}
+
+static int64_t steady_clock_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::unique_lock<std::shared_mutex> Collection::lock_for_write() {
+    std::unique_lock lock(mutex, std::try_to_lock);
+    while(!lock.owns_lock()) {
+        // Read once per pass: a /config change to 0 between two reads would divide by zero below.
+        const int64_t write_priority = Config::get_instance().get_write_priority_max_percentage();
+        if(write_priority == 0) {
+            lock.lock();
+            break;
+        }
+
+        if(steady_clock_ms() >= write_turnstile_closable_at) {
+            std::lock_guard turnstile_lock(write_turnstile);
+            if(steady_clock_ms() >= write_turnstile_closable_at) {
+                const int64_t closed_at = steady_clock_ms();
+                const auto hold = std::clamp(write_priority * WRITE_TURNSTILE_HOLD_PER_PERCENT,
+                                             WRITE_TURNSTILE_MIN_HOLD, WRITE_TURNSTILE_MAX_HOLD);
+                const auto give_up_at = std::chrono::steady_clock::now() + hold;
+                while(!lock.try_lock() && std::chrono::steady_clock::now() < give_up_at) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                // Set before releasing the turnstile, so that a writer queued on it can't close the gate again.
+                const int64_t now = steady_clock_ms();
+                write_turnstile_closable_at = now + (now - closed_at) * (100 - write_priority) / write_priority;
+                if(lock.owns_lock()) {
+                    break;
+                }
+                if(now >= write_turnstile_next_warning_at) {
+                    write_turnstile_next_warning_at = now + WRITE_TURNSTILE_WARNING_INTERVAL_MS;
+                    LOG(WARNING) << "`" << name << "` collection: write waited " << hold.count()
+                                 << " ms for the collection lock; no longer holding new searches back while it waits. "
+                                 << "Logged at most once a minute.";
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lock.try_lock();
+    }
+    return lock;
 }
 
 Option<bool> Collection::run_search_with_lock(search_args* search_params) const {
@@ -5388,7 +5447,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
         if(end_of_phrase && phrase_search_op_prior) {
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
-            } else {
+            } else if(!phrase.empty()) {
                 q_phrases.push_back(phrase);
             }
 
@@ -5518,15 +5577,15 @@ Option<bool> Collection::get_filter_ids_with_lock(const std::string& filter_quer
     return get_filter_ids(filter_query, filter_result, should_timeout, validate_field_names);
 }
 
-Option<bool> Collection::get_related_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
+Option<bool> Collection::get_related_parent_ids_with_lock(const std::string& field_name, const std::vector<uint32_t>& seq_id_vec,
                                                    std::vector<uint32_t>& result) const {
     std::shared_lock lock(mutex);
-    return get_related_ids(field_name, seq_id_vec, result);
+    return get_related_parent_ids(field_name, seq_id_vec, result);
 }
 
-Option<bool> Collection::get_related_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
+Option<bool> Collection::get_related_parent_ids(const std::string& ref_field_name, const std::vector<uint32_t>& seq_id_vec,
                                          std::vector<uint32_t>& result) const {
-    return index->get_related_ids_with_lock(ref_field_name, seq_id_vec, result);
+    return index->get_related_parent_ids_with_lock(ref_field_name, seq_id_vec, result);
 }
 
 Option<bool> Collection::get_object_array_related_id_with_lock(const std::string& ref_field_name,
@@ -6384,43 +6443,24 @@ bool Collection::handle_highlight_text(std::string& text, const bool& normalise,
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
                qtoken_it.value().root_len < raw_token.size()) {
                 // need to ensure that only the prefix portion is highlighted
-                // if length diff is within 2, we still might not want to highlight partially in some cases
+                // if length diff is within 3, we still might not want to highlight partially in some cases
                 // e.g. "samsng" vs "samsung" -> full highlight is preferred, unless it's a full prefix match
 
-                size_t k = tok_start;
-                size_t num_letters = 0, prefix_letters = 0, prefix_end = tok_start;
-
-                // group unicode code points and calculate number of actual characters
-                while(k <= tok_end) {
-                    k++;
-
-                    if(tokenizer.should_skip_char(text[k])) {
-                        // used to handle special characters inside a tokenized word, e.g. `foo-bar`
-                        continue;
+                size_t k = tok_start, num_letters = 0, prefix_end = tok_end;
+                while(k <= tok_end && k < text.size()) {
+                    const bool skip = tokenizer.should_skip_char(text[k]);
+                    ++k;
+                    while(k <= tok_end && k < text.size() && (text[k] & 0xC0) == 0x80) {
+                        ++k;
                     }
-
-                    if ((text[k] & 0xC0) == 0x80) k++;
-                    if ((text[k] & 0xC0) == 0x80) k++;
-                    if ((text[k] & 0xC0) == 0x80) k++;
-
-                    num_letters++;
-
-                    if(num_letters <= prefix_token_num_chars) {
-                        prefix_letters++;
-                    }
-
-                    if(num_letters == prefix_token_num_chars) {
+                    if(!skip && ++num_letters == prefix_token_num_chars) {
                         prefix_end = k - 1;
                     }
                 }
 
-                if(num_letters < prefix_token_num_chars) {
-                    // can happen in the case of stemming
-                    prefix_end = tok_start + num_letters;
-                }
-
-                size_t char_diff = num_letters - prefix_letters;
-                auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ? tok_end : prefix_end;
+                bool highlight_whole_typo = qtoken_it.value().num_typos != 0 &&
+                    num_letters - std::min(num_letters, prefix_token_num_chars) <= 3;
+                auto new_tok_end = highlight_whole_typo ? tok_end : prefix_end;
                 token_offsets.emplace(tok_start, new_tok_end);
             } else {
                 token_offsets.emplace(tok_start, tok_end);
@@ -6622,7 +6662,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
                                  const bool& cascade_remove) {
     spp::sparse_hash_map<std::string, std::string> referenced_in_copy;
     {
-        std::unique_lock lock(mutex);
+        std::shared_lock lock(mutex);
         referenced_in_copy = referenced_in;
     }
 
@@ -6633,7 +6673,7 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     }
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
 
         index->remove(seq_id, document, {}, false);
         if (num_documents != 0) {
@@ -6924,7 +6964,7 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     Collection::cascade_remove(name, records, remove_from_store);
 
     {
-        std::unique_lock lock(mutex);
+        auto lock = lock_for_write();
         for(auto& record: records) {
             index->remove(record.seq_id, record.doc, {}, false);
             if (num_documents != 0) {
@@ -10693,7 +10733,7 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
             }
         } else {
             std::vector<uint32_t> ids;
-            auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+            auto get_references_op = get_related_parent_ids_with_lock(field_name, {seq_id}, ids);
             if (!get_references_op.ok()) {
                 auto const& schema = get_schema();
                 auto it = schema.find(field_name);
@@ -10711,7 +10751,7 @@ Option<bool> Collection::include_related_docs(nlohmann::json& doc, const uint32_
         }
     } else {
         std::vector<uint32_t> ids;
-        auto get_references_op = get_related_ids_with_lock(field_name, {seq_id}, ids);
+        auto get_references_op = get_related_parent_ids_with_lock(field_name, {seq_id}, ids);
         if (!get_references_op.ok()) {
             auto const& schema = get_schema();
             auto it = schema.find(field_name);
