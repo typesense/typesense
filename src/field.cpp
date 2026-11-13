@@ -72,6 +72,9 @@ void field::add_default_json_values(nlohmann::json& json) {
     if (json.count(fields::track_missing_values) == 0) {
         json[fields::track_missing_values] = false;
     }
+    if (json.count(fields::from_dynamic) == 0) {
+        json[fields::from_dynamic] = "";
+    }
     if (json.count(fields::store) == 0) {
         json[fields::store] = true;
     }
@@ -609,6 +612,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         flattened_field.optional = true;
         flattened_field.nested = true;
         flattened_field.nested_array = has_obj_array;
+        flattened_field.from_dynamic = found_dynamic_field ? dyn_field.name : "";
         int sort_op = flattened_field.sort ? 1 : -1;
         int infix_op = flattened_field.infix ? 1 : -1;
         flattened_field.set_computed_defaults(sort_op, infix_op);
@@ -936,6 +940,7 @@ nlohmann::json field::field_to_json_field(const struct field& field) {
     field_val[fields::range_index] = field.range_index;
     field_val[fields::track_missing_values] = field.track_missing_values;
     field_val[fields::stem_dictionary] = field.stem_dictionary;
+    field_val[fields::from_dynamic] = field.from_dynamic;
 
     if(field.embed.count(fields::from) != 0) {
         field_val[fields::embed] = field.embed;
