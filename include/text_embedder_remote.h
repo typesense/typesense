@@ -225,3 +225,71 @@ class GCPEmbedder : public RemoteEmbedder {
             return true;
         }
 };
+
+
+// Voyage AI text embedding models, addressed as `voyage/<model>`.
+// Contextualized models (`voyage/voyage-context-*`) use a separate endpoint but still produce
+// exactly one vector per input.
+class VoyageEmbedder : public RemoteEmbedder {
+    public:
+        struct model_spec_t {
+            const char* name;
+            size_t default_dims;
+            std::vector<size_t> supported_dims;
+            bool contextualized;
+        };
+
+        static constexpr size_t MAX_INPUTS_PER_REQUEST = 1000;
+        static constexpr size_t CONTEXTUALIZED_CHUNK_SIZE = 32000;
+
+    private:
+        static constexpr const char* VOYAGE_EMBEDDINGS_URL = "https://api.voyageai.com/v1/embeddings";
+        static constexpr const char* VOYAGE_CONTEXTUALIZED_EMBEDDINGS_URL = "https://api.voyageai.com/v1/contextualizedembeddings";
+
+        std::string api_key;
+        const model_spec_t& spec;
+        bool has_custom_dims;
+        size_t num_dims;
+
+        std::string get_url() const;
+        std::unordered_map<std::string, std::string> get_headers(const std::string& api_key, const size_t timeout_ms,
+                                                                 const size_t num_tries) const;
+
+    public:
+        VoyageEmbedder(const std::string& model_name, const std::string& api_key, const size_t num_dims,
+                       const bool has_custom_dims);
+
+        // Returns nullptr for a model that is not in the catalogue.
+        static const model_spec_t* find_model(const std::string& model_name_without_namespace);
+
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims);
+
+        // Request body for `embeddings` or, for contextualized models, `contextualizedembeddings`.
+        static nlohmann::json build_request(const model_spec_t& spec, const std::vector<std::string>& inputs,
+                                            const bool is_query, const bool has_custom_dims, const size_t num_dims);
+
+        // Validates a response and returns one result per input, in input order (the response `index` decides
+        // the position). A structurally wrong response is an error for the whole batch: wrong count, duplicate
+        // index or wrong dimension. For contextualized models an input that came back with more or fewer than
+        // one chunk fails on its own, the rest of the batch keeps its vectors.
+        static Option<std::vector<embedding_res_t>> parse_response(const model_spec_t& spec, const std::string& res_body,
+                                                                   const size_t num_inputs, const size_t num_dims);
+
+        // Voyage error bodies look like {"detail": "<text>"}; falls back to the raw body.
+        static std::string get_error_detail(const std::string& res_body);
+
+        // Half-open [begin, end) index ranges of at most `batch_size` (and never more than
+        // MAX_INPUTS_PER_REQUEST) inputs each, in input order.
+        static std::vector<std::pair<size_t, size_t>> split_batches(const size_t num_inputs, const size_t batch_size);
+
+        embedding_res_t embed_query(const std::string& text, const size_t remote_embedder_timeout_ms = 5000, const size_t remote_embedding_num_tries = 2) override;
+        std::vector<embedding_res_t> embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,
+                                                 const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2) override;
+        nlohmann::json get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) override;
+        static std::string get_model_key(const nlohmann::json& model_config, size_t num_dims = 0);
+        bool update_api_key(const std::string& apikey) override {
+            std::lock_guard<std::shared_mutex> lock(mutex);
+            api_key = apikey;
+            return true;
+        }
+};
