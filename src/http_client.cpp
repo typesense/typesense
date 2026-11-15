@@ -583,6 +583,11 @@ void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std:
     if(res == CURLE_OK && content_type != nullptr) {
         res_headers.emplace("content-type", content_type);
     }
+
+    curl_off_t retry_after = 0;
+    if(curl_easy_getinfo(curl, CURLINFO_RETRY_AFTER, &retry_after) == CURLE_OK && retry_after > 0) {
+        res_headers.emplace("retry-after", std::to_string(retry_after));
+    }
 }
 
 size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
