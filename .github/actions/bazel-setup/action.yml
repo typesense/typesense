@@ -1,0 +1,100 @@
+name: Bazel setup
+description: Toolchain, Bazel and the week's disk cache, shared by the jobs that build Typesense
+
+inputs:
+  cache-name:
+    description: Bazel disk-cache name (the workflow's BAZEL_DISK_CACHE)
+    required: true
+  saves-cache:
+    description: "'true' when this run saves the disk cache"
+    required: true
+  week:
+    description: ISO week from cache-probe; empty computes it here
+    required: false
+    default: ""
+  last-week:
+    description: previous ISO week from cache-probe; empty computes it here
+    required: false
+    default: ""
+
+outputs:
+  week:
+    description: the ISO week the disk-cache key uses
+    value: ${{ steps.week.outputs.week }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+        sudo apt-get update
+
+        sudo apt-get install -y g++-10 make git zlib1g-dev m4
+
+        # Define the compiler
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+
+        sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+        sudo update-alternatives --set cc /usr/bin/gcc
+
+        sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+        sudo update-alternatives --set c++ /usr/bin/g++
+
+    - name: Setup lld
+      shell: bash
+      run: |
+        sudo apt-get install -y lld
+
+    - name: Set up Bazel
+      uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
+      with:
+        bazelisk-cache: true
+        # .bazelrc's --jobs=6 suits a laptop; a CI runner gives each Bazel job a core
+        bazelrc: |
+          build --disk_cache=/home/runner/.cache/bazel-disk
+          build --jobs=HOST_CPUS
+          test --jobs=HOST_CPUS
+        repository-cache: |
+          WORKSPACE
+          .bazelrc
+          .bazelversion
+          bazel/**
+        # onnx_runtime is refetched when its build file or patch changes, so they key its copy too
+        external-cache: |
+          manifest:
+            onnx_runtime:
+              - WORKSPACE
+              - bazel/onnxruntime.BUILD
+              - bazel/onnx.patch
+
+    # setup-bazel saves its disk cache only when the exact key missed, and that key changes only with the build
+    # files, so it stopped refreshing; this one is keyed per commit and restores the week's newest entry. A run
+    # that only reads may start from last week's newest one; the saves still start each week empty.
+    - id: week
+      shell: bash
+      env:
+        PROBE_WEEK: ${{ inputs.week }}
+        PROBE_LAST_WEEK: ${{ inputs.last-week }}
+      run: |
+        echo "week=${PROBE_WEEK:-$(date -u +%G-W%V)}" >> "$GITHUB_OUTPUT"
+        echo "last_week=${PROBE_LAST_WEEK:-$(date -u -d '7 days ago' +%G-W%V)}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Bazel disk cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: /home/runner/.cache/bazel-disk
+        key: bazel-disk-${{ inputs.cache-name }}-${{ steps.week.outputs.week }}-${{ github.sha }}
+        restore-keys: |
+          bazel-disk-${{ inputs.cache-name }}-${{ steps.week.outputs.week }}-
+          ${{ inputs.saves-cache != 'true' && format('bazel-disk-{0}-{1}-', inputs.cache-name, steps.week.outputs.last_week) || '' }}
+
+    - name: Build protobuf deps
+      shell: bash
+      run: |
+        bazel build @com_google_protobuf//:protobuf_headers
+        bazel build @com_google_protobuf//:protobuf_lite
+        bazel build @com_google_protobuf//:protobuf
+        bazel build @com_google_protobuf//:protoc

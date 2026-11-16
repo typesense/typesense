@@ -13,7 +13,7 @@ A fully‑featured API test harness that spins up Typesense in both single‑ an
 | | `MULTI_RESTARTED` | Every node is gracefully stopped and restarted. |
 | | `MULTI_SNAPSHOT` | A snapshot is taken on the leader, the cluster is restarted, and the snapshot is restored on all nodes. |
 
-The phases within a given path run **sequentially** because each later phase re‑uses the data produced by the previous one. The single‑node and multi‑node paths run **in parallel** to reduce build time.
+The phases within a given path run **sequentially** because each later phase re‑uses the data produced by the previous one. The single‑node path, the multi‑node path and each file of `NO_PHASE` tests run **in parallel** to reduce build time, so they must not share a port or a data directory.
 
 > [!NOTE]
 > Single-node server is always run on 8108 when running api_tests

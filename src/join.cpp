@@ -701,8 +701,8 @@ Option<bool> Join::include_references(nlohmann::json& doc, const uint32_t& seq_i
             auto const& docs = reference_filter_result.docs;
 
             std::vector<uint32_t> ids;
-            CollectionManager::get_related_ids(joined_coll_having_reference, reference_field_name,
-                                               std::vector<uint32_t>(docs, docs + count), ids);
+            CollectionManager::get_related_parent_ids(joined_coll_having_reference, reference_field_name,
+                                                      std::vector<uint32_t>(docs, docs + count), ids);
             if (ids.empty()) {
                 continue;
             }

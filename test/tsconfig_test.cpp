@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <stdlib.h>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <cmdline.h>
@@ -316,4 +317,84 @@ TEST(ConfigTest, MaxQueryLengthValidOverrideAndUint64Boundary) {
     // Unknown runtime settings are ignored by the existing update endpoint.
     EXPECT_TRUE(config.update_config(nlohmann::json{{"max-query-len", 1}}).ok());
     EXPECT_EQ(std::numeric_limits<uint64_t>::max(), config.get_max_query_len());
+}
+
+TEST(ConfigTest, WritePriorityMaxPercentageOutsideZeroToHundredIsRejected) {
+    ConfigImpl config;
+    EXPECT_TRUE(config.update_config(nlohmann::json{{"write-priority-max-percentage", 0}}).ok());
+    EXPECT_TRUE(config.update_config(nlohmann::json{{"write-priority-max-percentage", 100}}).ok());
+
+    for(const auto& value : {nlohmann::json(-1), nlohmann::json(101), nlohmann::json(4294967297LL), nlohmann::json(2.5),
+                             nlohmann::json("25")}) {
+        SCOPED_TRACE(value.dump());
+        auto update = config.update_config(nlohmann::json{{"write-priority-max-percentage", value}});
+        ASSERT_FALSE(update.ok());
+        EXPECT_EQ(400, update.code());
+        EXPECT_EQ("Configuration `write-priority-max-percentage` must be an integer between 0 and 100.", update.error());
+    }
+
+    // Startup rejects the same values from the command line and the environment.
+    std::vector<std::string> args = {"./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0",
+                                     "--write-priority-max-percentage=101"};
+    auto argv = get_argv(args);
+    cmdline::parser options;
+    init_cmdline_options(options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(options.parse(argv.size() - 1, argv.data())) << options.error_full();
+    ConfigImpl cli_config;
+    cli_config.load_config_cmd_args(options);
+    auto validation = cli_config.is_valid();
+    ASSERT_FALSE(validation.ok());
+    EXPECT_EQ("Invalid value for `write-priority-max-percentage`; expected an integer between 0 and 100.",
+              validation.error());
+
+    for(const std::string value : {"-1", "101", "abc", "2.5"}) {
+        SCOPED_TRACE(value);
+        setenv("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE", value.c_str(), 1);
+        ConfigImpl env_config;
+        env_config.load_config_env();
+        unsetenv("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE");
+        validation = env_config.is_valid();
+        ASSERT_FALSE(validation.ok());
+        EXPECT_EQ("Invalid value for `write-priority-max-percentage`; expected an integer between 0 and 100.",
+                  validation.error());
+    }
+
+    const std::string ini_path = "/tmp/typesense_write_priority_config.ini";
+    std::ofstream(ini_path) << "[server]\nwrite-priority-max-percentage = abc\n";
+    args = {"./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0", "--config=" + ini_path};
+    argv = get_argv(args);
+    cmdline::parser ini_options;
+    init_cmdline_options(ini_options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(ini_options.parse(argv.size() - 1, argv.data())) << ini_options.error_full();
+    ConfigImpl ini_config;
+    ini_config.load_config_file(ini_options);
+    validation = ini_config.is_valid();
+    ASSERT_FALSE(validation.ok());
+    EXPECT_EQ("Invalid value for `write-priority-max-percentage`; expected an integer between 0 and 100.",
+              validation.error());
+}
+
+TEST(ConfigTest, WritePriorityMaxPercentageDefaultsAndOverrides) {
+    ConfigImpl config;
+    EXPECT_EQ(25, config.get_write_priority_max_percentage());
+
+    setenv("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE", "10", 1);
+    config.load_config_env();
+    unsetenv("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE");
+    EXPECT_EQ(10, config.get_write_priority_max_percentage());
+
+    std::vector<std::string> args = {"./typesense-server", "--data-dir=/tmp/ts", "--api-key=abcd", "--shutdown-delay-seconds=0",
+                                     "--write-priority-max-percentage=0",
+                                     std::string("--config=") + ROOT_DIR + "test/valid_config.ini"};
+    auto argv = get_argv(args);
+    cmdline::parser options;
+    init_cmdline_options(options, argv.size() - 1, argv.data());
+    ASSERT_TRUE(options.parse(argv.size() - 1, argv.data())) << options.error_full();
+    config.load_config_file(options);
+    EXPECT_EQ(40, config.get_write_priority_max_percentage());
+    config.load_config_cmd_args(options);
+    EXPECT_EQ(0, config.get_write_priority_max_percentage());
+
+    ASSERT_TRUE(config.update_config(nlohmann::json{{"write-priority-max-percentage", 60}}).ok());
+    EXPECT_EQ(60, config.get_write_priority_max_percentage());
 }

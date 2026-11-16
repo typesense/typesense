@@ -104,6 +104,16 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
         found_config = true;
     }
 
+    if(req_json.count("write-priority-max-percentage") != 0) {
+        const auto& value = req_json["write-priority-max-percentage"];
+        if(!value.is_number_integer() || value.get<int64_t>() < 0 || value.get<int64_t>() > 100) {
+            return Option<bool>(400, "Configuration `write-priority-max-percentage` must be an integer between 0 and 100.");
+        }
+
+        set_write_priority_max_percentage(value.get<int>());
+        found_config = true;
+    }
+
     return Option<bool>(true);
 }
 
@@ -142,6 +152,16 @@ Option<std::string> Config::fetch_nodes_config(const std::string& path_to_nodes)
     }
 
     return Option<std::string>(nodes_config);
+}
+
+void Config::set_write_priority_max_percentage(const std::string& value) {
+    int parsed = 0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    write_priority_max_percentage_valid = result.ec == std::errc() && result.ptr == value.data() + value.size() &&
+                                          parsed >= 0 && parsed <= 100;
+    if(write_priority_max_percentage_valid) {
+        write_priority_max_percentage = parsed;
+    }
 }
 
 void Config::set_max_query_len(const std::string& value) {
@@ -289,6 +309,11 @@ void Config::load_config_env() {
     }
 
     this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+
+    if(!get_env("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE").empty()) {
+        set_write_priority_max_percentage(get_env("TYPESENSE_WRITE_PRIORITY_MAX_PERCENTAGE"));
+    }
+
     this->enable_lazy_filter = ("TRUE" == get_env("TYPESENSE_ENABLE_LAZY_FILTER"));
     this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
 
@@ -558,6 +583,10 @@ void Config::load_config_file(cmdline::parser& options) {
         this->skip_writes = (skip_writes_str == "true");
     }
 
+    if(reader.Exists("server", "write-priority-max-percentage")) {
+        set_write_priority_max_percentage(reader.Get("server", "write-priority-max-percentage", ""));
+    }
+
     if(reader.Exists("server", "reset-peers-on-error")) {
         auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
         this->reset_peers_on_error = (reset_peers_on_error_str == "true");
@@ -786,6 +815,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("skip-writes")) {
         this->skip_writes = options.get<bool>("skip-writes");
+    }
+
+    if(options.exist("write-priority-max-percentage")) {
+        set_write_priority_max_percentage(options.get<std::string>("write-priority-max-percentage"));
     }
 
     if(options.exist("reset-peers-on-error")) {

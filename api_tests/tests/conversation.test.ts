@@ -72,7 +72,7 @@ describe(Phases.MULTI_FRESH, () => {
         system_prompt:
           "You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.",
         history_collection: "conversation_store",
-        model_name: "openai/gpt-3.5-turbo-0125",
+        model_name: "openai/gpt-5.6-terra",
         max_bytes: 16384,
         api_key: Bun.env.OPEN_AI_API_KEY ?? "sk-random",
       }),
@@ -82,7 +82,7 @@ describe(Phases.MULTI_FRESH, () => {
     const data = CreateConversationModelResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
     expect(data.data?.id).toBe("model-1");
-    expect(data.data?.model_name).toBe("openai/gpt-3.5-turbo-0125");
+    expect(data.data?.model_name).toBe("openai/gpt-5.6-terra");
     expect(data.data?.system_prompt).toBe("You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.");
     expect(data.data?.history_collection).toBe("conversation_store");
     expect(data.data?.max_bytes).toBe(16384);
@@ -99,7 +99,7 @@ describe(Phases.MULTI_RESTARTED, async () => {
     const data = CreateConversationModelResponse.safeParse(await res.json());
     expect(data.success).toBe(true);
     expect(data.data?.id).toBe("model-1");
-    expect(data.data?.model_name).toBe("openai/gpt-3.5-turbo-0125");
+    expect(data.data?.model_name).toBe("openai/gpt-5.6-terra");
     expect(data.data?.system_prompt).toBe("You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.");
     expect(data.data?.history_collection).toBe("conversation_store");
     expect(data.data?.max_bytes).toBe(16384);
@@ -112,7 +112,7 @@ describe(Phases.MULTI_RESTARTED, async () => {
     const data2 = CreateConversationModelResponse.safeParse(await res2.json());
     expect(data2.success).toBe(true);
     expect(data2.data?.id).toBe("model-1");
-    expect(data2.data?.model_name).toBe("openai/gpt-3.5-turbo-0125");
+    expect(data2.data?.model_name).toBe("openai/gpt-5.6-terra");
     expect(data2.data?.system_prompt).toBe("You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.");
     expect(data2.data?.history_collection).toBe("conversation_store");
     expect(data2.data?.max_bytes).toBe(16384);
@@ -125,7 +125,7 @@ describe(Phases.MULTI_RESTARTED, async () => {
     const data3 = CreateConversationModelResponse.safeParse(await res3.json());
     expect(data3.success).toBe(true);
     expect(data3.data?.id).toBe("model-1");
-    expect(data3.data?.model_name).toBe("openai/gpt-3.5-turbo-0125");
+    expect(data3.data?.model_name).toBe("openai/gpt-5.6-terra");
     expect(data3.data?.system_prompt).toBe("You are an assistant for question-answering like Paul Graham. You can only make conversations based on the provided context. If a response cannot be formed strictly using the context, politely say you don't have knowledge about that topic. Do not answer questions that are not strictly on the topic of Paul Graham'''s essays.");
     expect(data3.data?.history_collection).toBe("conversation_store");
     expect(data3.data?.max_bytes).toBe(16384);

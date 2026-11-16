@@ -151,8 +151,4 @@ struct filter_node_t {
 
         return *this;
     }
-
-    bool is_match_all_ids_filter() const {
-        return !isOperator && filter_exp.field_name == "id" && !filter_exp.values.empty() &&  filter_exp.values[0] == "*";
-    }
 };

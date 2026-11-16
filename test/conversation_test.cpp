@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "conversation_manager.h"
 #include "conversation_model.h"
+#include "test_tmp_path.h"
 
 
 class ConversationTest : public ::testing::Test {
@@ -15,7 +16,7 @@ class ConversationTest : public ::testing::Test {
             "ttl": 86400
         })"_json;
         void SetUp() override {
-            std::string state_dir_path = "/tmp/typesense_test/conversation_test";
+            std::string state_dir_path = test_tmp_path("/conversation_test");
             system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
             store = new Store(state_dir_path);

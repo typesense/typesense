@@ -139,7 +139,7 @@ cc_binary(
 
 filegroup(
     name = "test_src_files",
-    srcs = glob(["test/*.cpp"]),
+    srcs = glob(["test/*.cpp", "test/*.h"]),
 )
 
 filegroup(
@@ -180,6 +180,7 @@ config_setting(
 
 cc_test(
     name = "typesense-test",
+    shard_count = 8,
     srcs = [
         ":src_files",
         ":test_src_files",

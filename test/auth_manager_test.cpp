@@ -5,6 +5,7 @@
 #include "auth_manager.h"
 #include "core_api.h"
 #include <collection_manager.h>
+#include "test_tmp_path.h"
 
 static const size_t FUTURE_TS = 64723363199;
 
@@ -16,7 +17,7 @@ protected:
     std::atomic<bool> quit = false;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/auth_manager_test_db";
+        std::string state_dir_path = test_tmp_path("/auth_manager_test_db");
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
@@ -355,6 +356,64 @@ TEST_F(AuthManagerTest, AppendsEmbeddedJoinFilterWithoutMerging) {
     params["filter_by"] = "$iso(id:=zzz) || amt:>0";
     ASSERT_TRUE(AuthManager::add_item_to_params(params, *embedded_params.items().begin(), true));
     ASSERT_EQ("($iso(id:=zzz) || amt:>0) && ($iso(tenant:=A))", params["filter_by"]);
+}
+
+TEST_F(AuthManagerTest, ScopedPresetCollectionAuthorization) {
+    spp::sparse_hash_map<std::string, nlohmann::json> presets = {
+        {"allowed", {{"collection", "allowed"}}},
+        {"blocked", {{"collection", "blocked"}}},
+        {"missing_collection", {{"q", "*"}}},
+        {"empty_collection", {{"collection", ""}}},
+        {"invalid_collection", {{"collection", 42}}},
+        {"multi", {{"collection", "blocked"}, {"searches", nlohmann::json::array()}}},
+        {"scalar", "blocked"}
+    };
+    api_key_t parent("PresetCollectionParent", "preset parent", {"documents:search"}, {"allowed"}, FUTURE_TS);
+    ASSERT_TRUE(auth_manager.create_key(parent).ok());
+    std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded(1);
+    auto authenticate = [&](const nlohmann::json& payload, const std::string& collection = "",
+                            const std::string& signing_key = "") {
+        const auto raw = payload.dump();
+        const auto key = StringUtils::base64_encode(
+            StringUtils::hmac(signing_key.empty() ? parent.value : signing_key, raw) +
+            parent.value.substr(0, api_key_t::PREFIX_LEN) + raw);
+        embedded[0] = nlohmann::json();
+        return auth_manager.authenticate("documents:search", {collection_key_t(collection, key)},
+                                         params, embedded, &presets);
+    };
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}, {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "blocked"}}));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "blocked"}}));
+    ASSERT_TRUE(authenticate({{"preset", "blocked"}}, "allowed"));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}, "blocked"));
+    ASSERT_TRUE(authenticate({{"preset", "blocked"}, {"collection", "allowed"}}));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"collection", "blocked"}}, "allowed"));
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"collection", 42}}));
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}, {"collection", ""}}));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+
+    for(const auto& name: {"missing", "missing_collection", "empty_collection", "invalid_collection", "multi", "scalar"}) {
+        SCOPED_TRACE(name);
+        ASSERT_TRUE(authenticate({{"preset", name}}));
+        ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    }
+    ASSERT_TRUE(authenticate({{"preset", 42}}));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_TRUE(authenticate(nlohmann::json::object()));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}, "", "incorrect signing key"));
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"expires_at", 1}}));
+
+    parent.collections = {"allow.*"};
+    ASSERT_TRUE(auth_manager.update_key(parent.id, api_key_t(parent)).ok());
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}}));
+    ASSERT_FALSE(authenticate({{"preset", "blocked"}}));
+    parent.actions = {"documents:*"};
+    ASSERT_TRUE(auth_manager.update_key(parent.id, api_key_t(parent)).ok());
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}));
 }
 
 TEST_F(AuthManagerTest, ScopedAPIKeys) {

@@ -69,6 +69,9 @@ private:
 
     std::atomic<bool> skip_writes;
 
+    std::atomic<int> write_priority_max_percentage;
+    bool write_priority_max_percentage_valid = true;
+
     std::atomic<int> log_slow_searches_time_ms;
 
     std::atomic<bool> reset_peers_on_error;
@@ -136,6 +139,7 @@ protected:
         this->disk_used_max_percentage = 100;
         this->memory_used_max_percentage = 100;
         this->skip_writes = false;
+        this->write_priority_max_percentage = 25;
         this->log_slow_searches_time_ms = 30 * 1000;
         this->reset_peers_on_error = false;
 
@@ -295,6 +299,12 @@ public:
     void set_embedding_cache_num_entries(uint32_t embedding_cache_num_entries) {
         this->embedding_cache_num_entries = embedding_cache_num_entries;
     }
+
+    void set_write_priority_max_percentage(int write_priority_max_percentage) {
+        this->write_priority_max_percentage = write_priority_max_percentage;
+    }
+
+    void set_write_priority_max_percentage(const std::string& value);
 
     void set_skip_writes(bool skip_writes) {
         this->skip_writes = skip_writes;
@@ -520,6 +530,10 @@ public:
         return skip_writes;
     }
 
+    int get_write_priority_max_percentage() const {
+        return write_priority_max_percentage;
+    }
+
     int get_max_per_page() const {
         return this->max_per_page;
     }
@@ -607,6 +621,10 @@ public:
 
         if(!max_query_len_valid) {
             return Option<bool>(500, "Invalid value for `max-query-len`; expected a non-negative integer.");
+        }
+
+        if(!write_priority_max_percentage_valid) {
+            return Option<bool>(500, "Invalid value for `write-priority-max-percentage`; expected an integer between 0 and 100.");
         }
 
         if(data_dir.empty()) {
