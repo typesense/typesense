@@ -3926,6 +3926,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         const bool do_stemming = found_search_field && search_field_it->stem;
+        const bool normalize_dictionary = do_stemming && (search_field_it->locale.empty() ||
+                                          search_field_it->locale == "en" || search_field_it->locale == "de_en");
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {
@@ -3935,7 +3937,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::string token_val = q_syn_vec[j];
                 if (do_stemming) {
                     auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-                    token_val = stemmer->stem(q_syn_vec[j]);
+                    token_val = stemmer->stem(q_syn_vec[j], normalize_dictionary);
                 }
                 q_pos_syn.emplace_back(j, token_val, is_prefix, token_val.size(), 0);
             }
@@ -4082,7 +4084,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                 if(i < truncated_len) {
                                     if (do_stemming) {
                                         auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value, normalize_dictionary);
                                     }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
@@ -4097,7 +4099,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                 if(i >= start_index) {
                                     if (do_stemming) {
                                         auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value);
+                                        orig_tokens[i].value = stemmer->stem(orig_tokens[i].value, normalize_dictionary);
                                     }
                                     truncated_tokens.emplace_back(orig_tokens[i]);
                                 } else {
