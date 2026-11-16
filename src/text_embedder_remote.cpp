@@ -127,7 +127,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
     req_body["model"] = model_name_without_namespace;
 
-    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
+    if(should_send_dimensions(has_custom_dims, model_name_without_namespace)) {
         req_body["dimensions"] = num_dims;
     }
 
@@ -166,9 +166,48 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
+bool OpenAIEmbedder::is_dimensions_unsupported(const embedding_res_t& res) {
+    if(res.success || res.status_code != 400 || !res.error.is_object()) {
+        return false;
+    }
+
+    auto error_it = res.error.find("error");
+    if(error_it == res.error.end() || !error_it->is_string()) {
+        return false;
+    }
+
+    return error_it->get<std::string>().find("does not support specifying dimensions") != std::string::npos;
+}
+
+bool OpenAIEmbedder::has_num_dims(const embedding_res_t& res, const size_t num_dims) {
+    return res.success && res.embedding.size() == num_dims;
+}
+
+bool OpenAIEmbedder::has_num_dims(const std::vector<embedding_res_t>& outputs, const size_t num_dims) {
+    for(const auto& res : outputs) {
+        if(!has_num_dims(res, num_dims)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 embedding_res_t OpenAIEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     std::shared_lock<std::shared_mutex> lock(mutex);
-    return embed_query(get_embedding_url(), text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, has_custom_dims, openai_model_path.substr(7), OpenAIEmbedderType::OPENAI);
+    const std::string model_name = openai_model_path.substr(7);
+    const bool custom_dims = has_custom_dims.load();
+    auto res = embed_query(get_embedding_url(), text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, custom_dims, model_name, OpenAIEmbedderType::OPENAI);
+    if(!should_send_dimensions(custom_dims, model_name) || !is_dimensions_unsupported(res)) {
+        return res;
+    }
+
+    auto retry_res = embed_query(get_embedding_url(), text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, false, model_name, OpenAIEmbedderType::OPENAI);
+    if(!has_num_dims(retry_res, num_dims)) {
+        return res;
+    }
+
+    has_custom_dims.store(false);
+    return retry_res;
 }
 
 embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries, 
@@ -191,7 +230,7 @@ embedding_res_t OpenAIEmbedder::embed_query(const std::string url, const std::st
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
-    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
+    if(should_send_dimensions(has_custom_dims, model_name)) {
         req_body["dimensions"] = num_dims;
     }
     // remove "openai/" prefix
@@ -231,9 +270,24 @@ std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::vector<s
         return outputs;
     }
 
-    return embed_documents(get_embedding_url(), inputs, remote_embedding_timeout_ms, 
-                       remote_embedding_num_tries, api_key, num_dims, has_custom_dims, openai_model_path.substr(7), 
+    const std::string model_name = openai_model_path.substr(7);
+    const bool custom_dims = has_custom_dims.load();
+    auto outputs = embed_documents(get_embedding_url(), inputs, remote_embedding_timeout_ms,
+                       remote_embedding_num_tries, api_key, num_dims, custom_dims, model_name,
                        OpenAIEmbedderType::OPENAI);
+    if(outputs.empty() || !should_send_dimensions(custom_dims, model_name) || !is_dimensions_unsupported(outputs[0])) {
+        return outputs;
+    }
+
+    auto retry_outputs = embed_documents(get_embedding_url(), inputs, remote_embedding_timeout_ms,
+                       remote_embedding_num_tries, api_key, num_dims, false, model_name,
+                       OpenAIEmbedderType::OPENAI);
+    if(!has_num_dims(retry_outputs, num_dims)) {
+        return outputs;
+    }
+
+    has_custom_dims.store(false);
+    return retry_outputs;
 }
 
 std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::string url, const std::vector<std::string>& inputs, const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, 
@@ -242,7 +296,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::embed_documents(const std::string u
     nlohmann::json req_body;
     std::unordered_map<std::string, std::string> headers;
     req_body["input"] = inputs;
-    if(has_custom_dims && model_name != "openai/text-embedding-ada-002") {
+    if(should_send_dimensions(has_custom_dims, model_name)) {
         req_body["dimensions"] = num_dims;
     }
     if(embedder_type == OpenAIEmbedderType::OPENAI) {
@@ -1101,8 +1155,19 @@ Option<bool> AzureEmbedder::is_model_valid(const nlohmann::json& model_config, s
 
 embedding_res_t AzureEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     std::shared_lock<std::shared_mutex> lock(mutex);
+    const bool custom_dims = has_custom_dims.load();
+    auto res = OpenAIEmbedder::embed_query(azure_url, text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, custom_dims, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    if(!OpenAIEmbedder::should_send_dimensions(custom_dims, "") || !OpenAIEmbedder::is_dimensions_unsupported(res)) {
+        return res;
+    }
 
-    return OpenAIEmbedder::embed_query(azure_url, text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, has_custom_dims, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    auto retry_res = OpenAIEmbedder::embed_query(azure_url, text, remote_embedder_timeout_ms, remote_embedding_num_tries, api_key, num_dims, false, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    if(!OpenAIEmbedder::has_num_dims(retry_res, num_dims)) {
+        return res;
+    }
+
+    has_custom_dims.store(false);
+    return retry_res;
 }
 
 std::vector<embedding_res_t> AzureEmbedder::embed_documents(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
@@ -1118,7 +1183,19 @@ std::vector<embedding_res_t> AzureEmbedder::embed_documents(const std::vector<st
         return outputs;
     }
     
-    return OpenAIEmbedder::embed_documents(azure_url, inputs, remote_embedding_timeout_ms, remote_embedding_num_tries, api_key, num_dims, has_custom_dims, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    const bool custom_dims = has_custom_dims.load();
+    auto outputs = OpenAIEmbedder::embed_documents(azure_url, inputs, remote_embedding_timeout_ms, remote_embedding_num_tries, api_key, num_dims, custom_dims, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    if(outputs.empty() || !OpenAIEmbedder::should_send_dimensions(custom_dims, "") || !OpenAIEmbedder::is_dimensions_unsupported(outputs[0])) {
+        return outputs;
+    }
+
+    auto retry_outputs = OpenAIEmbedder::embed_documents(azure_url, inputs, remote_embedding_timeout_ms, remote_embedding_num_tries, api_key, num_dims, false, "", OpenAIEmbedder::OpenAIEmbedderType::AZURE_OPENAI);
+    if(!OpenAIEmbedder::has_num_dims(retry_outputs, num_dims)) {
+        return outputs;
+    }
+
+    has_custom_dims.store(false);
+    return retry_outputs;
 }
 
 nlohmann::json AzureEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
