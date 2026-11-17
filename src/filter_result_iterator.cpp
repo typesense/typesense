@@ -3238,6 +3238,11 @@ void filter_result_iterator_t::compute_iterators() {
             // computed by the intersecting plan too, so falling back here costs nothing.
             if (wide_it->approx_filter_ids_length >=
                     AND_PROBE_RATIO * std::max<uint64_t>(1, (uint64_t) narrow_result.count)) {
+                // The narrow side's ids start from its first one, but the wide side may stand past some of them:
+                // this node's lazy `init` moves it up to the first id both sides match. A `!=` leaf moved past an id
+                // it excludes lets that id through when asked about it again, so start the wide side over.
+                wide_it->reset();
+
                 if (narrow_result.count > 0) {
                     filter_result.docs = new uint32_t[narrow_result.count];
                 }
