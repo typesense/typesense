@@ -174,7 +174,8 @@ uint32_t AuthManager::get_next_api_key_id() {
 bool AuthManager::authenticate(const std::string& action,
                                const std::vector<collection_key_t>& collection_keys,
                                std::map<std::string, std::string>& params,
-                               std::vector<nlohmann::json>& embedded_params_vec) const {
+                               std::vector<nlohmann::json>& embedded_params_vec,
+                               const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) const {
 
     std::shared_lock lock(mutex);
     //LOG(INFO) << "AuthManager::authenticate()";
@@ -198,9 +199,13 @@ bool AuthManager::authenticate(const std::string& action,
             if(!auth_against_key(coll_key.collection, action, api_key, false)) {
                 return false;
             }
+            if((action == DOCUMENTS_SEARCH_ACTION || action == DOCUMENTS_GET_ACTION ||
+                action == DOCUMENTS_EXPORT_ACTION) && !api_key.joins.is_null()) {
+                embedded_params[AUTH_JOIN_POLICY_PARAM] = api_key.joins;
+            }
         } else {
             // could be a scoped API key
-            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params);
+            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params, preset_configs);
             if(!auth_op.ok()) {
                 return false;
             }
@@ -248,9 +253,25 @@ std::string AuthManager::get_api_key_prefix(const std::string& value) const {
 
 namespace {
 Option<std::string> resolve_scoped_search_collection(const std::string& request_collection,
-                                                     const nlohmann::json& embedded_params) {
+                                                     const nlohmann::json& embedded_params,
+                                                     const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) {
     const auto collection_it = embedded_params.find("collection");
     if(collection_it == embedded_params.end()) {
+        if(!request_collection.empty() || preset_configs == nullptr) {
+            return Option<std::string>(request_collection);
+        }
+        const auto preset_it = embedded_params.find("preset");
+        if(preset_it != embedded_params.end() && preset_it->is_string()) {
+            const auto config_it = preset_configs->find(preset_it->get<std::string>());
+            if(config_it != preset_configs->end() && config_it->second.is_object() &&
+               !config_it->second.contains("searches")) {
+                const auto preset_collection_it = config_it->second.find("collection");
+                if(preset_collection_it != config_it->second.end() && preset_collection_it->is_string() &&
+                   !preset_collection_it->get_ref<const std::string&>().empty()) {
+                    return Option<std::string>(preset_collection_it->get<std::string>());
+                }
+            }
+        }
         return Option<std::string>(request_collection);
     }
 
@@ -344,7 +365,8 @@ bool AuthManager::auth_against_key(const std::string& req_collection, const std:
 }
 
 Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
-                                                    nlohmann::json& embedded_params) const {
+                                                    nlohmann::json& embedded_params,
+                                                    const spp::sparse_hash_map<std::string, nlohmann::json>* preset_configs) const {
 
     // allow only searches from scoped keys
     if(action != DOCUMENTS_SEARCH_ACTION) {
@@ -386,7 +408,11 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
                 return Option<bool>(403, "Forbidden.");
             }
 
-            auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params);
+            // This is reserved authentication state. A scoped-key payload must not be able to
+            // forge or broaden the policy inherited from its parent key.
+            embedded_params.erase(AUTH_JOIN_POLICY_PARAM);
+
+            auto effective_collection_op = resolve_scoped_search_collection(scoped_api_key.collection, embedded_params, preset_configs);
             if(!effective_collection_op.ok()) {
                 LOG(ERROR) << effective_collection_op.error();
                 return Option<bool>(403, "Forbidden.");
@@ -413,6 +439,9 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
                 }
             }
 
+            if(!root_api_key.joins.is_null()) {
+                embedded_params[AUTH_JOIN_POLICY_PARAM] = root_api_key.joins;
+            }
             embedded_params[AUTH_RESOLVED_COLLECTION_PARAM] = effective_collection;
             return Option<bool>(true);
         }
@@ -470,6 +499,35 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
     if(key_obj.count("expires_at") != 0) {
         if(!key_obj["expires_at"].is_number_integer() || key_obj["expires_at"].get<int64_t>() < 0) {
             return Option<uint32_t>(400,"Wrong format for `expires_at`. It should be an unsigned integer.");
+        }
+    }
+
+    if(key_obj.count("joins") != 0) {
+        const auto& joins = key_obj["joins"];
+        if(!joins.is_object()) {
+            return Option<uint32_t>(400, "Wrong format for `joins`. It should be an object.");
+        }
+
+        for(const auto& join_item: joins.items()) {
+            if(join_item.key().empty() || !join_item.value().is_object()) {
+                return Option<uint32_t>(400, "Each `joins` entry must have a non-empty collection name and an object value.");
+            }
+
+            for(const auto& policy_item: join_item.value().items()) {
+                if(policy_item.key() != "allowed_fields" && policy_item.key() != "denied_fields") {
+                    return Option<uint32_t>(400, "Unknown `joins` property `" + policy_item.key() + "`.");
+                }
+                if(!policy_item.value().is_array()) {
+                    return Option<uint32_t>(400, "`joins." + join_item.key() + "." + policy_item.key() +
+                                                     "` must be an array of strings.");
+                }
+                for(const auto& field_name: policy_item.value()) {
+                    if(!field_name.is_string()) {
+                        return Option<uint32_t>(400, "`joins." + join_item.key() + "." + policy_item.key() +
+                                                         "` must be an array of strings.");
+                    }
+                }
+            }
         }
     }
 

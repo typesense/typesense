@@ -5,6 +5,7 @@
 #include "auth_manager.h"
 #include "core_api.h"
 #include <collection_manager.h>
+#include "test_tmp_path.h"
 
 static const size_t FUTURE_TS = 64723363199;
 
@@ -16,7 +17,7 @@ protected:
     std::atomic<bool> quit = false;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/auth_manager_test_db";
+        std::string state_dir_path = test_tmp_path("/auth_manager_test_db");
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
@@ -357,6 +358,64 @@ TEST_F(AuthManagerTest, AppendsEmbeddedJoinFilterWithoutMerging) {
     ASSERT_EQ("($iso(id:=zzz) || amt:>0) && ($iso(tenant:=A))", params["filter_by"]);
 }
 
+TEST_F(AuthManagerTest, ScopedPresetCollectionAuthorization) {
+    spp::sparse_hash_map<std::string, nlohmann::json> presets = {
+        {"allowed", {{"collection", "allowed"}}},
+        {"blocked", {{"collection", "blocked"}}},
+        {"missing_collection", {{"q", "*"}}},
+        {"empty_collection", {{"collection", ""}}},
+        {"invalid_collection", {{"collection", 42}}},
+        {"multi", {{"collection", "blocked"}, {"searches", nlohmann::json::array()}}},
+        {"scalar", "blocked"}
+    };
+    api_key_t parent("PresetCollectionParent", "preset parent", {"documents:search"}, {"allowed"}, FUTURE_TS);
+    ASSERT_TRUE(auth_manager.create_key(parent).ok());
+    std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded(1);
+    auto authenticate = [&](const nlohmann::json& payload, const std::string& collection = "",
+                            const std::string& signing_key = "") {
+        const auto raw = payload.dump();
+        const auto key = StringUtils::base64_encode(
+            StringUtils::hmac(signing_key.empty() ? parent.value : signing_key, raw) +
+            parent.value.substr(0, api_key_t::PREFIX_LEN) + raw);
+        embedded[0] = nlohmann::json();
+        return auth_manager.authenticate("documents:search", {collection_key_t(collection, key)},
+                                         params, embedded, &presets);
+    };
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}, {AuthManager::AUTH_RESOLVED_COLLECTION_PARAM, "blocked"}}));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "blocked"}}));
+    ASSERT_TRUE(authenticate({{"preset", "blocked"}}, "allowed"));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}, "blocked"));
+    ASSERT_TRUE(authenticate({{"preset", "blocked"}, {"collection", "allowed"}}));
+    ASSERT_EQ("allowed", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"collection", "blocked"}}, "allowed"));
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"collection", 42}}));
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}, {"collection", ""}}));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+
+    for(const auto& name: {"missing", "missing_collection", "empty_collection", "invalid_collection", "multi", "scalar"}) {
+        SCOPED_TRACE(name);
+        ASSERT_TRUE(authenticate({{"preset", name}}));
+        ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    }
+    ASSERT_TRUE(authenticate({{"preset", 42}}));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_TRUE(authenticate(nlohmann::json::object()));
+    ASSERT_EQ("", embedded[0][AuthManager::AUTH_RESOLVED_COLLECTION_PARAM]);
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}, "", "incorrect signing key"));
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}, {"expires_at", 1}}));
+
+    parent.collections = {"allow.*"};
+    ASSERT_TRUE(auth_manager.update_key(parent.id, api_key_t(parent)).ok());
+    ASSERT_TRUE(authenticate({{"preset", "allowed"}}));
+    ASSERT_FALSE(authenticate({{"preset", "blocked"}}));
+    parent.actions = {"documents:*"};
+    ASSERT_TRUE(auth_manager.update_key(parent.id, api_key_t(parent)).ok());
+    ASSERT_FALSE(authenticate({{"preset", "allowed"}}));
+}
+
 TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::map<std::string, std::string> params;
     params["filter_by"] = "country:USA";
@@ -473,6 +532,78 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", " XhsdBdhehdDheruyhvbdhwjhHdhgyeHbfheR")}, empty_params, embedded_params));
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "cXYPvkNKRlQrBzVTEgY4a3FrZfZ2MEs4kFJ6all3eldwM GhKZnRId3Y3TT1RZmxZeYJmaWx0ZXJfYnkiOkJ1aWQ6OElVm1lUVm15SG9ZOHM4NUx2VFk4S2drNHJIMiJ9")}, empty_params, embedded_params));
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "SXZqcVdOWjVNNUVsY3ZiTW9YajQ1QnhrUXJaRzRaS0VhTlFvUmlvQ3gycz1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgw In0=")}, empty_params, embedded_params));
+}
+
+TEST_F(AuthManagerTest, JoinPolicyIsPersistedAndInheritedByScopedKeys) {
+    const auto joins = R"({
+        "authors": {
+            "allowed_fields": ["name"],
+            "denied_fields": ["private_notes"]
+        }
+    })"_json;
+    api_key_t parent("JoinPolicyKey", "join policy key", {"documents:search"}, {"books"}, FUTURE_TS,
+                     false, joins);
+    auto create_op = auth_manager.create_key(parent);
+    ASSERT_TRUE(create_op.ok());
+
+    auto stored_op = auth_manager.get_key(create_op.get().id, false);
+    ASSERT_TRUE(stored_op.ok());
+    ASSERT_EQ(joins, stored_op.get().joins);
+    ASSERT_EQ(joins, stored_op.get().to_json()["joins"]);
+
+    std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("books", parent.value)},
+                                              params, embedded_params));
+    ASSERT_EQ(joins, embedded_params[0]["__typesense_join_policy"]);
+
+    const std::string custom_params = R"({"filter_by":"id:*","__typesense_join_policy":{}})";
+    const std::string scoped_key = StringUtils::base64_encode(
+            StringUtils::hmac(parent.value, custom_params) + parent.value.substr(0, api_key_t::PREFIX_LEN) + custom_params);
+    embedded_params.assign(1, nlohmann::json::object());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("books", scoped_key)},
+                                              params, embedded_params));
+    ASSERT_EQ(joins, embedded_params[0]["__typesense_join_policy"]);
+}
+
+TEST_F(AuthManagerTest, ValidatesJoinPolicyShape) {
+    auto key_json = R"({
+        "description": "join policy",
+        "actions": ["documents:search"],
+        "collections": ["books"],
+        "joins": {"authors": {"allowed_fields": ["name"], "denied_fields": []}}
+    })"_json;
+    ASSERT_TRUE(api_key_t::validate(key_json).ok());
+
+    key_json["joins"] = nullptr;
+    auto validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("Wrong format for `joins`. It should be an object.", validate_op.error());
+
+    key_json["joins"] = nlohmann::json::array();
+    validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("Wrong format for `joins`. It should be an object.", validate_op.error());
+
+    key_json["joins"] = {{"authors", {{"allowed_fields", "name"}}}};
+    validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("`joins.authors.allowed_fields` must be an array of strings.", validate_op.error());
+
+    key_json["joins"] = {{"authors", {{"allowed_fields", nlohmann::json::array({"name", 10})}}}};
+    validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("`joins.authors.allowed_fields` must be an array of strings.", validate_op.error());
+
+    key_json["joins"] = {{"authors", {{"unknown", nlohmann::json::array()}}}};
+    validate_op = api_key_t::validate(key_json);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_EQ(400, validate_op.code());
+    ASSERT_EQ("Unknown `joins` property `unknown`.", validate_op.error());
 }
 
 TEST_F(AuthManagerTest, ResolvesScopedAPIKeyPrefix) {
@@ -714,6 +845,55 @@ TEST_F(AuthManagerTest, PatchKeyUpdateSingleField) {
     ASSERT_TRUE(updated_key.count("value_prefix") != 0);
     // id should be preserved
     ASSERT_EQ(created_key["id"].get<uint32_t>(), updated_key["id"].get<uint32_t>());
+}
+
+TEST_F(AuthManagerTest, PatchKeyCanRemoveJoinPolicy) {
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    req->body = R"({
+        "description": "restricted join key",
+        "actions": ["documents:search"],
+        "collections": ["books"],
+        "value": "patchjoins",
+        "joins": {"authors": {"allowed_fields": ["name"]}}
+    })";
+
+    ASSERT_TRUE(post_create_key(req, res));
+    ASSERT_EQ(201, res->status_code);
+    auto created_key = nlohmann::json::parse(res->body);
+    ASSERT_TRUE(created_key.contains("joins"));
+    const auto key_id = created_key["id"].get<uint32_t>();
+
+    // Omitting joins preserves the existing policy.
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = std::to_string(key_id);
+    req->body = R"({"description":"still restricted"})";
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+    auto updated_key = nlohmann::json::parse(res->body);
+    ASSERT_TRUE(updated_key.contains("joins"));
+
+    // Explicit null removes the policy and restores unrestricted join access.
+    req = std::make_shared<http_req>();
+    res = std::make_shared<http_res>(nullptr);
+    req->params["id"] = std::to_string(key_id);
+    req->body = R"({"joins":null})";
+    ASSERT_TRUE(patch_key(req, res));
+    ASSERT_EQ(200, res->status_code);
+    updated_key = nlohmann::json::parse(res->body);
+    ASSERT_FALSE(updated_key.contains("joins"));
+
+    auto& patched_auth_manager = collectionManager.getAuthManager();
+    auto stored_op = patched_auth_manager.get_key(key_id, false);
+    ASSERT_TRUE(stored_op.ok());
+    ASSERT_TRUE(stored_op.get().joins.is_null());
+
+    std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded_params(1, nlohmann::json::object());
+    ASSERT_TRUE(patched_auth_manager.authenticate("documents:search", {collection_key_t("books", "patchjoins")},
+                                                      params, embedded_params));
+    ASSERT_FALSE(embedded_params[0].contains("__typesense_join_policy"));
 }
 
 TEST_F(AuthManagerTest, PatchKeyUpdateMultipleFields) {

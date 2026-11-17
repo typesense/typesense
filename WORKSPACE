@@ -42,18 +42,29 @@ git_repository(
 )
 
 
+# Every source below is pinned to a commit: the onnxruntime build's cache key hashes this whole tree, so a
+# submodule that follows a branch makes CI rebuild it whenever that branch moves upstream.
 new_git_repository(
     name="onnx_runtime",
-    branch= "rel-1.14.1",
+    commit = "c57cf374b67f72575546d7b4c69a1af4972e2b54",  # rel-1.14.1
     build_file = "//bazel:onnxruntime.BUILD",
     remote= "https://github.com/microsoft/onnxruntime",
     patches=["//bazel:onnx.patch"],
-    patch_cmds= ["git submodule sync && git submodule foreach  'git fetch --tags' && git submodule update --init --remote"]
+    patch_cmds= [
+        # each submodule at a pinned commit (re-pointed in the index, then checked out once)
+        "git update-index --cacheinfo 160000,184492af172548edc76faa3922e5a8c6c62bce28,cmake/external/protobuf",  # 22.x
+        "git update-index --cacheinfo 160000,1ba785612a79fe749aa1e478336e534743372639,cmake/external/onnx",  # rel-1.13.0
+        "git update-index --cacheinfo 160000,b17f29a1d8e16998bd8a3bfa1f7f8c236d955a61,cmake/external/eigen",
+        "git update-index --cacheinfo 160000,a0448e5055e4740774e00d496f016d9fcd572200,cmake/external/libprotobuf-mutator",
+        "git update-index --cacheinfo 160000,d7b4130688bfa348392b921ab04015aa15c4f154,cmake/external/emsdk",
+        "git update-index --cacheinfo 160000,3859b3fd39fdb61761cfe8789e1f0c7d828a31e9,cmake/external/onnxruntime-extensions",  # rel-0.7
+        "git submodule update --init",
+    ],
 )
 
 new_git_repository(
     name="clip_tokenizer",
-    branch="master",
+    commit = "0ca1e2e2e7418108725eaa7fb93e029516ae63fa",
     remote="https://github.com/typesense/clip_tokenizer_cpp.git",
     build_file = "//bazel:clip_tokenizer.BUILD",
 )

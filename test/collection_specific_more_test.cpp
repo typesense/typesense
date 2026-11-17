@@ -4,11 +4,15 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <future>
+#include <thread>
 #include <collection_manager.h>
 #include <posting.h>
 #include "collection.h"
+#include "test_tmp_path.h"
 #include "synonym_index.h"
 #include "synonym_index_manager.h"
+#include "tsconfig.h"
 
 static nlohmann::json find_doc_by_id(const nlohmann::json& results, const std::string& doc_id) {
     for (const auto& hit : results["hits"]) {
@@ -30,7 +34,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+        std::string state_dir_path = test_tmp_path("/collection_specific_more");
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -2694,7 +2698,7 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2825,6 +2829,168 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
     ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, MixedFieldUnicodeHighlight) {
+    nlohmann::json schema = R"({
+        "name": "mixed_highlight",
+        "fields": [
+            {"name": "field1", "type": "string", "stem": true},
+            {"name": "field2", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto collection = create_op.get();
+    ASSERT_TRUE(collection->add(R"({"field1":"Something","field2":"Küche"})").ok());
+
+    std::map<std::string, std::string> params = {
+        {"collection", "mixed_highlight"}, {"q", "Küche"},
+        {"query_by", "field1,field2"}, {"highlight_full_fields", "field2"}
+    };
+    const std::vector<std::pair<std::string, std::string>> orders = {
+        {"field1,field2", "true"}, {"field2,field1", "true"},
+        {"field2", "true"}, {"field1,field2", "false"}
+    };
+    for(const auto& order: orders) {
+        SCOPED_TRACE(order.first + " prefix=" + order.second);
+        params["query_by"] = order.first;
+        params["prefix"] = order.second;
+        nlohmann::json embedded_params = nlohmann::json::object();
+        std::string result_json;
+        auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& highlight = result["hits"][0]["highlight"]["field2"];
+        EXPECT_EQ(nlohmann::json::array({"Küche"}), highlight["matched_tokens"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["snippet"]);
+        EXPECT_EQ("<mark>Küche</mark>", highlight["value"]);
+    }
+
+    params["q"] = "Küc";
+    params["query_by"] = "field1,field2";
+    params["prefix"] = "true";
+    nlohmann::json embedded_params = nlohmann::json::object();
+    std::string result_json;
+    auto search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    auto result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& highlight = result["hits"][0]["highlight"]["field2"];
+    EXPECT_EQ(nlohmann::json::array({"Küc"}), highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["snippet"]);
+    EXPECT_EQ("<mark>Küc</mark>he", highlight["value"]);
+
+    ASSERT_TRUE(collection->add(R"({"field1":"Something","field2":"Pre-orders"})").ok());
+    params["q"] = "Pre-orders";
+    search_op = CollectionManager::do_search(params, embedded_params, result_json, 0);
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    result = nlohmann::json::parse(result_json);
+    ASSERT_EQ(1, result["hits"].size());
+    const auto& ascii_highlight = result["hits"][0]["highlight"]["field2"];
+    EXPECT_EQ(nlohmann::json::array({"Pre-orders"}), ascii_highlight["matched_tokens"]);
+    EXPECT_EQ("<mark>Pre-orders</mark>", ascii_highlight["snippet"]);
+    EXPECT_EQ("<mark>Pre-orders</mark>", ascii_highlight["value"]);
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightSkippedSymbolsAndTypoBoundaries) {
+    nlohmann::json schema = R"({"name":"highlight_boundaries","fields":[
+        {"name":"field1","type":"string","stem":true},
+        {"name":"text","type":"string","facet":true}]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto collection = created.get();
+    struct Case { const char* text; const char* query; const char* token; const char* marked; };
+    const std::vector<Case> cases = {
+        {"Kü-che, next", "Küche", "Kü-che", "<mark>Kü-che</mark>, next"},
+        {"hello Kü---che, next", "Küche", "Kü---che", "hello <mark>Kü---che</mark>, next"},
+        {"K-üche", "Küche", "K-üche", "<mark>K-üche</mark>"},
+        {"Kü-che", "Kü", "Kü", "<mark>Kü</mark>-che"},
+        {"a中-che", "a中", "a中", "<mark>a中</mark>-che"},
+        {"a𐐀-che", "a𐐀", "a𐐀", "<mark>a𐐀</mark>-che"},
+        {"samsun", "smsu", "samsun", "<mark>samsun</mark>"},
+        {"samsung", "smsu", "samsung", "<mark>samsung</mark>"},
+        {"samsungx", "smsu", "sams", "<mark>sams</mark>ungx"},
+        {"samsuné", "smsu", "samsuné", "<mark>samsuné</mark>"},
+        {"samsun中", "smsu", "samsun中", "<mark>samsun中</mark>"},
+        {"samsun😀", "smsu", "samsun😀", "<mark>samsun😀</mark>"},
+    };
+    for(size_t i = 0; i < cases.size(); i++) {
+        const auto& c = cases[i];
+        SCOPED_TRACE(c.text);
+        nlohmann::json doc = {{"id", std::to_string(i)}, {"field1", "Something"}, {"text", c.text}};
+        ASSERT_TRUE(collection->add(doc.dump()).ok());
+        std::map<std::string, std::string> params = {
+            {"collection", "highlight_boundaries"}, {"q", c.query}, {"query_by", "field1,text"},
+            {"filter_by", "id:=" + std::to_string(i)}, {"highlight_full_fields", "text"}, {"num_typos", "2"}
+        };
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result_json;
+        auto search = CollectionManager::do_search(params, embedded, result_json, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& hit = result["hits"][0];
+        ASSERT_EQ(1, hit["highlights"].size());
+        for(const auto& highlight: {hit["highlight"]["text"], hit["highlights"][0]}) {
+            EXPECT_EQ(nlohmann::json::array({c.token}), highlight["matched_tokens"]);
+            EXPECT_EQ(c.marked, highlight["snippet"]);
+            EXPECT_EQ(c.marked, highlight["value"]);
+        }
+    }
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightTokenSettingsAndFacetPrefixes) {
+    for(const auto& mode: {std::string("skip"), std::string("indexed"), std::string("separator"),
+                           std::string("collection_indexed"), std::string("collection_separator")}) {
+        SCOPED_TRACE(mode);
+        nlohmann::json text_field = {{"name", "text"}, {"type", "string"}, {"facet", true}};
+        if(mode == "indexed") text_field["symbols_to_index"] = nlohmann::json::array({"-"});
+        if(mode == "separator") text_field["token_separators"] = nlohmann::json::array({"-"});
+        nlohmann::json schema = {{"name", "highlight_" + mode}, {"fields", nlohmann::json::array({
+            {{"name", "field1"}, {"type", "string"}, {"stem", true}}, text_field})}};
+        if(mode == "collection_indexed") schema["symbols_to_index"] = nlohmann::json::array({"-"});
+        if(mode == "collection_separator") schema["token_separators"] = nlohmann::json::array({"-"});
+        auto created = collectionManager.create_collection(schema);
+        ASSERT_TRUE(created.ok()) << created.error();
+        ASSERT_TRUE(created.get()->add(R"({"field1":"Something","text":"Kü-che"})").ok());
+        std::map<std::string, std::string> params = {{"collection", "highlight_" + mode},
+            {"q", "Kü"}, {"query_by", "field1,text"}, {"highlight_full_fields", "text"}};
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string result_json;
+        auto search = CollectionManager::do_search(params, embedded, result_json, 0);
+        ASSERT_TRUE(search.ok()) << search.error();
+        auto result = nlohmann::json::parse(result_json);
+        ASSERT_EQ(1, result["hits"].size());
+        const auto& legacy = result["hits"][0]["highlights"][0];
+        EXPECT_EQ(nlohmann::json::array({"Kü"}), legacy["matched_tokens"]);
+        EXPECT_EQ("<mark>Kü</mark>-che", legacy["snippet"]);
+        EXPECT_EQ(legacy["snippet"], legacy["value"]);
+        if(mode == "skip" || mode == "collection_indexed" || mode == "collection_separator") {
+            const auto& structured = result["hits"][0]["highlight"]["text"];
+            EXPECT_EQ(nlohmann::json::array({"Kü"}), structured["matched_tokens"]);
+            EXPECT_EQ("<mark>Kü</mark>-che", structured["snippet"]);
+            EXPECT_EQ(structured["snippet"], structured["value"]);
+        }
+        if(mode == "skip") {
+            params["q"] = "*";
+            params["facet_by"] = "text";
+            params["facet_query"] = "text:Küche";
+            search = CollectionManager::do_search(params, embedded, result_json, 0);
+            ASSERT_TRUE(search.ok()) << search.error();
+            result = nlohmann::json::parse(result_json);
+            ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+            EXPECT_EQ("<mark>Kü-che</mark>", result["facet_counts"][0]["counts"][0]["highlighted"]);
+            ASSERT_TRUE(created.get()->add(R"({"field1":"Something","text":"samsung"})").ok());
+            params["facet_query"] = "text:smsu";
+            search = CollectionManager::do_search(params, embedded, result_json, 0);
+            ASSERT_TRUE(search.ok()) << search.error();
+            result = nlohmann::json::parse(result_json);
+            ASSERT_EQ(1, result["facet_counts"][0]["counts"].size());
+            EXPECT_EQ("<mark>sams</mark>ung", result["facet_counts"][0]["counts"][0]["highlighted"]);
+        }
+    }
 }
 
 TEST_F(CollectionSpecificMoreTest, StemmingEnglish) {
@@ -3230,7 +3396,7 @@ TEST_F(CollectionSpecificMoreTest, StoreFalseNonOptionalFieldSurvivesRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
     stemmerManager.init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
@@ -3362,7 +3528,7 @@ TEST_F(CollectionSpecificMoreTest, PopulateIncludeExcludeFields) {
             })"_json
     };
 
-    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir(test_models_dir());
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3474,6 +3640,139 @@ TEST_F(CollectionSpecificMoreTest, IgnoreMissingQueryByFields) {
     auto res = res_op.get();
     ASSERT_EQ(0, res["hits"].size());
     ASSERT_EQ(0, res["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, IgnoreUnresolvedDollarQueryByFields) {
+    auto schema = R"({"name":"query_fields","fields":[
+        {"name":"title","type":"string","infix":true},
+        {"name":"description","type":"string","infix":true},
+        {"name":"$present","type":"string"},
+        {"name":"number","type":"int32"},
+        {"name":"hidden","type":"string","index":false}
+    ]})"_json;
+    auto created = collectionManager.create_collection(schema);
+    ASSERT_TRUE(created.ok()) << created.error();
+    auto coll = created.get();
+    ASSERT_TRUE(coll->add(R"({"id":"1","title":"hello","description":"other","$present":"hello","number":1,"hidden":"hello"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"2","title":"other","description":"hello","$present":"other","number":2,"hidden":"other"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"3","title":"helloworld","description":"xhello","$present":"other","number":3,"hidden":"other"})").ok());
+
+    auto search = [&](std::map<std::string, std::string> params, nlohmann::json& result) {
+        params["collection"] = "query_fields";
+        nlohmann::json embedded;
+        std::string output;
+        auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, output, now);
+        if(op.ok()) result = nlohmann::json::parse(output);
+        return op;
+    };
+    auto ids = [](const nlohmann::json& result) {
+        std::vector<std::string> values;
+        for(const auto& hit : result["hits"]) values.push_back(hit["document"]["id"].get<std::string>());
+        return values;
+    };
+    for(const auto& q : {"hello", "*"}) {
+        nlohmann::json ordinary;
+        auto control = search({{"q",q}, {"query_by","missing"}, {"validate_field_names","false"}}, ordinary);
+        ASSERT_TRUE(control.ok()) << control.error();
+        for(const auto& fields : {"$foo", "missing,$foo", "$foo,missing"}) {
+            nlohmann::json result;
+            auto op = search({{"q",q}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+            EXPECT_TRUE(op.ok()) << fields << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ordinary["found"], result["found"]);
+                EXPECT_EQ(ids(ordinary), ids(result));
+            }
+        }
+    }
+    for(const auto& q : {"hello", "*"}) {
+        nlohmann::json control;
+        ASSERT_TRUE(search({{"q",q}, {"query_by","title"}, {"validate_field_names","false"}}, control).ok());
+        for(const auto& fields : {"title,$foo", "$foo,title"}) {
+            nlohmann::json result;
+            auto op = search({{"q",q}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+            EXPECT_TRUE(op.ok()) << fields << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ids(control), ids(result));
+            }
+        }
+    }
+    // Distinct options ensure each surviving field retains its original position.
+    for(const auto& q : {"hello", "hell", "helo", "ello"}) {
+        std::map<std::string, std::string> base = {{"q",q}, {"query_by","title,description"},
+            {"query_by_weights","10,1"}, {"num_typos","0,1"}, {"prefix","false,true"},
+            {"infix","off,always"}, {"validate_field_names","false"}};
+        nlohmann::json control;
+        auto control_op = search(base, control);
+        ASSERT_TRUE(control_op.ok()) << control_op.error();
+        for(int position = 0; position < 3; position++) {
+            auto params = base;
+            if(position == 0) {
+                params["query_by"] = "$foo,title,description"; params["query_by_weights"] = "3,10,1";
+                params["num_typos"] = "2,0,1"; params["prefix"] = "true,false,true"; params["infix"] = "always,off,always";
+            } else if(position == 1) {
+                params["query_by"] = "title,$foo,description"; params["query_by_weights"] = "10,3,1";
+                params["num_typos"] = "0,2,1"; params["prefix"] = "false,true,true"; params["infix"] = "off,always,always";
+            } else {
+                params["query_by"] = "title,description,$foo"; params["query_by_weights"] = "10,1,3";
+                params["num_typos"] = "0,1,2"; params["prefix"] = "false,true,true"; params["infix"] = "off,always,always";
+            }
+            nlohmann::json result;
+            auto op = search(params, result);
+            EXPECT_TRUE(op.ok()) << q << " position " << position << ": " << op.error();
+            if(op.ok()) {
+                EXPECT_EQ(ids(control), ids(result)) << q << " position " << position;
+            }
+        }
+    }
+    // Isolate prefix matching from infix and typo matching.
+    std::map<std::string, std::string> prefix_params = {{"q","hell"}, {"query_by","title,description"},
+        {"num_typos","0,0"}, {"prefix","false,true"}, {"infix","off,off"},
+        {"validate_field_names","false"}};
+    nlohmann::json prefix_control, no_prefix;
+    auto prefix_op = search(prefix_params, prefix_control);
+    ASSERT_TRUE(prefix_op.ok()) << prefix_op.error();
+    prefix_params["prefix"] = "false,false";
+    auto no_prefix_op = search(prefix_params, no_prefix);
+    ASSERT_TRUE(no_prefix_op.ok()) << no_prefix_op.error();
+    EXPECT_EQ((std::vector<std::string>{"2"}), ids(prefix_control));
+    EXPECT_TRUE(ids(no_prefix).empty());
+    for(int position = 0; position < 3; position++) {
+        auto params = prefix_params;
+        if(position == 0) {
+            params["query_by"] = "$foo,title,description"; params["prefix"] = "false,false,true";
+        } else if(position == 1) {
+            params["query_by"] = "title,$foo,description"; params["prefix"] = "false,false,true";
+        } else {
+            params["query_by"] = "title,description,$foo"; params["prefix"] = "false,true,false";
+        }
+        params["num_typos"] = "0,0,0";
+        params["infix"] = "off,off,off";
+        nlohmann::json result;
+        auto op = search(params, result);
+        EXPECT_TRUE(op.ok()) << position << ": " << op.error();
+        if(op.ok()) {
+            EXPECT_EQ(ids(prefix_control), ids(result)) << position;
+        }
+    }
+    nlohmann::json result;
+    auto present = search({{"q","hello"}, {"query_by","$present"}, {"validate_field_names","false"}}, result);
+    ASSERT_TRUE(present.ok()) << present.error();
+    EXPECT_EQ((std::vector<std::string>{"1"}), ids(result));
+    for(const auto& validation : {"true", "default"}) {
+        std::map<std::string, std::string> params = {{"q","hello"}, {"query_by","$foo"}};
+        if(std::string(validation) != "default") params["validate_field_names"] = validation;
+        auto op = search(params, result);
+        EXPECT_FALSE(op.ok()); EXPECT_EQ(404, op.code());
+    }
+    for(const auto& fields : {"id", "number", "hidden", "$Customers(customer_name)"}) {
+        auto op = search({{"q","hello"}, {"query_by",fields}, {"validate_field_names","false"}}, result);
+        EXPECT_FALSE(op.ok()) << fields; EXPECT_EQ(400, op.code()) << fields;
+        if(std::string(fields) == "$Customers(customer_name)") {
+            EXPECT_EQ("Query by reference is not yet supported.", op.error());
+        }
+    }
 }
 
 TEST_F(CollectionSpecificMoreTest, CheckForSchemaAlterStatus) {
@@ -3631,7 +3930,7 @@ TEST_F(CollectionSpecificMoreTest, ReloadStemmingDictionaryOnRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
 
     stemmerManager.init(store);
@@ -3667,7 +3966,7 @@ TEST_F(CollectionSpecificMoreTest, ReloadMergedStemmingDictionaryOnRestart) {
     stemmerManager.dispose();
     delete store;
 
-    std::string state_dir_path = "/tmp/typesense_test/collection_specific_more";
+    std::string state_dir_path = test_tmp_path("/collection_specific_more");
     store = new Store(state_dir_path);
 
     stemmerManager.init(store);
@@ -5141,4 +5440,542 @@ TEST_F(CollectionSpecificMoreTest, PhraseQueryHighlightShouldNotExpandToAllFlatF
               results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     collectionManager.drop_collection("phrase_highlight_flat_multiple_occurrences");
+}
+
+static size_t search_found(CollectionManager& collectionManager, const std::string& collection_name,
+                           const std::string& filter_by = "") {
+    std::map<std::string, std::string> req_params = {
+            {"collection", collection_name},
+            {"q", "*"},
+            {"filter_by", filter_by},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    if(!search_op.ok()) {
+        return SIZE_MAX;
+    }
+    return nlohmann::json::parse(json_res)["found"].get<size_t>();
+}
+
+// Config is process-wide, so a test that changes the setting puts the default back.
+struct WritePriorityMaxPercentage {
+    explicit WritePriorityMaxPercentage(int percentage) {
+        Config::get_instance().update_config(nlohmann::json{{"write-priority-max-percentage", percentage}});
+    }
+    ~WritePriorityMaxPercentage() {
+        Config::get_instance().update_config(nlohmann::json{{"write-priority-max-percentage", 25}});
+    }
+};
+
+// The longest hold, so that the timed waits in the gate tests keep their room on a loaded machine.
+static constexpr int WRITE_PRIORITY_FOR_A_2_S_HOLD = 100;
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsAfterTheImport) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
+    auto schema = R"({
+        "name": "write_waits_import",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    // Declared before the lock, so that the lock is released before the futures wait on their threads.
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    // Stands in for a search in progress.
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_import");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(2, later_search.get());
+
+    collectionManager.drop_collection("write_waits_import");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportOfNewFieldWaitsRunsAfterTheImport) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
+    auto schema = R"({
+        "name": "write_waits_new_field",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> import;
+    std::future<std::string> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second", "year": 2026})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    // Only the new field is checked: indexing retakes the lock, so the search may run before the document lands.
+    later_search = std::async(std::launch::async, [&]() {
+        std::map<std::string, std::string> req_params = {
+                {"collection", "write_waits_new_field"},
+                {"q", "*"},
+                {"filter_by", "year:2026"},
+        };
+        nlohmann::json embedded_params;
+        std::string json_res;
+        auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+        return search_op.ok() ? std::string() : search_op.error();
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ("", later_search.get());
+
+    collectionManager.drop_collection("write_waits_new_field");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteWaitsRunsAfterTheDelete) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
+    auto schema = R"({
+        "name": "write_waits_delete",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok());
+
+    std::future<bool> remove;
+    std::future<size_t> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    remove = std::async(std::launch::async, [&]() {
+        return coll->remove("1").ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, remove.wait_for(std::chrono::seconds(1)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_delete");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, remove.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(remove.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_delete");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileDeleteByFilterWaitsRunsAfterTheDelete) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
+    auto schema = R"({
+        "name": "write_waits_delete_many",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok());
+    ASSERT_TRUE(coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok());
+
+    auto seq_id_1 = coll->doc_id_to_seq_id("1");
+    auto seq_id_2 = coll->doc_id_to_seq_id("2");
+    ASSERT_TRUE(seq_id_1.ok());
+    ASSERT_TRUE(seq_id_2.ok());
+
+    std::future<size_t> remove_many;
+    std::future<size_t> later_search;
+
+    std::shared_lock in_flight_search(coll->get_mutex());
+
+    remove_many = std::async(std::launch::async, [&]() {
+        auto remove_op = coll->remove_if_found_many({seq_id_1.get(), seq_id_2.get()});
+        return remove_op.ok() ? remove_op.get() : SIZE_MAX;
+    });
+    ASSERT_EQ(std::future_status::timeout, remove_many.wait_for(std::chrono::seconds(1)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_delete_many");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(250)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, remove_many.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(2, remove_many.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_delete_many");
+}
+
+TEST_F(CollectionSpecificMoreTest, WriteStarvedByUngatedReadersHoldsBackSearchesOnlyBriefly) {
+    auto schema = R"({
+        "name": "write_waits_bounded",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    // Stands in for nested join reads, which don't pass the turnstile, and here never leave.
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(100)));
+
+    // At the default setting the hold is 500 ms.
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_bounded");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(900)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_bounded");
+}
+
+TEST_F(CollectionSpecificMoreTest, WriteAfterAWriterGaveUpDoesNotHoldSearchesBackAgain) {
+    auto schema = R"({
+        "name": "write_waits_cooldown",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    // A 1 s hold, after a give-up open for 1 s.
+    WritePriorityMaxPercentage write_priority(50);
+    std::future<bool> first_import;
+    std::future<bool> second_import;
+    std::future<size_t> later_search;
+
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    first_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(1200)));
+
+    second_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(100)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_cooldown");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(first_import.get());
+    ASSERT_TRUE(second_import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_waits_cooldown");
+}
+
+TEST_F(CollectionSpecificMoreTest, AfterAWriteHoldsTheGateItStaysOpenLongerThanItWasClosed) {
+    auto schema = R"({
+        "name": "write_waits_duty_cycle",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> first_import;
+    std::future<bool> second_import;
+    std::future<size_t> later_search;
+
+    // Released before the 500 ms hold ends, so the first write gets in after about 400 ms closed.
+    std::shared_lock reader(coll->get_mutex());
+    first_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(400)));
+    reader.unlock();
+    ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(first_import.get());
+
+    std::shared_lock second_reader(coll->get_mutex());
+    second_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(100)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_duty_cycle");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(300)));
+
+    second_reader.unlock();
+    ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(second_import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(2, later_search.get());
+
+    collectionManager.drop_collection("write_waits_duty_cycle");
+}
+
+TEST_F(CollectionSpecificMoreTest, JoinSearchIsNotHeldBackByAWriteWaitingOnTheJoinedCollection) {
+    WritePriorityMaxPercentage write_priority(WRITE_PRIORITY_FOR_A_2_S_HOLD);
+    auto parent_schema = R"({
+        "name": "write_waits_parents",
+        "fields": [
+            {"name": "name", "type": "string"}
+        ]
+    })"_json;
+    auto parent = collectionManager.create_collection(parent_schema).get();
+    ASSERT_TRUE(parent->add(R"({"id": "p0", "name": "first"})"_json.dump()).ok());
+
+    auto child_schema = R"({
+        "name": "write_waits_links",
+        "fields": [
+            {"name": "parent_id", "type": "string", "reference": "write_waits_parents.id"}
+        ]
+    })"_json;
+    auto child = collectionManager.create_collection(child_schema).get();
+    ASSERT_TRUE(child->add(R"({"id": "c0", "parent_id": "p0"})"_json.dump()).ok());
+
+    std::future<bool> parent_import;
+    std::future<size_t> join_search;
+
+    std::shared_lock in_flight_parent_search(parent->get_mutex());
+
+    parent_import = std::async(std::launch::async, [&]() {
+        return parent->add(R"({"id": "p1", "name": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, parent_import.wait_for(std::chrono::seconds(1)));
+
+    // A child search holds the child's lock while taking the parent's; that nested lock must not wait for a writer.
+    join_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_waits_links", "$write_waits_parents(id:*)");
+    });
+    EXPECT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_parent_search.unlock();
+    ASSERT_EQ(std::future_status::ready, parent_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(parent_import.get());
+    ASSERT_EQ(std::future_status::ready, join_search.wait_for(std::chrono::seconds(10)));
+    ASSERT_EQ(1, join_search.get());
+
+    collectionManager.drop_collection("write_waits_links");
+    collectionManager.drop_collection("write_waits_parents");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchStartedWhileImportWaitsRunsFirstWhenWritePriorityIsOff) {
+    auto schema = R"({
+        "name": "write_priority_off",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    // A contended write at the default first, so that turning the setting off later has to be read again.
+    std::shared_lock in_flight_search(coll->get_mutex());
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(100)));
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+
+    WritePriorityMaxPercentage write_priority(0);
+    in_flight_search.lock();
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::seconds(1)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_off");
+    });
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    in_flight_search.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(2, later_search.get());
+
+    collectionManager.drop_collection("write_priority_off");
+}
+
+TEST_F(CollectionSpecificMoreTest, AWriteAtHalfPriorityLeavesTheGateOpenAsLongAsItWasClosed) {
+    auto schema = R"({
+        "name": "write_priority_half",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    WritePriorityMaxPercentage write_priority(50);
+    std::future<bool> first_import;
+    std::future<bool> second_import;
+    std::future<size_t> later_search;
+
+    std::shared_lock reader(coll->get_mutex());
+    first_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, first_import.wait_for(std::chrono::milliseconds(600)));
+    reader.unlock();
+    ASSERT_EQ(std::future_status::ready, first_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(first_import.get());
+
+    // About 0.6 s closed, so at 50 % the gate may close again after about 0.6 s open.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    std::shared_lock second_reader(coll->get_mutex());
+    second_import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "2", "title": "third"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, second_import.wait_for(std::chrono::milliseconds(200)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_half");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(500)));
+
+    second_reader.unlock();
+    ASSERT_EQ(std::future_status::ready, second_import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(second_import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(3, later_search.get());
+
+    collectionManager.drop_collection("write_priority_half");
+}
+
+TEST_F(CollectionSpecificMoreTest, AWriteAtHalfPriorityHoldsSearchesBackForASecond) {
+    auto schema = R"({
+        "name": "write_priority_half_hold",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    WritePriorityMaxPercentage write_priority(50);
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(300)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_half_hold");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(400)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(1)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_priority_half_hold");
+}
+
+TEST_F(CollectionSpecificMoreTest, ALowWritePriorityStillHoldsSearchesBackForHalfASecond) {
+    auto schema = R"({
+        "name": "write_priority_low_hold",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto coll = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll->add(R"({"id": "0", "title": "first"})"_json.dump()).ok());
+
+    // Unclamped, 1 % would be a 20 ms hold, shorter than most searches already running.
+    WritePriorityMaxPercentage write_priority(1);
+    std::future<bool> import;
+    std::future<size_t> later_search;
+
+    std::shared_lock ungated_readers(coll->get_mutex());
+
+    import = std::async(std::launch::async, [&]() {
+        return coll->add(R"({"id": "1", "title": "second"})"_json.dump()).ok();
+    });
+    ASSERT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(200)));
+
+    later_search = std::async(std::launch::async, [&]() {
+        return search_found(collectionManager, "write_priority_low_hold");
+    });
+    EXPECT_EQ(std::future_status::timeout, later_search.wait_for(std::chrono::milliseconds(150)));
+    EXPECT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(1)));
+    EXPECT_EQ(std::future_status::timeout, import.wait_for(std::chrono::milliseconds(0)));
+
+    ungated_readers.unlock();
+    ASSERT_EQ(std::future_status::ready, import.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(import.get());
+    ASSERT_EQ(std::future_status::ready, later_search.wait_for(std::chrono::seconds(10)));
+
+    ASSERT_EQ(1, later_search.get());
+
+    collectionManager.drop_collection("write_priority_low_hold");
 }

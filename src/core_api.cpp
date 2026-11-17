@@ -624,7 +624,7 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
     for(const auto& embedded_params_item : req->embedded_params_vec) {
         req_str.push_back(';');
         for(const auto& item : embedded_params_item.items()) {
-            if(item.key() == "expires_at" || item.key() == AuthManager::AUTH_RESOLVED_COLLECTION_PARAM) {
+            if(item.key() == "expires_at") {
                 continue;
             }
 
@@ -1453,6 +1453,14 @@ Option<bool> populate_include_exclude(const std::shared_ptr<http_req>& req, std:
                                                                          ref_include_exclude_fields_vec);
     if (!initialize_op.ok()) {
         return initialize_op;
+    }
+
+    if(!req->embedded_params_vec.empty()) {
+        auto policy_op = CollectionManager::enforce_join_policy(req->embedded_params_vec[0], collection, filter_query,
+                                                                 ref_include_exclude_fields_vec);
+        if(!policy_op.ok()) {
+            return policy_op;
+        }
     }
 
     spp::sparse_hash_set<std::string> includes;
@@ -2410,7 +2418,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
         req_json["expires_at"].get<uint64_t>(),
-        req_json["autodelete"].get<bool>()
+        req_json["autodelete"].get<bool>(),
+        req_json.count("joins") != 0 ? req_json["joins"] : nlohmann::json(nullptr)
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);
@@ -2448,8 +2457,18 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
     const api_key_t& existing_key = get_key_op.get();
 
+    // `joins: null` is PATCH-only deletion syntax. Remove it before applying
+    // standard API key validation, where a present `joins` value must be an object.
+    const bool remove_joins = req_json.contains("joins") && req_json["joins"].is_null();
+    if(remove_joins) {
+        req_json.erase("joins");
+    }
+
     // Merge: start from existing key's JSON representation, then overlay request fields
     nlohmann::json merged_json = existing_key.to_json();
+    if(remove_joins) {
+        merged_json.erase("joins");
+    }
     for(auto it = req_json.begin(); it != req_json.end(); ++it) {
         merged_json[it.key()] = it.value();
     }
@@ -2474,7 +2493,8 @@ bool patch_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
         merged_json["actions"].get<std::vector<std::string>>(),
         merged_json["collections"].get<std::vector<std::string>>(),
         merged_json["expires_at"].get<uint64_t>(),
-        merged_json["autodelete"].get<bool>()
+        merged_json["autodelete"].get<bool>(),
+        merged_json.count("joins") != 0 ? merged_json["joins"] : nlohmann::json(nullptr)
     );
     api_key.id = existing_key.id; // ensure the id remains the same
 
@@ -3747,6 +3767,10 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
         return false;
+    } catch(const nlohmann::json::out_of_range& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
     }
 
     auto add_event_op = AnalyticsManager::get_instance().add_external_event(req->client_ip, req_json);
@@ -3895,7 +3919,13 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
         res->set_400("Missing required parameter 'n'.");
         return false;
     }
-    const uint32_t n = std::stoi(req->params["n"]);
+    const auto& n_str = req->params["n"];
+    if (n_str.find('-') != std::string::npos || n_str.find('\0') != std::string::npos ||
+        !StringUtils::is_uint32_t(n_str)) {
+        res->set_400("Parameter 'n' must be a non-negative integer within the uint32 range.");
+        return false;
+    }
+    const uint32_t n = std::stoul(n_str);
 
     auto get_events_op = AnalyticsManager::get_instance().get_events(user_id, name, n);
     if(!get_events_op.ok()) {

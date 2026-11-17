@@ -269,6 +269,11 @@ public:
                                                         tsl::htrie_set<char>& include_fields_full,
                                                         tsl::htrie_set<char>& exclude_fields_full);
 
+    static Option<bool> enforce_join_policy(const nlohmann::json& embedded_params,
+                                            const std::shared_ptr<Collection>& collection,
+                                            const std::string& filter_query,
+                                            std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
+
     static Option<bool> include_related_docs(const std::string& collection_name,
                                              nlohmann::json& doc, const uint32_t& seq_id,
                                              const reference_info_t& ref_info,
@@ -277,7 +282,7 @@ public:
                                              const nlohmann::json& original_doc,
                                              const ref_include_exclude_fields& ref_include_exclude);
 
-    static Option<bool> get_related_ids(const std::string& collection_name,
+    static Option<bool> get_related_parent_ids(const std::string& collection_name,
                                         const std::string& field_name,
                                         const std::vector<uint32_t>& seq_id_vec,
                                         std::vector<uint32_t>& related_ids);
