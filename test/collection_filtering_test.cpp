@@ -5553,3 +5553,60 @@ TEST_F(CollectionFilteringTest, SelectiveAndProbeKeepsExcludedIdsOut) {
 
     collectionManager.drop_collection("and_probe_excluded");
 }
+
+TEST_F(CollectionFilteringTest, SelectiveAndProbesGroupedExclusion) {
+    nlohmann::json schema =
+            R"({
+                "name": "and_probe_exclusion",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "text", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto coll = collectionManager.create_collection(schema).get();
+
+    // 25 titles name "vinted", over the 20 ids that make `Index::search` compute the iterator in a test build. Both
+    // fields name "tamara" in some documents, and each `!=` keeps over AND_PROBE_RATIO x 25 ids (1718 and 1807).
+    std::vector<std::string> expected_ids;
+    for (int32_t i = 0; i < 2000; i++) {
+        const bool vinted = i % 80 == 0;
+        const bool title_tamara = !vinted && i % 7 == 0;
+        const bool text_tamara = i % 160 == 0 || i % 11 == 0;
+
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = vinted ? "vinted news" : (title_tamara ? "tamara news" : "other news");
+        doc["text"] = text_tamara ? "tamara story" : "plain story";
+        doc["points"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+        if (vinted && !title_tamara && !text_tamara) {
+            expected_ids.push_back(std::to_string(i));
+        }
+    }
+    ASSERT_EQ(11, expected_ids.size());
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "ASC") };
+
+    // An excluded phrase written for both fields, grouped or not, and on either side of the `&&`. The last one also
+    // excludes a phrase that no document has.
+    for (const auto& filter_by: {
+            R"(title:[`"vinted"`] && (title:!=[`"tamara"`] && text:!=[`"tamara"`]))",
+            R"((title:!=[`"tamara"`] && text:!=[`"tamara"`]) && title:[`"vinted"`])",
+            R"(title:[`"vinted"`] && title:!=[`"tamara"`] && text:!=[`"tamara"`])",
+            R"(title:[`"vinted"`] && (title:!=[`"tamara"`] && text:!=[`"tamara"`]) && (title:!=[`"tamari"`] && text:!=[`"tamari"`]))"}) {
+        auto results = coll->search("*", {}, filter_by, {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+
+        ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>()) << filter_by;
+        ASSERT_EQ(expected_ids.size(), results["hits"].size()) << filter_by;
+        ASSERT_FALSE(results["search_cutoff"].get<bool>()) << filter_by;
+
+        for (size_t i = 0; i < expected_ids.size(); i++) {
+            ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>()) << filter_by;
+        }
+    }
+
+    collectionManager.drop_collection("and_probe_exclusion");
+}
