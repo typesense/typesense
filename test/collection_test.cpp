@@ -5757,7 +5757,10 @@ TEST_F(CollectionTest, MaxQueryLengthTruncatesVoiceTranscriptBeforeSearch) {
     const std::vector<field> fields = {field("title", field_types::STRING, false)};
     auto collection_op = Collection::new_collection(collection_name, 9001, std::time(nullptr), 0, store, fields,
                                                     "", 1.0, "", {}, {}, false, model,
-                                                    {}, nlohmann::json::object(), {}, {}, {}, true);
+                                                    spp::sparse_hash_map<std::string, std::string>(),
+                                                    nlohmann::json::object(),
+                                                    spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                                                    {}, {}, true);
     ASSERT_TRUE(collection_op.ok()) << collection_op.error();
     std::unique_ptr<Collection> voice_collection(collection_op.get());
     ASSERT_TRUE(voice_collection->add(R"({"id":"caf","title":"caf"})").ok());
@@ -5803,7 +5806,11 @@ TEST_F(CollectionTest, MaxQueryLengthTruncatesVoiceTranscriptBeforeSearch) {
     auto failing_model = std::make_shared<FixedTranscriptVQModel>("unused", true);
     auto failing_collection_op = Collection::new_collection(collection_name + "-error", 9002, std::time(nullptr), 0,
                                                             store, fields, "", 1.0, "", {}, {}, false,
-                                                            failing_model, {}, nlohmann::json::object(), {}, {}, {}, true);
+                                                            failing_model,
+                                                            spp::sparse_hash_map<std::string, std::string>(),
+                                                            nlohmann::json::object(),
+                                                            spp::sparse_hash_map<std::string, std::set<reference_pair_t>>(),
+                                                            {}, {}, true);
     ASSERT_TRUE(failing_collection_op.ok()) << failing_collection_op.error();
     std::unique_ptr<Collection> failing_collection(failing_collection_op.get());
     collection_search_args_t error_args;
