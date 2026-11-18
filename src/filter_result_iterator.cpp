@@ -711,7 +711,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                         break;
                     }
 
-                    if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                    if(string_filter_comparators[0] == CONTAINS_PHRASE) {
                         match_found = posting_list_t::has_phrase_match(posting_list_iterators[0], field_is_array);
                     } else {
                         match_found = string_prefix_filter_index.count(0) == 0 ?
@@ -750,7 +750,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                             break;
                         }
 
-                        if(filter_node->filter_exp.comparators[0] == CONTAINS_PHRASE) {
+                        if(string_filter_comparators[i] == CONTAINS_PHRASE) {
                              match_found = posting_list_t::has_phrase_match(filter_value_tokens, field_is_array);
                         } else {
                              match_found = string_prefix_filter_index.count(i) == 0 ?
@@ -1997,6 +1997,8 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
         for (uint32_t i = 0; i < a_filter.values.size(); i++) {
             auto filter_value = a_filter.values[i];
+            const auto comparator = a_filter.comparators.size() == 1 ?
+                                    a_filter.comparators[0] : a_filter.comparators[i];
 
             // Detect infix (*value*) before prefix (value*) to avoid misdetection
             auto is_infix_match = filter_value.size() > 2
@@ -2082,6 +2084,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
                         }
 
                         posting_lists.push_back(plists);
+                        string_filter_comparators.push_back(comparator);
                         posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
                         for (auto const& plist : plists) {
                             posting_list_iterators.back().push_back(plist->new_iterator());
@@ -2178,6 +2181,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
 
                     string_prefix_filter_index.insert(posting_lists.size());
                     posting_lists.push_back(plists);
+                    string_filter_comparators.push_back(comparator);
                     posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
                     for (auto const& plist: plists) {
                         posting_list_iterators.back().push_back(plist->new_iterator());
@@ -2200,6 +2204,7 @@ void filter_result_iterator_t::init(const bool& enable_lazy_evaluation, const bo
             }
 
             posting_lists.push_back(plists);
+            string_filter_comparators.push_back(comparator);
             posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
             for (auto const& plist: plists) {
                 posting_list_iterators.back().push_back(plist->new_iterator());
@@ -2996,6 +3001,7 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     filter_result = std::move(obj.filter_result);
 
     posting_list_iterators = std::move(obj.posting_list_iterators);
+    string_filter_comparators = std::move(obj.string_filter_comparators);
     expanded_plists = std::move(obj.expanded_plists);
 
     validity = obj.validity;
@@ -3466,8 +3472,9 @@ void filter_result_iterator_t::compute_iterators() {
 
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto& p_list = posting_lists[i];
+            const auto comparator = string_filter_comparators[i];
             if (string_prefix_filter_index.count(i) != 0 &&
-                    (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS)) {
+                    (comparator == EQUALS || comparator == NOT_EQUALS)) {
                 // Exact prefix match, needs intersection + prefix matching
                 std::vector<uint32_t> result_id_vec;
                 posting_list_t::intersect(p_list, result_id_vec);
@@ -3492,7 +3499,7 @@ void filter_result_iterator_t::compute_iterators() {
                 for (size_t pi = 0; pi < prefix_str_ids_size; pi++) {
                     f_id_buff.push_back(prefix_str_ids[pi]);
                 }
-            } else if (a_filter.comparators[0] == CONTAINS_PHRASE) {
+            } else if (comparator == CONTAINS_PHRASE) {
                 std::vector<uint32_t> result_id_vec;
                 posting_list_t::intersect(p_list, result_id_vec);
 
@@ -3515,7 +3522,7 @@ void filter_result_iterator_t::compute_iterators() {
                 for (size_t pi = 0; pi < phrase_str_ids_size; pi++) {
                     f_id_buff.push_back(phrase_str_ids[pi]);
                 }
-            } else if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+            } else if (comparator == EQUALS || comparator == NOT_EQUALS) {
                 // needs intersection + exact matching (unlike CONTAINS)
                 std::vector<uint32_t> result_id_vec;
                 posting_list_t::intersect(p_list, result_id_vec);

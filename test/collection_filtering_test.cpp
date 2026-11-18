@@ -233,6 +233,27 @@ TEST_F(CollectionFilteringTest, FilterByExactPhraseMatch) {
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionFilteringTest, MixedPhraseFilterListPreservesPerValueComparators) {
+    std::vector<field> fields = {
+            field("text", field_types::STRING, false)
+    };
+    auto create_op = collectionManager.create_collection("mixed_phrase", 1, fields, "");
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+
+    ASSERT_TRUE(coll->add(R"({"id":"0","text":"paris"})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"1","text":"visit new york"})").ok());
+
+    auto search_op = coll->search("*", {"text"}, R"(text:[paris, "new york"])",
+                                  {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    const auto results = search_op.get();
+    // The quoted phrase must match within the field, not only the entire value.
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionFilteringTest, FilterByNegatedExactPhraseMatch) {
     Collection *coll;
     std::vector<field> fields = {
