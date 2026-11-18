@@ -1329,6 +1329,8 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                         }
                     }
 
+                    // Every query occurrence must have its own matching position.
+                    is_exact_match = false;
                     // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
                     while(start_offset_index < end_offset_index) {
                         uint32_t offset = offsets[start_offset_index];
@@ -1610,6 +1612,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
                     }
                 }
 
+                bool found_matching_position = false;
                 // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
                 while(start_offset_index < end_offset_index) {
                     uint32_t offset = offsets[start_offset_index];
@@ -1617,12 +1620,16 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
 
                     if(offset == (i + 1)) {
                         // we have found a matching index, no need to look further for this token.
+                        found_matching_position = true;
                         break;
                     }
 
                     if(offset > (i + 1)) {
                         return false;
                     }
+                }
+                if(!found_matching_position) {
+                    return false;
                 }
             }
         }

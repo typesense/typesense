@@ -465,6 +465,81 @@ TEST_F(CollectionFilteringTest, LazyEvaluationOfFilterByInArrayNegated) {
     ASSERT_EQ(expected_ids, actual_ids);
 }
 
+TEST_F(CollectionFilteringTest, ExactStringFilterWithRepeatedTokensIssue1226) {
+    // https://github.com/typesense/typesense/issues/1226
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("building", field_types::STRING, true)
+    };
+    auto create_op = collectionManager.create_collection("case1226", 1, fields, "");
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+
+    for (int i = 0; i < 4; i++) {
+        nlohmann::json document = {
+                {"id", std::to_string(i)},
+                {"title", "artwork"},
+                {"building", i < 2 ? "South, South Building" : "South, North Building"}
+        };
+        auto add_op = coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto search_op = coll->search("*", {"title"}, "building:=[`South, South Building`]",
+                                  {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    const auto results = search_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for (const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    // Repeating "South" must not match documents containing "South, North".
+    // With no explicit sort field, matching documents are returned newest first.
+    ASSERT_EQ((std::vector<std::string>{"1", "0"}), ids);
+}
+
+TEST_F(CollectionFilteringTest, ExactStringArrayFilterWithRepeatedTokensIssue1226) {
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("building", field_types::STRING_ARRAY, true)
+    };
+    auto create_op = collectionManager.create_collection("case1226_array", 1, fields, "");
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+
+    const std::vector<std::vector<std::string>> buildings = {
+            {"South, North Building", "South, South Building"},
+            {"South, South Building"},
+            {"South, North Building"},
+            {"South, South Building Annex"}
+    };
+    for (size_t i = 0; i < buildings.size(); i++) {
+        nlohmann::json document = {
+                {"id", std::to_string(i)},
+                {"title", "artwork"},
+                {"building", buildings[i]}
+        };
+        auto add_op = coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    auto search_op = coll->search("*", {"title"}, "building:=[`South, South Building`]",
+                                  {}, {}, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok()) << search_op.error();
+    const auto results = search_op.get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    std::vector<std::string> ids;
+    for (const auto& hit : results["hits"]) {
+        ids.push_back(hit["document"]["id"].get<std::string>());
+    }
+    // An exact match can occur in any array element, but must contain both South
+    // occurrences and end at Building. Matching documents are newest first.
+    ASSERT_EQ((std::vector<std::string>{"1", "0"}), ids);
+}
+
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     Collection *coll_str;
 
