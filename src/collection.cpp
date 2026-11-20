@@ -1372,13 +1372,14 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                                                                           found_async_referenced_ins,  index_record,
                                                                           json_out);
                     if (!async_update_op.ok()) {
-                        // remove from in-memory store to keep the state synced
-                        LOG(ERROR) << "Updating references failed, removing the document from in-memory index.";
+                        // The new document has already been persisted. Roll back both its stored
+                        // ID mapping and body so a retry is treated as an insert, not an update.
+                        LOG(ERROR) << "Updating references failed, removing the document from index and store.";
 
                         remove_async_reference_docs.emplace_back(index_record.position, index_record.seq_id,
                                                                  index_record.doc, index_record.operation,
                                                                  index_record.dirty_values);
-                        remove_document(index_record.doc, index_record.seq_id, false, false);
+                        remove_document(index_record.doc, index_record.seq_id, true, false);
                     }
                 }
             }

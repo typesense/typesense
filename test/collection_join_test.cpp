@@ -1122,6 +1122,75 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Cannot add a reference to `coll1.object_array_field` of type `object[]`.", add_doc_op.error());
 }
 
+TEST_F(CollectionJoinTest, FailedAsyncReferenceInsertPreservesDocumentCountConsistency) {
+    // Regression for the rollback defect investigated in #3181. This isolates a failed
+    // parent insert; it does not reproduce the reported HA child-collection drift.
+    auto parent_schema = R"({
+        "name": "ref_v1",
+        "fields": [{"name": "ref_key", "type": "string"}]
+    })"_json;
+    auto parent_op = collectionManager.create_collection(parent_schema);
+    ASSERT_TRUE(parent_op.ok()) << parent_op.error();
+    auto parent = parent_op.get();
+    auto alias_op = collectionManager.upsert_symlink("ref", "ref_v1");
+    ASSERT_TRUE(alias_op.ok()) << alias_op.error();
+    auto child_schema = R"({
+        "name": "items",
+        "fields": [{"name": "ref_key", "type": "string", "reference": "ref.ref_key",
+                    "async_reference": true, "cascade_delete": false}]
+    })"_json;
+    auto child_op = collectionManager.create_collection(child_schema);
+    ASSERT_TRUE(child_op.ok()) << child_op.error();
+
+    auto add_op = parent->add(R"({"id":"p1","ref_key":"key1"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    add_op = child_op.get()->add(R"({"id":"c1","ref_key":"key1"})");
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto expect_counts = [&](size_t expected) {
+        std::map<std::string, std::string> params = {{"collection", "ref_v1"}, {"q", "*"}};
+        nlohmann::json embedded_params;
+        std::string response;
+        auto search_op = collectionManager.do_search(params, embedded_params, response, 0);
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        EXPECT_EQ(expected, nlohmann::json::parse(response)["found"].get<size_t>());
+        EXPECT_EQ(expected, parent->get_num_documents());
+
+        // Count the persisted sequence-ID records, the same documents export reads.
+        const auto prefix = parent->get_seq_id_collection_prefix();
+        const auto upper_bound_key = prefix + "`";
+        rocksdb::Slice upper_bound(upper_bound_key);
+        auto iter = store->scan(prefix, &upper_bound);
+        size_t stored_count = 0;
+        while (iter->Valid() && iter->key().ToString().compare(0, prefix.size(), prefix) == 0) {
+            stored_count++;
+            iter->Next();
+        }
+        delete iter;
+        EXPECT_EQ(expected, stored_count);
+    };
+    expect_counts(1);
+
+    // Uniqueness is checked during async backfill, after p2 has been persisted.
+    add_op = parent->add(R"({"id":"p2","ref_key":"key1"})");
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());;
+    ASSERT_EQ("Error while updating async reference field `ref_key` of collection `items`: "
+              "The value `key1` of the field `ref_key` is not unique in `ref_v1` collection.", add_op.error());
+    auto rejected_doc = parent->get("p2");
+    EXPECT_FALSE(rejected_doc.ok());
+    EXPECT_EQ(404, rejected_doc.code());
+    expect_counts(1);
+
+    // Retrying the rejected ID with a valid key must create a searchable, counted document.
+    add_op = parent->add(R"({"id":"p2","ref_key":"key2"})", index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto retried_doc = parent->get("p2");
+    ASSERT_TRUE(retried_doc.ok()) << retried_doc.error();
+    EXPECT_EQ("key2", retried_doc.get()["ref_key"]);
+    expect_counts(2);
+}
+
 TEST_F(CollectionJoinTest, IndexDocumentHavingAsyncReferenceField) {
     auto schema_json =
             R"({
