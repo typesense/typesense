@@ -3549,7 +3549,6 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     auto const orig_req_params = req_params;
     std::vector<collection_search_args_t> coll_searches;
-    std::vector<uint32_t> collection_ids;
     std::vector<std::shared_ptr<Collection>> union_collections;
     auto result_op = Option<bool>(true);
     auto group_by_args_count = 0;
@@ -3647,7 +3646,6 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
         args.curation_union_global_params(union_params);
         coll_searches.emplace_back(std::move(args));
-        collection_ids.emplace_back(collection->get_collection_id());
         union_collections.emplace_back(collection);
     }
 
@@ -3667,7 +3665,7 @@ Option<bool> CollectionManager::do_union(std::map<std::string, std::string>& req
 
     std::vector<long> searchTimeMillis;
 
-    auto union_op = Collection::do_union(collection_ids, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
+    auto union_op = Collection::do_union(union_collections, coll_searches, searchTimeMillis, union_params, response, remove_duplicates);
 
     auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
