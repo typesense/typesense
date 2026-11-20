@@ -724,9 +724,104 @@ describe(Phases.SINGLE_FRESH, () => {
     expect(getData2.success).toBe(true);
     expect(getData2.data?.fields[1]?.num_dim).toBe(1024);
   });
+
+  const createVoyageCollection = (name: string, modelName: string, numDim?: number) =>
+    fetchSingleNode("/collections", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        fields: [
+          { name: "text", type: "string" },
+          {
+            name: "embedding",
+            type: "float[]",
+            ...(numDim !== undefined && { num_dim: numDim }),
+            embed: {
+              from: ["text"],
+              model_config: {
+                model_name: modelName,
+                api_key: Bun.env.VOYAGE_API_KEY ?? "pa-random",
+              },
+            },
+          },
+        ],
+      }),
+    });
+
+  it("should reject an unknown Voyage model", async () => {
+    const res = await createVoyageCollection("voyage_unknown_model", "voyage/voyage-nope");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("is not a supported Voyage model");
+  });
+
+  it("should reject dimensions a Voyage model does not support", async () => {
+    const res = await createVoyageCollection("voyage_bad_dims", "voyage/voyage-4-lite", 300);
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toContain("does not support `num_dim` 300");
+
+    const fixedRes = await createVoyageCollection("voyage_fixed_dims", "voyage/voyage-law-2", 256);
+    expect(fixedRes.status).toBe(400);
+    expect((await fixedRes.json()).message).toContain("Supported values: 1024");
+  });
+
+  const voyageCases = [
+    { model: "voyage/voyage-4-lite", numDim: undefined, expectedDim: 1024 },
+    { model: "voyage/voyage-4-lite", numDim: 256, expectedDim: 256 },
+    { model: "voyage/voyage-3.5-lite", numDim: 512, expectedDim: 512 },
+    { model: "voyage/voyage-law-2", numDim: undefined, expectedDim: 1024 },
+    { model: "voyage/voyage-context-3", numDim: undefined, expectedDim: 1024 },
+    { model: "voyage/voyage-context-4", numDim: 256, expectedDim: 256 },
+  ];
+
+  for (const { model, numDim, expectedDim } of voyageCases) {
+    it(`${Filters.SECRETS} should embed documents and queries with ${model} (${numDim ?? "default"} dims)`, async () => {
+      const name = `voyage_${model.split("/")[1]!.replace(/[.-]/g, "_")}_${expectedDim}`;
+      const createRes = await createVoyageCollection(name, model, numDim);
+      expect(createRes.ok).toBe(true);
+      const created = CreateCollectionResponse.safeParse(await createRes.json());
+      expect(created.data?.fields[1]?.num_dim).toBe(expectedDim);
+
+      const importRes = await fetchSingleNode(`/collections/${name}/documents/import?action=create`, {
+        method: "POST",
+        body: ["Typesense is a fast search engine", "Voyage models turn text into vectors", "Bananas are yellow"]
+          .map((text, i) => JSON.stringify({ id: String(i), text }))
+          .join("\n"),
+      });
+      expect(importRes.ok).toBe(true);
+      const imported = (await importRes.text()).trim().split("\n").map((line) => JSON.parse(line));
+      expect(imported.every((r) => r.success === true)).toBe(true);
+
+      const docRes = await fetchSingleNode(`/collections/${name}/documents/1`);
+      expect((await docRes.json()).embedding.length).toBe(expectedDim);
+
+      const searchRes = await fetchSingleNode(
+        `/collections/${name}/documents/search?q=vector%20embeddings&query_by=embedding&prefix=false`,
+      );
+      expect(searchRes.ok).toBe(true);
+      const search = await searchRes.json();
+      expect(search.hits.length).toBe(3);
+      expect(typeof search.hits[0].vector_distance).toBe("number");
+    });
+  }
 });
 
 describe(Phases.SINGLE_RESTARTED, () => {
+  it(`${Filters.SECRETS} Voyage collections should keep embedding after a restart`, async () => {
+    const name = "voyage_voyage_law_2_1024";
+    const addRes = await fetchSingleNode(`/collections/${name}/documents`, {
+      method: "POST",
+      body: JSON.stringify({ id: "10", text: "Added after the restart" }),
+    });
+    expect(addRes.ok).toBe(true);
+    const docRes = await fetchSingleNode(`/collections/${name}/documents/10`);
+    expect((await docRes.json()).embedding.length).toBe(1024);
+
+    const searchRes = await fetchSingleNode(`/collections/${name}/documents/search?q=restart&query_by=embedding&prefix=false`);
+    expect(searchRes.ok).toBe(true);
+    expect((await searchRes.json()).hits.length).toBe(4);
+  });
+
   it(`${Filters.SECRETS} create a collection with openai embedding`, async () => {
     const res = await fetchSingleNode("/collections/openai_collection", {
       method: "GET",

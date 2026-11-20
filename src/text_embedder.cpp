@@ -127,6 +127,10 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
         auto api_key = model_config["api_key"].get<std::string>();
 
         remote_embedder_ = std::make_unique<AzureEmbedder>(azure_url, api_key, num_dims, has_custom_dims);
+    } else if(model_namespace == "voyage") {
+        auto api_key = model_config["api_key"].get<std::string>();
+
+        remote_embedder_ = std::make_unique<VoyageEmbedder>(model_name, api_key, num_dims, has_custom_dims);
     }
 
     num_dim = num_dims;

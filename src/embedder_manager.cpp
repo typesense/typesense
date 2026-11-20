@@ -55,6 +55,11 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
         if(!op.ok()) {
             return op;
         }
+    } else if(model_namespace == "voyage") {
+        auto op = VoyageEmbedder::is_model_valid(model_config, num_dims, has_custom_dims);
+        if(!op.ok()) {
+            return op;
+        }
     } else {
         return Option<bool>(400, "Invalid model namespace");
     }
@@ -588,7 +593,8 @@ const std::string EmbedderManager::get_model_namespace(const std::string& model_
 
 bool EmbedderManager::is_remote_model(const std::string& model_name) {
     auto model_namespace = get_namespace(model_name);
-    return model_namespace.ok() && (model_namespace.get() == "openai" || model_namespace.get() == "google" || model_namespace.get() == "gcp") || model_namespace.get() == "azure";
+    return model_namespace.ok() && (model_namespace.get() == "openai" || model_namespace.get() == "google" || model_namespace.get() == "gcp" ||
+                                    model_namespace.get() == "azure" || model_namespace.get() == "voyage");
 }
 
 
