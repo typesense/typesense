@@ -3153,6 +3153,17 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     fit = root_iterator;
 }
 
+filter_result_iterator_t* filter_result_iterator_t::computed_copy(uint64_t search_begin_us, uint64_t search_stop_us) const {
+    if (!is_filter_result_initialized || validity == timed_out || filter_result.count == 0 ||
+        filter_result.coll_to_references != nullptr) {
+        return nullptr;
+    }
+
+    auto ids = new uint32_t[filter_result.count];
+    std::copy(filter_result.docs, filter_result.docs + filter_result.count, ids);
+    return new filter_result_iterator_t(ids, filter_result.count, max_filter_by_candidates, search_begin_us, search_stop_us);
+}
+
 bool filter_result_iterator_t::has_referenced_filter(const filter_node_t* const node) {
     if (node == nullptr) {
         return false;

@@ -2517,20 +2517,6 @@ Option<bool> Index::run_search(search_args* search_params) {
         return filter_init_op;
     }
 
-    auto filter_result_iterator_no_groups = new filter_result_iterator_t(get_collection_name(),
-                                                                          this, filter_root.get(),
-                                                                          search_params->enable_lazy_filter,
-                                                                          search_params->max_filter_by_candidates,
-                                                                          search_begin_us,
-                                                                          search_stop_us,
-                                                                          search_params->validate_field_names);
-    std::unique_ptr<filter_result_iterator_t> filter_iterator_no_groups_guard(filter_result_iterator_no_groups);
-
-    filter_init_op = filter_result_iterator->init_status();
-    if (!filter_init_op.ok()) {
-        return filter_init_op;
-    }
-
 #ifdef TEST_BUILD
 
     if (testing_not_equals_bug || filter_result_iterator->approx_filter_ids_length > 20) {
@@ -2543,6 +2529,32 @@ Option<bool> Index::run_search(search_args* search_params) {
         filter_result_iterator->compute_iterators();
     }
 #endif
+
+    // Only the vector search passes read this second iterator over the same filter. Without a vector query an empty
+    // one stands in. With one, it copies the result just computed (before the search narrows the first iterator,
+    // e.g. by phrase ids) instead of evaluating the filter a second time; it is built from the filter only when
+    // there is no such result to copy.
+    filter_result_iterator_t* filter_result_iterator_no_groups = nullptr;
+    if (search_params->vector_query.field_name.empty()) {
+        filter_result_iterator_no_groups = new filter_result_iterator_t(nullptr, 0);
+    } else {
+        filter_result_iterator_no_groups = filter_result_iterator->computed_copy(search_begin_us, search_stop_us);
+        if (filter_result_iterator_no_groups == nullptr) {
+            filter_result_iterator_no_groups = new filter_result_iterator_t(get_collection_name(),
+                                                                             this, filter_root.get(),
+                                                                             search_params->enable_lazy_filter,
+                                                                             search_params->max_filter_by_candidates,
+                                                                             search_begin_us,
+                                                                             search_stop_us,
+                                                                             search_params->validate_field_names);
+        }
+    }
+    std::unique_ptr<filter_result_iterator_t> filter_iterator_no_groups_guard(filter_result_iterator_no_groups);
+
+    filter_init_op = filter_result_iterator_no_groups->init_status();
+    if (!filter_init_op.ok()) {
+        return filter_init_op;
+    }
 
     size_t first_pass_found_count = 0;
     size_t first_pass_found_docs = 0;
