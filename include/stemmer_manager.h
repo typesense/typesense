@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <unordered_map>
 #include <string> 
 #include <vector>
@@ -18,6 +19,8 @@ class Stemmer {
         LRU::Cache<std::string, std::string> cache;
         std::mutex mutex;
         std::string dictionary_name;
+        // dictionary version the word cache was filled against (dictionary stemmers only)
+        uint64_t dictionary_version = 0;
     public:
         Stemmer(const char * language, const std::string& dictionary_name="");
         ~Stemmer();
@@ -32,6 +35,10 @@ class StemmerManager {
         std::mutex mutex;
         spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::string>> stem_dictionaries;
         Store* store;
+
+        // Bumped (while holding `mutex`) after every change to `stem_dictionaries`. Dictionary stemmers
+        // are shared by fields and cached here, so they compare against this to drop stale stem results.
+        std::atomic<uint64_t> dictionary_version{0};
 
         std::string get_stemming_dictionary_key(const std::string& dictionary_name);
 
@@ -71,6 +78,10 @@ class StemmerManager {
         bool load_stemming_dictioary(const nlohmann::json& dictionary);
 
         std::string get_normalized_word(const std::string& dictionary_name, const std::string& word);
+
+        uint64_t get_dictionary_version() const {
+            return dictionary_version.load(std::memory_order_acquire);
+        }
 
         void get_stemming_dictionaries(nlohmann::json& dictionaries);
 

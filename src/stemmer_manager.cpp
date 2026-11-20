@@ -20,6 +20,16 @@ Stemmer::~Stemmer() {
 std::string Stemmer::stem(const std::string & word) {
     std::unique_lock<std::mutex> lock(mutex);
     std::string stemmed_word;
+
+    if(!dictionary_name.empty()) {
+        // cached results may predate a dictionary update
+        const uint64_t current_version = StemmerManager::get_instance().get_dictionary_version();
+        if(current_version != dictionary_version) {
+            cache.clear();
+            dictionary_version = current_version;
+        }
+    }
+
     if (cache.contains(word)) {
         return cache.lookup(word);
     }
@@ -40,6 +50,17 @@ std::string Stemmer::stem(const std::string & word) {
     return stemmed_word;
 }
 
+namespace {
+    // Bumps the dictionary version when it goes out of scope. Declare it after the lock guard so the bump
+    // happens after the dictionary change and before the lock is released, on every return path.
+    struct DictionaryVersionBump {
+        std::atomic<uint64_t>& version;
+        ~DictionaryVersionBump() {
+            version.fetch_add(1, std::memory_order_release);
+        }
+    };
+}
+
 void StemmerManager::init(Store* _store) {
     store = _store;
 }
@@ -51,29 +72,46 @@ StemmerManager::~StemmerManager() {
 
 void StemmerManager::dispose() {
     delete_all_stemmers();
+    std::lock_guard<std::mutex> lock(mutex);
+    DictionaryVersionBump version_bump{dictionary_version};
     stem_dictionaries.clear();
+}
+
+static std::string normalize_stemmer_language(const std::string& language) {
+    // use english as default language; treat de_en the same as en
+    if(language.empty() || language == "de_en") {
+        return "english";
+    }
+    return language;
+}
+
+// Stemmers must be cached per (language, dictionary) pair: a plain Snowball stemmer and a
+// dictionary-backed stemmer for the same language behave differently and cannot be shared.
+static std::string get_stemmer_key(const std::string& normalized_language, const std::string& dictionary_name) {
+    return normalized_language + '\x1F' + dictionary_name;
 }
 
 std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language, const std::string& dictionary_name) {
     std::unique_lock<std::mutex> lock(mutex);
-    // use english as default language
-    std::string language_ = language.empty() ? "english" : language;
-    
-    // Treat de_en the same as en
-    if (language_ == "de_en") {
-        language_ = "english";
+    const std::string language_ = normalize_stemmer_language(language);
+    const std::string key = get_stemmer_key(language_, dictionary_name);
+
+    auto it = stemmers.find(key);
+    if(it == stemmers.end()) {
+        it = stemmers.emplace(key, std::make_shared<Stemmer>(language_.c_str(), dictionary_name)).first;
     }
-    
-    if (stemmers.find(language_) == stemmers.end()) {
-        stemmers[language] = std::make_shared<Stemmer>(language_.c_str(), dictionary_name);
-    }
-    return stemmers[language];
+    return it->second;
 }
 
 void StemmerManager::delete_stemmer(const std::string& language) {
     std::unique_lock<std::mutex> lock(mutex);
-    if (stemmers.find(language) != stemmers.end()) {
-        stemmers.erase(language);
+    const std::string key_prefix = get_stemmer_key(normalize_stemmer_language(language), "");
+    for(auto it = stemmers.begin(); it != stemmers.end();) {
+        if(it->first.compare(0, key_prefix.size(), key_prefix) == 0) {
+            it = stemmers.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
@@ -105,6 +143,7 @@ Option<bool> StemmerManager::upsert_stemming_dictionary(const std::string& dicti
     }
 
     std::lock_guard<std::mutex> lock(mutex);
+    DictionaryVersionBump version_bump{dictionary_version};
 
     nlohmann::json json_line;
     
@@ -209,6 +248,7 @@ Option<bool> StemmerManager::del_stemming_dictionary(const std::string &id) {
 
     auto found = stem_dictionaries.find(id);
     if(found != stem_dictionaries.end()) {
+        DictionaryVersionBump version_bump{dictionary_version};
         stem_dictionaries.erase(found);
 
         bool removed = store->remove(get_stemming_dictionary_key(id));
@@ -222,6 +262,7 @@ Option<bool> StemmerManager::del_stemming_dictionary(const std::string &id) {
 
 void StemmerManager::delete_all_stemming_dictionaries() {
     std::lock_guard<std::mutex> lock(mutex);
+    DictionaryVersionBump version_bump{dictionary_version};
     for(const auto& kv : stem_dictionaries) {
         store->remove(get_stemming_dictionary_key(kv.first));
     }
