@@ -298,6 +298,8 @@ private:
     ///
     /// Multiple filter values: Multiple tokens: posting list iterator
     std::vector<std::vector<posting_list_t*>> posting_lists;
+    // One comparator per posting-list group, including expanded prefix/infix values.
+    std::vector<NUM_COMPARATOR> string_filter_comparators;
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
     /// Controls the number of similar words that Typesense considers during fuzzy search for filter_by values.
