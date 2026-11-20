@@ -613,8 +613,7 @@ void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, 
         ids_t::uncompress(match->seq_ids, geo_result_ids);
     }
 
-    gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
-    geo_result_ids.erase(unique(geo_result_ids.begin(), geo_result_ids.end()), geo_result_ids.end());
+    ArrayUtils::sort_unique(geo_result_ids);
 }
 
 void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, const char& max_level) {
@@ -668,8 +667,7 @@ void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_l
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
-    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+    ArrayUtils::sort_unique(consolidated_ids);
 
     uint32_t* out = nullptr;
     ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -727,8 +725,7 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
-    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+    ArrayUtils::sort_unique(consolidated_ids);
 
     uint32_t* out = nullptr;
     ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -817,8 +814,7 @@ void NumericTrie::Node::search_greater_than(const int64_t& value, const char& ma
         ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
-    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+    ArrayUtils::sort_unique(consolidated_ids);
 
     uint32_t* out = nullptr;
     ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),

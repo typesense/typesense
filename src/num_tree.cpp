@@ -1,3 +1,4 @@
+#include "array_utils.h"
 #include "num_tree.h"
 #include "parasort.h"
 #include "timsort.hpp"
@@ -148,8 +149,7 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
             iter_ge_value++;
         }
 
-        gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-        consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+        ArrayUtils::sort_unique(consolidated_ids);
 
         uint32_t *out = nullptr;
         ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -175,8 +175,7 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
             ids_t::uncompress(it->second, consolidated_ids);
         }
 
-        gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-        consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+        ArrayUtils::sort_unique(consolidated_ids);
 
         uint32_t *out = nullptr;
         ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -365,8 +364,7 @@ void num_tree_t::contains(const NUM_COMPARATOR& comparator, const int64_t& value
         }
     }
 
-    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+    ArrayUtils::sort_unique(consolidated_ids);
 
     uint32_t *out = nullptr;
     result_ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),

@@ -1,3 +1,4 @@
+#include "array_utils.h"
 #include <memory>
 #include <queue>
 #include <id_list.h>
@@ -3401,8 +3402,7 @@ void filter_result_iterator_t::compute_iterators() {
                 }
 
                 if (f_id_buff.size() >= 100'000) {
-                    gfx::timsort(f_id_buff.begin(), f_id_buff.end());
-                    f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+                    ArrayUtils::sort_unique(f_id_buff);
 
                     uint32_t* out = nullptr;
                     filter_ids_len = ArrayUtils::or_scalar(filter_ids, filter_ids_len, f_id_buff.data(), f_id_buff.size(),
@@ -3421,8 +3421,7 @@ void filter_result_iterator_t::compute_iterators() {
         compute_done:
 
         if (!f_id_buff.empty()) {
-            gfx::timsort(f_id_buff.begin(), f_id_buff.end());
-            f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+            ArrayUtils::sort_unique(f_id_buff);
 
             uint32_t* out = nullptr;
             filter_ids_len = ArrayUtils::or_scalar(filter_ids, filter_ids_len, f_id_buff.data(), f_id_buff.size(),
@@ -3557,8 +3556,7 @@ void filter_result_iterator_t::compute_iterators() {
             }
 
             if (f_id_buff.size() > 100000 || a_filter.values.size() == 1) {
-                gfx::timsort(f_id_buff.begin(), f_id_buff.end());
-                f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+                ArrayUtils::sort_unique(f_id_buff);
 
                 uint32_t* out = nullptr;
                 or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
@@ -3573,8 +3571,7 @@ void filter_result_iterator_t::compute_iterators() {
         }
 
         if (!f_id_buff.empty()) {
-            gfx::timsort(f_id_buff.begin(), f_id_buff.end());
-            f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+            ArrayUtils::sort_unique(f_id_buff);
 
             uint32_t* out = nullptr;
             or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
