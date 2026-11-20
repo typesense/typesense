@@ -1166,6 +1166,8 @@ void posting_list_t::get_prefix_matches(std::vector<iterator_t>& its, const bool
                                                 curr_block->offsets.getLength() :
                                                 it.offset_index[curr_index + 1];
 
+                    // Every query occurrence must have its own matching position.
+                    is_match = false;
                     // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
                     while (start_offset_index < end_offset_index) {
                         uint32_t offset = offsets[start_offset_index];
@@ -1490,6 +1492,7 @@ bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& p
                                         curr_block->offsets.getLength() :
                                         it.offset_index[curr_index + 1];
 
+            bool found_matching_position = false;
             // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
             while (start_offset_index < end_offset_index) {
                 uint32_t offset = offsets[start_offset_index];
@@ -1497,12 +1500,16 @@ bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& p
 
                 if (offset == (i + 1)) {
                     // we have found a matching index, no need to look further for this token.
+                    found_matching_position = true;
                     break;
                 }
 
                 if (offset > (i + 1)) {
                     return false;
                 }
+            }
+            if (!found_matching_position) {
+                return false;
             }
         }
     }
