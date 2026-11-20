@@ -3224,18 +3224,80 @@ TEST_F(FilterTest, AndProbeSelectiveSide) {
     ASSERT_TRUE(computed_by_probe);
     ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
+    // A `!=` leaf that excludes the narrow side's first id. The lazy `init` of the `&&` asks it about 5, then moves it
+    // to 25, the first id both sides match, past the 5 it excludes. Probing starts from 5 again.
+    compute_filter_tree(coll, store, "sel:=yes && n12:!=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{25, 200, 400, 600}), ids);
+
     // Three leaves. The narrow side of the outer `&&` is itself an `&&` that probes.
     compute_filter_tree(coll, store, "sel:=yes && broad:=yes && all:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
     ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
-    // An operator node as the wide side keeps the intersecting plan, an operator node as the narrow side does not.
+    // An operator node on either side. The wide one is a lazy string leaf and a numeric leaf that materialized itself
+    // in its own `init`, which both answer a probe with a seek.
     compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || points:>500)", ids, computed_by_probe);
-    ASSERT_FALSE(computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
     ASSERT_EQ((std::vector<uint32_t>{5, 25, 600}), ids);
 
     compute_filter_tree(coll, store, "(sel:=yes || none:=yes) && broad:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    collectionManager.drop_collection("AndProbe");
+}
+
+TEST_F(FilterTest, AndProbeOperatorWideSide) {
+    auto coll = create_probe_collection(collectionManager);
+    ASSERT_TRUE(coll != nullptr);
+
+    std::vector<uint32_t> ids;
+    bool computed_by_probe = false;
+
+    // An excluded term written for two fields, `(a:!=x && b:!=x)`, is an `&&` of two `!=` leaves. Materializing each
+    // one is every id of the collection but its matches. `edge:!=no` matches ids < 160 and `broad:!=no` ids < 480.
+    compute_filter_tree(coll, store, "sel:=yes && (edge:!=no && broad:!=no)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    compute_filter_tree(coll, store, "(broad:!=no && edge:!=no) && sel:=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    // A `!=` leaf whose value no document has, alone and under an operator: `all` is never "no".
+    compute_filter_tree(coll, store, "sel:=yes && all:!=no", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400, 600}), ids);
+
+    compute_filter_tree(coll, store, "sel:=yes && (broad:!=no && all:!=no)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // An `||` of lazy leaves.
+    compute_filter_tree(coll, store, "sel:=yes && (edge:=yes || broad:=yes)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
+
+    // Operators nested in the wide side.
+    compute_filter_tree(coll, store, "sel:=yes && ((edge:!=no && broad:!=no) && all:=yes)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{5, 25}), ids);
+
+    // The same with the excluding `!=` leaf under an operator.
+    compute_filter_tree(coll, store, "sel:=yes && (n12:!=yes && broad:=yes)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{25, 200, 400}), ids);
+
+    // The wide side stands on its first match, 101, past the narrow side's 5 and 25. Ids below it are not matches, and
+    // the ones above come out as intersecting would give them.
+    compute_filter_tree(coll, store, "sel:=yes && (broad:=yes && points:>100)", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{200, 400}), ids);
+
+    // A lazy numeric leaf anywhere under the wide side keeps the intersecting plan, as it does for a leaf wide side.
+    compute_filter_tree(coll, store, "sel:=yes && (broad:=yes && points:<500)", ids, computed_by_probe, true);
+    ASSERT_FALSE(computed_by_probe);
     ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
     collectionManager.drop_collection("AndProbe");

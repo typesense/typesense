@@ -3165,6 +3165,39 @@ bool filter_result_iterator_t::has_referenced_filter(const filter_node_t* const 
     return !node->filter_exp.referenced_collection_name.empty();
 }
 
+bool filter_result_iterator_t::can_probe_subtree(const filter_result_iterator_t* const it) {
+    if (it == nullptr || it->filter_node == nullptr) {
+        return false;
+    }
+
+    // A computed node answers with a seek into its ids, whatever it filters on.
+    if (it->is_filter_result_initialized) {
+        return true;
+    }
+
+    // When the object check fails, `is_valid` on an object filter root moves its children on and re-enters
+    // `and_filter_iterators` or `or_filter_iterators` from inside the probe. Leave that flow alone.
+    if (it->filter_node->is_object_filter_root) {
+        return false;
+    }
+
+    // Otherwise `is_valid` on an operator node only asks its two children about the same id.
+    if (it->filter_node->isOperator) {
+        return can_probe_subtree(it->left_it) && can_probe_subtree(it->right_it);
+    }
+
+    // Only a lazy string leaf answers `is_valid` cheaply, by advancing a posting list iterator per token. A lazy
+    // numeric leaf holds one id list iterator for every value its range matches and `skip_to` walks all of them on
+    // each probe, so a single probe costs as much as a pass over the range.
+    if (!it->posting_list_iterators.empty()) {
+        return true;
+    }
+
+    // A `!=` leaf whose value no document has excludes nothing, and `is_valid` says so without touching an index.
+    // Materializing it is every id of the collection.
+    return it->is_not_equals_iterator && !it->is_missing_filter && it->posting_lists.empty() && it->id_lists.empty();
+}
+
 bool filter_result_iterator_t::can_probe_wide_side(const filter_result_iterator_t* const narrow_it,
                                                    const filter_result_iterator_t* const wide_it) const {
     // The result of an object filter is validated after intersecting. Leave that flow alone.
@@ -3180,23 +3213,16 @@ bool filter_result_iterator_t::can_probe_wide_side(const filter_result_iterator_
         return false;
     }
 
-    // `is_valid` handles an operator node as well, but an un-computed operator subtree re-enters
-    // `and_filter_iterators` from inside it. Keeping the probed side a leaf avoids having to reason about that. The
-    // narrow side can be anything: its own `compute_iterators()` recurses and may probe in turn.
-    if (wide_it->filter_node == nullptr || wide_it->filter_node->isOperator) {
-        return false;
-    }
-
     // The wide side is already an id array, so there is no materialization left to skip: intersecting is a linear
     // merge of the two, while probing would be a binary search into it per id of the narrow side.
-    if (wide_it->is_filter_result_initialized) {
+    if (wide_it->filter_node == nullptr || wide_it->is_filter_result_initialized) {
         return false;
     }
 
-    // Only a lazy string leaf answers `is_valid` cheaply, by advancing a posting list iterator per token. A lazy
-    // numeric leaf holds one id list iterator for every value its range matches and `skip_to` walks all of them on
-    // each probe, so a single probe costs as much as a pass over the range.
-    if (wide_it->posting_list_iterators.empty()) {
+    // The wide side may be an operator, e.g. `(title:!=foo && text:!=foo)`, as long as every node under it answers
+    // `is_valid` cheaply. The narrow side can be anything: its own `compute_iterators()` recurses and may probe in
+    // turn.
+    if (!can_probe_subtree(wide_it)) {
         return false;
     }
 
@@ -3244,6 +3270,11 @@ void filter_result_iterator_t::compute_iterators() {
             // computed by the intersecting plan too, so falling back here costs nothing.
             if (wide_it->approx_filter_ids_length >=
                     AND_PROBE_RATIO * std::max<uint64_t>(1, (uint64_t) narrow_result.count)) {
+                // The narrow side's ids start from its first one, but the wide side may stand past some of them:
+                // this node's lazy `init` moves it up to the first id both sides match. A `!=` leaf moved past an id
+                // it excludes lets that id through when asked about it again, so start the wide side over.
+                wide_it->reset();
+
                 if (narrow_result.count > 0) {
                     filter_result.docs = new uint32_t[narrow_result.count];
                 }
@@ -3251,6 +3282,14 @@ void filter_result_iterator_t::compute_iterators() {
                 uint32_t match_count = 0;
                 for (uint32_t i = 0; i < narrow_result.count; i++) {
                     auto const& id = narrow_result.docs[i];
+
+                    // The wide side stands on a lower bound of the ids it can still match, so an id below it is not a
+                    // match. It has to be answered here: the `reset` of an operator moves its children up to that
+                    // bound, and they only answer for ids at or past the ones they were moved to.
+                    if (wide_it->validity == valid && id < wide_it->seq_id) {
+                        continue;
+                    }
+
                     auto const& match = wide_it->is_valid(id);
 
                     if (match == 1) {
