@@ -551,17 +551,26 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
     nlohmann::json _llm_generated_params = nlohmann::json::array();
 
     for(auto& param : generated_params.items()) {
+        // No search parameter takes an array or object, so skip them the same way as null.
+        if(param.key() == "llm_response" || param.value().is_null() || param.value().is_structured()) {
+            continue;
+        }
+
+        // LLMs can emit numbers or booleans (e.g. `per_page`), but request params are strings.
+        const std::string value = param.value().is_string() ? param.value().get<std::string>() :
+                                  param.value().dump();
+
         if(param.key() == "q") {
             _llm_generated_params.push_back("q");
-            req_params["q"] = param.value();
+            req_params["q"] = value;
         } else if(param.key() == "filter_by") {
             _llm_generated_params.push_back("filter_by");
-            req_params["_original_llm_filter_by"] = param.value();
-            req_params["llm_generated_filter_by"] = param.value();
+            req_params["_original_llm_filter_by"] = value;
+            req_params["llm_generated_filter_by"] = value;
 
             if(req_params.count("filter_by") != 0 && !req_params["filter_by"].empty()) {
                 std::string existing_filter = req_params["filter_by"];
-                std::string generated_filter = param.value().get<std::string>();
+                std::string generated_filter = value;
 
                 StringUtils::trim(existing_filter);
                 StringUtils::trim(generated_filter);
@@ -576,13 +585,13 @@ Option<uint64_t> NaturalLanguageSearchModelManager::process_nl_query_and_augment
                     req_params["filter_by"] = "";
                 }
             } else {
-                req_params["filter_by"] = param.value();
+                req_params["filter_by"] = value;
             }
         } else if(param.key() == "sort_by") {
-            req_params["sort_by"] = param.value();
+            req_params["sort_by"] = value;
             _llm_generated_params.push_back("sort_by");
-        } else if(param.key() != "llm_response") {
-            req_params[param.key()] = param.value();
+        } else {
+            req_params[param.key()] = value;
             _llm_generated_params.push_back(param.key());
         }
     }
