@@ -32,6 +32,7 @@ This is a selection of sites and apps using Typesense.
 | [Habitium](https://habitium.com)                                                         | E-commerce store specializing in home improvement and decoration |
 | [Hardcover](https://hardcover.app)                                                       | A social network app designed for book lovers to discover, track, and share books |
 | [Hem](https://hem.com)                                                                   | A premium furniture brand for the auction houses of tomorrow |
+| [HornyIndex](https://hornyindex.com)                                                     | Search engine for creators on OnlyFans, Fansly and other subscription platforms; Typesense powers the profile search, 50+ facets, price sorting and location (geopoint) search |
 | [Iconduck](https://iconduck.com)                                                         | Site to search for open source icons |
 | [Instatus](https://instatus.com)                                                         | System Status Pages Platform |
 | [Kick](http://kick.com/)                                                                 | Livestreaming Platform |
