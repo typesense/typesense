@@ -3713,26 +3713,28 @@ static std::unordered_map<std::string, std::unordered_set<uint32_t>> build_objec
 }
 
 
-bool filter_result_iterator_t::validate_object_filter_helper(
-        Index const* const index, const nlohmann::json& doc, const filter_node_t* filter_node,
-        const std::string& collection_name, const std::string& object_field_name,
-        const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
-        uint32_t object_index) {
+bool filter_result_iterator_t::evaluate_object_filter_expression(Index const* const index,
+                                                                 const nlohmann::json& doc,
+                                                                 const filter_node_t* filter_node,
+                                                                 const std::string& collection_name,
+                                                                 const std::string& object_field_name,
+                                                                 const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
+                                                                 uint32_t object_index) {
     if(filter_node->isOperator) {
         if(filter_node->filter_operator == AND) {
-            return validate_object_filter_helper(index, doc, filter_node->left,
-                                                 collection_name, object_field_name, object_join_matches,
-                                                 object_index) &&
-                   validate_object_filter_helper(index, doc, filter_node->right,
-                                                 collection_name, object_field_name, object_join_matches,
-                                                 object_index);
+            return evaluate_object_filter_expression(index, doc, filter_node->left,
+                                                     collection_name, object_field_name, object_join_matches,
+                                                     object_index) &&
+                   evaluate_object_filter_expression(index, doc, filter_node->right,
+                                                     collection_name, object_field_name, object_join_matches,
+                                                     object_index);
         } else {
-            return validate_object_filter_helper(index, doc, filter_node->left,
-                                                 collection_name, object_field_name, object_join_matches,
-                                                 object_index) ||
-                   validate_object_filter_helper(index, doc, filter_node->right,
-                                                 collection_name, object_field_name, object_join_matches,
-                                                 object_index);
+            return evaluate_object_filter_expression(index, doc, filter_node->left,
+                                                     collection_name, object_field_name, object_join_matches,
+                                                     object_index) ||
+                   evaluate_object_filter_expression(index, doc, filter_node->right,
+                                                     collection_name, object_field_name, object_join_matches,
+                                                     object_index);
         }
     } else {
         const auto& filter_exp = filter_node->filter_exp;
@@ -3939,20 +3941,19 @@ bool filter_result_iterator_t::validate_object_filter_helper(
     }
 }
 
-bool filter_result_iterator_t::validate_object_filter_document(
-        const nlohmann::json& document,
-        const std::map<std::string, reference_filter_result_t>* references,
-        const std::vector<std::string>& object_field_path) {
+bool filter_result_iterator_t::document_matches_object_filter(const nlohmann::json& document,
+                                                              const std::map<std::string, reference_filter_result_t>* references,
+                                                              const std::vector<std::string>& object_field_path) {
     auto object_join_matches = build_object_join_matches(collection_name, filter_node->object_field_name,
                                                          document, references);
-    return validate_object_filter_path(document, object_field_path, 0, 0, object_join_matches);
+    return match_nested_object_filter(document, object_field_path, 0, 0, object_join_matches);
 }
 
-bool filter_result_iterator_t::validate_object_filter_path(
-        const nlohmann::json& doc,
-        const std::vector<std::string>& object_field_path,
-        size_t path_index, uint32_t object_index,
-        const std::unordered_map<std::string, std::unordered_set<uint32_t>>& object_join_matches) {
+bool filter_result_iterator_t::match_nested_object_filter(const nlohmann::json& doc,
+                                                          const std::vector<std::string>& object_field_path,
+                                                          size_t path_index, uint32_t object_index,
+                                                          const std::unordered_map<std::string,
+                                                          std::unordered_set<uint32_t>>& object_join_matches) {
     if (timeout_info != nullptr && is_timed_out()) {
         return false;
     }
@@ -3960,7 +3961,7 @@ bool filter_result_iterator_t::validate_object_filter_path(
     // expression on each resolved object so clauses cannot match across elements.
     if (doc.is_array()) {
         for (uint32_t i = 0; i < doc.size(); ++i) {
-            if (validate_object_filter_path(doc[i], object_field_path, path_index, i, object_join_matches)) {
+            if (match_nested_object_filter(doc[i], object_field_path, path_index, i, object_join_matches)) {
                 return true;
             }
             if (validity == timed_out) {
@@ -3973,12 +3974,12 @@ bool filter_result_iterator_t::validate_object_filter_path(
         return false;
     }
     if (path_index == object_field_path.size()) {
-        return validate_object_filter_helper(index, doc, filter_node,
-                                             collection_name, filter_node->object_field_name,
-                                             &object_join_matches, object_index);
+        return evaluate_object_filter_expression(index, doc, filter_node,
+                                                 collection_name, filter_node->object_field_name,
+                                                 &object_join_matches, object_index);
     }
     auto child = doc.find(object_field_path[path_index]);
-    return child != doc.end() && validate_object_filter_path(*child, object_field_path, path_index + 1,
+    return child != doc.end() && match_nested_object_filter(*child, object_field_path, path_index + 1,
                                                             object_index, object_join_matches);
 }
 
@@ -4013,7 +4014,7 @@ bool filter_result_iterator_t::validate_object_filter() {
 
             const std::map<std::string, reference_filter_result_t>* references =
                     filter_result.coll_to_references == nullptr ? nullptr : &filter_result.coll_to_references[i];
-            if (validate_object_filter_document(document, references, object_field_path)) {
+            if (document_matches_object_filter(document, references, object_field_path)) {
                 filter_result.docs[result_count++] = id;
             }
         }
@@ -4031,7 +4032,7 @@ bool filter_result_iterator_t::validate_object_filter() {
         LOG(ERROR) << "Document fetch error. " << document_op.error();
         return false;
     }
-    return validate_object_filter_document(document, &reference, object_field_path);
+    return document_matches_object_filter(document, &reference, object_field_path);
 }
 
 filter_result_iterator_t::filter_result_iterator_t(FILTER_OPERATOR filter_operator,
