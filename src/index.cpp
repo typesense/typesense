@@ -4125,7 +4125,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                           prioritize_num_matching_fields, query_hashes,
                                                                           token_order, prefixes, typo_tokens_threshold,
                                                                           exhaustive_search, max_candidates, min_len_1typo,
-                                                                          min_len_2typo, -1, truncated_tokens.size(), false, false, sort_order, field_values, geopoint_indices,
+                                                                          min_len_2typo, -1, truncated_tokens.size(), qi != 0, demote_synonym_match, sort_order, field_values, geopoint_indices,
                                                                           is_group_by_first_pass);
                         if (!fuzzy_search_fields_op.ok()) {
                             return fuzzy_search_fields_op;
@@ -7227,13 +7227,14 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
     //auto begin = std::chrono::high_resolution_clock::now();
     //const std::string first_token((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1);
 
+    const bool normalize_synonym_match = is_synonym_query && syn_orig_num_tokens != -1;
     if (posting_lists.size() <= 1) {
         const uint8_t is_verbatim_match = uint8_t(
                 prioritize_exact_match && single_exact_query_token &&
                 posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
         );
-        size_t words_present = (num_query_tokens == 1 && is_synonym_query) ? syn_orig_num_tokens : 1;
-        size_t distance = (num_query_tokens == 1 && is_synonym_query) ? syn_orig_num_tokens-1 : 0;
+        size_t words_present = (num_query_tokens == 1 && normalize_synonym_match) ? syn_orig_num_tokens : 1;
+        size_t distance = (num_query_tokens == 1 && normalize_synonym_match) ? syn_orig_num_tokens-1 : 0;
         size_t max_offset = 255;
         if(prioritize_token_position) {
             size_t first_offset = posting_list_t::get_first_offset(posting_lists[0], field_is_array);
@@ -7284,7 +7285,7 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             synonym_score = ((this_match_score >> 0) & 0xF);
 
 
-            if (is_synonym_query && num_query_tokens == posting_lists.size()) {
+            if (normalize_synonym_match && num_query_tokens == posting_lists.size()) {
                 unique_words = syn_orig_num_tokens;
                 this_words_present = syn_orig_num_tokens;
             }
@@ -7338,6 +7339,13 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
                << std::endl;
             LOG(INFO) << os.str();*/
         }
+    }
+
+    if(is_synonym_query && demote_synonym_match) {
+        // The synonym nibble is zero. Compress the lower quality components below
+        // the minimum direct-match proximity (90) without changing coverage or cost.
+        constexpr int64_t low_quality_mask = (int64_t(1) << 24) - 1;
+        match_score = (match_score & ~low_quality_mask) | ((match_score & low_quality_mask) >> 4);
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
