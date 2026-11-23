@@ -2639,6 +2639,87 @@ TEST_F(FilterTest, ObjectFilterValidation) {
     }
 }
 
+TEST_F(FilterTest, ObjectFilterOnNestedObjectInsideObjectArray) {
+    // Regression for #3186: moving the braces below the array must preserve
+    // same-element matching, even though the brace path crosses an array.
+    const std::vector<nlohmann::json> documents = {
+        R"({"id":"A","performances":[
+            {"startDate":{"localTimeDay":20270120,"localTimeHour":1400}},
+            {"startDate":{"localTimeDay":20270120,"localTimeHour":1900}}]})"_json,
+        // Each clause matches B, but on different array elements.
+        R"({"id":"B","performances":[
+            {"startDate":{"localTimeDay":20270120,"localTimeHour":1900}},
+            {"startDate":{"localTimeDay":20270121,"localTimeHour":1400}}]})"_json,
+        R"({"id":"C","performances":[
+            {"startDate":{"localTimeDay":20270122,"localTimeHour":1900}}]})"_json,
+        // D brings each numeric clause to three candidates, meeting the
+        // test-build threshold for lazy AND evaluation.
+        R"({"id":"D","performances":[
+            {"startDate":{"localTimeDay":20270120,"localTimeHour":1400}},
+            {"startDate":{"localTimeDay":20270120,"localTimeHour":1900}}]})"_json
+    };
+    const std::vector<std::pair<std::string, std::set<std::string>>> cases = {
+        {"performances.startDate.{localTimeDay:=20270120 && localTimeHour:[1200..1600]}", {"A", "D"}},
+        {"performances.startDate.{localTimeDay:=20270120 && localTimeHour:=1400}", {"A", "D"}},
+        {"performances.startDate.{localTimeDay:=20270120 || localTimeHour:=1400}", {"A", "B", "D"}},
+        {"performances.{startDate.localTimeDay:=20270120 && startDate.localTimeHour:[1200..1600]}", {"A", "D"}},
+        {"performances.{startDate.localTimeDay:=20270120 && startDate.localTimeHour:=1400}", {"A", "D"}},
+        {"performances.{startDate.localTimeDay:=20270120 || startDate.localTimeHour:=1400}", {"A", "B", "D"}},
+        {"performances.startDate.localTimeDay:=20270120 && performances.startDate.localTimeHour:[1200..1600]",
+         {"A", "B", "D"}}
+    };
+
+    auto schema = R"({
+        "name": "shows",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name":"performances","type":"object[]","optional":true},
+            {"name":"performances.startDate.localTimeDay","type":"int32[]","optional":true,"range_index":true},
+            {"name":"performances.startDate.localTimeHour","type":"int32[]","optional":true,"range_index":true}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+    for (const auto& document : documents) {
+        auto add_op = coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    const std::vector<std::string> document_ids = {"A", "B", "C", "D"};
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" +
+                                      Collection::DOC_ID_PREFIX + "_";
+
+    for (bool lazy : {false, true}) {
+        SCOPED_TRACE(lazy);
+        for (const auto& [filter, expected_ids] : cases) {
+            SCOPED_TRACE(filter);
+            filter_node_t* root = nullptr;
+            auto parse_op = filter::parse_filter_query(filter, coll->get_schema(), store,
+                                                      doc_id_prefix, root);
+            std::unique_ptr<filter_node_t> root_guard(root);
+            ASSERT_TRUE(parse_op.ok()) << parse_op.error();
+            filter_result_iterator_t iterator(coll->get_name(), coll->_get_index(), root, lazy);
+            ASSERT_TRUE(iterator.init_status().ok());
+            if (lazy) {
+                ASSERT_FALSE(iterator._get_is_filter_result_initialized());
+            } else {
+                iterator.compute_iterators();
+                ASSERT_TRUE(iterator._get_is_filter_result_initialized());
+            }
+
+            std::set<std::string> ids;
+            while (iterator.validity == filter_result_iterator_t::valid) {
+                ASSERT_LT(iterator.seq_id, document_ids.size());
+                ids.insert(document_ids[iterator.seq_id]);
+                iterator.next();
+            }
+            EXPECT_EQ(expected_ids, ids);
+        }
+    }
+    collectionManager.drop_collection("shows");
+}
+
 TEST_F(FilterTest, ObjectFitlterIterator) {
     auto schema_json =
             R"({

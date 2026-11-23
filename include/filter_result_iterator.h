@@ -384,12 +384,21 @@ private:
     /// this operation.
     void skip_to(uint32_t id);
 
-    static bool validate_object_filter_helper(Index const* const index, const nlohmann::json& doc,
-                                              const filter_node_t* filter_node,
-                                              const std::string& collection_name,
-                                              const std::string& object_field_name,
-                                              const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
-                                              uint32_t object_index);
+    static bool evaluate_object_filter_expression(Index const* const index, const nlohmann::json& doc,
+                                                  const filter_node_t* filter_node,
+                                                  const std::string& collection_name,
+                                                  const std::string& object_field_name,
+                                                  const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
+                                                  uint32_t object_index);
+
+    bool document_matches_object_filter(const nlohmann::json& document,
+                                        const std::map<std::string, reference_filter_result_t>* references,
+                                        const std::vector<std::string>& object_field_path);
+
+    bool match_nested_object_filter(const nlohmann::json& doc,
+                                    const std::vector<std::string>& object_field_path,
+                                    size_t path_index, uint32_t object_index,
+                                    const std::unordered_map<std::string, std::unordered_set<uint32_t>>& object_join_matches);
 
     bool validate_object_filter();
 
