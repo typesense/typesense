@@ -647,6 +647,112 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFieldsPruning) {
     ASSERT_EQ(R"({"locations":[{"address":{"products":["shoes","tshirts"]}},{"address":{"products":["sneakers","shoes"]}}]})", doc.dump());
 }
 
+TEST_F(CollectionNestedFieldsTest, ExcludeObjectArrayParentFromSearch) {
+    auto schema = R"({"name":"projection", "enable_nested_fields":true, "fields":[
+        {"name":"arr", "type":"object[]", "optional":true},
+        {"name":"arr_extra", "type":"string", "optional":true},
+        {"name":"outer", "type":"object[]", "optional":true}
+    ]})"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto* coll = op.get();
+    auto doc = R"({"id":"1", "arr":[{"s":"a", "n":1},{"s":"b"}],
+                    "arr_extra":"keep", "outer":[{"arr":[{"s":"nested"}]}]})"_json;
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    auto search = [&](const spp::sparse_hash_set<std::string>& includes,
+                      const spp::sparse_hash_set<std::string>& excludes) {
+        auto result = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                                   token_ordering::FREQUENCY, {true}, 10, includes, excludes,
+                                   10, "", 30, 4);
+        EXPECT_TRUE(result.ok());
+        if(!result.ok()) return nlohmann::json::object();
+        EXPECT_EQ(1, result.get()["hits"].size());
+        if(result.get()["hits"].empty()) return nlohmann::json::object();
+        return nlohmann::json(result.get()["hits"][0]["document"]);
+    };
+    auto parent = search({}, {"arr"});
+    EXPECT_EQ(0, parent.count("arr"));
+    EXPECT_EQ("keep", parent["arr_extra"]);
+    EXPECT_EQ(0, search({"arr"}, {"arr"}).count("arr"));
+    EXPECT_EQ(0, search({"arr.s"}, {"arr"}).count("arr"));
+    auto child = search({}, {"arr.s"});
+    EXPECT_EQ(R"([{"n":1},{}])"_json, child["arr"]);
+    auto nested = search({}, {"outer.arr"});
+    EXPECT_EQ(R"([{}])"_json, nested["outer"]);
+    auto wildcard = search({}, {"arr.*"});
+    EXPECT_EQ(R"([{},{}])"_json, wildcard["arr"]);
+    EXPECT_EQ("keep", wildcard["arr_extra"]);
+}
+
+TEST_F(CollectionNestedFieldsTest, ExcludeObjectArrayProjectionControls) {
+    auto schema = R"({"name":"projection_controls", "enable_nested_fields":true, "fields":[
+        {"name":"arr", "type":"object[]", "optional":true},
+        {"name":"arr.hidden", "type":"string[]", "index":false, "optional":true},
+        {"name":"stored", "type":"object[]", "index":false, "optional":true},
+        {"name":"plain", "type":"object", "optional":true},
+        {"name":"tags", "type":"string[]", "optional":true}
+    ]})"_json;
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto* coll = op.get();
+    auto doc = R"({"id":"1","arr":[{"s":"a","hidden":"keep"}],
+                   "stored":[{"s":"stored"}],"plain":{"s":"object"},
+                   "tags":["a","b"],"unknown":{"s":"unindexed"}})"_json;
+    auto add_op = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+    auto child = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                              token_ordering::FREQUENCY, {true}, 10, {}, {"arr.s"}, 10, "", 30, 4);
+    ASSERT_TRUE(child.ok()) << child.error();
+    ASSERT_EQ(1, child.get()["hits"].size());
+    EXPECT_EQ(R"([{"hidden":"keep"}])"_json, child.get()["hits"][0]["document"]["arr"]);
+    auto result = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                               token_ordering::FREQUENCY, {true}, 10, {},
+                               {"arr", "stored", "plain", "tags", "unknown"}, 10, "", 30, 4);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(1, result.get()["hits"].size());
+    const auto projected = result.get()["hits"][0]["document"];
+    for(const auto* name : {"arr", "stored", "plain", "tags", "unknown"}) {
+        EXPECT_EQ(0, projected.count(name)) << name;
+    }
+
+    for(const auto& value : {R"([])"_json, R"([{}])"_json, R"([{"s":"one"}])"_json}) {
+        doc["arr"] = value;
+        auto update = coll->add(doc.dump(), UPSERT);
+        ASSERT_TRUE(update.ok()) << update.error();
+        auto found = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                                  token_ordering::FREQUENCY, {true}, 10, {}, {"arr"}, 10, "", 30, 4);
+        ASSERT_TRUE(found.ok()) << found.error();
+        ASSERT_EQ(1, found.get()["hits"].size());
+        EXPECT_EQ(0, found.get()["hits"][0]["document"].count("arr")) << value;
+    }
+    doc.erase("arr");
+    ASSERT_TRUE(coll->add(doc.dump(), UPSERT).ok());
+    auto missing = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                                token_ordering::FREQUENCY, {true}, 10, {}, {"arr"}, 10, "", 30, 4);
+    ASSERT_TRUE(missing.ok());
+    ASSERT_EQ(1, missing.get()["hits"].size());
+    EXPECT_EQ(0, missing.get()["hits"][0]["document"].count("arr"));
+}
+
+TEST_F(CollectionNestedFieldsTest, ExcludeAutoDetectedObjectArrayParent) {
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
+    auto op = collectionManager.create_collection("auto_projection", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
+    ASSERT_TRUE(op.ok()) << op.error();
+    auto* coll = op.get();
+    auto doc = R"({"id":"1","arr":[{"s":"one"},{"s":"two"}],"arr_extra":"keep"})"_json;
+    auto add = coll->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add.ok()) << add.error();
+    auto result = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1,
+                               token_ordering::FREQUENCY, {true}, 10, {}, {"arr"}, 10, "", 30, 4);
+    ASSERT_TRUE(result.ok()) << result.error();
+    ASSERT_EQ(1, result.get()["hits"].size());
+    const auto projected = result.get()["hits"][0]["document"];
+    EXPECT_EQ(0, projected.count("arr"));
+    EXPECT_EQ("keep", projected["arr_extra"]);
+}
+
 TEST_F(CollectionNestedFieldsTest, ShouldNotPruneEmptyFields) {
     auto doc_str = R"({
         "name": "Foo",
