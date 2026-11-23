@@ -594,6 +594,36 @@ TEST_F(CollectionFilteringTest, PrefixStringFilterWithRepeatedTokensIssue1226) {
     }
 }
 
+TEST_F(CollectionFilteringTest, BackTickPrefixStringFilterIssue1647) {
+    std::vector<field> fields = {field("brandName", field_types::STRING, false)};
+    auto create_op = collectionManager.create_collection("case1647", 1, fields, "");
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+
+    for (const std::string brand : {"KATA", "KATB", "KATC", "DOG"}) {
+        nlohmann::json document = {{"id", brand}, {"brandName", brand}};
+        auto add_op = coll->add(document.dump());
+        ASSERT_TRUE(add_op.ok()) << add_op.error();
+    }
+
+    for (const std::string filter_by : {"brandName:KAT*", "brandName:\"KAT*\"",
+                                        "brandName:`KAT*`", "brandName:[`KAT*`]"}) {
+        SCOPED_TRACE(filter_by);
+        auto search_op = coll->search("*", {"brandName"}, filter_by,
+                                      {}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        const auto results = search_op.get();
+        EXPECT_EQ(3, results["found"].get<size_t>());
+
+        std::vector<std::string> ids;
+        for (const auto& hit : results["hits"]) {
+            ids.push_back(hit["document"]["id"].get<std::string>());
+        }
+        std::sort(ids.begin(), ids.end());
+        EXPECT_EQ((std::vector<std::string>{"KATA", "KATB", "KATC"}), ids);
+    }
+}
+
 TEST_F(CollectionFilteringTest, ExactStringArrayFilterWithRepeatedTokensIssue1226) {
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
