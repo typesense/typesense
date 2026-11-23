@@ -759,6 +759,10 @@ Option<bool> toFilter(const std::string& expression,
             }
 
         } else {
+            // Strip enclosing backticks so prefix detection sees a trailing '*' as it does for array values.
+            if (value_part[0] == '`' && value_part.back() == '`') {
+                value_part = value_part.substr(1, value_part.size() - 2);
+            }
             filter_exp = {field_name, {value_part}, {str_comparator}};
         }
 
