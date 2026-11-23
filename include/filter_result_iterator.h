@@ -391,6 +391,17 @@ private:
                                               const std::unordered_map<std::string, std::unordered_set<uint32_t>>* object_join_matches,
                                               uint32_t object_index);
 
+    bool validate_object_filter_document(
+            const nlohmann::json& document,
+            const std::map<std::string, reference_filter_result_t>* references,
+            const std::vector<std::string>& object_field_path);
+
+    bool validate_object_filter_path(
+            const nlohmann::json& doc,
+            const std::vector<std::string>& object_field_path,
+            size_t path_index, uint32_t object_index,
+            const std::unordered_map<std::string, std::unordered_set<uint32_t>>& object_join_matches);
+
     bool validate_object_filter();
 
 public:
