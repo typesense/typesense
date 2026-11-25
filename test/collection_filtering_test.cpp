@@ -1549,6 +1549,51 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     ASSERT_EQ(0, res_obj["found"]);
 }
 
+TEST_F(CollectionFilteringTest, FloatArrayRangeCountsDocumentsOnceIssue2429) {
+    // https://github.com/typesense/typesense/issues/2429
+    std::vector<field> fields = {
+            field("prices", field_types::FLOAT_ARRAY, true),
+            field("price", field_types::FLOAT, true)
+    };
+    auto create_op = collectionManager.create_collection("case2429", 1, fields, "");
+    ASSERT_TRUE(create_op.ok()) << create_op.error();
+    auto coll = create_op.get();
+
+    nlohmann::json document = {{"id", "0"}, {"price", 1.0}, {"prices", nlohmann::json::array()}};
+    for (int i = 0; i < 6; i++) {
+        document["prices"].push_back(1.0 + i / 10.0);
+    }
+    auto add_op = coll->add(document.dump());
+    ASSERT_TRUE(add_op.ok()) << add_op.error();
+
+    // The scalar control and array filter must each count the single document once,
+    // regardless of how many array elements fall inside the range.
+    for (const std::string field_name : {"price", "prices"}) {
+        SCOPED_TRACE(field_name);
+        auto search_op = coll->search("*", {}, field_name + ":[1.00..1.99]",
+                                      {field_name}, {}, {0}, 10, 1, FREQUENCY, {false});
+        ASSERT_TRUE(search_op.ok()) << search_op.error();
+        const auto results = search_op.get();
+        EXPECT_EQ(1, results["found"].get<size_t>());
+        ASSERT_EQ(1, results["hits"].size());
+        EXPECT_EQ("0", results["hits"][0]["document"]["id"]);
+
+        ASSERT_EQ(1, results["facet_counts"].size());
+        const auto& facet = results["facet_counts"][0];
+        EXPECT_EQ(field_name, facet["field_name"]);
+        const nlohmann::json expected_counts = field_name == "price"
+                ? nlohmann::json{{"1", 1}}
+                : nlohmann::json{{"1", 1}, {"1.1", 1}, {"1.2", 1},
+                                 {"1.3", 1}, {"1.4", 1}, {"1.5", 1}};
+        ASSERT_EQ(expected_counts.size(), facet["counts"].size());
+        nlohmann::json actual_counts = nlohmann::json::object();
+        for (const auto& count : facet["counts"]) {
+            actual_counts[count["value"].get<std::string>()] = count["count"];
+        }
+        EXPECT_EQ(expected_counts, actual_counts);
+    }
+}
+
 TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
     Collection *coll1;
 

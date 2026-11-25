@@ -1,4 +1,5 @@
 #include "num_tree.h"
+#include <algorithm>
 #include "parasort.h"
 #include "timsort.hpp"
 
@@ -34,9 +35,11 @@ void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** i
     }
 
     gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
+    // Array fields can contribute the same document through several matching values.
+    consolidated_ids.erase(std::unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
     uint32_t *out = nullptr;
-    ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+    ids_len = ArrayUtils::or_scalar(consolidated_ids.data(), consolidated_ids.size(),
                                     *ids, ids_len, &out);
 
     delete [] *ids;
