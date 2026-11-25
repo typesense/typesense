@@ -43,6 +43,36 @@ TEST(NumTreeTest, Searches) {
     ids = nullptr;
 }
 
+TEST(NumTreeTest, InclusiveRangeDeduplicatesDocumentIds) {
+    num_tree_t tree;
+    tree.insert(10, 4);
+    tree.insert(20, 4);
+    tree.insert(20, 2);
+    tree.insert(30, 2);
+    tree.insert(30, 6);
+    tree.insert(40, 8);
+
+    uint32_t* ids = nullptr;
+    size_t ids_len = 0;
+    tree.range_inclusive_search(10, 30, &ids, ids_len);
+    EXPECT_EQ((std::vector<uint32_t>{2, 4, 6}), std::vector<uint32_t>(ids, ids + ids_len));
+
+    // An overlapping range must merge with the existing result without duplicates.
+    tree.range_inclusive_search(20, 40, &ids, ids_len);
+    EXPECT_EQ((std::vector<uint32_t>{2, 4, 6, 8}), std::vector<uint32_t>(ids, ids + ids_len));
+
+    // A range with no indexed values preserves the existing result.
+    tree.range_inclusive_search(50, 60, &ids, ids_len);
+    EXPECT_EQ((std::vector<uint32_t>{2, 4, 6, 8}), std::vector<uint32_t>(ids, ids + ids_len));
+    delete[] ids;
+
+    ids = nullptr;
+    ids_len = 0;
+    tree.range_inclusive_search(50, 60, &ids, ids_len);
+    EXPECT_EQ(0, ids_len);
+    delete[] ids;
+}
+
 TEST(NumTreeTest, EraseFullList) {
     num_tree_t tree;
 
