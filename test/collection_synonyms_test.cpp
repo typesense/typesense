@@ -2206,3 +2206,226 @@ TEST_F(CollectionSynonymsTest, SynonymResolutionPreferExactMatch) {
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("headphones", res["hits"][0]["document"]["title"].get<std::string>());
 }
+
+TEST_F(CollectionSynonymsTest, DemotedSynonymPreservesOriginalMatchWithRepeatedExpansion) {
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto* coll = collectionManager.create_collection("synonym_ranking", 1, fields, "").get();
+    ASSERT_TRUE(coll->set_synonym_sets({"index"}).ok());
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({"id":"steel-metal","root":"steel","synonyms":["metal"]})"_json).ok());
+
+    auto run = [&](const std::string& mode, bool demote, bool exhaustive,
+                   const std::string& query = "steel metal storage shelf") {
+        std::map<std::string, std::string> params = {
+            {"collection", "synonym_ranking"}, {"q", query},
+            {"query_by", "title"}, {"text_match_type", mode},
+            {"demote_synonym_match", demote ? "true" : "false"}, {"num_typos", "0"},
+            {"prefix", "false"}, {"drop_tokens_threshold", "0"}, {"split_join_tokens", "off"},
+            {"exhaustive_search", exhaustive ? "true" : "false"}, {"per_page", "10"}
+        };
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, response, now);
+        if(!op.ok()) return Option<nlohmann::json>(op.code(), op.error());
+        return Option<nlohmann::json>(nlohmann::json::parse(response));
+    };
+
+    for(bool reverse : {false, true}) {
+        std::vector<nlohmann::json> docs;
+        const std::vector<std::string> titles = {
+            "5 Tier Heavy Steel Metal Storage Shelf",
+            "Easy Assembly 5 Tier Heavy Steel Metal Storage Shelf",
+            "5 Tier Premium Heavy Metal Storage Shelf",
+            "5 Tier Classic Value Metal Storage Shelf",
+            "4 Tier Wide Premium Heavy Metal Storage Shelf",
+            "5 Tier Super Value Heavy Metal Storage Shelf"
+        };
+        for(int i = 0; i < 6; i++) {
+            docs.push_back({{"id", std::to_string(i)}, {"title", titles[i]}});
+        }
+        if(reverse) std::reverse(docs.begin(), docs.end());
+        for(const auto& doc : docs) ASSERT_TRUE(coll->add(doc.dump()).ok());
+        auto baseline = run("max_score", false, false);
+        ASSERT_TRUE(baseline.ok()) << baseline.error();
+        const auto baseline_json = baseline.get();
+        for(const auto& hit : baseline_json["hits"]) {
+            EXPECT_EQ(2314894167727147129ULL, hit["text_match"].get<uint64_t>());
+        }
+        auto nonrepeated = run("max_score", true, false, "steel storage shelf");
+        ASSERT_TRUE(nonrepeated.ok()) << nonrepeated.error();
+        const auto nonrepeated_json = nonrepeated.get();
+        ASSERT_EQ(6, nonrepeated_json["found"]);
+        EXPECT_LT(std::stoi(nonrepeated_json["hits"][0]["document"]["id"].get<std::string>()), 2);
+        EXPECT_LT(std::stoi(nonrepeated_json["hits"][1]["document"]["id"].get<std::string>()), 2);
+        for(const bool exhaustive : {false, true}) {
+            for(const std::string mode : {"max_score", "max_weight", "sum_score"}) {
+                SCOPED_TRACE(mode + (reverse ? " reverse" : " forward") + (exhaustive ? " exhaustive" : ""));
+                auto result = run(mode, true, exhaustive);
+                ASSERT_TRUE(result.ok()) << result.error();
+                const auto result_json = result.get();
+                ASSERT_EQ(6, result_json["found"]);
+                const auto& hits = result_json["hits"];
+                ASSERT_EQ(6, hits.size());
+                if(mode == "max_score" && !exhaustive) {
+                    EXPECT_EQ(2314894167592929401ULL, hits[0]["text_match"].get<uint64_t>());
+                    EXPECT_EQ("4419510927361", hits[0]["text_match_info"]["best_field_score"]);
+                    EXPECT_EQ(4, hits[0]["text_match_info"]["tokens_matched"]);
+                    EXPECT_EQ(0, hits[0]["text_match_info"]["num_tokens_dropped"]);
+                    EXPECT_EQ(0, hits[0]["text_match_info"]["typo_prefix_score"]);
+                }
+                EXPECT_LT(std::stoi(hits[0]["document"]["id"].get<std::string>()), 2);
+                EXPECT_LT(std::stoi(hits[1]["document"]["id"].get<std::string>()), 2);
+                for(size_t i = 2; i < hits.size(); i++) {
+                    EXPECT_GE(std::stoi(hits[i]["document"]["id"].get<std::string>()), 2);
+                }
+            }
+        }
+        for(const auto& doc : docs) ASSERT_TRUE(coll->remove(doc["id"].get<std::string>()).ok());
+    }
+    collectionManager.drop_collection("synonym_ranking");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymDemotionPreservesOriginalOnlyWeightedScores) {
+    std::vector<field> fields;
+    for(int i = 1; i <= 5; i++) fields.emplace_back("f" + std::to_string(i), field_types::STRING, false);
+    auto* coll = collectionManager.create_collection("weighted_synonyms", 1, fields, "").get();
+    ASSERT_TRUE(coll->set_synonym_sets({"index"}).ok());
+    auto spaced = [](const std::string& first, const std::string& last, size_t distance) {
+        std::string value = first;
+        for(size_t i = 1; i < distance; i++) value += " filler";
+        return value + " " + last;
+    };
+    nlohmann::json a = {{"id", "A"}, {"f1", ""}, {"f2", "b"}, {"f3", spaced("a", "c", 11)},
+                        {"f4", "b c filler"}, {"f5", "b c filler"}};
+    nlohmann::json b = {{"id", "B"}, {"f1", spaced("a", "b", 9) + spaced(" filler", "c", 16)},
+                        {"f2", ""}, {"f3", spaced("a", "c", 11)},
+                        {"f4", spaced("b", "c", 10)}, {"f5", spaced("b", "c", 10)}};
+    ASSERT_TRUE(coll->add(a.dump()).ok());
+    ASSERT_TRUE(coll->add(b.dump()).ok());
+
+    auto run = [&](const std::string& mode) {
+        std::map<std::string, std::string> params = {
+            {"collection", "weighted_synonyms"}, {"q", "a b c"}, {"query_by", "f4,f5,f3,f2,f1"},
+            {"query_by_weights", "15,15,3,2,1"}, {"text_match_type", mode},
+            {"demote_synonym_match", "true"}, {"num_typos", "0"}, {"prefix", "false"},
+            {"drop_tokens_threshold", "0"}, {"split_join_tokens", "off"},
+            {"prioritize_exact_match", "false"}, {"prioritize_token_position", "false"}
+        };
+        nlohmann::json embedded = nlohmann::json::object();
+        std::string response;
+        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto op = collectionManager.do_search(params, embedded, response, now);
+        if(!op.ok()) return Option<nlohmann::json>(op.code(), op.error());
+        return Option<nlohmann::json>(nlohmann::json::parse(response));
+    };
+    std::vector<nlohmann::json> before;
+    for(const std::string mode : {"max_score", "max_weight", "sum_score"}) {
+        auto result = run(mode);
+        ASSERT_TRUE(result.ok()) << result.error();
+        before.push_back(result.get());
+        ASSERT_EQ(2, before.back()["found"]);
+    }
+    EXPECT_EQ("A", before[2]["hits"][0]["document"]["id"]);
+    EXPECT_EQ(575282221154588ULL, before[2]["hits"][0]["text_match"].get<uint64_t>());
+    EXPECT_EQ(575282156667156ULL, before[2]["hits"][1]["text_match"].get<uint64_t>());
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({"id":"a-d","root":"a","synonyms":["d"]})"_json).ok());
+    size_t index = 0;
+    for(const std::string mode : {"max_score", "max_weight", "sum_score"}) {
+        auto result = run(mode);
+        ASSERT_TRUE(result.ok()) << result.error();
+        const auto after = result.get();
+        ASSERT_EQ(2, after["found"]);
+        for(size_t hit = 0; hit < 2; hit++) {
+            EXPECT_EQ(before[index]["hits"][hit]["document"]["id"], after["hits"][hit]["document"]["id"]);
+            EXPECT_EQ(before[index]["hits"][hit]["text_match"], after["hits"][hit]["text_match"]);
+        }
+        index++;
+    }
+    collectionManager.drop_collection("weighted_synonyms");
+}
+
+TEST_F(CollectionSynonymsTest, DemotedSynonymRespectsArrayElementCoverage) {
+    std::vector<field> fields = {field("title", field_types::STRING_ARRAY, false)};
+    auto* coll = collectionManager.create_collection("array_synonyms", 1, fields, "").get();
+    ASSERT_TRUE(coll->set_synonym_sets({"index"}).ok());
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({"id":"steel-metal","root":"steel","synonyms":["metal"]})"_json).ok());
+    ASSERT_TRUE(coll->add(R"({"id":"direct","title":["5 Tier Heavy Steel Metal Storage Shelf"]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"synonym","title":["5 Tier Heavy Metal Storage Shelf"]})").ok());
+    ASSERT_TRUE(coll->add(R"({"id":"split","title":["Steel Metal","Storage Shelf"]})").ok());
+    std::map<std::string, std::string> params = {
+        {"collection", "array_synonyms"}, {"q", "steel metal storage shelf"}, {"query_by", "title"},
+        {"demote_synonym_match", "true"}, {"num_typos", "0"}, {"prefix", "false"},
+        {"drop_tokens_threshold", "0"}, {"split_join_tokens", "off"}
+    };
+    nlohmann::json embedded = nlohmann::json::object();
+    std::string response;
+    const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    auto op = collectionManager.do_search(params, embedded, response, now);
+    ASSERT_TRUE(op.ok()) << op.error();
+    const auto result = nlohmann::json::parse(response);
+    ASSERT_EQ(3, result["found"]);
+    EXPECT_EQ("direct", result["hits"][0]["document"]["id"]);
+    const std::set<std::string> remaining = {
+        result["hits"][1]["document"]["id"].get<std::string>(),
+        result["hits"][2]["document"]["id"].get<std::string>()
+    };
+    EXPECT_EQ((std::set<std::string>{"split", "synonym"}), remaining);
+    collectionManager.drop_collection("array_synonyms");
+}
+
+TEST_F(CollectionSynonymsTest, DemotedSynonymRetainsDroppedQueryProvenance) {
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+    auto* coll = collectionManager.create_collection("dropped_synonyms", 1, fields, "").get();
+    ASSERT_TRUE(coll->set_synonym_sets({"index"}).ok());
+    ASSERT_TRUE(manager.upsert_synonym_item("index", R"({"id":"steel-metal","root":"steel","synonyms":["metal"]})"_json).ok());
+    for(const auto& doc : std::vector<nlohmann::json>{
+            {{"id", "direct-two"}, {"title", "steel storage"}},
+            {{"id", "synonym-two"}, {"title", "metal storage"}},
+            {{"id", "direct-one"}, {"title", "steel"}},
+            {{"id", "synonym-one"}, {"title", "metal"}}}) {
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+    std::map<std::string, std::string> params = {
+        {"collection", "dropped_synonyms"}, {"q", "steel storage shelf"}, {"query_by", "title"},
+        {"demote_synonym_match", "true"}, {"num_typos", "0"}, {"prefix", "false"},
+        {"drop_tokens_threshold", "0"}, {"split_join_tokens", "off"}, {"exhaustive_search", "true"}
+    };
+    nlohmann::json embedded = nlohmann::json::object();
+    std::string response;
+    const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    auto op = collectionManager.do_search(params, embedded, response, now);
+    ASSERT_TRUE(op.ok()) << op.error();
+    const auto result = nlohmann::json::parse(response);
+    ASSERT_EQ(4, result["found"]);
+    std::map<std::string, size_t> rank;
+    for(size_t i = 0; i < result["hits"].size(); i++) {
+        const auto& hit = result["hits"][i];
+        const auto id = hit["document"]["id"].get<std::string>();
+        rank[id] = i;
+        if(id == "synonym-two" || id == "synonym-one") {
+            const bool two = id == "synonym-two";
+            EXPECT_EQ(two ? 2 : 1, hit["text_match_info"]["tokens_matched"]);
+            EXPECT_EQ(two ? 1 : 2, hit["text_match_info"]["num_tokens_dropped"]);
+            EXPECT_EQ(0, hit["text_match_info"]["typo_prefix_score"]);
+        }
+    }
+    EXPECT_LT(rank.at("direct-two"), rank.at("synonym-two"));
+    EXPECT_LT(rank.at("direct-one"), rank.at("synonym-one"));
+    EXPECT_LT(rank.at("synonym-two"), rank.at("direct-one"));
+    params["demote_synonym_match"] = "false";
+    op = collectionManager.do_search(params, embedded, response, now);
+    ASSERT_TRUE(op.ok()) << op.error();
+    const auto disabled = nlohmann::json::parse(response);
+    ASSERT_EQ(4, disabled["found"]);
+    for(const auto& hit : disabled["hits"]) {
+        const auto id = hit["document"]["id"].get<std::string>();
+        const uint64_t expected = id == "direct-two" || id == "synonym-two"
+                                  ? 1157451471449491577ULL : 578730123373578361ULL;
+        EXPECT_EQ(expected, hit["text_match"].get<uint64_t>()) << id;
+    }
+    collectionManager.drop_collection("dropped_synonyms");
+}
