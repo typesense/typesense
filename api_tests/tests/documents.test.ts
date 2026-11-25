@@ -56,6 +56,38 @@ const SearchResponse = z.object({
 });
 
 describe(Phases.SINGLE_FRESH, () => {
+  it("excludes an object array parent from search, get, and export", async () => {
+    const collection = "object_array_projection_docs";
+    const fetchProjection = (path: string, init?: RequestInit) =>
+      fetchSingleNode(path, init, Number(process.env.PROJECTION_TEST_PORT ?? 8108));
+    let res = await fetchProjection("/collections", {
+      method: "POST",
+      body: JSON.stringify({
+        name: collection,
+        enable_nested_fields: true,
+        fields: [{ name: "arr", type: "object[]" }, { name: "arr_extra", type: "string" }],
+      }),
+    });
+    expect(res.ok).toBe(true);
+    try {
+      res = await fetchProjection(`/collections/${collection}/documents`, {
+        method: "POST",
+        body: JSON.stringify({ id: "1", arr: [{ s: "a" }, { s: "b" }], arr_extra: "keep" }),
+      });
+      expect(res.ok).toBe(true);
+      for (const endpoint of ["search?q=*&exclude_fields=arr", "1?exclude_fields=arr", "export?exclude_fields=arr"]) {
+        res = await fetchProjection(`/collections/${collection}/documents/${endpoint}`);
+        expect(res.ok).toBe(true);
+        const body = endpoint.startsWith("export") ? JSON.parse((await res.text()).trim()) : await res.json();
+        const doc = endpoint.startsWith("search") ? body.hits[0].document : body;
+        expect(doc.arr).toBeUndefined();
+        expect(doc.arr_extra).toBe("keep");
+      }
+    } finally {
+      await fetchProjection(`/collections/${collection}`, { method: "DELETE" });
+    }
+  });
+
   it("create documents", async () => {
     let res = await fetchSingleNode("/collections", {
       method: "POST",

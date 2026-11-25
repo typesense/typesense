@@ -9048,6 +9048,10 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
             }
             return Option<bool>(field_op.code(), field_op.error());
         }
+        if(f_name.find('*') == std::string::npos) {
+            // Keep explicit parent exclusions in addition to their expanded children.
+            exclude_fields_vec.push_back(f_name);
+        }
     }
 
     for(auto& f_name: include_fields_vec) {
