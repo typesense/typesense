@@ -4,16 +4,22 @@
 #include <braft/snapshot.h>
 #include <braft/log_manager.h>
 #include <braft/fsm_caller.h>
+#include <braft/snapshot_executor.h>
 #include <brpc/server.h>
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <fstream>
 #include <string>
 
 #define private public
 #include "raft_server.h"
 #include "test_tmp_path.h"
 #undef private
+
+namespace braft {
+    void global_init_once_or_die();
+}
 
 namespace {
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
@@ -247,6 +253,215 @@ TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
     EXPECT_EQ(std::future_status::ready, refresh.wait_for(std::chrono::seconds(1)));
     EXPECT_FALSE(replication_state.is_read_caught_up());
     EXPECT_FALSE(replication_state.is_write_caught_up());
+}
+
+TEST(RaftServerTest, FailedSnapshotMetadataWriteCanRetryAndPreservesPriorSnapshot) {
+    braft::global_init_once_or_die();
+    class TestState : public ReplicationState {
+    public:
+        using ReplicationState::ReplicationState;
+        std::atomic<bthread_t> worker_id{0};
+        ~TestState() override {
+            const auto tid = worker_id.load();
+            if (tid != 0) bthread_join(tid, nullptr);
+        }
+
+        void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) override {
+            class Capture : public braft::Closure {
+            public:
+                braft::Closure* next;
+                std::atomic<bthread_t>* worker_id;
+                Capture(braft::Closure* n, std::atomic<bthread_t>* id) : next(n), worker_id(id) {}
+                void Run() override {
+                    std::unique_ptr<Capture> self(this);
+                    if (status().ok()) {
+                        worker_id->store(bthread_self());
+                    }
+                    next->status() = status();
+                    next->Run();
+                }
+            };
+            ReplicationState::on_snapshot_save(writer, new Capture(done, &worker_id));
+        }
+    };
+    char directory[] = "/tmp/typesense-snapshot-retry-XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(directory));
+    const std::string root(directory);
+    std::filesystem::create_directories(root + "/db");
+    std::filesystem::create_directories(root + "/meta");
+    {
+        Store store(root + "/db");
+        Store meta(root + "/meta");
+        std::atomic<bool> skip_writes(false);
+        auto& config = Config::get_instance();
+        BatchedIndexer indexer(nullptr, &store, &meta, 1, config, skip_writes);
+        TestState state(nullptr, &indexer, &store, nullptr, nullptr, nullptr, false, &config, 1, 1);
+        braft::ConfigurationManager configuration;
+        braft::SegmentLogStorage log_storage(root + "/log");
+        braft::LogManager logs;
+        braft::LogManagerOptions log_options;
+        log_options.log_storage = &log_storage;
+        log_options.configuration_manager = &configuration;
+        ASSERT_EQ(0, logs.init(log_options));
+        braft::ClosureQueue queue(false);
+        braft::FSMCaller caller;
+        braft::FSMCallerOptions caller_options;
+        caller_options.log_manager = &logs;
+        caller_options.fsm = &state;
+        caller_options.closure_queue = &queue;
+        caller_options.bootstrap_id = braft::LogId(2, 1);
+        ASSERT_EQ(0, caller.init(caller_options));
+        struct CallerGuard {
+            braft::FSMCaller& caller;
+            ~CallerGuard() { caller.shutdown(); caller.join(); }
+        } caller_guard{caller};
+        braft::SnapshotExecutor executor;
+        braft::SnapshotExecutorOptions options;
+        options.uri = "local://" + root + "/snapshots";
+        options.fsm_caller = &caller;
+        options.log_manager = &logs;
+        options.node = nullptr;
+        options.init_term = 1;
+        ASSERT_EQ(0, executor.init(options));
+
+        auto* previous = executor.snapshot_storage()->create();
+        ASSERT_NE(nullptr, previous);
+        const std::string old_path = previous->get_path() + "/marker";
+        { std::ofstream out(old_path); out << "previous snapshot"; }
+        ASSERT_EQ(0, previous->add_file("marker"));
+        braft::SnapshotMeta old_meta;
+        old_meta.set_last_included_index(1);
+        old_meta.set_last_included_term(1);
+        ASSERT_EQ(0, previous->save_meta(old_meta));
+        ASSERT_EQ(0, executor.snapshot_storage()->close(previous));
+
+        ASSERT_TRUE(store.insert(ReplicationState::BATCHED_INDEXER_STATE_KEY, "previous state"));
+        ASSERT_TRUE(meta.insert("$XP77", "77"));
+        store.close();
+        ASSERT_TRUE(rocksdb::DB::OpenForReadOnly(store.options, root + "/db", &store.db).ok());
+
+        struct Result { int code; bool unlocked; };
+        struct Completion {
+            std::atomic<int> calls{0};
+            std::promise<Result> result;
+        };
+        class Done : public braft::Closure {
+        public:
+            ReplicationState* state;
+            BatchedIndexer* indexer;
+            std::shared_ptr<Completion> completion;
+            Done(ReplicationState* s, BatchedIndexer* i, std::shared_ptr<Completion> c)
+                : state(s), indexer(i), completion(std::move(c)) {}
+            void Run() override {
+                std::unique_ptr<Done> self(this);
+                completion->calls++;
+                bool unlocked = false;
+                std::thread probe([&] {
+                    unlocked = indexer->get_pause_mutex().try_lock();
+                    if (unlocked) indexer->get_pause_mutex().unlock();
+                });
+                probe.join();
+                state->set_snapshot_in_progress(false);
+                completion->result.set_value({status().error_code(), unlocked});
+            }
+        };
+        auto* direct_writer = executor.snapshot_storage()->create();
+        ASSERT_NE(nullptr, direct_writer);
+        const auto direct = std::make_shared<Completion>();
+        auto direct_result = direct->result.get_future();
+        state.on_snapshot_save(direct_writer, new Done(&state, &indexer, direct));
+        ASSERT_EQ(std::future_status::ready, direct_result.wait_for(std::chrono::seconds(1)));
+        const auto direct_outcome = direct_result.get();
+        EXPECT_EQ(EAGAIN, direct_outcome.code);
+        EXPECT_TRUE(direct_outcome.unlocked);
+        EXPECT_EQ(1, direct->calls.load());
+        EXPECT_FALSE(std::filesystem::exists(direct_writer->get_path() + "/db_snapshot"));
+        direct_writer->set_error(EAGAIN, "test failed snapshot");
+        ASSERT_EQ(0, executor.snapshot_storage()->close(direct_writer));
+        const auto failed = std::make_shared<Completion>();
+        auto failed_result = failed->result.get_future();
+        executor.do_snapshot(new Done(&state, &indexer, failed));
+        ASSERT_EQ(std::future_status::ready, failed_result.wait_for(std::chrono::seconds(10)));
+        const auto result = failed_result.get();
+        EXPECT_EQ(EAGAIN, result.code);
+        EXPECT_EQ(1, failed->calls.load());
+        EXPECT_TRUE(result.unlocked);
+        EXPECT_FALSE(state.snapshot_in_progress.load());
+        std::string value;
+        EXPECT_EQ(FOUND, store.get(ReplicationState::BATCHED_INDEXER_STATE_KEY, value));
+        EXPECT_EQ("previous state", value);
+        EXPECT_EQ(FOUND, meta.get("$XP77", value));
+        auto* reader = executor.snapshot_storage()->open();
+        ASSERT_NE(nullptr, reader);
+        EXPECT_EQ(0, reader->get_file_meta("marker", nullptr));
+        std::ifstream marker(reader->get_path() + "/marker");
+        std::string marker_value;
+        std::getline(marker, marker_value);
+        EXPECT_EQ("previous snapshot", marker_value);
+        braft::SnapshotMeta read_meta;
+        ASSERT_EQ(0, reader->load_meta(&read_meta));
+        EXPECT_EQ(1, read_meta.last_included_index());
+        ASSERT_EQ(0, executor.snapshot_storage()->close(reader));
+        EXPECT_FALSE(std::filesystem::exists(root + "/snapshots/temp/db_snapshot"));
+
+        store.close();
+        ASSERT_TRUE(rocksdb::DB::Open(store.options, root + "/db", &store.db).ok());
+        const auto retried = std::make_shared<Completion>();
+        auto retry_result = retried->result.get_future();
+        executor.do_snapshot(new Done(&state, &indexer, retried));
+        ASSERT_EQ(std::future_status::ready, retry_result.wait_for(std::chrono::seconds(10)));
+        EXPECT_EQ(0, retry_result.get().code);
+        EXPECT_EQ(1, retried->calls.load());
+        EXPECT_FALSE(state.snapshot_in_progress.load());
+        EXPECT_EQ(NOT_FOUND, meta.get("$XP77", value));
+        reader = executor.snapshot_storage()->open();
+        ASSERT_NE(nullptr, reader);
+        ASSERT_EQ(0, reader->load_meta(&read_meta));
+        EXPECT_EQ(2, read_meta.last_included_index());
+        ASSERT_EQ(0, executor.snapshot_storage()->close(reader));
+        executor.shutdown();
+        executor.join();
+        logs.shutdown();
+    }
+    std::filesystem::remove_all(root);
+}
+
+TEST(RaftServerTest, FailedSnapshotClosuresClearProgressAndSkipExternalCopy) {
+    char directory[] = "/tmp/typesense-snapshot-completion-XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(directory));
+    h2o_loop_t* loop = h2o_evloop_create();
+    {
+        http_message_dispatcher dispatcher;
+        dispatcher.init(loop);
+        dispatcher.on(HttpServer::STREAM_RESPONSE_MESSAGE, [](void* data) {
+            delete static_cast<async_req_res_t*>(data);
+            return true;
+        });
+        auto& config = Config::get_instance();
+        ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, &dispatcher, false, &config, 1, 1);
+        state.snapshot_in_progress = true;
+        auto* timed = new TimedSnapshotClosure(&state);
+        timed->status().set_error(EAGAIN, "metadata unavailable");
+        timed->Run();
+        EXPECT_FALSE(state.snapshot_in_progress.load());
+
+        auto req = std::make_shared<http_req>();
+        auto res = std::make_shared<http_res>(nullptr);
+        res->ready = true; // the test drains the queued message when the dispatcher is destroyed
+        state.snapshot_in_progress = true;
+        state.ext_snapshot_path = std::string(directory) + "/external";
+        auto* demand = new OnDemandSnapshotClosure(&state, req, res, state.ext_snapshot_path, directory);
+        demand->status().set_error(EAGAIN, "metadata unavailable");
+        demand->Run();
+        EXPECT_FALSE(state.snapshot_in_progress.load());
+        EXPECT_TRUE(state.ext_snapshot_path.empty());
+        EXPECT_FALSE(std::filesystem::exists(std::string(directory) + "/external"));
+        EXPECT_EQ(500, res->status_code);
+        EXPECT_TRUE(res->final);
+        EXPECT_FALSE(nlohmann::json::parse(res->body).at("success").get<bool>());
+    }
+    h2o_evloop_destroy(loop);
+    std::filesystem::remove_all(directory);
 }
 
 TEST(RaftServerTest, StorageFaultKeepsReadinessClosedAfterCatchupRefresh) {

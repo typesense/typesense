@@ -661,7 +661,16 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 
         nlohmann::json batch_index_state;
         batched_indexer->serialize_state(batch_index_state);
-        store->insert(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+        const auto state_status = store->insert_with_status(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+        if(!state_status.ok()) {
+            LOG(ERROR) << "Failure persisting batched indexer snapshot state: " << state_status.ToString();
+            // braft treats EIO from snapshot save as a terminal state machine error; this failure is retryable.
+            done->status().set_error(EAGAIN, "Failed to persist batched indexer snapshot state: %s",
+                                     state_status.ToString().c_str());
+            lk.unlock();
+            done->Run();
+            return;
+        }
 
         // we will delete all the skip indices in meta store and flush that DB
         // this will block writes, but should be pretty fast
@@ -1389,7 +1398,7 @@ void OnDemandSnapshotClosure::Run() {
     bool ext_snapshot_succeeded = false;
 
     // if an external snapshot is requested, copy latest snapshot directory into that
-    if(!ext_snapshot_path.empty()) {
+    if(status().ok() && !ext_snapshot_path.empty()) {
         const butil::FilePath& dest_state_dir = butil::FilePath(ext_snapshot_path + "/state");
 
         if(!butil::DirectoryExists(dest_state_dir)) {
