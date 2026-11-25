@@ -23,9 +23,11 @@ class ReplicationClosure : public braft::Closure {
 private:
     const std::shared_ptr<http_req> request;
     const std::shared_ptr<http_res> response;
+    ReplicationState* replication_state;
 
 public:
-    ReplicationClosure(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response): request(request), response(response) {
+    ReplicationClosure(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response,
+                       ReplicationState* replication_state): request(request), response(response), replication_state(replication_state) {
 
     }
 
@@ -102,6 +104,7 @@ public:
 // Implements braft::StateMachine.
 class ReplicationState : public braft::StateMachine {
 private:
+    friend class ReplicationClosure;
     static constexpr const char* db_snapshot_name = "db_snapshot";
     static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
     static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
@@ -131,6 +134,7 @@ private:
     std::atomic<bool> write_caught_up;
     mutable std::shared_mutex snapshot_load_mutex;
     std::atomic<bool> snapshot_load_blocks_readiness;
+    std::atomic<bool> storage_fault{false};
 
     std::string raft_dir_path;
 
@@ -190,11 +194,11 @@ public:
     }
 
     bool is_read_caught_up() const {
-        return !snapshot_load_blocks_readiness && read_caught_up;
+        return !storage_fault && !snapshot_load_blocks_readiness && read_caught_up;
     }
 
     bool is_write_caught_up() const {
-        return !snapshot_load_blocks_readiness && write_caught_up;
+        return !storage_fault && !snapshot_load_blocks_readiness && write_caught_up;
     }
 
     bool is_alive() const;
@@ -267,8 +271,6 @@ public:
     void decr_pending_writes();
 
 private:
-
-    friend class ReplicationClosure;
 
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);

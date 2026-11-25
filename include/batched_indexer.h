@@ -22,6 +22,7 @@ private:
         uint32_t num_chunks;
         uint32_t next_chunk_index;   // index where next read must begin
         bool is_complete;           //  whether the req has been written to store fully
+        bool pending_queue_registration = false; // protects a persisted final chunk from GC
         uint64_t latest_chunk_log_index = 0;  // latest raft log index seen for any chunk of this request
 
         req_res_t(uint64_t start_ts, const std::string& prev_req_body,
@@ -144,7 +145,7 @@ public:
 
     ~BatchedIndexer();
 
-    void enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+    rocksdb::Status enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     int64_t get_queued_writes();
 

@@ -125,7 +125,72 @@ protected:
         indexer->serialize_state(state);
         indexer->load_state(state);
     }
+
+    bool reopen_store(bool read_only) {
+        store->close();
+        auto status = read_only ? rocksdb::DB::OpenForReadOnly(store->options, state_dir, &store->db) :
+                                  rocksdb::DB::Open(store->options, state_dir, &store->db);
+        EXPECT_TRUE(status.ok()) << status.ToString();
+        return status.ok();
+    }
 };
+
+TEST_F(BatchedIndexerAliasTest, FailedChunkDoesNotPublishOrAdvanceStreamingRequest) {
+    auto req = make_req(123, 10, "products");
+    auto res = make_res();
+    req->last_chunk_aggregate = false;
+    req->body = "first";
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_TRUE(indexer->req_res_map.empty());
+    EXPECT_EQ("first", req->body);
+    EXPECT_EQ(0, indexer->queued_writes.load());
+
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    EXPECT_TRUE(req->body.empty());
+    ASSERT_EQ(1, indexer->req_res_map.at(123).num_chunks);
+
+    req->body = "middle";
+    req->log_index = 11;
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_EQ("middle", req->body);
+    EXPECT_EQ(1, indexer->req_res_map.at(123).num_chunks);
+    EXPECT_EQ(10, indexer->req_res_map.at(123).latest_chunk_log_index);
+    EXPECT_FALSE(indexer->req_res_map.at(123).is_complete);
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    EXPECT_EQ(2, indexer->req_res_map.at(123).num_chunks);
+
+    req->body = "final";
+    req->log_index = 12;
+    req->last_chunk_aggregate = true;
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_EQ("final", req->body);
+    EXPECT_EQ(2, indexer->req_res_map.at(123).num_chunks);
+    EXPECT_EQ(11, indexer->req_res_map.at(123).latest_chunk_log_index);
+    EXPECT_FALSE(indexer->req_res_map.at(123).is_complete);
+    EXPECT_EQ(0, indexer->queued_writes.load());
+    EXPECT_TRUE(indexer->reference_q.empty());
+    EXPECT_TRUE(indexer->collection_request_tails.empty());
+    for (const auto& queue : indexer->queues) EXPECT_TRUE(queue.empty());
+
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    EXPECT_EQ(3, indexer->req_res_map.at(123).num_chunks);
+    EXPECT_EQ(12, indexer->req_res_map.at(123).latest_chunk_log_index);
+    EXPECT_TRUE(indexer->req_res_map.at(123).is_complete);
+    EXPECT_EQ(3, indexer->queued_writes.load());
+    const auto queue_id = StringUtils::hash_wy("products", 8) % 4;
+    ASSERT_EQ(1, indexer->queues[queue_id].size());
+    EXPECT_EQ(123, indexer->queues[queue_id].front());
+    for (uint32_t i = 0; i < 3; ++i) {
+        std::string value;
+        EXPECT_EQ(FOUND, store->get(indexer->get_req_prefix_key(123) + StringUtils::serialize_uint32_t(i), value));
+    }
+}
 
 TEST_F(BatchedIndexerAliasTest, ResolvedAliasSchemaStillOrdersFailedSwapAfterChildCreation) {
     auto schema = nlohmann::json::parse(

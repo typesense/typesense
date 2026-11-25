@@ -2,6 +2,8 @@
 #include <braft/log.h>
 #include <braft/raft.h>
 #include <braft/snapshot.h>
+#include <braft/log_manager.h>
+#include <braft/fsm_caller.h>
 #include <brpc/server.h>
 #include <chrono>
 #include <filesystem>
@@ -55,8 +57,10 @@ namespace {
 
     class NoopStateMachine : public braft::StateMachine {
     public:
+        std::atomic<size_t> applied{0};
         void on_apply(braft::Iterator& iter) override {
             for(; iter.valid(); iter.next()) {
+                applied++;
                 braft::AsyncClosureGuard done_guard(iter.done());
             }
         }
@@ -243,6 +247,255 @@ TEST(RaftServerTest, SnapshotLoadGateBlocksReadinessAndCatchupRefresh) {
     EXPECT_EQ(std::future_status::ready, refresh.wait_for(std::chrono::seconds(1)));
     EXPECT_FALSE(replication_state.is_read_caught_up());
     EXPECT_FALSE(replication_state.is_write_caught_up());
+}
+
+TEST(RaftServerTest, StorageFaultKeepsReadinessClosedAfterCatchupRefresh) {
+    auto& config = Config::get_instance();
+    ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    state.read_caught_up = true;
+    state.write_caught_up = true;
+    EXPECT_TRUE(state.is_alive());
+    EXPECT_TRUE(state.is_read_caught_up());
+    EXPECT_TRUE(state.is_write_caught_up());
+    state.storage_fault = true;
+    state.refresh_catchup_status(false);
+    state.read_caught_up = true;
+    state.write_caught_up = true;
+    EXPECT_FALSE(state.is_alive());
+    EXPECT_FALSE(state.is_read_caught_up());
+    EXPECT_FALSE(state.is_write_caught_up());
+}
+
+TEST(RaftServerTest, FailedClosuresCompleteOnceAndReleaseEveryPendingTask) {
+    auto& config = Config::get_instance();
+    ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    state.pending_writes = 2;
+    auto* first = new ReplicationClosure(req, res, &state);
+    auto* second = new ReplicationClosure(req, res, &state);
+    first->status().set_error(EIO, "failed");
+    second->status().set_error(EIO, "failed");
+    first->Run();
+    EXPECT_EQ(1, state.pending_writes.load());
+    EXPECT_EQ(503, res->status_code);
+    EXPECT_TRUE(res->final);
+    EXPECT_NE(std::string::npos, res->body.find("uncertain"));
+    EXPECT_TRUE(req->ready);
+    EXPECT_TRUE(res->ready);
+    req->ready = false;
+    res->ready = false;
+    second->Run();
+    EXPECT_EQ(0, state.pending_writes.load());
+    EXPECT_FALSE(req->ready);
+    EXPECT_FALSE(res->ready);
+}
+
+TEST(RaftServerTest, SuccessfulClosureReleasesPendingWithoutCompletingResponse) {
+    auto& config = Config::get_instance();
+    ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    auto req = std::make_shared<http_req>();
+    auto res = std::make_shared<http_res>(nullptr);
+    state.pending_writes = 1;
+    (new ReplicationClosure(req, res, &state))->Run();
+    EXPECT_EQ(0, state.pending_writes.load());
+    EXPECT_FALSE(res->terminal_error_claimed);
+    EXPECT_FALSE(req->ready);
+    EXPECT_FALSE(res->ready);
+}
+
+TEST(RaftServerTest, FailedClosureAndSnapshotCancellationShareResponseOwnership) {
+    std::atomic<bool> skip_writes(false);
+    auto& config = Config::get_instance();
+    BatchedIndexer indexer(nullptr, nullptr, nullptr, 1, config, skip_writes);
+    ReplicationState state(nullptr, &indexer, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    auto res = seed_indexer_request(indexer, 42, true);
+    auto req = indexer.req_res_map.at(42).req;
+    state.pending_writes = 1;
+    auto* closure = new ReplicationClosure(req, res, &state);
+    closure->status().set_error(EIO, "failed");
+    closure->Run();
+    req->ready = false;
+    res->ready = false;
+    {
+        std::unique_lock lock(indexer.lifecycle_mutex);
+        indexer.clear_state_unlocked();
+    }
+    EXPECT_FALSE(req->ready);
+    EXPECT_FALSE(res->ready);
+    EXPECT_NE(std::string::npos, res->body.find("uncertain"));
+}
+
+TEST(RaftServerTest, FailedClosureOwnsResponseBeforePartialUploadGarbageCollection) {
+    char directory[] = "/tmp/typesense-raft-gc-XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(directory));
+    {
+        Store store(directory);
+        std::atomic<bool> skip_writes(false);
+        auto& config = Config::get_instance();
+        BatchedIndexer indexer(nullptr, &store, &store, 1, config, skip_writes);
+        ReplicationState state(nullptr, &indexer, &store, nullptr, nullptr, nullptr, false, &config, 1, 1);
+        auto res = seed_indexer_request(indexer, 42, true);
+        auto req = indexer.req_res_map.at(42).req;
+        indexer.req_res_map.at(42).is_complete = false;
+        indexer.req_res_map.at(42).last_updated = 0;
+        indexer.queues[0].clear();
+        indexer.queued_writes = 0;
+        state.pending_writes = 1;
+        auto* closure = new ReplicationClosure(req, res, &state);
+        closure->status().set_error(EIO, "failed");
+        closure->Run();
+        indexer.last_gc_run = std::chrono::high_resolution_clock::now() - std::chrono::seconds(120);
+        std::thread worker([&indexer] { indexer.run(); });
+        bool removed = false;
+        for (int i = 0; i < 5000; ++i) {
+            {
+                std::unique_lock lock(indexer.mutex);
+                removed = indexer.req_res_map.empty();
+            }
+            if (removed) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        indexer.stop();
+        worker.join();
+        EXPECT_TRUE(removed);
+        EXPECT_NE(std::string::npos, res->body.find("uncertain"));
+        EXPECT_TRUE(res->terminal_error_claimed);
+    }
+    std::filesystem::remove_all(directory);
+}
+
+TEST(RaftServerTest, ExpectedTermRejectionCompletesAndShutdownDrains) {
+    const std::string dir = test_tmp_path("/raft_term_rejection");
+    const std::string peer = "127.0.0.1:18137:18138";
+    std::filesystem::remove_all(dir);
+    append_configuration_entry(dir + "/log", peer);
+    std::filesystem::create_directories(dir + "/db");
+    {
+        TestRaftNode raft_node;
+        ASSERT_EQ(0, raft_node.start(peer, dir));
+        ASSERT_TRUE(raft_node.wait_for_leader());
+        Store store(dir + "/db");
+        std::atomic<bool> skip_writes(false);
+        auto& config = Config::get_instance();
+        BatchedIndexer indexer(nullptr, &store, &store, 1, config, skip_writes);
+        auto state = std::make_unique<ReplicationState>(nullptr, &indexer, &store, nullptr, nullptr,
+                                                        nullptr, false, &config, 1, 1);
+        state->node = raft_node.node;
+        auto request = std::make_shared<http_req>();
+        auto response = std::make_shared<http_res>(nullptr);
+        butil::IOBuf payload;
+        payload.append(request->to_json());
+        braft::Task task;
+        task.data = &payload;
+        task.done = new ReplicationClosure(request, response, state.get());
+        task.expected_term = INT64_MAX;
+        state->pending_writes = 1;
+        raft_node.node->apply(task);
+        for (int i = 0; i < 5000 && state->pending_writes.load() != 0; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (state->pending_writes.load() != 0) {
+            state.release(); // the rejected task may still invoke its closure
+            FAIL() << "rejected task did not complete";
+        }
+        EXPECT_EQ(503, response->status_code);
+        EXPECT_TRUE(response->terminal_error_claimed);
+        EXPECT_EQ(0, raft_node.fsm.applied.load());
+        state->shutdown();
+        raft_node.node = nullptr; // shutdown transferred and deleted the node
+    }
+    std::filesystem::remove_all(dir);
+}
+
+TEST(RaftServerTest, ReadOnlyStoreStopsCommittedBatchForLeaderAndFollower) {
+    class Stable : public braft::LogManager::StableClosure {
+    public:
+        std::promise<void> complete;
+        void Run() override { complete.set_value(); }
+    };
+    for (const bool follower : {false, true}) {
+        char directory[] = "/tmp/typesense-raft-fsm-XXXXXX";
+        ASSERT_NE(nullptr, mkdtemp(directory));
+        {
+            const std::string db_dir = std::string(directory) + "/db";
+            const std::string log_dir = std::string(directory) + "/log";
+            std::filesystem::create_directory(db_dir);
+            Store store(db_dir);
+            store.close();
+            ASSERT_TRUE(rocksdb::DB::OpenForReadOnly(store.options, db_dir, &store.db).ok());
+            std::atomic<bool> skip_writes(false);
+            auto& config = Config::get_instance();
+            BatchedIndexer indexer(nullptr, &store, &store, 1, config, skip_writes);
+            auto state = std::make_unique<ReplicationState>(nullptr, &indexer, &store, nullptr, nullptr,
+                                                             nullptr, false, &config, 1, 1);
+            braft::ConfigurationManager configuration;
+            braft::SegmentLogStorage storage(log_dir);
+            braft::LogManager logs;
+            braft::LogManagerOptions log_options;
+            log_options.log_storage = &storage;
+            log_options.configuration_manager = &configuration;
+            ASSERT_EQ(0, logs.init(log_options));
+            braft::ClosureQueue queue(false);
+            queue.reset_first_index(1);
+            std::vector<std::shared_ptr<http_res>> responses;
+            std::vector<braft::LogEntry*> entries;
+            for (int64_t i = 1; i <= 2; ++i) {
+                auto req = std::make_shared<http_req>();
+                req->start_ts = i;
+                auto* entry = new braft::LogEntry();
+                entry->AddRef();
+                entry->id = braft::LogId(i, 1);
+                entry->type = braft::ENTRY_TYPE_DATA;
+                entry->data.append(req->to_json());
+                entries.push_back(entry);
+                if (follower) {
+                    queue.append_pending_closure(nullptr);
+                } else {
+                    auto res = std::make_shared<http_res>(nullptr);
+                    responses.push_back(res);
+                    queue.append_pending_closure(new ReplicationClosure(req, res, state.get()));
+                }
+            }
+            state->pending_writes = follower ? 0 : 2;
+            auto stable = std::make_unique<Stable>();
+            auto stable_done = stable->complete.get_future();
+            logs.append_entries(&entries, stable.get());
+            if (stable_done.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+                stable.release(); // the log manager may still invoke the callback
+                FAIL() << "log append did not finish";
+            }
+            ASSERT_TRUE(stable->status().ok());
+            braft::FSMCaller caller;
+            braft::FSMCallerOptions options;
+            options.log_manager = &logs;
+            options.fsm = state.get();
+            options.closure_queue = &queue;
+            ASSERT_EQ(0, caller.init(options));
+            ASSERT_EQ(0, caller.on_committed(2));
+            ASSERT_EQ(0, caller.shutdown());
+            caller.join();
+            EXPECT_TRUE(state->storage_fault);
+            EXPECT_TRUE(indexer.req_res_map.empty());
+            braft::LogManagerStatus status;
+            logs.get_status(&status);
+            EXPECT_EQ(0, status.known_applied_index);
+            for (int i = 0; i < 5000 && state->pending_writes.load() != 0; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (state->pending_writes.load() != 0) {
+                ADD_FAILURE() << "pending closures did not finish";
+                state.release(); // callbacks may still access the state
+            } else {
+                for (const auto& response : responses) {
+                    EXPECT_EQ(503, response->status_code);
+                    EXPECT_TRUE(response->terminal_error_claimed);
+                }
+            }
+            logs.shutdown();
+        }
+        std::filesystem::remove_all(directory);
+    }
 }
 
 TEST(RaftServerTest, RestoresBatchedIndexerStateByStoreStatusAndFailsClosed) {
