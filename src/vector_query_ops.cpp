@@ -86,7 +86,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
 
             for(size_t i = 0; i < param_kvs.size(); i++) {
                 auto& param_kv_str = param_kvs[i];
-                if(param_kv_str.back() == ')') {
+                if(i == param_kvs.size() - 1 && param_kv_str.back() == ')') {
                     param_kv_str.pop_back();
                 }
 

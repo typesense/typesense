@@ -293,6 +293,59 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionVectorTest, VectorQueryByIdEndingInParen) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "SKU-42(XL)";
+    doc["vec"] = {0.1, 0.2, 0.3, 0.4};
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    doc["id"] = "SKU-42";
+    doc["vec"] = {0.1, 0.2, 0.3, 0.5};
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    doc["id"] = "SKU-99";
+    doc["vec"] = {0.9, 0.1, 0.1, 0.1};
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"vector_query", "vec:([], id: SKU-42(XL), k: 11)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ("SKU-42", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("SKU-99", res["hits"][1]["document"]["id"].get<std::string>());
+
+    req_params["vector_query"] = "vec:([], k: 11, id: SKU-42(XL))";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ("SKU-42", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("SKU-99", res["hits"][1]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionVectorTest, VectorDistanceConfig) {
     nlohmann::json schema = R"({
         "name": "coll1",
