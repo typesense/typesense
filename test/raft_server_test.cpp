@@ -629,7 +629,8 @@ TEST(RaftServerTest, ReadOnlyStoreStopsCommittedBatchForLeaderAndFollower) {
         std::promise<void> complete;
         void Run() override { complete.set_value(); }
     };
-    for (const bool follower : {false, true}) {
+    for (const auto [follower, buffered] : {std::pair{false, false}, std::pair{true, false},
+                                            std::pair{false, true}, std::pair{true, true}}) {
         char directory[] = "/tmp/typesense-raft-fsm-XXXXXX";
         ASSERT_NE(nullptr, mkdtemp(directory));
         {
@@ -637,11 +638,19 @@ TEST(RaftServerTest, ReadOnlyStoreStopsCommittedBatchForLeaderAndFollower) {
             const std::string log_dir = std::string(directory) + "/log";
             std::filesystem::create_directory(db_dir);
             Store store(db_dir);
-            store.close();
-            ASSERT_TRUE(rocksdb::DB::OpenForReadOnly(store.options, db_dir, &store.db).ok());
             std::atomic<bool> skip_writes(false);
             auto& config = Config::get_instance();
             BatchedIndexer indexer(nullptr, &store, &store, 1, config, skip_writes);
+            auto buffered_req = std::make_shared<http_req>();
+            auto buffered_res = std::make_shared<http_res>(nullptr);
+            buffered_req->start_ts = 42;
+            buffered_req->log_index = 1;
+            buffered_req->body = "persisted first chunk";
+            if (buffered) {
+                ASSERT_TRUE(indexer.enqueue(buffered_req, buffered_res).ok());
+            }
+            store.close();
+            ASSERT_TRUE(rocksdb::DB::OpenForReadOnly(store.options, db_dir, &store.db).ok());
             auto state = std::make_unique<ReplicationState>(nullptr, &indexer, &store, nullptr, nullptr,
                                                              nullptr, false, &config, 1, 1);
             braft::ConfigurationManager configuration;
@@ -652,22 +661,32 @@ TEST(RaftServerTest, ReadOnlyStoreStopsCommittedBatchForLeaderAndFollower) {
             log_options.configuration_manager = &configuration;
             ASSERT_EQ(0, logs.init(log_options));
             braft::ClosureQueue queue(false);
-            queue.reset_first_index(1);
+            queue.reset_first_index(buffered ? 2 : 1);
             std::vector<std::shared_ptr<http_res>> responses;
             std::vector<braft::LogEntry*> entries;
+            if (buffered) {
+                auto* prior = new braft::LogEntry();
+                prior->AddRef();
+                prior->id = braft::LogId(1, 1);
+                prior->type = braft::ENTRY_TYPE_DATA;
+                buffered_req->body = "persisted first chunk";
+                prior->data.append(buffered_req->to_json());
+                entries.push_back(prior);
+            }
             for (int64_t i = 1; i <= 2; ++i) {
-                auto req = std::make_shared<http_req>();
-                req->start_ts = i;
+                auto req = buffered && i == 1 && !follower ? buffered_req : std::make_shared<http_req>();
+                req->start_ts = buffered && i == 1 ? 42 : i;
+                req->body = "later chunk";
                 auto* entry = new braft::LogEntry();
                 entry->AddRef();
-                entry->id = braft::LogId(i, 1);
+                entry->id = braft::LogId(buffered ? i + 1 : i, 1);
                 entry->type = braft::ENTRY_TYPE_DATA;
                 entry->data.append(req->to_json());
                 entries.push_back(entry);
                 if (follower) {
                     queue.append_pending_closure(nullptr);
                 } else {
-                    auto res = std::make_shared<http_res>(nullptr);
+                    auto res = buffered && i == 1 ? buffered_res : std::make_shared<http_res>(nullptr);
                     responses.push_back(res);
                     queue.append_pending_closure(new ReplicationClosure(req, res, state.get()));
                 }
@@ -681,20 +700,38 @@ TEST(RaftServerTest, ReadOnlyStoreStopsCommittedBatchForLeaderAndFollower) {
                 FAIL() << "log append did not finish";
             }
             ASSERT_TRUE(stable->status().ok());
+            if (buffered) logs.set_applied_id(braft::LogId(1, 1));
             braft::FSMCaller caller;
             braft::FSMCallerOptions options;
             options.log_manager = &logs;
             options.fsm = state.get();
             options.closure_queue = &queue;
+            if (buffered) options.bootstrap_id = braft::LogId(1, 1);
             ASSERT_EQ(0, caller.init(options));
-            ASSERT_EQ(0, caller.on_committed(2));
+            ASSERT_EQ(0, caller.on_committed(buffered ? 3 : 2));
             ASSERT_EQ(0, caller.shutdown());
             caller.join();
             EXPECT_TRUE(state->storage_fault);
-            EXPECT_TRUE(indexer.req_res_map.empty());
+            if (buffered) {
+                EXPECT_EQ(1, indexer.req_res_map.size());
+                const auto saved_request = indexer.req_res_map.find(42);
+                EXPECT_NE(indexer.req_res_map.end(), saved_request);
+                if (saved_request != indexer.req_res_map.end()) {
+                    EXPECT_EQ(1, saved_request->second.num_chunks);
+                    EXPECT_EQ(1, saved_request->second.latest_chunk_log_index);
+                    EXPECT_FALSE(saved_request->second.is_complete);
+                }
+                std::string saved_chunk;
+                EXPECT_EQ(FOUND, store.get(indexer.get_req_prefix_key(42) + StringUtils::serialize_uint32_t(0), saved_chunk));
+                EXPECT_NE(std::string::npos, saved_chunk.find("persisted first chunk"));
+            } else {
+                EXPECT_TRUE(indexer.req_res_map.empty());
+            }
+            EXPECT_EQ(0, indexer.queued_writes.load());
+            EXPECT_TRUE(indexer.queues[0].empty());
             braft::LogManagerStatus status;
             logs.get_status(&status);
-            EXPECT_EQ(0, status.known_applied_index);
+            EXPECT_EQ(buffered ? 1 : 0, status.known_applied_index);
             for (int i = 0; i < 5000 && state->pending_writes.load() != 0; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }

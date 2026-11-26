@@ -24,6 +24,12 @@
 
 namespace {
 
+std::atomic<int> proceed_calls{0};
+
+void count_proceed(h2o_req_t*, const char*) {
+    proceed_calls++;
+}
+
 std::shared_ptr<http_req> make_req(const uint64_t start_ts, const int64_t log_index,
                                    const std::string& collection) {
     auto req = std::make_shared<http_req>();
@@ -189,6 +195,100 @@ TEST_F(BatchedIndexerAliasTest, FailedChunkDoesNotPublishOrAdvanceStreamingReque
     for (uint32_t i = 0; i < 3; ++i) {
         std::string value;
         EXPECT_EQ(FOUND, store->get(indexer->get_req_prefix_key(123) + StringUtils::serialize_uint32_t(i), value));
+    }
+}
+
+TEST_F(BatchedIndexerAliasTest, OnlyPersistedChunksContinueHttpInput) {
+    h2o_req_t raw_req{};
+    raw_req.proceed_req = count_proceed;
+    auto req = make_req(124, 10, "products");
+    auto res = make_res();
+    req->_req = &raw_req;
+    struct ResetRawRequest {
+        std::shared_ptr<http_req> req;
+        ~ResetRawRequest() { req->_req = nullptr; }
+    } reset{req};
+    res->is_alive = true;
+    auto* dispatcher = server->get_message_dispatcher();
+    dispatcher->on(HttpServer::REQUEST_PROCEED_MESSAGE, HttpServer::on_request_proceed_message);
+    proceed_calls = 0;
+    req->body = "first";
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_TRUE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    EXPECT_EQ(0, proceed_calls.load());
+
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    ASSERT_FALSE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    http_message_dispatcher::on_message(dispatcher->message_receiver, &dispatcher->message_receiver->_messages);
+    EXPECT_EQ(1, proceed_calls.load());
+
+    req->body = "middle";
+    req->log_index = 11;
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_TRUE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    EXPECT_EQ(1, proceed_calls.load());
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    ASSERT_FALSE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    http_message_dispatcher::on_message(dispatcher->message_receiver, &dispatcher->message_receiver->_messages);
+    EXPECT_EQ(2, proceed_calls.load());
+
+    req->body = "final";
+    req->log_index = 12;
+    req->last_chunk_aggregate = true;
+    ASSERT_TRUE(reopen_store(true));
+    EXPECT_FALSE(indexer->enqueue(req, res).ok());
+    EXPECT_TRUE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    EXPECT_EQ(2, proceed_calls.load());
+    for (const auto& queue : indexer->queues) EXPECT_TRUE(queue.empty());
+
+    ASSERT_TRUE(reopen_store(false));
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    ASSERT_FALSE(h2o_linklist_is_empty(&dispatcher->message_receiver->_messages));
+    http_message_dispatcher::on_message(dispatcher->message_receiver, &dispatcher->message_receiver->_messages);
+    EXPECT_EQ(3, proceed_calls.load());
+    EXPECT_EQ(3, indexer->queued_writes.load());
+}
+
+TEST_F(BatchedIndexerAliasTest, FailedSingleRequestDoesNotRunHandlerAndSuccessfulRetryDoes) {
+    struct Worker {
+        BatchedIndexer* indexer;
+        std::thread thread;
+        explicit Worker(BatchedIndexer* i) : indexer(i), thread([i] { i->run(); }) {}
+        ~Worker() { indexer->stop(); thread.join(); }
+    };
+    auto req = make_req(125, 10, "");
+    req->body = R"({"name":"handler_control","fields":[{"name":"title","type":"string"}]})";
+    req->last_chunk_aggregate = true;
+    route_path* route = nullptr;
+    req->route_hash = server->find_route({"collections"}, "POST", &route);
+    ASSERT_NE(nullptr, route);
+    auto res = make_res();
+    ASSERT_TRUE(reopen_store(true));
+    {
+        Worker worker(indexer.get());
+        EXPECT_FALSE(indexer->enqueue(req, res).ok());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        EXPECT_EQ(nullptr, cm.get_collection("handler_control"));
+        EXPECT_EQ(0, indexer->get_queued_writes());
+    }
+
+    indexer.reset();
+    ASSERT_TRUE(reopen_store(false));
+    indexer = std::make_unique<BatchedIndexer>(server.get(), store.get(), store.get(), 4,
+                                               Config::get_instance(), quit);
+    ASSERT_TRUE(indexer->enqueue(req, res).ok());
+    {
+        Worker worker(indexer.get());
+        for (int i = 0; i < 5000 && (indexer->get_queued_writes() != 0 ||
+                                      cm.get_collection("handler_control") == nullptr); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        EXPECT_EQ(0, indexer->get_queued_writes());
+        EXPECT_NE(nullptr, cm.get_collection("handler_control"));
     }
 }
 
