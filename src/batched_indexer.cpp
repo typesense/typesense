@@ -54,7 +54,7 @@ std::string get_ref_coll_names(const std::string& body, std::unordered_set<std::
     return collection_name;
 }
 
-void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+rocksdb::Status BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::shared_lock lifecycle_lock(lifecycle_mutex);
 
     // Called by the raft write thread: goal is to quickly send the request to a queue and move on
@@ -63,40 +63,42 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
     //LOG(INFO) << "BatchedIndexer::enqueue";
     uint32_t chunk_sequence = 0;
+    const std::string payload = req->to_json();
 
     {
-        uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-
         std::unique_lock lk(mutex);
         auto req_res_map_it = req_res_map.find(req->start_ts);
+        if(req_res_map_it != req_res_map.end()) {
+            chunk_sequence = req_res_map_it->second.num_chunks;
+        }
+        const std::string request_chunk_key = get_req_prefix_key(req->start_ts) +
+                                              StringUtils::serialize_uint32_t(chunk_sequence);
+        auto status = store->insert_with_status(request_chunk_key, payload);
+        if(!status.ok()) {
+            return status;
+        }
+        uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
 
         if(req_res_map_it == req_res_map.end()) {
             // first chunk
             req_res_t req_res(req->start_ts, "", req, res, now, 1, 0, false, static_cast<uint64_t>(req->log_index));
-            req_res_map.emplace(req->start_ts, req_res);
+            req_res_map_it = req_res_map.emplace(req->start_ts, req_res).first;
         } else {
             auto& req_res = req_res_map_it->second;
-            chunk_sequence = req_res.num_chunks;
             req_res.num_chunks += 1;
             req_res.last_updated = now;
             req_res.latest_chunk_log_index = std::max(req_res.latest_chunk_log_index, static_cast<uint64_t>(req->log_index));
         }
+        if(req->last_chunk_aggregate) {
+            req_res_map_it->second.pending_queue_registration = true;
+        }
     }
-
-    const std::string& req_key_prefix = get_req_prefix_key(req->start_ts);
-    const std::string& request_chunk_key = req_key_prefix + StringUtils::serialize_uint32_t(chunk_sequence);
-
-    //LOG(INFO) << "request_chunk_key: " << req->start_ts << "_" << chunk_sequence << ", req body: " << req->body;
-
-    store->insert(request_chunk_key, req->to_json());
 
     bool is_old_serialized_request = (req->start_ts == 0);
     bool read_more_input = (req->_req != nullptr && req->_req->proceed_req);
     if(req->last_chunk_aggregate) {
         //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
-        queued_writes += (chunk_sequence + 1);
-
         {
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
@@ -109,8 +111,10 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 // Otherwise a snapshot or a later request could observe the new tail before the request is present
                 // in either queue.
                 std::unique_lock lk(mutex);
-                req_res_map[req->start_ts].is_complete = true;
-
+                auto request_it = req_res_map.find(req->start_ts);
+                request_it->second.is_complete = true;
+                request_it->second.pending_queue_registration = false;
+                queued_writes += (chunk_sequence + 1);
                 auto wait_on_request_ids = get_requests_to_wait_on(req->start_ts, coll_name);
                 if (!coll_name.empty()) {
                     collection_request_tails[coll_name] = req->start_ts;
@@ -158,6 +162,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
         deferred_req_res_t* req_res = new deferred_req_res_t(req, res, server, true);
         server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
     }
+    return rocksdb::Status::OK();
 }
 
 std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>& req) {
@@ -423,14 +428,19 @@ void BatchedIndexer::run() {
                 //LOG(INFO) << "GC checking on req id: " << it->first;
                 //LOG(INFO) << "Seconds since last batch update: " << seconds_since_batch_update;
 
-                if(!it->second.is_complete && seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
+                if(!it->second.is_complete && !it->second.pending_queue_registration &&
+                   seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
                     LOG(INFO) << "Deleting partial upload for req id " << it->second.start_ts;
 
                     const std::string& req_key_prefix = get_req_prefix_key(it->second.start_ts);
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
 
-                    if(it->second.res->is_alive) {
-                        it->second.res->final = true;
+                    if(it->second.res->is_alive && !it->second.res->terminal_error_claimed.exchange(true)) {
+                        {
+                            std::unique_lock response_lock(it->second.res->mres);
+                            it->second.res->set(408, "Upload timed out before completion.");
+                            it->second.res->final = true;
+                        }
                         async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
                         server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
                     }
@@ -621,7 +631,7 @@ void BatchedIndexer::clear_state_unlocked(const bool cancel_live_requests) {
     for (const auto& [req, res] : displaced_live_requests) {
         {
             std::unique_lock response_lock(res->mres);
-            if(!res->is_alive) {
+            if(!res->is_alive || res->terminal_error_claimed.exchange(true)) {
                 continue;
             }
             res->set_503("Request cancelled while installing a Raft snapshot.");

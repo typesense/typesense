@@ -27,9 +27,23 @@ namespace braft {
 }
 
 void ReplicationClosure::Run() {
-    // nothing much to do here since responding to client is handled upstream
-    // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
+    if(!status().ok() && !response->terminal_error_claimed.exchange(true)) {
+        {
+            std::unique_lock lock(response->mres);
+            response->set_503("The write outcome is uncertain. Check the data before retrying.");
+            response->final = true;
+        }
+        if(replication_state->message_dispatcher != nullptr && response->is_alive &&
+           response->generator != nullptr && request->_req != nullptr) {
+            auto* req_res = new async_req_res_t(request, response, true);
+            replication_state->message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        } else {
+            request->notify();
+            response->notify();
+        }
+    }
+    replication_state->pending_writes--;
 }
 
 // State machine implementation
@@ -368,6 +382,14 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     std::shared_lock lock(node_mutex);
 
+    if(shutting_down) {
+        response->set_503("Shutting down.");
+        response->final = true;
+        response->is_alive = false;
+        request->notify();
+        return;
+    }
+
     if(!node) {
         return ;
     }
@@ -402,7 +424,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     braft::Task task;
     task.data = &bufBuilder.buf();
     // This callback would be invoked when the task actually executes or fails
-    task.done = new ReplicationClosure(request, response);
+    task.done = new ReplicationClosure(request, response, this);
 
     //LOG(INFO) << "write() post request ref count " << request.use_count();
 
@@ -412,9 +434,8 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
     // Now the task is applied to the group
-    node->apply(task);
-
     pending_writes++;
+    node->apply(task);
 }
 
 void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
@@ -454,8 +475,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
     const std::string url = get_node_url_path(leader_addr, path, scheme);
 
+    pending_writes++;
     thread_pool->enqueue([request, response, server, path, url, this]() {
-        pending_writes++;
 
         std::map<std::string, std::string> res_headers;
 
@@ -543,9 +564,6 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
-        // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
-        braft::AsyncClosureGuard closure_guard(iter.done());
-
         //LOG(INFO) << "Apply entry";
 
         const std::shared_ptr<http_req>& request_generated = iter.done() ?
@@ -566,12 +584,16 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // To avoid blocking the serial Raft write thread persist the log entry in local storage.
         // Actual operations will be done in collection-sharded batch indexing threads.
 
-        batched_indexer->enqueue(request_generated, response_generated);
-
-        if(iter.done()) {
-            pending_writes--;
-            //LOG(INFO) << "pending_writes: " << pending_writes;
+        const auto status = batched_indexer->enqueue(request_generated, response_generated);
+        if(!status.ok()) {
+            LOG(ERROR) << "Failed to persist Raft request at index " << iter.index() << ": " << status.ToString();
+            storage_fault = true;
+            butil::Status error(EIO, "Failed to persist Raft request: %s", status.ToString().c_str());
+            iter.set_error_and_rollback(1, &error);
+            return;
         }
+        // Only successful entries transfer closure ownership to this guard.
+        braft::AsyncClosureGuard closure_guard(iter.done());
     }
 }
 
@@ -593,8 +615,10 @@ void* ReplicationState::save_snapshot(void* arg) {
     for (butil::FilePath file = dir_enum.Next(); !file.empty(); file = dir_enum.Next()) {
         std::string file_name = std::string(db_snapshot_name) + "/" + file.BaseName().value();
         if (sa->writer->add_file(file_name) != 0) {
-            sa->done->status().set_error(EIO, "Fail to add file to writer.");
-            sa->replication_state->snapshot_in_progress = false;
+            if(sa->done->status().ok()) {
+                sa->done->status().set_error(EAGAIN, "Fail to add file to writer.");
+            }
+            sa->done->Run();
             return nullptr;
         }
     }
@@ -606,18 +630,23 @@ void* ReplicationState::save_snapshot(void* arg) {
         for (butil::FilePath file = analytics_dir_enum.Next(); !file.empty(); file = analytics_dir_enum.Next()) {
             auto file_name = std::string(analytics_db_snapshot_name) + "/" + file.BaseName().value();
             if (sa->writer->add_file(file_name) != 0) {
-                sa->done->status().set_error(EIO, "Fail to add analytics file to writer.");
-                sa->replication_state->snapshot_in_progress = false;
+                if(sa->done->status().ok()) {
+                    sa->done->status().set_error(EAGAIN, "Fail to add analytics file to writer.");
+                }
+                sa->done->Run();
                 return nullptr;
             }
         }
     }
 
+    const bool success = sa->done->status().ok();
     sa->done->Run();
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
     // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
-    sa->replication_state->do_dummy_write();
+    if(success) {
+        sa->replication_state->do_dummy_write();
+    }
 
     LOG(INFO) << "save_snapshot done";
 
@@ -639,7 +668,16 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 
         nlohmann::json batch_index_state;
         batched_indexer->serialize_state(batch_index_state);
-        store->insert(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+        const auto state_status = store->insert_with_status(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+        if(!state_status.ok()) {
+            LOG(ERROR) << "Failure persisting batched indexer snapshot state: " << state_status.ToString();
+            // braft treats EIO from snapshot save as a terminal state machine error; this failure is retryable.
+            done->status().set_error(EAGAIN, "Failed to persist batched indexer snapshot state: %s",
+                                     state_status.ToString().c_str());
+            lk.unlock();
+            done->Run();
+            return;
+        }
 
         // we will delete all the skip indices in meta store and flush that DB
         // this will block writes, but should be pretty fast
@@ -1041,7 +1079,7 @@ ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_i
 
 bool ReplicationState::is_alive() const {
     // for general health check we will only care about the `read_caught_up` threshold
-    return read_caught_up;
+    return !storage_fault && read_caught_up;
 }
 
 uint64_t ReplicationState::node_state() const {
@@ -1177,7 +1215,10 @@ Store* ReplicationState::get_store() {
 
 void ReplicationState::shutdown() {
     LOG(INFO) << "Set shutting_down = true";
-    shutting_down = true;
+    {
+        std::unique_lock lock(node_mutex);
+        shutting_down = true;
+    }
 
     LOG(INFO) << "Waiting for in-flight writes to finish...";
     while(true) {
@@ -1364,7 +1405,7 @@ void OnDemandSnapshotClosure::Run() {
     bool ext_snapshot_succeeded = false;
 
     // if an external snapshot is requested, copy latest snapshot directory into that
-    if(!ext_snapshot_path.empty()) {
+    if(status().ok() && !ext_snapshot_path.empty()) {
         const butil::FilePath& dest_state_dir = butil::FilePath(ext_snapshot_path + "/state");
 
         if(!butil::DirectoryExists(dest_state_dir)) {

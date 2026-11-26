@@ -64,9 +64,12 @@ rocksdb::Status Store::init_db(int32_t ttl) {
 }
 
 bool Store::insert(const std::string& key, const std::string& value) {
+    return insert_with_status(key, value).ok();
+}
+
+rocksdb::Status Store::insert_with_status(const std::string& key, const std::string& value) {
     std::shared_lock lock(mutex);
-    rocksdb::Status status = db->Put(write_options, key, value);
-    return status.ok();
+    return db->Put(write_options, key, value);
 }
 
 bool Store::batch_write(rocksdb::WriteBatch& batch) {

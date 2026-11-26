@@ -53,6 +53,7 @@ enum StoreStatus {
  */
 class Store {
 private:
+    friend class BatchedIndexerAliasTest;
 
     const std::string state_dir_path;
     rocksdb::DB *db;
@@ -82,6 +83,8 @@ public:
     ~Store();
 
     bool insert(const std::string& key, const std::string& value);
+
+    rocksdb::Status insert_with_status(const std::string& key, const std::string& value);
 
     bool batch_write(rocksdb::WriteBatch& batch);
 

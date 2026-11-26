@@ -46,6 +46,8 @@ struct http_res {
     std::shared_mutex mres;
 
     std::atomic<bool> is_alive;
+    // Arbitration for terminal error/cancellation paths sharing this response.
+    std::atomic<bool> terminal_error_claimed{false};
     std::atomic<void*> generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
