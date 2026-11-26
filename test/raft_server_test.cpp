@@ -22,6 +22,14 @@ namespace braft {
 }
 
 namespace {
+    std::atomic<int> terminal_dispatches{0};
+
+    bool count_terminal_dispatch(void* data) {
+        terminal_dispatches++;
+        delete static_cast<async_req_res_t*>(data);
+        return true;
+    }
+
     std::shared_ptr<http_res> seed_indexer_request(BatchedIndexer& indexer, const uint64_t request_id,
                                                    const bool live_response) {
         auto req = std::make_shared<http_req>();
@@ -578,6 +586,156 @@ TEST(RaftServerTest, FailedClosureOwnsResponseBeforePartialUploadGarbageCollecti
         EXPECT_TRUE(res->terminal_error_claimed);
     }
     std::filesystem::remove_all(directory);
+}
+
+TEST(RaftServerTest, ExpiredUploadAndFailedRaftClosureDispatchOnlyWinningResponse) {
+    for (bool gc_first : {false, true}) {
+        char directory[] = "/tmp/typesense-raft-gc-response-XXXXXX";
+        ASSERT_NE(nullptr, mkdtemp(directory));
+        {
+            Store store(directory);
+            std::atomic<bool> skip_writes(false);
+            auto& config = Config::get_instance();
+            ThreadPool pool(1);
+            HttpServer server("test", "127.0.0.1", 0, "", "", 0, false, {}, &pool);
+            auto* dispatcher = server.get_message_dispatcher();
+            dispatcher->on(HttpServer::STREAM_RESPONSE_MESSAGE, count_terminal_dispatch);
+            BatchedIndexer indexer(&server, &store, &store, 1, config, skip_writes);
+            ReplicationState state(&server, &indexer, &store, nullptr, nullptr, dispatcher, false, &config, 1, 1);
+            auto res = seed_indexer_request(indexer, 42, true);
+            auto req = indexer.req_res_map.at(42).req;
+            h2o_req_t raw_req{};
+            route_path route("POST", {"test"}, nullptr, true, false);
+            h2o_custom_generator_t generator{};
+            generator.rpath = &route;
+            req->_req = &raw_req;
+            res->generator = &generator;
+            struct ResetRequest {
+                std::shared_ptr<http_req> req;
+                std::shared_ptr<http_res> res;
+                ~ResetRequest() { req->_req = nullptr; res->generator = nullptr; }
+            } reset{req, res};
+            res->final = false;
+            indexer.req_res_map.at(42).is_complete = false;
+            indexer.req_res_map.at(42).last_updated = 0;
+            indexer.queues[0].clear();
+            indexer.queued_writes = 0;
+            state.pending_writes = 1;
+            auto* closure = new ReplicationClosure(req, res, &state);
+            closure->status().set_error(EIO, "failed");
+            terminal_dispatches = 0;
+            if (!gc_first) closure->Run();
+
+            indexer.last_gc_run = std::chrono::high_resolution_clock::now() - std::chrono::seconds(120);
+            std::thread worker([&indexer] { indexer.run(); });
+            bool removed = false;
+            for (int i = 0; i < 5000; ++i) {
+                {
+                    std::unique_lock lock(indexer.mutex);
+                    removed = indexer.req_res_map.empty();
+                }
+                if (removed) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            indexer.stop();
+            worker.join();
+            EXPECT_TRUE(removed);
+            if (gc_first) closure->Run();
+            EXPECT_EQ(0, state.pending_writes.load());
+            EXPECT_TRUE(res->terminal_error_claimed);
+            EXPECT_TRUE(res->final);
+            EXPECT_EQ(gc_first ? 408 : 503, res->status_code);
+            EXPECT_EQ(gc_first ? 408 : 503, req->res_state.status);
+            EXPECT_NE(std::string::npos, req->res_state.res_body.find(gc_first ? "timed out" : "uncertain"));
+            auto* messages = &dispatcher->message_receiver->_messages;
+            ASSERT_FALSE(h2o_linklist_is_empty(messages));
+            EXPECT_EQ(messages, messages->next->next);
+            h2o_evloop_run(server.ctx.loop, 0);
+            EXPECT_EQ(1, terminal_dispatches.load());
+            pool.shutdown();
+        }
+        std::filesystem::remove_all(directory);
+    }
+}
+
+TEST(RaftServerTest, SnapshotFileRegistrationCompletesOnceAndPreservesEarlierErrors) {
+    char directory[] = "/tmp/typesense-snapshot-files-XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(directory));
+    const std::string root(directory);
+    std::filesystem::create_directories(root + "/db");
+    std::filesystem::create_directories(root + "/analytics");
+    { std::ofstream(root + "/db/a") << "a"; std::ofstream(root + "/db/b") << "b"; }
+    { std::ofstream(root + "/analytics/a") << "a"; std::ofstream(root + "/analytics/b") << "b"; }
+
+    class Writer : public braft::SnapshotWriter {
+    public:
+        std::string rejected_prefix;
+        std::vector<std::string> added;
+        std::string get_path() override { return ""; }
+        void list_files(std::vector<std::string>*) override {}
+        int save_meta(const braft::SnapshotMeta&) override { return 0; }
+        int add_file(const std::string& name, const google::protobuf::Message*) override {
+            added.push_back(name);
+            return !rejected_prefix.empty() && name.rfind(rejected_prefix, 0) == 0 ? -1 : 0;
+        }
+        int remove_file(const std::string&) override { return 0; }
+    };
+    class Done : public braft::Closure {
+    public:
+        ReplicationState* state;
+        int calls = 0;
+        explicit Done(ReplicationState* s) : state(s) {}
+        void Run() override { calls++; state->set_snapshot_in_progress(false); }
+    };
+
+    auto& config = Config::get_instance();
+    ReplicationState state(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false, &config, 1, 1);
+    struct Scenario {
+        const char* name;
+        const char* rejected_prefix;
+        bool prior_error;
+        int expected_status;
+        size_t expected_added;
+    };
+    const std::vector<Scenario> scenarios{
+        {"database registration fails", "db_snapshot/", false, EAGAIN, 1},
+        {"analytics registration fails", "analytics_db_snapshot/", false, EAGAIN, 3},
+        {"database failure preserves checkpoint error", "db_snapshot/", true, EIO, 1},
+        {"successful registration preserves checkpoint error", "", true, EIO, 4},
+        {"successful registration", "", false, 0, 4},
+    };
+    for (const auto& scenario : scenarios) {
+        SCOPED_TRACE(scenario.name);
+        Writer writer;
+        writer.rejected_prefix = scenario.rejected_prefix;
+        Done done(&state);
+        if (scenario.prior_error) done.status().set_error(EIO, "earlier checkpoint failure");
+        state.snapshot_in_progress = true;
+        auto* arg = new ReplicationState::SnapshotArg;
+        arg->replication_state = &state;
+        arg->writer = &writer;
+        arg->done = &done;
+        arg->db_snapshot_path = root + "/db";
+        arg->analytics_db_snapshot_path = root + "/analytics";
+        if (scenario.expected_status == 0) {
+            ReplicationState::save_snapshot(arg);
+        } else {
+            std::unique_lock node_lock(state.node_mutex);
+            auto save = std::async(std::launch::async, [arg] { ReplicationState::save_snapshot(arg); });
+            const auto completion = save.wait_for(std::chrono::seconds(2));
+            node_lock.unlock();
+            save.get();
+            EXPECT_EQ(std::future_status::ready, completion);
+        }
+        EXPECT_EQ(1, done.calls);
+        EXPECT_FALSE(state.snapshot_in_progress.load());
+        EXPECT_EQ(scenario.expected_status, done.status().error_code());
+        if (scenario.prior_error) {
+            EXPECT_EQ("earlier checkpoint failure", done.status().error_str());
+        }
+        EXPECT_EQ(scenario.expected_added, writer.added.size());
+    }
+    std::filesystem::remove_all(root);
 }
 
 TEST(RaftServerTest, ExpectedTermRejectionCompletesAndShutdownDrains) {

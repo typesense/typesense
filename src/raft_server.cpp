@@ -615,8 +615,10 @@ void* ReplicationState::save_snapshot(void* arg) {
     for (butil::FilePath file = dir_enum.Next(); !file.empty(); file = dir_enum.Next()) {
         std::string file_name = std::string(db_snapshot_name) + "/" + file.BaseName().value();
         if (sa->writer->add_file(file_name) != 0) {
-            sa->done->status().set_error(EIO, "Fail to add file to writer.");
-            sa->replication_state->snapshot_in_progress = false;
+            if(sa->done->status().ok()) {
+                sa->done->status().set_error(EAGAIN, "Fail to add file to writer.");
+            }
+            sa->done->Run();
             return nullptr;
         }
     }
@@ -628,18 +630,23 @@ void* ReplicationState::save_snapshot(void* arg) {
         for (butil::FilePath file = analytics_dir_enum.Next(); !file.empty(); file = analytics_dir_enum.Next()) {
             auto file_name = std::string(analytics_db_snapshot_name) + "/" + file.BaseName().value();
             if (sa->writer->add_file(file_name) != 0) {
-                sa->done->status().set_error(EIO, "Fail to add analytics file to writer.");
-                sa->replication_state->snapshot_in_progress = false;
+                if(sa->done->status().ok()) {
+                    sa->done->status().set_error(EAGAIN, "Fail to add analytics file to writer.");
+                }
+                sa->done->Run();
                 return nullptr;
             }
         }
     }
 
+    const bool success = sa->done->status().ok();
     sa->done->Run();
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
     // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
-    sa->replication_state->do_dummy_write();
+    if(success) {
+        sa->replication_state->do_dummy_write();
+    }
 
     LOG(INFO) << "save_snapshot done";
 
