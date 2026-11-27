@@ -35,6 +35,10 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 
+#ifdef TEST_BUILD
+bool fail_repair_store_for_test = false;
+#endif
+
 const std::string curation_t::MATCH_EXACT = "exact";
 const std::string curation_t::MATCH_CONTAINS = "contains";
 
@@ -1333,13 +1337,27 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 }
                 const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
-                bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+                bool write_ok;
+#ifdef TEST_BUILD
+                if(index_record.is_repair && fail_repair_store_for_test) {
+                    write_ok = false;
+                } else
+#endif
+                {
+                    write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+                }
 
                 if(!write_ok) {
-                    // we will attempt to reindex the old doc on a best-effort basis
-                    LOG(ERROR) << "Update to disk failed. Will restore old document";
-                    remove_document(index_record.new_doc, index_record.seq_id, false, false);
-                    index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
+                    if(index_record.is_repair) {
+                        // doc still contains the full indexed payload, including store:false
+                        // and flattened fields stripped from new_doc for persistence above.
+                        remove_document(index_record.doc, index_record.seq_id, false, false);
+                    } else {
+                        // we will attempt to reindex the old doc on a best-effort basis
+                        LOG(ERROR) << "Update to disk failed. Will restore old document";
+                        remove_document(index_record.new_doc, index_record.seq_id, false, false);
+                        index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
+                    }
                     index_record.index_failure(500, "Could not write to on-disk storage.");
                 }
 
