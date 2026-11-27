@@ -1,12 +1,13 @@
 #pragma once
 
 #include <cstdlib>
+#include <memory>
 #include <vector>
 #include "collection.h"
 #include "http_data.h"
 
 struct deletion_state_t: public req_state_t {
-    Collection* collection;
+    std::shared_ptr<Collection> collection;
     std::vector<std::pair<size_t, uint32_t*>> index_ids;  // ids_len -> ids
     std::vector<size_t> offsets;
     size_t num_removed;
@@ -24,7 +25,7 @@ struct deletion_state_t: public req_state_t {
 };
 
 struct export_state_t: public req_state_t {
-    Collection* collection;
+    std::shared_ptr<Collection> collection;
     filter_result_t filter_result;
     size_t offset = 0;
     tsl::htrie_set<char> include_fields;
