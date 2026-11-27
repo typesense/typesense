@@ -362,8 +362,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
-
     if(!field_json[fields::num_dim].is_number_unsigned()) {
         return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
     } else if (field_json[fields::num_dim] > 0) {
@@ -378,19 +376,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if(field_json[fields::sort].get<bool>()) {
             return Option<bool>(400, "Property `" + fields::sort + "` cannot be enabled on a vector field.");
         }
+    }
 
-        if(field_json.count(fields::vec_dist) == 0) {
-            field_json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
-        } else {
-            if(!field_json[fields::vec_dist].is_string()) {
-                return Option<bool>(400, "Property `" + fields::vec_dist + "` must be a string.");
-            }
+    if(!field_json[fields::vec_dist].is_string()) {
+        return Option<bool>(400, "Property `" + fields::vec_dist + "` must be a string.");
+    }
 
-            auto vec_dist_op = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>());
-            if(!vec_dist_op.has_value()) {
-                return Option<bool>(400, "Property `" + fields::vec_dist + "` is invalid.");
-            }
-        }
+    auto vec_dist_op = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>());
+    if(!vec_dist_op.has_value()) {
+        return Option<bool>(400, "Property `" + fields::vec_dist + "` is invalid.");
     }
 
     if(field_json.count(fields::hnsw_params) != 0) {
@@ -450,7 +444,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::sort] = true;
     }
 
-    auto vec_dist = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>()).value();
+    auto vec_dist = vec_dist_op.value();
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
         std::vector<std::string> tokens;
