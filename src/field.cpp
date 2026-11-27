@@ -519,7 +519,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
 bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                         bool is_update, const field& the_field, const std::string& flat_name,
-                        const std::unordered_map<std::string, field>& dyn_fields,
+                        const std::vector<field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
     if (!the_field.index) {
         return true;
@@ -571,9 +571,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         bool found_dynamic_field = false;
         field dyn_field(the_field.name, field_types::STRING, false);
 
-        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
-            auto& dynamic_field = dyn_field_it->second;
-
+        for(const auto& dynamic_field: dyn_fields) {
             if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
                 continue;
             }
@@ -621,16 +619,14 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                   std::vector<std::string>& path_parts, size_t path_index,
                                   bool has_array, bool has_obj_array, bool is_update,
-                                  const std::unordered_map<std::string, field>& dyn_fields,
+                                  const std::vector<field>& dyn_fields,
                                   std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
         // end of path: check if obj matches expected type
         std::string detected_type;
         bool found_dynamic_field = false;
 
-        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
-            auto& dynamic_field = dyn_field_it->second;
-
+        for(const auto& dynamic_field: dyn_fields) {
             if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
                 continue;
             }
@@ -760,7 +756,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const tsl::htrie_map<char, field>& nested_fields,
-                                const std::unordered_map<std::string, field>& dyn_fields,
+                                const std::vector<field>& dyn_fields,
                                 bool is_update, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
