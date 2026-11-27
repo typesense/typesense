@@ -3362,9 +3362,23 @@ void process_results_bruteforce(filter_result_iterator_t* filter_result_iterator
     }
 }
 
+#ifdef TEST_BUILD
+    thread_local size_t testing_hnsw_filter_entries = 0;
+    thread_local size_t testing_hnsw_unmaterialized_filter_entries = 0;
+#endif
+
 void process_results_hnsw_index(filter_result_iterator_t* filter_result_iterator, const vector_query_t& vector_query,
                                hnsw_index_t* field_vector_index, VectorFilterFunctor& filterFunctor, size_t k,
                                 std::vector<std::pair<float, single_filter_result_t>>& dist_results, bool is_wildcard_non_phrase_query = false) {
+
+#ifdef TEST_BUILD
+    if (filter_result_iterator->is_filter_provided()) {
+        ++testing_hnsw_filter_entries;
+        if (!filter_result_iterator->_get_is_filter_result_initialized()) {
+            ++testing_hnsw_unmaterialized_filter_entries;
+        }
+    }
+#endif
 
     std::vector<std::pair<float, size_t>> pairs;
     if(field_vector_index->distance_type == cosine) {
@@ -4189,9 +4203,27 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     k = std::max<size_t>(fetch_size, default_k);
                 }
 
-                process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
+                // Preserve the approximate-cardinality HNSW/flat decision above.
+                // The grouped helper can traverse HNSW more than once; materialize
+                // this separate filter once before entering it, as in wildcard search.
+                if (no_group_filter_provided) {
+                    filter_result_iterator_no_groups->reset();
+                    auto filter_init_op = filter_result_iterator_no_groups->init_status();
+                    if (!filter_init_op.ok()) {
+                        return filter_init_op;
+                    }
+                    filter_result_iterator_no_groups->compute_iterators();
+                    search_cutoff = search_cutoff || filter_result_iterator_no_groups->validity ==
+                                                     filter_result_iterator_t::timed_out;
+                }
+                // An empty filter must not turn into an unfiltered traversal.
+                if (!no_group_filter_provided ||
+                    (filter_result_iterator_no_groups->validity == filter_result_iterator_t::valid &&
+                     filter_result_iterator_no_groups->approx_filter_ids_length > 0)) {
+                    process_grouped_vector_results_hnsw(filter_result_iterator_no_groups, vector_query, field_vector_index,
                                                     filterFunctor, k, fetch_size, group_max_candidates, group_limit, group_by_fields,
                                                     group_missing_values, false, dist_results);
+                }
             }
 
             filter_result_iterator_no_groups->reset();

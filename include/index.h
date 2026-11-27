@@ -433,6 +433,9 @@ private:
 };
 
 #ifdef TEST_BUILD
+    extern thread_local size_t testing_hnsw_filter_entries;
+    extern thread_local size_t testing_hnsw_unmaterialized_filter_entries;
+
     extern bool testing_not_equals_bug;
 #endif
 
