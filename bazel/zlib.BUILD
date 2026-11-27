@@ -98,6 +98,10 @@ cc_library(
             "-Wno-unused-variable",
             "-Wno-implicit-function-declaration",
         ],
+    }) + select({
+        # zutil.h otherwise defines fdopen as NULL whenever TARGET_OS_MAC is set
+        "@platforms//os:macos": ["-Dfdopen=fdopen"],
+        "//conditions:default": [],
     }),
     includes = ["zlib/include/"],
     visibility = ["//visibility:public"],

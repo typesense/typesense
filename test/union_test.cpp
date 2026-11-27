@@ -2810,6 +2810,9 @@ TEST_F(UnionTest, FacetingWithUnionsShouldNormalizeFacetReturnParentPrefixes) {
 }
 
 TEST_F(UnionTest, UnionHighlightingUAFRaceASAN) {
+#ifdef __APPLE__
+  GTEST_SKIP() << "TODO: union search finishes within the 1ms head start here so no mutation overlaps it";
+#endif
   nlohmann::json schema = R"({
         "name": "union_uaf_race",
         "fields": [

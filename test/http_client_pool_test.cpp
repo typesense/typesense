@@ -188,6 +188,10 @@ private:
                 }
                 continue;
             }
+#ifdef SO_NOSIGPIPE
+            int no_sigpipe = 1;
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
             connections++;
             std::lock_guard<std::mutex> lock(mutex);
             open_fds.push_back(fd);

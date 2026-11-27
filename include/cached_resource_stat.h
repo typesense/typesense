@@ -8,7 +8,7 @@
 
 class cached_resource_stat_t {
 public:
-    enum resource_check_t {
+    enum resource_check_t : int {
         OK,
         OUT_OF_DISK,
         OUT_OF_MEMORY
