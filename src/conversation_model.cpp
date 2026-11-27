@@ -9,6 +9,50 @@
 #include "http_proxy.h"
 #include "string_utils.h"
 
+#define LLM_RETRY_IMPLEMENTATION
+#include "llm_retry.hpp"
+
+// HttpProxy::send already retries 408 and 5xx responses, but a 429 comes straight back and fails the
+// conversation. Retry rate limited calls with exponential backoff, honouring Retry-After when it is short.
+static long call_remote_api_with_rate_limit_retry(const std::string& url, const std::string& req_body,
+                                                  std::string& res_body,
+                                                  std::map<std::string, std::string>& res_headers,
+                                                  const std::unordered_map<std::string, std::string>& req_headers) {
+    llm::RetryConfig retry_config;
+    retry_config.max_attempts = 3;
+    retry_config.base_delay_ms = 1000;
+    retry_config.max_delay_ms = 10000;
+    retry_config.retry_on_http_codes = {429};
+
+    long res_code = 0;
+
+    try {
+        llm::with_retry<long>([&]() -> long {
+            auto headers = req_headers;
+            res_body.clear();
+            res_headers.clear();
+            res_code = RemoteEmbedder::call_remote_api("POST", url, req_body, res_body, res_headers, headers);
+
+            if(res_code == 429) {
+                llm::LLMError error{429, res_body, true};
+                const auto retry_after_it = res_headers.find("retry-after");
+                if(retry_after_it != res_headers.end()) {
+                    error.retry_after_seconds = std::strtod(retry_after_it->second.c_str(), nullptr);
+                    // don't hold the request for a long rate limit window, surface the error instead
+                    error.is_retryable = (error.retry_after_seconds * 1000 <= retry_config.max_delay_ms);
+                }
+                throw error;
+            }
+
+            return res_code;
+        }, retry_config);
+    } catch(const llm::LLMError&) {
+        // retries exhausted: res_code and res_body hold the last 429 response
+    }
+
+    return res_code;
+}
+
 static size_t find_next_sse_delimiter(const std::string& buffer, size_t start, size_t& delimiter_len) {
     const auto lf_pos = buffer.find("\n\n", start);
     const auto crlf_pos = buffer.find("\r\n\r\n", start);
@@ -539,7 +583,7 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
     const std::string openai_path = openai_path_op.get();
 
     std::string res;
-    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + openai_path, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api_with_rate_limit_retry(openai_url + openai_path, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         throw Option<std::string>(400, "OpenAI API timeout.");
@@ -636,7 +680,7 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
 
     const std::string openai_path = openai_path_op.get();
 
-    auto res_code = RemoteEmbedder::call_remote_api("POST", openai_url + openai_path, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api_with_rate_limit_retry(openai_url + openai_path, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
         return Option<std::string>(400, "OpenAI API timeout.");
