@@ -3840,6 +3840,114 @@ TEST_F(CollectionSpecificMoreTest, StemmingDictionary) {
     ASSERT_EQ(0, results["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, StemmersAreCachedPerLanguageAndDictionary) {
+    stemmerManager.delete_all_stemmers();
+
+    std::vector<std::string> json_lines = {R"({"word": "people", "root": "person"})"};
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("irregulars", json_lines).ok());
+
+    // plain Snowball stemmer for "en" gets created first
+    auto plain = stemmerManager.get_stemmer("en");
+    ASSERT_EQ("peopl", plain->stem("people"));
+
+    // dictionary stemmer on the same locale must not reuse the plain stemmer
+    auto dict = stemmerManager.get_stemmer("en", "irregulars");
+    ASSERT_NE(plain.get(), dict.get());
+    ASSERT_EQ("person", dict->stem("people"));
+
+    // repeated lookups hit the cache
+    ASSERT_EQ(plain.get(), stemmerManager.get_stemmer("en").get());
+    ASSERT_EQ(dict.get(), stemmerManager.get_stemmer("en", "irregulars").get());
+
+    // empty locale and de_en are both normalized to english and cached under the same key
+    auto empty_locale = stemmerManager.get_stemmer("");
+    ASSERT_NE(nullptr, empty_locale);
+    ASSERT_EQ(empty_locale.get(), stemmerManager.get_stemmer("").get());
+    ASSERT_EQ(empty_locale.get(), stemmerManager.get_stemmer("de_en").get());
+
+    // end-to-end: dictionary field created after a plain-stemmed field on the same locale
+    nlohmann::json schema = R"({
+        "name": "plain_first",
+        "fields": [{"name": "title", "type": "string", "locale": "en", "stem": true}]
+    })"_json;
+    auto plain_coll = collectionManager.create_collection(schema);
+    ASSERT_TRUE(plain_coll.ok());
+
+    schema = R"({
+        "name": "dict_second",
+        "fields": [{"name": "title", "type": "string", "locale": "en", "stem_dictionary": "irregulars"}]
+    })"_json;
+    auto dict_coll_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(dict_coll_res.ok());
+    auto dict_coll = dict_coll_res.get();
+
+    ASSERT_TRUE(dict_coll->add(R"({"title": "people"})").ok());
+    auto results = dict_coll->search("person", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("plain_first");
+    collectionManager.drop_collection("dict_second");
+}
+
+TEST_F(CollectionSpecificMoreTest, CachedDictionaryStemmerPicksUpDictionaryUpdates) {
+    stemmerManager.delete_all_stemmers();
+    stemmerManager.delete_all_stemming_dictionaries();
+
+    // first collection stems "people" before the dictionary maps it
+    nlohmann::json schema = R"({
+        "name": "dict_before_update",
+        "fields": [{"name": "title", "type": "string", "stem_dictionary": "irregulars"}]
+    })"_json;
+    auto coll_before_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_before_res.ok());
+    auto coll_before = coll_before_res.get();
+    ASSERT_TRUE(coll_before->add(R"({"id": "0", "title": "people"})").ok());
+
+    // a stemmer instance held from before the update, like an existing field's
+    auto held_stemmer = stemmerManager.get_stemmer("", "irregulars");
+    ASSERT_EQ("people", held_stemmer->stem("people"));
+
+    std::vector<std::string> json_lines = {R"({"word": "people", "root": "person"})"};
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("irregulars", json_lines).ok());
+
+    // existing holders must not keep serving the stale cached stem
+    ASSERT_EQ("person", held_stemmer->stem("people"));
+
+    // the original collection's field indexes new documents with the updated root; the document indexed
+    // before the update keeps its old token until it is re-indexed
+    ASSERT_TRUE(coll_before->add(R"({"id": "1", "title": "people"})").ok());
+    auto before_results = coll_before->search("person", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                              {false}).get();
+    ASSERT_EQ(1, before_results["hits"].size());
+    ASSERT_EQ("1", before_results["hits"][0]["document"]["id"].get<std::string>());
+
+    // a collection created after the update reuses the cached stemmer and must index the new root
+    schema = R"({
+        "name": "dict_after_update",
+        "fields": [{"name": "title", "type": "string", "stem_dictionary": "irregulars"}]
+    })"_json;
+    auto coll_after_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_after_res.ok());
+    auto coll_after = coll_after_res.get();
+    ASSERT_TRUE(coll_after->add(R"({"title": "people"})").ok());
+
+    auto results = coll_after->search("person", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // deleting the dictionary also invalidates cached stems
+    ASSERT_TRUE(stemmerManager.del_stemming_dictionary("irregulars").ok());
+    ASSERT_EQ("people", held_stemmer->stem("people"));
+
+    // clearing all dictionaries also invalidates cached stems
+    ASSERT_TRUE(stemmerManager.upsert_stemming_dictionary("irregulars", json_lines).ok());
+    ASSERT_EQ("person", held_stemmer->stem("people"));
+    stemmerManager.delete_all_stemming_dictionaries();
+    ASSERT_EQ("people", held_stemmer->stem("people"));
+
+    collectionManager.drop_collection("dict_before_update");
+    collectionManager.drop_collection("dict_after_update");
+}
+
 TEST_F(CollectionSpecificMoreTest, StemmingDictionaryBasics) {
     stemmerManager.delete_all_stemming_dictionaries();
 
