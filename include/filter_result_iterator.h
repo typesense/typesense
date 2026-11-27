@@ -350,6 +350,10 @@ private:
     /// Returns true if any leaf of the subtree filters on a referenced collection.
     static bool has_referenced_filter(const filter_node_t* const node);
 
+    /// Returns true if `is_valid` on every node of the subtree costs a seek: each leaf is computed or a lazy string
+    /// leaf, and no un-computed node validates an object filter.
+    static bool can_probe_subtree(const filter_result_iterator_t* const it);
+
     /// Decides whether this `&&` node can be computed by materializing `narrow_it` alone and asking `wide_it`
     /// about each of the ids it yields.
     bool can_probe_wide_side(const filter_result_iterator_t* const narrow_it,
