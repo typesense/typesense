@@ -1056,7 +1056,7 @@ public:
 
     // PUBLIC OPERATIONS
 
-    nlohmann::json get_summary_json() const;
+    nlohmann::json get_summary_json(const std::vector<std::string>& exclude_fields = {}) const;
 
     size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings,
