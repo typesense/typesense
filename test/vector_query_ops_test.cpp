@@ -79,3 +79,13 @@ TEST_F(VectorQueryOpsTest, ParseVectorQueryString) {
     ASSERT_FALSE(parsed.ok());
     ASSERT_EQ("Malformed vector query string: `:` is missing after the vector field name.", parsed.error());
 }
+
+TEST_F(VectorQueryOpsTest, ParamValueEndingInParenBeforeLastParam) {
+    vector_query_t vector_query;
+    auto parsed = VectorQueryOps::parse_vector_query_str("vec:([], queries:[red (bright), blue], k: 10)", vector_query, false, nullptr, false);
+    ASSERT_TRUE(parsed.ok());
+    ASSERT_EQ(10, vector_query.k);
+    ASSERT_EQ(2, vector_query.queries.size());
+    ASSERT_EQ("red (bright)", vector_query.queries[0]);
+    ASSERT_EQ("blue", vector_query.queries[1]);
+}
