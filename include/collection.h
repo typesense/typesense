@@ -190,6 +190,7 @@ struct collection_search_args_t {
     static constexpr auto SYNONYM_PREFIX = "synonym_prefix";
     static constexpr auto SYNONYM_NUM_TYPOS = "synonym_num_typos";
     static constexpr auto SYNONYM_SETS = "synonym_sets";
+    static constexpr auto CURATION_SETS = "curation_sets";
 
 //query time flag to enable analyitcs for that query
     static constexpr auto ENABLE_ANALYTICS = "enable_analytics";
@@ -284,6 +285,7 @@ struct collection_search_args_t {
     bool synonym_prefix;
     size_t synonym_num_typos;
     std::vector<std::string> synonym_sets;
+    std::vector<std::string> curation_sets;
     bool enable_lazy_filter;
     bool enable_typos_for_alpha_numerical_tokens;
     size_t max_filter_by_candidates;
@@ -667,7 +669,8 @@ private:
                         std::set<const curation_t*>& matched_filter_curations,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& curation_metadata,
-                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos) const;
+                        diversity_t& diversity, bool synonym_prefix, uint32_t synonym_num_typos,
+                        const std::vector<std::string>& param_curation_sets = {}) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
