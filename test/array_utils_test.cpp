@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 #include "array_utils.h"
 #include "logger.h"
+#include <algorithm>
+#include <random>
+#include <vector>
 
 TEST(SortedArrayTest, AndScalar) {
     const size_t size1 = 9;
@@ -216,4 +219,51 @@ TEST(SortedArrayTest, SkipToID) {
     found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 30);
     ASSERT_FALSE(found);
     ASSERT_EQ(12, index);
+}
+
+TEST(SortedArrayTest, SortUniqueMatchesSortAndDedupe) {
+    auto reference = [](std::vector<uint32_t> ids) {
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+    };
+    auto check = [&](std::vector<uint32_t> ids) {
+        auto expected = reference(ids);
+        ArrayUtils::sort_unique(ids);
+        ASSERT_EQ(expected, ids);
+    };
+
+    std::mt19937 rng(42);
+
+    // Small: sorted directly.
+    check({5, 3, 3, 9, 0, 9, 1});
+    check({});
+    check({7});
+
+    // Large and dense (many ids over a small range, with duplicates): rebuilt from a bitmap.
+    std::vector<uint32_t> dense;
+    std::uniform_int_distribution<uint32_t> dense_dist(0, 200'000);
+    for (int i = 0; i < 300'000; i++) {
+        dense.push_back(dense_dist(rng));
+    }
+    check(dense);
+
+    // Large, dense, made of sorted runs like ids gathered from several posting lists.
+    std::vector<uint32_t> runs;
+    for (uint32_t run = 0; run < 40; run++) {
+        for (uint32_t id = run; id < 1'000'000; id += 37) {
+            runs.push_back(id);
+        }
+    }
+    check(runs);
+
+    // Large but sparse over a huge range, up to the largest id: sorted, no giant bitmap.
+    std::vector<uint32_t> sparse;
+    std::uniform_int_distribution<uint32_t> sparse_dist(0, UINT32_MAX);
+    for (int i = 0; i < 50'000; i++) {
+        sparse.push_back(sparse_dist(rng));
+    }
+    sparse.push_back(UINT32_MAX);
+    sparse.push_back(0);
+    check(sparse);
 }
