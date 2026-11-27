@@ -5678,3 +5678,50 @@ TEST_F(CollectionFilteringTest, SelectiveAndDoesNotMaterializeWideSide) {
 
     collectionManager.drop_collection("and_probe");
 }
+
+TEST_F(CollectionFilteringTest, SelectiveAndProbeKeepsExcludedIdsOut) {
+    nlohmann::json schema =
+            R"({
+                "name": "and_probe_excluded",
+                "fields": [
+                    {"name": "nid", "type": "string"},
+                    {"name": "state", "type": "string"},
+                    {"name": "points", "type": "int32"}
+                ]
+            })"_json;
+
+    auto coll = collectionManager.create_collection(schema).get();
+
+    // 25 documents match `nid:=sel`, from id 5, and `state:!=archived` excludes only that first one. The lazy `init` of
+    // the `&&` asks the `!=` leaf about 5 and then moves it to 45, past the 5 it excludes. It keeps 999 ids, over
+    // AND_PROBE_RATIO x 25.
+    std::vector<std::string> expected_ids;
+    for (int32_t i = 0; i < 1000; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["nid"] = i % 40 == 5 ? "sel" : "other";
+        doc["state"] = i == 5 ? "archived" : "active";
+        doc["points"] = i;
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+
+        if (i % 40 == 5 && i != 5) {
+            expected_ids.push_back(std::to_string(i));
+        }
+    }
+    ASSERT_EQ(24, expected_ids.size());
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "ASC") };
+
+    for (const auto& filter_by: {"nid:=sel && state:!=archived", "state:!=archived && nid:=sel"}) {
+        auto results = coll->search("*", {}, filter_by, {}, sort_fields, {0}, 50, 1, FREQUENCY, {true}).get();
+
+        ASSERT_EQ(expected_ids.size(), results["found"].get<size_t>()) << filter_by;
+        ASSERT_EQ(expected_ids.size(), results["hits"].size()) << filter_by;
+
+        for (size_t i = 0; i < expected_ids.size(); i++) {
+            ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>()) << filter_by;
+        }
+    }
+
+    collectionManager.drop_collection("and_probe_excluded");
+}

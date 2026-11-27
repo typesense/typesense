@@ -3305,6 +3305,12 @@ TEST_F(FilterTest, AndProbeSelectiveSide) {
     ASSERT_TRUE(computed_by_probe);
     ASSERT_EQ((std::vector<uint32_t>{5, 25, 200, 400}), ids);
 
+    // A `!=` leaf that excludes the narrow side's first id. The lazy `init` of the `&&` asks it about 5, then moves it
+    // to 25, the first id both sides match, past the 5 it excludes. Probing starts from 5 again.
+    compute_filter_tree(coll, store, "sel:=yes && n12:!=yes", ids, computed_by_probe);
+    ASSERT_TRUE(computed_by_probe);
+    ASSERT_EQ((std::vector<uint32_t>{25, 200, 400, 600}), ids);
+
     // Three leaves. The narrow side of the outer `&&` is itself an `&&` that probes.
     compute_filter_tree(coll, store, "sel:=yes && broad:=yes && all:=yes", ids, computed_by_probe);
     ASSERT_TRUE(computed_by_probe);
