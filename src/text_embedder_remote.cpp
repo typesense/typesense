@@ -78,6 +78,8 @@ const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_conf
         return GCPEmbedder::get_model_key(model_config, num_dims);
     } else if(model_namespace == "azure") {
         return AzureEmbedder::get_model_key(model_config, num_dims);
+    } else if(model_namespace == "voyage") {
+        return VoyageEmbedder::get_model_key(model_config, num_dims);
     } else {
         return "";
     }
@@ -1126,6 +1128,388 @@ nlohmann::json AzureEmbedder::get_error_json(const nlohmann::json& req_body, lon
 }
 
 std::string AzureEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
+    std::string key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+    if(num_dims > 0) {
+        key += ":" + std::to_string(num_dims);
+    }
+    return key;
+}
+
+const VoyageEmbedder::model_spec_t* VoyageEmbedder::find_model(const std::string& model_name_without_namespace) {
+    static const std::vector<size_t> flexible_dims = {256, 512, 1024, 2048};
+    static const std::vector<size_t> fixed_dims = {1024};
+
+    static const std::vector<model_spec_t> catalogue = {
+        {"voyage-4-large", 1024, flexible_dims, false},
+        {"voyage-4", 1024, flexible_dims, false},
+        {"voyage-4-lite", 1024, flexible_dims, false},
+        {"voyage-code-4", 1024, flexible_dims, false},
+        {"voyage-3-large", 1024, flexible_dims, false},
+        {"voyage-3.5", 1024, flexible_dims, false},
+        {"voyage-3.5-lite", 1024, flexible_dims, false},
+        {"voyage-code-3", 1024, flexible_dims, false},
+        {"voyage-finance-2", 1024, fixed_dims, false},
+        {"voyage-law-2", 1024, fixed_dims, false},
+        {"voyage-context-4", 1024, flexible_dims, true},
+        {"voyage-context-3", 1024, flexible_dims, true},
+    };
+
+    for(const auto& model : catalogue) {
+        if(model_name_without_namespace == model.name) {
+            return &model;
+        }
+    }
+
+    return nullptr;
+}
+
+static const VoyageEmbedder::model_spec_t& get_voyage_model_or_throw(const std::string& model_name) {
+    const auto* spec = VoyageEmbedder::find_model(EmbedderManager::get_model_name_without_namespace(model_name));
+    if(spec == nullptr) {
+        throw std::invalid_argument("Unsupported Voyage model: " + model_name);
+    }
+    return *spec;
+}
+
+VoyageEmbedder::VoyageEmbedder(const std::string& model_name, const std::string& api_key, const size_t num_dims,
+                               const bool has_custom_dims) :
+        api_key(api_key), spec(get_voyage_model_or_throw(model_name)),
+        has_custom_dims(has_custom_dims), num_dims(num_dims) {
+
+}
+
+std::string VoyageEmbedder::get_url() const {
+    return spec.contextualized ? VOYAGE_CONTEXTUALIZED_EMBEDDINGS_URL : VOYAGE_EMBEDDINGS_URL;
+}
+
+std::unordered_map<std::string, std::string> VoyageEmbedder::get_headers(const std::string& api_key,
+                                                                         const size_t timeout_ms,
+                                                                         const size_t num_tries) const {
+    std::unordered_map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + api_key;
+    headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(timeout_ms);
+    headers["num_try"] = std::to_string(num_tries);
+    return headers;
+}
+
+std::string VoyageEmbedder::get_error_detail(const std::string& res_body) {
+    try {
+        auto json_res = nlohmann::json::parse(res_body);
+        if(json_res.is_object() && json_res.contains("detail") && json_res["detail"].is_string()) {
+            return json_res["detail"].get<std::string>();
+        }
+    } catch(const std::exception& e) {
+    }
+
+    return res_body.empty() ? "no response body" : res_body;
+}
+
+Option<bool> VoyageEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims, const bool has_custom_dims) {
+    auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
+
+    if(!validate_properties.ok()) {
+        return validate_properties;
+    }
+
+    const auto model_name = model_config["model_name"].get<std::string>();
+    const auto api_key = model_config["api_key"].get<std::string>();
+
+    if(EmbedderManager::get_model_namespace(model_name) != "voyage") {
+        return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
+    }
+
+    const auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
+    const auto* spec = find_model(model_name_without_namespace);
+    if(spec == nullptr) {
+        return Option<bool>(400, "Property `embed.model_config.model_name` is not a supported Voyage model: `" +
+                                 model_name_without_namespace + "`.");
+    }
+
+    if(has_custom_dims && std::find(spec->supported_dims.begin(), spec->supported_dims.end(), num_dims) ==
+                          spec->supported_dims.end()) {
+        std::string supported;
+        for(const auto dims : spec->supported_dims) {
+            supported += (supported.empty() ? "" : ", ") + std::to_string(dims);
+        }
+        return Option<bool>(400, "Voyage model `" + model_name_without_namespace + "` does not support `num_dim` " +
+                                 std::to_string(num_dims) + ". Supported values: " + supported + ".");
+    }
+
+    const size_t expected_dims = has_custom_dims ? num_dims : spec->default_dims;
+
+    std::map<std::string, std::string> res_headers;
+    std::unordered_map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + api_key;
+    headers["Content-Type"] = "application/json";
+
+    // `document` is the most common use, and it is the only mode that is valid for every model
+    auto req_body = build_request(*spec, {"typesense"}, false, has_custom_dims, num_dims);
+    const std::string url = spec->contextualized ? VOYAGE_CONTEXTUALIZED_EMBEDDINGS_URL : VOYAGE_EMBEDDINGS_URL;
+    std::string res;
+    auto res_code = call_remote_api("POST", url, req_body.dump(), res, res_headers, headers);
+
+    if(res_code == 408) {
+        return Option<bool>(408, "Voyage API timeout.");
+    }
+#ifdef TEST_BUILD
+    if(res_code == 401) { // api key error, we skip for test purpose
+        num_dims = expected_dims;
+        return Option<bool>(true);
+    }
+#endif
+    if(res_code != 200) {
+        return Option<bool>(400, "Voyage API error (HTTP " + std::to_string(res_code) + "): " + get_error_detail(res));
+    }
+
+    auto parsed = parse_response(*spec, res, 1, expected_dims);
+    if(!parsed.ok()) {
+        return Option<bool>(400, parsed.error());
+    }
+
+    num_dims = expected_dims;
+    return Option<bool>(true);
+}
+
+nlohmann::json VoyageEmbedder::build_request(const model_spec_t& spec, const std::vector<std::string>& inputs,
+                                             const bool is_query, const bool has_custom_dims, const size_t num_dims) {
+    nlohmann::json req_body;
+    req_body["model"] = spec.name;
+    req_body["input_type"] = is_query ? "query" : "document";
+
+    if(has_custom_dims) {
+        req_body["output_dimension"] = num_dims;
+    }
+
+    if(!spec.contextualized) {
+        req_body["input"] = inputs;
+        return req_body;
+    }
+
+    if(is_query) {
+        // auto-chunking is only valid for documents, a query is a single one-element context
+        auto contexts = nlohmann::json::array();
+        for(const auto& input : inputs) {
+            contexts.push_back(std::vector<std::string>{input});
+        }
+        req_body["inputs"] = contexts;
+    } else {
+        // with auto-chunking the API wants one string per document
+        req_body["inputs"] = inputs;
+        req_body["enable_auto_chunking"] = true;
+        req_body["chunk_size"] = CONTEXTUALIZED_CHUNK_SIZE;
+    }
+
+    return req_body;
+}
+
+Option<std::vector<embedding_res_t>> VoyageEmbedder::parse_response(const model_spec_t& spec, const std::string& res_body,
+                                                                    const size_t num_inputs, const size_t num_dims) {
+    static const std::string malformed = "Got malformed response from Voyage API";
+    using result_t = Option<std::vector<embedding_res_t>>;
+
+    nlohmann::json res_json;
+    try {
+        res_json = nlohmann::json::parse(res_body);
+    } catch(const std::exception& e) {
+        return result_t(500, malformed + ".");
+    }
+
+    if(!res_json.is_object() || !res_json.contains("data") || !res_json["data"].is_array() ||
+       res_json["data"].size() != num_inputs) {
+        return result_t(500, malformed + ": expected " + std::to_string(num_inputs) + " results.");
+    }
+
+    auto parse_embedding = [&](const nlohmann::json& item, std::vector<float>& embedding) -> std::string {
+        if(!item.is_object() || !item.contains("embedding") || !item["embedding"].is_array()) {
+            return malformed + ": missing embedding.";
+        }
+        for(const auto& value : item["embedding"]) {
+            if(!value.is_number()) {
+                return malformed + ": embedding has a non-numeric value.";
+            }
+        }
+        embedding = item["embedding"].get<std::vector<float>>();
+        if(embedding.size() != num_dims) {
+            return malformed + ": expected " + std::to_string(num_dims) + " dimensions, got " +
+                   std::to_string(embedding.size()) + ".";
+        }
+        return "";
+    };
+
+    auto input_error = [](const std::string& message) {
+        return embedding_res_t(500, nlohmann::json({{"error", message}}));
+    };
+
+    std::vector<embedding_res_t> embeddings(num_inputs);
+    std::vector<bool> seen(num_inputs, false);
+
+    for(const auto& item : res_json["data"]) {
+        if(!item.is_object() || !item.contains("index") || !item["index"].is_number_unsigned() ||
+           item["index"].get<size_t>() >= num_inputs || seen[item["index"].get<size_t>()]) {
+            return result_t(500, malformed + ": invalid result index.");
+        }
+
+        const size_t index = item["index"].get<size_t>();
+        seen[index] = true;
+
+        const nlohmann::json* embedding_item = &item;
+        if(spec.contextualized) {
+            if(!item.contains("data") || !item["data"].is_array()) {
+                return result_t(500, malformed + ": missing chunk results.");
+            }
+            if(item["data"].size() != 1) {
+                // Typesense stores one vector per input, so pooling or dropping chunks would be silent data loss.
+                // Only this input fails, the other inputs of the batch are fine.
+                embeddings[index] = input_error("Voyage API returned " + std::to_string(item["data"].size()) +
+                                                " chunks for input " + std::to_string(index) + ", expected exactly one.");
+                continue;
+            }
+            embedding_item = &item["data"][0];
+        }
+
+        std::vector<float> embedding;
+        auto error = parse_embedding(*embedding_item, embedding);
+        if(!error.empty()) {
+            return result_t(500, error);
+        }
+        embeddings[index] = embedding_res_t(embedding);
+    }
+
+    return result_t(embeddings);
+}
+
+std::vector<std::pair<size_t, size_t>> VoyageEmbedder::split_batches(const size_t num_inputs, const size_t batch_size) {
+    const size_t effective_size = std::max<size_t>(1, std::min(batch_size, MAX_INPUTS_PER_REQUEST));
+    std::vector<std::pair<size_t, size_t>> batches;
+    for(size_t begin = 0; begin < num_inputs; begin += effective_size) {
+        batches.emplace_back(begin, std::min(begin + effective_size, num_inputs));
+    }
+    return batches;
+}
+
+embedding_res_t VoyageEmbedder::embed_query(const std::string& text, const size_t remote_embedder_timeout_ms,
+                                            const size_t remote_embedding_num_tries) {
+    std::shared_lock<std::shared_mutex> lock(mutex);
+
+    // the cache is shared by all embedders: the key has to tell models and dimensions apart
+    const std::string cache_key = std::string("voyage:") + spec.name + ":" + std::to_string(num_dims) + ":" + text;
+    {
+        std::shared_lock<std::shared_mutex> cache_read_lock(RemoteEmbedder::cache_mutex);
+        auto key_it = RemoteEmbedder::cache.find(cache_key);
+        if(key_it != RemoteEmbedder::cache.end()) {
+            return key_it->second;
+        }
+    }
+
+    auto headers = get_headers(api_key, remote_embedder_timeout_ms, remote_embedding_num_tries);
+    auto req_body = build_request(spec, {text}, true, has_custom_dims, num_dims);
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    auto res_code = call_remote_api("POST", get_url(), req_body.dump(), res, res_headers, headers);
+
+    if(res_code != 200) {
+        return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
+    }
+
+    auto parsed = parse_response(spec, res, 1, num_dims);
+    if(!parsed.ok()) {
+        auto error_json = get_error_json(req_body, parsed.code(), res);
+        error_json["error"] = parsed.error();
+        return embedding_res_t(parsed.code(), error_json);
+    }
+
+    embedding_res_t embedding_res = parsed.get()[0];
+    if(!embedding_res.success) {
+        return embedding_res;
+    }
+    {
+        std::unique_lock<std::shared_mutex> cache_write_lock(RemoteEmbedder::cache_mutex);
+        RemoteEmbedder::cache.insert(cache_key, embedding_res);
+    }
+    return embedding_res;
+}
+
+std::vector<embedding_res_t> VoyageEmbedder::embed_documents(const std::vector<std::string>& inputs,
+                                                             const size_t remote_embedding_batch_size,
+                                                             const size_t remote_embedding_timeout_ms,
+                                                             const size_t remote_embedding_num_tries) {
+    std::shared_lock<std::shared_mutex> lock(mutex);
+
+    std::vector<embedding_res_t> outputs;
+    outputs.reserve(inputs.size());
+
+    for(const auto& range : split_batches(inputs.size(), remote_embedding_batch_size)) {
+        const std::vector<std::string> batch(inputs.begin() + range.first, inputs.begin() + range.second);
+        auto headers = get_headers(api_key, remote_embedding_timeout_ms, remote_embedding_num_tries);
+        auto req_body = build_request(spec, batch, false, has_custom_dims, num_dims);
+        std::map<std::string, std::string> res_headers;
+        std::string res;
+        auto res_code = call_remote_api("POST", get_url(), req_body.dump(), res, res_headers, headers);
+
+        long error_code = res_code;
+        std::string error_message;
+        if(res_code == 200) {
+            auto parsed = parse_response(spec, res, batch.size(), num_dims);
+            if(parsed.ok()) {
+                for(const auto& embedding : parsed.get()) {
+                    outputs.push_back(embedding);
+                }
+                continue;
+            }
+            error_code = parsed.code();
+            error_message = parsed.error();
+        }
+
+        // a rejected 200 response holds every vector of the batch, keep it out of the per-input errors
+        auto error_json = get_error_json(req_body, error_code, error_message.empty() ? res : "{}");
+        if(!error_message.empty()) {
+            error_json["error"] = error_message;
+        }
+        for(size_t i = 0; i < batch.size(); i++) {
+            outputs.push_back(embedding_res_t(error_code, error_json));
+        }
+    }
+
+    return outputs;
+}
+
+nlohmann::json VoyageEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
+    nlohmann::json json_res;
+    try {
+        json_res = nlohmann::json::parse(res_body);
+    } catch(const std::exception& e) {
+        json_res = nlohmann::json::object();
+        json_res["error"] = "Malformed response from Voyage API.";
+    }
+
+    nlohmann::json embedding_res = nlohmann::json::object();
+    embedding_res["response"] = json_res;
+    embedding_res["request"] = nlohmann::json::object();
+    embedding_res["request"]["url"] = get_url();
+    embedding_res["request"]["method"] = "POST";
+    embedding_res["request"]["body"] = req_body;
+
+    // keep only the first input in the error, a batch can be large
+    for(const char* key : {"input", "inputs"}) {
+        if(req_body.contains(key) && req_body[key].is_array() && req_body[key].size() > 1) {
+            auto first = req_body[key][0];
+            embedding_res["request"]["body"][key] = nlohmann::json::array({first});
+        }
+    }
+
+    if(res_code == 408) {
+        embedding_res["error"] = "API timeout.";
+    } else if(res_code != 200) {
+        embedding_res["error"] = "API error (HTTP " + std::to_string(res_code) + "): " + get_error_detail(res_body);
+    } else {
+        embedding_res["error"] = "Got malformed response from Voyage API.";
+    }
+
+    return embedding_res;
+}
+
+std::string VoyageEmbedder::get_model_key(const nlohmann::json& model_config, size_t num_dims) {
     std::string key = model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
     if(num_dims > 0) {
         key += ":" + std::to_string(num_dims);
